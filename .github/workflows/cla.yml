@@ -16,7 +16,14 @@ jobs:
   cla-check:
     runs-on: ubuntu-latest
     # Run on PRs and on the trigger comment "I have read the CLA Document and I hereby sign the CLA".
-    if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
+    # Uses `startsWith` rather than `==` so the GitHub web UI's trailing
+    # CRLF on submitted comments does not cause the job to be skipped.
+    if: |
+      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'issue_comment' && (
+        startsWith(github.event.comment.body, 'recheck') ||
+        startsWith(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')
+      ))
     steps:
       - name: CLA Assistant
         uses: contributor-assistant/github-action@v2.6.1
