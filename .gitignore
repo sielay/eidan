@@ -29,3 +29,18 @@ out/
 .pnpm-store/
 .turbo/
 logs/
+
+# Plugins — allowlist of plugins this repo tracks.
+# Everything under plugins/ is ignored by default; only the named
+# core plugins below are committed. Forks adding their own plugins
+# (private bundle work, experiments, local-only integrations) stay
+# invisible to git until they extend this allowlist deliberately.
+# See plugins/README.md.
+/plugins/*
+!/plugins/.gitkeep
+!/plugins/README.md
+!/plugins/capture/
+!/plugins/example-behaviour/
+!/plugins/example-core/
+!/plugins/learn/
+!/plugins/sentry/
