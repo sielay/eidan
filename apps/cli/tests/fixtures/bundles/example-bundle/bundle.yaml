@@ -1,0 +1,4 @@
+name: example-bundle
+description: Fixture bundle used by the CLI plugin-install tests.
+depends_on:
+  - example-baseline

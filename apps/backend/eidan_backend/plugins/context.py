@@ -1,0 +1,195 @@
+"""Plugin runtime context — `docs/001 §2.2`.
+
+The :class:`PluginContext` is the *only* sanctioned interface a
+plugin uses to interact with the host. Phase 4 lands the shape; the
+loader (separate issue) will construct one per plugin at activation
+time and pass it into ``on_activate`` / ``on_deactivate`` / etc.
+
+Phase 4 intentionally types ``db`` and ``secret`` against narrow
+``Protocol``\\s rather than wiring them to the concrete asyncpg pool
+and the (still-future) Vault client. That keeps the contract
+exercised by :class:`PluginBase` subclasses stable while the loader
+and the secrets backend (``docs/012``) take shape behind it.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from fastapi import APIRouter
+
+    from eidan_backend.behaviours import Behaviour
+    from eidan_backend.identity import Identity
+    from eidan_backend.tools import Tool
+
+
+@runtime_checkable
+class SecretAccessor(Protocol):
+    """Vault accessor handed to a plugin via ``ctx.secret``.
+
+    Phase 4 stubs the surface; the full Vault wiring lands in
+    ``docs/012``. Calls to keys the manifest did not declare will
+    raise :class:`UndeclaredAccessError` once the loader enforces
+    that — for now an implementation MAY return ``None`` for
+    unknown keys.
+    """
+
+    async def __call__(self, key: str) -> str | None: ...
+
+
+@runtime_checkable
+class DbAccessor(Protocol):
+    """Connection accessor scoped to ``plugin_<name_underscored>``.
+
+    Calling :meth:`acquire` borrows a connection from the host pool
+    with ``search_path`` set so the plugin's private schema is
+    resolved by default. The concrete object is whatever the loader
+    wires in; tests substitute a fake.
+    """
+
+    def acquire(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+@runtime_checkable
+class RouterRegistrar(Protocol):
+    """Callable that mounts a FastAPI router under the manifest's
+    ``backend.routes_prefix``."""
+
+    def __call__(self, router: APIRouter) -> None: ...
+
+
+@runtime_checkable
+class BehaviourRegistrar(Protocol):
+    """Callable that registers an iterable of :class:`Behaviour` with
+    the host's behaviour registry."""
+
+    def __call__(self, behaviours: Iterable[Behaviour]) -> None: ...
+
+
+@runtime_checkable
+class ToolRegistrar(Protocol):
+    """Callable that registers an iterable of :class:`Tool` with the
+    host's tool registry — the same one the agent loop's primary call
+    sees as ``tools=`` (`docs/001 §3` agent tools).
+
+    Plugins call this from ``on_activate`` to contribute tool surface.
+    The host's bootstrap wires this to the live
+    :class:`eidan_backend.tools.ToolRegistry`. Tests substitute a
+    in-memory recorder.
+    """
+
+    def __call__(self, tools: Iterable[Tool]) -> None: ...
+
+
+@runtime_checkable
+class TurnInitiator(Protocol):
+    """Spawn a fresh agentic turn from a plugin context.
+
+    The host pre-binds the pool, provider, model, and tool registry
+    at bootstrap time; plugins supply only the user, the prompt the
+    synthetic agent should think about, and an optional conversation
+    id to land the turn under (defaults to a fresh
+    ``"[<agent_name>] tick"`` conversation).
+
+    Returns an async iterator over the same ``AssistantChunk`` /
+    ``TurnComplete`` events the user-facing loop emits, so callers
+    that want to inspect the model's reply can iterate it; callers
+    that don't can drain it with ``async for _ in spawn_turn(...): pass``.
+
+    ``None`` when the bootstrap was wired without a provider (the
+    unit-test path, or a degraded "no LLM credentials" boot). Plugins
+    that want to fall back gracefully check ``if ctx.spawn_turn is
+    None`` and write an escalation instead.
+    """
+
+    def __call__(
+        self,
+        *,
+        user_id: Any,
+        agent_name: str,
+        prompt_text: str,
+        conversation_id: Any | None = None,
+        conversation_title: str | None = None,
+    ) -> Any: ...
+
+
+@runtime_checkable
+class NotificationSender(Protocol):
+    """Out-of-band nudge accessor handed to a plugin via
+    ``ctx.notify``.
+
+    Plugins call ``await ctx.notify(channel, text)`` to push a
+    message to the operator over a configured channel (Telegram
+    first, email / Slack to follow). Channel adapters are registered
+    host-side at bootstrap; plugins consume them by name. A channel
+    that isn't configured raises ``NotificationError`` so the caller
+    can route a follow-up escalation rather than silently swallowing
+    the nudge.
+    """
+
+    async def __call__(
+        self,
+        channel: str,
+        text: str,
+        *,
+        user_id: Any | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any: ...
+
+
+@dataclass(frozen=True, slots=True)
+class PluginContext:
+    """The host surface a :class:`PluginBase` subclass receives.
+
+    Fields:
+
+    - ``name``                — the manifest ``name``.
+    - ``db``                  — connection accessor scoped to
+      ``plugin_<name_underscored>``.
+    - ``secret``              — vault accessor.
+    - ``notify``              — out-of-band notification surface
+      (Telegram first, more to follow). ``None`` when no channel
+      adapter is registered; in that case plugins fall back to
+      writing escalations.
+    - ``spawn_turn``          — agent-initiated turn primitive: a
+      plugin (Sentry tick, cron behaviour) calls it to ask the
+      configured provider "here's a prompt, think about it" without
+      an inbound user JWT. ``None`` when no provider is wired
+      (test boots, degraded starts); plugins fall back to writing
+      escalations.
+    - ``register_router``     — mounts a FastAPI router under the
+      manifest's ``routes_prefix``.
+    - ``register_behaviours`` — registers the plugin's
+      :class:`Behaviour` instances with the host.
+    - ``register_tools``      — registers the plugin's :class:`Tool`
+      instances with the host's tool registry, so the agent loop's
+      primary call sees them in its ``tools=`` surface.
+    - ``identity``            — ``None`` during ``on_install`` /
+      ``on_uninstall``; the calling :class:`Identity` during
+      ``on_activate`` and runtime invocations.
+    """
+
+    name: str
+    db: DbAccessor
+    secret: SecretAccessor
+    register_router: RouterRegistrar
+    register_behaviours: BehaviourRegistrar
+    register_tools: ToolRegistrar
+    notify: NotificationSender | None = None
+    spawn_turn: TurnInitiator | None = None
+    identity: Identity | None = None
+
+
+__all__ = [
+    "BehaviourRegistrar",
+    "DbAccessor",
+    "NotificationSender",
+    "PluginContext",
+    "RouterRegistrar",
+    "SecretAccessor",
+    "ToolRegistrar",
+    "TurnInitiator",
+]

@@ -1,0 +1,21 @@
+name: Release Sanitisation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  forbidden-strings:
+    name: Forbidden-string gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run forbidden-string gate
+        run: python3 .github/scripts/sanitise_check.py

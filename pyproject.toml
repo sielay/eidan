@@ -1,0 +1,51 @@
+[project]
+name = "eidan"
+version = "0.1.0"
+description = "Self-hosted personal agent OS for builders"
+requires-python = ">=3.11"
+dependencies = [
+    "eidan-backend",
+    "eidan-cli",
+    "eidan-schemas",
+]
+
+[project.optional-dependencies]
+# Aggregate dev deps from every workspace member. ``uv sync --extra dev``
+# at the root installs each member's ``[project.optional-dependencies] dev``
+# transitively. Pytest is the only thing actually exercised by CI; ruff
+# is here so ``make lint`` works from a single sync.
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-postgresql>=6.0",
+    "ruff>=0.5",
+]
+
+[tool.uv.workspace]
+members = [
+    "apps/backend",
+    "apps/cli",
+    "packages/schemas",
+]
+
+[tool.uv.sources]
+eidan-backend = { workspace = true }
+eidan-cli = { workspace = true }
+eidan-schemas = { workspace = true }
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["apps/backend/tests", "apps/cli/tests", "packages/schemas/tests"]
+# Two test directories share the package name ``tests`` (apps/backend/tests
+# and apps/cli/tests). ``importmode = importlib`` lets pytest collect both
+# without the second one shadowing the first; with the default rootdir-based
+# importer they collide on ``tests.test_*`` lookups.
+addopts = ["--import-mode=importlib"]

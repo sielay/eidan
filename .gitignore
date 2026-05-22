@@ -1,0 +1,31 @@
+# Added by code-review-graph
+.code-review-graph/
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# uv
+# (uv.lock is committed; .venv is not)
+
+# Local config
+.env
+.env.local
+~/.eidan/
+.eidan/
+
+# Node / pnpm
+node_modules/
+.next/
+out/
+.pnpm-store/
+.turbo/
+logs/

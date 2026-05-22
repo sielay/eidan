@@ -1,0 +1,10 @@
+{
+  "name": "@eidan/backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin pnpm/turbo shim around the Python backend so `pnpm dev` can orchestrate `make server` alongside the web UI. The Python sources are managed by uv; this file exists only for the JS workspace graph.",
+  "scripts": {
+    "dev": "uv run eidan admin server",
+    "start": "uv run eidan admin server"
+  }
+}

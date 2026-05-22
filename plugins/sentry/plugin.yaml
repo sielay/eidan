@@ -1,0 +1,53 @@
+schema: 1
+
+name: sentry
+version: 0.1.0
+display_name: Sentry
+description: >
+  Continuous-thinking loop (`docs/SENTRY_FEATURE_SPEC.md`). Runs every
+  5 minutes (configurable via `EIDAN_SENTRY_TICK_INTERVAL`), inspects
+  the operator's events / notes / user_context, and proactively
+  surfaces patterns the agent should react to — overdue commitments,
+  long silences, accumulating capture shelves. Detected patterns land
+  as `eidan.escalations` rows the UI inbox surfaces; complex patterns
+  also queue a Claude-side analysis job. Phase 1 ships deterministic
+  detectors; the Phi-3 / Ollama local-inference path lands once a
+  local-model adapter exists.
+
+tier: core
+license: AGPL
+authors:
+  - name: Eidan Core
+    email: core@eidan.dev
+
+host:
+  eidan: ">=0.1.0"
+  python: ">=3.11"
+
+env:
+  - name: EIDAN_SENTRY_ENABLED
+    required: false
+    default: "1"
+    description: >
+      Set to "0" to disable the sentry tick. Useful for CI / smoke
+      tests that don't want the loop firing every 5 minutes against a
+      shared test DB.
+  - name: EIDAN_SENTRY_TICK_INTERVAL
+    required: false
+    default: "PT5M"
+    description: >
+      ISO-8601 duration between sentry ticks. The schedule trigger
+      reads this verbatim, so changing it changes the cadence at
+      activation time (no in-flight rescheduling).
+
+backend:
+  entrypoint: eidan_sentry.plugin:Plugin
+
+migrations:
+  dir: ./migrations
+  driver: alembic
+
+behaviours:
+  - id: sentry:tick
+    trigger: schedule:PT5M
+    handler: eidan_sentry.plugin:Plugin

@@ -1,0 +1,32 @@
+name: License Header Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    name: AGPL header on new source files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # `fetch-depth: 0` so the script can diff against the PR base
+          # commit. Shallow clones make `git merge-base` fail.
+          fetch-depth: 0
+
+      - name: Check headers
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/check_license_headers.py \
+            --base-sha "${BASE_SHA}" \
+            --head-sha "${HEAD_SHA}" \
+            --exempt-file .github/license_header_exempt.txt

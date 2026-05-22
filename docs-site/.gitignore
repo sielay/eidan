@@ -1,0 +1,14 @@
+# Astro
+dist/
+.astro/
+
+# Node
+node_modules/
+
+# Content synced from ../docs by scripts/copy-docs.mjs — canonical
+# source lives at the repo root, not here.
+src/content/docs/specs/
+src/content/docs/architecture.md
+src/content/docs/deployment.md
+src/content/docs/localhost.md
+src/content/docs/roadmap.md

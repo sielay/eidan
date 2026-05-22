@@ -1,0 +1,31 @@
+# Forbidden-string catalogue for the public-release gate
+# (`docs/016 §4`).
+#
+# Each non-empty, non-comment line is one entry. The gate runs a
+# recursive grep across the sanitisation tree and aborts the release
+# when ANY entry hits. The list is intentionally small and curated.
+#
+# Syntax:
+#   <literal>         — matched with fixed-string grep (default)
+#   re:<regex>        — matched with regex grep
+#
+# Categories admitted (per docs/016 §4.1):
+#   - License / pricing tokens (EIDAN_PRO_LICENSE_KEY, SKUs, ...)
+#   - Internal telemetry / infra URLs (*.eidan.internal, ops endpoints)
+#   - Customer / partner identifiers covered by NDA
+#   - Internal codenames pre-announcement
+#   - Hard-coded sample secrets (sk-test-, internal-only API key prefixes)
+#
+# Categories NOT admitted (per docs/016 §4.2):
+#   - Tier words `pro` / `commercial` / `core` — part of the contract
+#   - `potem` — predecessor-stack reference, intentional
+#   - Operator's own name / handle — public author identity is a bot
+#   - Third-party vendor names eidan integrates with (Anthropic, Supabase, ...)
+#
+# The list grows per-release. Allowlist policy lives in
+# `.github/workflows/release-sanitisation.yml` keyed on file path —
+# e.g. this very file and `docs/018_*` are allowed to mention items
+# the gate would otherwise flag in source.
+
+# (Catalogue intentionally empty at first commit; entries get
+#  added under the categories above as the project produces them.)

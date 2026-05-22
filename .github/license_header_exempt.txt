@@ -1,0 +1,30 @@
+# Files exempt from the AGPL-3.0-or-later header check
+# (`.github/workflows/license-header.yml`).
+#
+# Format: one fnmatch glob per line. Comments start with `#`. Globs
+# match the file path RELATIVE TO THE REPO ROOT, as `git diff
+# --name-only` reports them.
+#
+# Keep this list short and justified. Anything that does not belong
+# to AGPL-licensed core (generated artefacts, vendored snippets,
+# upstream config files) is fair game; everything else MUST carry
+# the header.
+
+# ---- generated artefacts ----------------------------------------------------
+# JSON Schema → Zod / Pydantic codegen output. Re-running the
+# generator overwrites these files; a hand-written header would be
+# stripped on the next regeneration.
+packages/schemas/src/generated/*.ts
+packages/schemas/src/generated/**/*.ts
+packages/schemas/eidan_schemas/generated/*.py
+packages/schemas/eidan_schemas/generated/**/*.py
+
+# ---- test fixtures and conftest -------------------------------------------
+# conftest is not "source" we ship; it carries the fixtures the test
+# tree imports from. Test files themselves DO need the header.
+**/conftest.py
+
+# ---- Next.js scaffolding ---------------------------------------------------
+# next-env.d.ts is fully owned by the Next.js CLI and overwritten on
+# every dev/build run.
+apps/web/next-env.d.ts

@@ -1,0 +1,119 @@
+# Default dev container compose stack — self-contained.
+#
+# Three services:
+#   - app    — the dev container itself (Python + Node + uv + pnpm).
+#              The operator runs `make dev` here.
+#   - db     — Postgres 16 sidecar. Holds eidan.* + plugin_*.* tables.
+#              Lifecycle is bound to the compose stack; no
+#              `make supabase-up` required on the host any more.
+#   - proxy  — Caddy reverse proxy on host's :3000, fronts everything
+#              the browser hits (Next.js + the backend's /api/*).
+#              Single-origin removes a class of browser flakiness
+#              (CORS preflights, per-origin SW scope, etc.).
+#
+# This stack has no Supabase coupling. The native auth subsystem
+# (docs/011 §11) issues its own JWTs against an RS256 keypair
+# generated on first boot and persisted in eidan.auth_keypair.
+#
+# Operators on legacy installs that want to keep using Supabase's
+# Postgres can still point DATABASE_URL at host.docker.internal:54322
+# in their .env — the auth subsystem doesn't care which Postgres it
+# talks to.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspaces/eidan:cached
+      # Named volume for the CLI's stored auth token (~/.eidan/auth.json).
+      # Without this, `make login` has to be re-run after every container
+      # rebuild. The volume survives `Rebuild Container`; only an
+      # explicit `docker volume rm` wipes it.
+      - eidan-cli-auth:/home/vscode/.eidan
+      # Shadow .venv + every node_modules with named volumes so the
+      # host's macOS-built copies don't bleed into the container.
+      # Without this, .venv/bin/python on the host points at the host's
+      # /usr/local/bin/python3 — a broken symlink in the container — and
+      # every Python entry point fails on startup. node_modules has the
+      # same problem (host SWC / native bindings won't run on Linux).
+      # Each volume starts empty per build; post-create.sh populates them
+      # via `uv sync` + `pnpm install`. To wipe a stale volume use
+      # `docker volume rm <project>_eidan-venv` (likewise for nm-*).
+      - eidan-venv:/workspaces/eidan/.venv
+      - eidan-nm-root:/workspaces/eidan/node_modules
+      - eidan-nm-web:/workspaces/eidan/apps/web/node_modules
+      - eidan-nm-backend:/workspaces/eidan/apps/backend/node_modules
+      - eidan-nm-schemas:/workspaces/eidan/packages/schemas/node_modules
+      - eidan-nm-docs:/workspaces/eidan/docs-site/node_modules
+    command: sleep infinity
+    environment:
+      # Point at the db sidecar by service name. asyncpg-style URL
+      # (CLI's dotenv loader uses override=False, so this wins over
+      # whatever's in .env). The .env value only matters on bare
+      # host; the container always talks to the bundled sidecar.
+      # DATABASE_URL: postgresql+asyncpg://eidan:eidan@db:5432/eidan
+      # Bind FastAPI on all interfaces inside the container so the
+      # proxy can reach it.
+      EIDAN_HTTP_HOST: 0.0.0.0
+      # EIDAN_AUTH_MASTER_KEY is intentionally NOT set here —
+      # pydantic-settings reads it from .env, which puts the
+      # operator's real key in charge. Backend startup raises a
+      # typed error if .env doesn't supply one. See
+      # docs/011 §5.2 + docs/012 §10 for rotation.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eidan
+      POSTGRES_PASSWORD: eidan
+      POSTGRES_DB: eidan
+    volumes:
+      - eidan-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eidan -d eidan"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  # Single-origin reverse proxy. The browser hits this on
+  # ``http://localhost:3000`` and Caddy routes by path to Next.js
+  # and the backend. See Caddyfile in the same directory for the
+  # rule table + rationale.
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "3000:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  # Persists ~/.eidan/auth.json across container rebuilds so the
+  # operator only runs `make login` once per dev machine.
+  eidan-cli-auth:
+  # Persists Postgres data across container rebuilds. Wipe with
+  # `docker volume rm <project>_eidan-db-data` to force a fresh
+  # DB on next boot.
+  eidan-db-data:
+  # Shadow volumes for the dev deps that must stay container-native
+  # (host bind-mount otherwise carries macOS-built .venv / node_modules
+  # into the container and breaks every Python or Next.js entry point).
+  # See the inline comment above the mount list for the why.
+  eidan-venv:
+  eidan-nm-root:
+  eidan-nm-web:
+  eidan-nm-backend:
+  eidan-nm-schemas:
+  eidan-nm-docs:

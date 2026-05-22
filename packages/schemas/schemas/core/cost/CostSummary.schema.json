@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.eidan.dev/core/cost/CostSummary/v1.json",
+  "title": "CostSummary",
+  "description": "Response shape of GET /api/cost/summary (docs/010 §6, surfaced by docs/014 §4.4). One row aggregates llm_calls within the requested scope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scope",
+    "cost_usd",
+    "input_tokens",
+    "output_tokens",
+    "started_at"
+  ],
+  "properties": {
+    "scope": {
+      "type": "string",
+      "enum": ["turn", "session", "day"],
+      "description": "The aggregation window: per-turn (anchored on a message id), per-session (since the JWT's iat), or rolling 24-hour day."
+    },
+    "cost_usd": {
+      "type": "number",
+      "minimum": 0,
+      "description": "USD cost rolled up across all llm_calls in the window."
+    },
+    "input_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total input tokens billed across the window."
+    },
+    "output_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total output tokens billed across the window."
+    },
+    "started_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Lower bound of the aggregation window: the turn's first llm_call timestamp, the JWT iat, or 24h ago. Null when no calls exist in the window yet."
+    },
+    "message_id": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "default": null,
+      "description": "Only set for scope=turn — the anchor user message id the per-turn rollup is keyed on."
+    }
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.eidan.dev/core/intent/IntendedActions/v1.json",
+  "title": "IntendedActions",
+  "description": "Structured list of actions the user expects the agent to perform on a given turn. Emitted by the intent classifier (issue #59, step ④.5 of docs/005 §3). Rendered into the primary call's system prompt so the model executes a known, finite list rather than improvising; stashed on TurnContext so the post-primary verifier (issue #60) can check which declared actions left a side-effect.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["actions"],
+  "properties": {
+    "actions": {
+      "type": "array",
+      "description": "Zero or more intended actions, in the order the user expressed them.",
+      "items": { "$ref": "#/$defs/IntendedAction" }
+    }
+  },
+  "$defs": {
+    "IntendedAction": {
+      "description": "A single action the user has expressed. Discriminated on `kind`. Verifiable kinds carry the structural information the post-primary detector needs to check for a matching side-effect.",
+      "oneOf": [
+        { "$ref": "#/$defs/CreateEvent" },
+        { "$ref": "#/$defs/UpdateRow" },
+        { "$ref": "#/$defs/SendMessage" },
+        { "$ref": "#/$defs/Lookup" },
+        { "$ref": "#/$defs/Unknown" }
+      ]
+    },
+    "CreateEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "when", "summary"],
+      "properties": {
+        "kind": { "const": "create_event" },
+        "when": {
+          "type": "string",
+          "description": "When the event takes place. ISO 8601 preferred; natural-language is acceptable if the model could not resolve it (the loop's TZ header is available to help, so the model SHOULD resolve relative expressions like 'tomorrow 19:00' to ISO 8601 against the user_tz)."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short human-readable description of the event ('dentist', 'standup with Lukasz')."
+        },
+        "location": {
+          "type": "string",
+          "description": "Optional location."
+        },
+        "duration_minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optional duration."
+        }
+      }
+    },
+    "UpdateRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "table", "key", "fields"],
+      "properties": {
+        "kind": { "const": "update_row" },
+        "table": {
+          "type": "string",
+          "description": "Fully-qualified table name (e.g. `eidan.user_context`, `plugin_calendar.events`). The verifier queries this table directly."
+        },
+        "key": {
+          "type": "object",
+          "description": "Column → value pairs that identify the row to update. Used by the verifier as a WHERE clause."
+        },
+        "fields": {
+          "type": "object",
+          "description": "Column → new-value pairs the user wants set."
+        }
+      }
+    },
+    "SendMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "channel", "recipient", "body"],
+      "properties": {
+        "kind": { "const": "send_message" },
+        "channel": {
+          "type": "string",
+          "description": "Wire channel (e.g. `email`, `telegram`, `sms`)."
+        },
+        "recipient": {
+          "type": "string",
+          "description": "Channel-specific recipient address."
+        },
+        "body": {
+          "type": "string",
+          "description": "Message body the user wants sent."
+        }
+      }
+    },
+    "Lookup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "query"],
+      "description": "Not verifiable — a lookup has no observable side-effect. The intent classifier SHOULD convert any wording about state change to a verifiable action; only use Lookup when the user is genuinely asking a question.",
+      "properties": {
+        "kind": { "const": "lookup" },
+        "query": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "note"],
+      "description": "Escape hatch for user expressions that do not fit any catalogued action. Not verifiable. The verifier ignores Unknown entries.",
+      "properties": {
+        "kind": { "const": "unknown" },
+        "note": {
+          "type": "string",
+          "description": "Free-text description of what the user appears to want, for later debugging / catalogue extension."
+        }
+      }
+    }
+  }
+}

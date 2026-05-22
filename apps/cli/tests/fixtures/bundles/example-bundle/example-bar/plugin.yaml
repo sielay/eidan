@@ -1,0 +1,22 @@
+schema: 1
+
+name: example-bar
+version: 0.1.0
+display_name: Example Bar
+description: >
+  Second plugin in the example-bundle fixture; lets the install path
+  prove it copies every plugin it discovers, not just the first.
+
+tier: core
+license: AGPL
+
+bundle:
+  name: example-bundle
+  kind: thematic
+
+host:
+  eidan: ">=0.1.0"
+  python: ">=3.11"
+
+backend:
+  entrypoint: example_bar.plugin:Plugin

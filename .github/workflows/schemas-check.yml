@@ -1,0 +1,39 @@
+name: schemas-check
+
+on:
+  pull_request:
+    paths:
+      - "packages/schemas/**"
+      - ".github/workflows/schemas-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/schemas/**"
+
+# The "did you regenerate?" gate from docs/004 §6.3. Regenerates both
+# the Zod and Pydantic surfaces, then fails if the working tree drifts.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` here — pnpm/action-setup honours
+      # `packageManager` in package.json (pnpm@9.0.0). Specifying both
+      # makes the action error with ERR_PNPM_BAD_PM_VERSION.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install datamodel-code-generator
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @eidan/schemas check

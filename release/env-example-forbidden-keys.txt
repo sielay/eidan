@@ -1,0 +1,11 @@
+# Env-example forbidden-keys list (`docs/016 §3.5`).
+#
+# Lines in `.env.example` whose KEY matches an entry here are
+# stripped by the sanitisation runbook before the public release
+# commit lands. One key per line; comments start with `#`.
+#
+# Distinct from the forbidden-string catalogue: these are KEYS
+# (LHS of `=`), not values.
+#
+# Empty at first commit — entries get added as private bundle work
+# introduces env knobs that should not leak into the public template.

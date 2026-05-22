@@ -1,0 +1,43 @@
+name: python-tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Note: no ``paths:`` filter on pull_request. ``pytest`` is the required
+# status check for branch protection on main — if path-filtering skips
+# the workflow (e.g. for a docs-only PR), the gate has nothing to wait
+# on and the PR can't merge. Cheaper to run the suite on every PR.
+
+# Runs the backend + CLI pytest suite against the bundled
+# pytest-postgresql fixture. The Ubuntu runner ships postgresql
+# preinstalled (under /usr/lib/postgresql/<v>/bin/); pytest-postgresql
+# spawns its own instance per test session, so we don't need a
+# services: container.
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install postgresql client + server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: uv sync --extra dev
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: pytest
+        run: uv run pytest -q
