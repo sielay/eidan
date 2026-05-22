@@ -26,7 +26,14 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ..:/workspaces/eidan:cached
+      # Mount the parent of the eidan repo at /workspaces so sibling
+      # bundle repos (eidan-pro, the three thematic bundles, etc.)
+      # resolve identically on host and in the container. Plugin
+      # symlinks in eidan/plugins/<name> -> ../../<bundle>/<name> are
+      # the only thing that needs this — without it the symlinks
+      # dangle inside the container. Operators with no sibling repos
+      # checked out get the same /workspaces/eidan they always did.
+      - ../..:/workspaces:cached
       # Named volume for the CLI's stored auth token (~/.eidan/auth.json).
       # Without this, `make login` has to be re-run after every container
       # rebuild. The volume survives `Rebuild Container`; only an
