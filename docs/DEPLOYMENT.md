@@ -399,21 +399,62 @@ in `eidan.env`, then `sudo systemctl restart eidan-backend`.
 
 ### 3.11 Updating
 
-The Pi is the simplest update story — a cron job that pulls and
-restarts is the usual shape:
+The Pi is the simplest update story — pull the next tagged
+release, re-sync the venv, run any new migrations, restart the
+service:
 
 ```bash
+sudo -u eidan git -C /opt/eidan fetch --tags
+sudo -u eidan git -C /opt/eidan checkout v0.1.1   # next tagged release
+sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan sync --no-dev
+
+# Apply any new migrations. Idempotent — a no-op when the DB is
+# already at head. `eidan admin db migrate` runs core then
+# iterates plugin schemas, same command as §3.5.
 sudo -u eidan bash -lc '
-  cd /opt/eidan
-  git fetch --tags
-  git checkout v0.1.1                          # next tagged release
-  /home/eidan/.local/bin/uv sync --no-dev
+  set -a; source /etc/eidan/eidan.env; set +a
+  /home/eidan/.local/bin/uv --directory /opt/eidan run \
+    eidan admin db migrate
 '
+
 sudo systemctl restart eidan-backend
+sudo journalctl -u eidan-backend -f
 ```
 
-If a release ships migrations, re-run §3.5's `alembic upgrade
-head` before the restart.
+**Migration ordering.** Most eidan migrations are *additive*
+(new tables, new columns, new indexes) — you can apply them
+while the old service is still running because the running code
+doesn't know about the new objects and won't touch them. The
+recipe above runs migrations first, then restarts, so the new
+code finds the schema already prepared.
+
+For a *destructive* migration (drop column, rename table, change
+a CHECK constraint) stop the service before the migration so the
+old code can't write into a half-removed shape:
+
+```bash
+sudo systemctl stop eidan-backend
+# ... pull + sync + migrate as above ...
+sudo systemctl start eidan-backend
+```
+
+The release notes flag which migrations are destructive; assume
+additive when not stated.
+
+**Auto-update cron.** A cron job that pulls and restarts is the
+usual hands-off shape; just remember to skip auto-update during
+the brief window after a destructive release lands and before
+you've reviewed the release notes:
+
+```cron
+# /etc/cron.d/eidan-update — additive-safe nightly pull
+0 3 * * *  eidan  /opt/eidan/scripts/update.sh >> /var/log/eidan/update.log 2>&1
+```
+
+(Ship `/opt/eidan/scripts/update.sh` yourself; the eidan repo
+doesn't include it because the right tag-selection policy is
+operator-specific — `latest` tag, manually-pinned tag, or
+follow-main-with-care are all reasonable choices.)
 
 ---
 
