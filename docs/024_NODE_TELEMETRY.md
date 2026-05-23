@@ -310,149 +310,124 @@ exists, just hasn't emitted past `after_seq`.
 
 ## 6. External log forwarding
 
-Eidan does not ship a forwarder. The structlog/stdlib log mirror
-(§3.2) makes any standard Python logging handler work. The
-following recipes are the operator-side bits the deploy needs;
-add them to your bootstrap shell (Pi systemd ExecStartPre, Fly
-custom entrypoint, k8s init container, …) before `eidan admin
-server` starts.
+Core ships a built-in HTTP/JSON forwarder in
+[`apps/backend/eidan_backend/log_forwarding.py`](../apps/backend/eidan_backend/log_forwarding.py).
+The operator's surface is pure env-config in `/etc/eidan/eidan.env`
+— no Python file to drop, no `PYTHONPATH`, no `sitecustomize.py`,
+nothing to write under `/opt/eidan/`. This respects the no-fork
+distribution model ([018](./018_DISTRIBUTION_AND_BUNDLES.md)):
+operators only ever touch their env file; core code is read-only
+on the host.
 
-### 6.0 The hook point: `sitecustomize.py` on `PYTHONPATH`
+### 6.1 Env vars
 
-Python imports a module named `sitecustomize` automatically at
-interpreter startup if one is found on `sys.path` — for **every**
-interpreter, interactive or not. (`PYTHONSTARTUP` does the same
-but **only for interactive sessions**, so it's useless for a
-deployed server. Don't use it.)
+| Var                          | Required | Effect |
+|------------------------------|----------|--------|
+| `EIDAN_LOG_FORWARD_URL`      | Yes (to enable) | HTTP intake URL. Forwarder is off when unset. |
+| `EIDAN_LOG_FORWARD_TOKEN`    | No       | Sent as `Authorization: Bearer <token>` — common BetterStack / Axiom / Honeycomb shape. |
+| `EIDAN_LOG_FORWARD_HEADERS`  | No       | JSON-encoded dict of extra headers, merged on top. Escape hatch for non-Bearer auth (Datadog's `DD-API-KEY`, custom routing headers). |
+| `EIDAN_LOG_FORWARD_LEVEL`    | No       | Minimum level to forward; default `INFO`. Set to `WARNING` to keep the intake quieter. |
+| `EIDAN_LOG_FORWARD_TIMEOUT`  | No       | HTTP POST timeout in seconds; default `5.0`. Failures are swallowed (printed to stderr); the next log line tries again. |
 
-Drop a `sitecustomize.py` next to the server and prepend its
-directory to `PYTHONPATH` in the systemd unit / Fly Dockerfile /
-k8s pod spec. The handler attachment runs before `eidan admin
-server` imports anything telemetry-related, so every subsequent
-log record (including the early bootstrap lines) is forwarded.
+The forwarder attaches at boot from
+[`http/app.py`'s lifespan](../apps/backend/eidan_backend/http/app.py)
+before the pool is created, so the early boot lines (DB connect,
+plugin activate, telemetry `node.boot`) land in the intake too.
 
-A standalone directory keeps the file off `sys.path` until the
-operator opts in:
+### 6.2 JSON envelope
 
-```bash
-sudo mkdir -p /opt/eidan/forwarders
-# write the handler module next (see §6.1+)
-sudo chown -R eidan:eidan /opt/eidan/forwarders
+One POST per log record. Body is a flat JSON object:
+
+```json
+{
+  "ts":              "2026-05-24T08:30:00.123+00:00",
+  "level":           "INFO",
+  "logger":          "eidan_backend.telemetry",
+  "message":         "telemetry: node.boot",
+  "event":           "node.boot",
+  "node_id":         "kasha",
+  "node_type":       "pi",
+  "conversation_id": null,
+  "payload":         {"plugins": ["sentry"], "tool_count": 4}
+}
 ```
 
-Then in `/etc/eidan/eidan.env`:
+`event` / `node_id` / `node_type` / `conversation_id` / `payload`
+come from the telemetry emitter's `extra=` kwargs (see §3.2) and
+are only included when set. Records that didn't go through the
+telemetry path (raw stdlib logs from asyncpg, uvicorn) ship with
+just the four stdlib fields.
+
+### 6.3 BetterStack (Logtail)
 
 ```ini
-PYTHONPATH=/opt/eidan/forwarders
+# /etc/eidan/eidan.env
+EIDAN_LOG_FORWARD_URL=https://in.logs.betterstack.com
+EIDAN_LOG_FORWARD_TOKEN=<your-source-token>
 ```
 
-(Or amend the systemd unit's `Environment=PYTHONPATH=...` line
-directly. The env-file route survives `git pull` on `/opt/eidan`.)
+Logtail accepts the flat JSON shape directly. The `event=` /
+`node_id=` / etc. keys land as top-level searchable attributes.
 
-Confirm the hook fires once with `python -c 'import sitecustomize'`
-under the same env — no error means Python found and ran your
-module.
-
-### 6.1 BetterStack (Logtail)
-
-```bash
-sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan add logtail-python
-```
-
-`/opt/eidan/forwarders/sitecustomize.py`:
-
-```python
-import logging
-import os
-
-token = os.environ.get("EIDAN_LOGTAIL_TOKEN")
-if token:
-    from logtail import LogtailHandler
-    handler = LogtailHandler(source_token=token)
-    handler.setLevel(logging.INFO)
-    logging.getLogger().addHandler(handler)
-```
-
-Then in `/etc/eidan/eidan.env`:
+### 6.4 Datadog
 
 ```ini
-PYTHONPATH=/opt/eidan/forwarders
-EIDAN_LOGTAIL_TOKEN=<your-source-token>
+EIDAN_LOG_FORWARD_URL=https://http-intake.logs.datadoghq.com/api/v2/logs
+EIDAN_LOG_FORWARD_HEADERS={"DD-API-KEY": "<your-api-key>"}
 ```
 
-Every `telemetry.*` event then lands in BetterStack with the
-`event=node.boot node_id=... payload={...}` fields preserved as
-top-level attributes (Logtail parses `extra=` fields off the
-LogRecord).
+Datadog uses `DD-API-KEY` instead of `Authorization: Bearer`, so
+the auth header goes through `EIDAN_LOG_FORWARD_HEADERS` rather
+than `EIDAN_LOG_FORWARD_TOKEN`. (Shell-escape the JSON if you set
+this on the command line: `EIDAN_LOG_FORWARD_HEADERS='{"DD-API-KEY":
+"abc"}'`.)
 
-### 6.2 Loki (via Promtail-on-host)
+### 6.5 Loki
 
-The simplest shape: write a logrotate-friendly file handler from
-the same `sitecustomize.py` slot, point Promtail at it. The
-telemetry emitter passes its fields via `extra=`, so they land
-on the LogRecord as direct attributes (`record.event`,
-`record.node_id`, `record.payload`, `record.conversation_id`) —
-not under an `extra` key. The format string lists them
-explicitly:
+Loki's push API expects a specific envelope shape (`{"streams":
+[{"stream": {...}, "values": [["ts_ns", "log_line"]]}]}`) that
+doesn't match the flat object §6.2 ships. Two options for Loki
+deployments:
 
-```python
-# /opt/eidan/forwarders/sitecustomize.py
-import logging
+- **Recommended:** point eidan at a relay (Vector, Fluent Bit,
+  Promtail with `pipeline_stages: [json]`) that accepts the flat
+  JSON and reshapes it for Loki's intake. Vector's `http_server`
+  source + `loki` sink is six YAML lines. Keeps eidan's env
+  contract simple.
+- **Alternative:** disable the forwarder (leave `EIDAN_LOG_FORWARD_URL`
+  unset) and scrape `journalctl -u eidan-backend` from Promtail's
+  `systemd_journal` source. Lets Loki do the shape transformation
+  in its own pipeline. The trade-off: no auth on the wire, scraper
+  must live on the same host.
 
-class TelemetryJsonFormatter(logging.Formatter):
-    """Emit one JSON object per record, picking out the fields the
-    eidan telemetry emitter sets via `extra=` plus the stdlib
-    LogRecord essentials. A bare %(extra)s wouldn't work — stdlib
-    `logging` has no `extra` attribute; `extra=` kwargs are
-    flattened onto the record's __dict__."""
+### 6.6 Any HTTP intake
 
-    def format(self, record: logging.LogRecord) -> str:
-        import json
-        payload = {
-            "ts": self.formatTime(record),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-            # telemetry-specific extras (None when the record came
-            # from another module that didn't set them).
-            "event": getattr(record, "event", None),
-            "node_id": getattr(record, "node_id", None),
-            "node_type": getattr(record, "node_type", None),
-            "conversation_id": getattr(record, "conversation_id", None),
-            "telemetry_payload": getattr(record, "payload", None),
-        }
-        return json.dumps({k: v for k, v in payload.items() if v is not None})
+Axiom, Honeycomb, custom webhooks, an in-house ELK ingestion
+endpoint — any URL that accepts POST + JSON works. Set `URL` +
+whatever auth the intake wants (Bearer via `TOKEN`, otherwise via
+`HEADERS`).
 
-fh = logging.FileHandler("/var/log/eidan/events.jsonl")
-fh.setFormatter(TelemetryJsonFormatter())
-logging.getLogger().addHandler(fh)
-```
+### 6.7 Why a built-in forwarder (vs picking an SDK)
 
-Then `promtail` scrapes `/var/log/eidan/events.jsonl` per
-host-side configuration. Eidan stays out of that pipeline; the
-JSONL on disk is the contract.
+The stdlib `urllib.request` + JSON envelope path covers every
+intake that accepts POST. Vendor SDKs (`logtail-python`, `datadog`,
+`opentelemetry-sdk`) add per-vendor buffering / retries / shape
+transformation, but the cost is:
 
-### 6.3 Datadog
+- **A new core dep per vendor** the doc has to keep current as
+  the SDK ages.
+- **Vendor lock-in** for operators who'd otherwise just point at a
+  generic HTTPS endpoint.
+- **Operator-edits-core** if we ask operators to install the SDK
+  themselves and wire it via `sitecustomize.py` — explicitly
+  forbidden by the no-fork distribution model.
 
-`uv add datadog` then attach a `DatadogLogsHandler` to the root
-logger in the same `sitecustomize.py` slot as §6.1, with
-`DD_API_KEY` from the env. Datadog's handler uses the same
-`record.__dict__` attribute lookup pattern as Logtail.
-
-### 6.4 Why not bake it in?
-
-Three reasons:
-
-- **Avoid a forwarder zoo.** BetterStack / Loki / Datadog / Axiom
-  / Honeycomb / OpenTelemetry collectors each ship their own SDK
-  with a different envelope. Picking one means everyone else is
-  second-class; picking none means the contract is "any Python
-  logging handler".
-- **No marginal core code to keep current.** The handler API is
-  stable across years; the upstream SDKs aren't.
-- **Operator-owned secrets.** Forwarding tokens go in the
-  operator's secret store, not eidan's `.env`. Site-customise
-  keeps them on the shell side of the boundary.
+The built-in forwarder accepts the trade — flat JSON + stdlib
+sockets, no batching beyond Python's internal queue, retries are
+"next log line will try again". An operator who needs vendor-SDK
+features can run a relay (Vector / Fluent Bit) between eidan and
+the intake and configure the SDK there, where vendor coupling
+doesn't reach core.
 
 ---
 

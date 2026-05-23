@@ -125,6 +125,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         else _DEFAULT_PLUGINS_DIR
     )
 
+    # Optional external log forwarder (BetterStack / Datadog / etc.).
+    # Reads EIDAN_LOG_FORWARD_URL + EIDAN_LOG_FORWARD_TOKEN /
+    # EIDAN_LOG_FORWARD_HEADERS from env; no-op when unset. Runs
+    # *before* pool creation so the boot lines (DB connect, plugin
+    # activate, telemetry node.boot) land in the forwarder too.
+    from ..log_forwarding import attach_log_forwarder_if_configured
+
+    attach_log_forwarder_if_configured()
+
     pool = await create_pool(backend.database_url)
     app.state.pool = pool
 
