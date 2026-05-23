@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``_resolve_plugins_dir`` precedence — app.state > env > default.
 
 The runtime lifespan handler reads from this helper; an operator
@@ -12,7 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from eidan_backend.http.app import _DEFAULT_PLUGINS_DIR, _resolve_plugins_dir
 
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``EIDAN_PLUGINS_DIR`` precedence in the CLI admin module.
 
 The CLI's install / list / remove paths must write to the same
@@ -11,7 +12,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from eidan_cli import admin
 
 
