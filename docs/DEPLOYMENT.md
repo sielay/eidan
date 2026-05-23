@@ -324,9 +324,16 @@ Sentry is a `tier: core` plugin and is enabled by default
 (`EIDAN_SENTRY_ENABLED=1`). **Important caveat: Phase 1 ships
 deterministic detectors only** — overdue commitments, long-silence
 gaps, scope-drift checks. Three hand-coded SQL/threshold checks
-run on the `PT5M` schedule and write rows to
-`plugin_sentry.escalations` / `plugin_sentry.nudges`. **No LLM
-call yet.**
+run on the `PT5M` schedule and write:
+
+- one summary row per tick to `plugin_sentry.sentry_ticks`,
+- one row per detected pattern to `plugin_sentry.sentry_nudges`
+  (the user-visible nudge),
+- one row to `eidan.escalations` (core schema, surfaced in the
+  inbox) when a pattern crosses the escalation threshold or a
+  nudge delivery fails.
+
+**No LLM call yet.**
 
 The Phi-3 / Ollama open-ended pattern matcher described in
 [SENTRY_FEATURE_SPEC.md](./SENTRY_FEATURE_SPEC.md) lands with the
