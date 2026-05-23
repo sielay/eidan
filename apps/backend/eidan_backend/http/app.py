@@ -66,7 +66,15 @@ def _resolve_plugins_dir(app_state_value: object | None) -> Path:
     3. ``_DEFAULT_PLUGINS_DIR`` — the in-repo / in-image default.
     """
     if app_state_value is not None:
-        return Path(str(app_state_value))
+        # The pre-helper code used a truthiness check
+        # (``if getattr(app.state, "plugins_dir", None)``), so an
+        # explicit ``""`` / whitespace fell through to the default.
+        # Preserve that behaviour: only honour a non-blank value, and
+        # match the env path's ``.expanduser()`` so a caller setting
+        # ``~/...`` does not get a literal tilde.
+        text = str(app_state_value).strip()
+        if text:
+            return Path(text).expanduser()
     env_value = os.environ.get("EIDAN_PLUGINS_DIR", "").strip()
     if env_value:
         # Mirror the CLI's expansion (apps/cli/eidan_cli/admin.py) so
