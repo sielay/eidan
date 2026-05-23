@@ -31,6 +31,8 @@ import asyncpg
 
 from .behaviours import Behaviour, BehaviourDispatcher, BehaviourRegistry
 from .memory_tools import register_memory_tools
+from .node_identity import NodeIdentity
+from .node_identity import detect as detect_node_identity
 from .notifications import build_default_router
 from .persistence import flag_orphaned_assistant_messages
 from .plugins import (
@@ -44,6 +46,7 @@ from .plugins import (
     schema_for_plugin,
 )
 from .secrets import make_secret_accessor, validate_required_secrets
+from .telemetry import TelemetryEmitter
 from .tools import Tool, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -69,6 +72,18 @@ class BootstrapResult:
     tool_registry: ToolRegistry
     behaviour_registry: BehaviourRegistry = field(default_factory=BehaviourRegistry)
     behaviour_dispatcher: BehaviourDispatcher | None = None
+    # Per-node telemetry emitter. Started in :func:`bootstrap`, stopped
+    # in :func:`shutdown`. ``None`` when the caller opted out via
+    # ``start_telemetry=False`` OR when the eager heartbeat raised
+    # (the bootstrap wrapper logs and sets this to None so milestone
+    # emits below skip cleanly).
+    telemetry: TelemetryEmitter | None = None
+    # Resolved by :func:`bootstrap` unconditionally — identity is
+    # cheap (pure Python, no DB / network) and host-global; HTTP
+    # routes and future plugin call sites may want it even when
+    # telemetry itself is disabled. The ``| None`` type slot exists
+    # only because the dataclass needs a default.
+    node_identity: NodeIdentity | None = None
 
 
 class _PluginDb:
@@ -303,6 +318,7 @@ async def bootstrap(
     plugins_dir: Path,
     state_store: PluginStateStore | None = None,
     start_dispatcher: bool = True,
+    start_telemetry: bool = True,
     provider: Any | None = None,
     default_model: str | None = None,
 ) -> BootstrapResult:
@@ -318,6 +334,12 @@ async def bootstrap(
     is started (cron triggers begin firing). Defaults to ``True`` for
     the production path; tests pass ``False`` so APScheduler doesn't
     fire jobs against a stub pool.
+
+    ``start_telemetry`` controls whether the per-node heartbeat loop
+    and event emitter start. Defaults to ``True`` for production;
+    tests that don't have the ``eidan.node_heartbeats`` table
+    populated pass ``False`` so the eager first heartbeat doesn't
+    raise.
 
     Raises :class:`BootstrapNotMigratedError` if ``eidan.plugin_state``
     is missing — that's almost always "the operator forgot to run
@@ -390,6 +412,47 @@ async def bootstrap(
         context_factory=factory,
     )
 
+    # Resolve this process's node identity once. Cached on the
+    # BootstrapResult so HTTP routes / future call sites can read
+    # it without re-running the platform fingerprint detector.
+    node_identity = detect_node_identity()
+    logger.info(
+        "[bootstrap] node identity: %s (type=%s)",
+        node_identity.node_id,
+        node_identity.node_type,
+    )
+
+    # Start the per-node telemetry emitter. ``start()`` performs the
+    # eager first heartbeat *strictly* — if it fails (table missing,
+    # DB unreachable, RLS misconfiguration), the exception surfaces
+    # here and we disable telemetry for this boot rather than fall
+    # through into milestone emits that would silently FK-fail
+    # (eidan.node_events.node_id references eidan.node_heartbeats).
+    # The background loop inside start() keeps swallowing so a
+    # transient blip later doesn't kill the heartbeat task.
+    telemetry: TelemetryEmitter | None = None
+    if start_telemetry:
+        telemetry = TelemetryEmitter(pool=pool, identity=node_identity)
+        try:
+            await telemetry.start()
+        except Exception:  # noqa: BLE001 — telemetry failure must not block boot
+            logger.exception(
+                "[bootstrap] telemetry start failed — heartbeat / events disabled"
+            )
+            telemetry = None
+
+    # One milestone event per plugin we just activated. Cheap; lands
+    # the activation trail in node_events for post-boot inspection.
+    if telemetry is not None:
+        for loaded in plugins:
+            await telemetry.emit_event(
+                "plugin.activate",
+                {
+                    "plugin": loaded.manifest.name,
+                    "version": loaded.manifest.version,
+                },
+            )
+
     # Start the behaviour dispatcher only when any plugin actually
     # registered behaviours — no point spinning up APScheduler for an
     # empty registry. The dispatcher is owned by the BootstrapResult so
@@ -403,16 +466,34 @@ async def bootstrap(
         dispatcher = BehaviourDispatcher(behaviour_registry, pool=pool)
         if start_dispatcher:
             dispatcher.start()
+            cron_count = len(behaviour_registry.by_trigger_kind("cron"))
             logger.info(
                 "[bootstrap] behaviour dispatcher started with %d cron job(s)",
-                len(behaviour_registry.by_trigger_kind("cron")),
+                cron_count,
             )
+            if telemetry is not None:
+                await telemetry.emit_event(
+                    "dispatcher.started",
+                    {"cron_jobs": cron_count},
+                )
+
+    if telemetry is not None:
+        await telemetry.emit_event(
+            "node.boot",
+            {
+                "plugins": [p.manifest.name for p in plugins],
+                "tool_count": len(tool_registry.surface() or []),
+                "metadata": node_identity.metadata,
+            },
+        )
 
     return BootstrapResult(
         plugins=plugins,
         tool_registry=tool_registry,
         behaviour_registry=behaviour_registry,
         behaviour_dispatcher=dispatcher,
+        telemetry=telemetry,
+        node_identity=node_identity,
     )
 
 
@@ -433,6 +514,23 @@ async def shutdown(
             bootstrap_result.behaviour_dispatcher.shutdown()
         except Exception:  # noqa: BLE001 — never block plugin teardown
             logger.exception("[shutdown] behaviour dispatcher raised")
+
+    # Emit the shutdown milestone before stopping the heartbeat — once
+    # the loop is cancelled the event-emit transaction is still safe
+    # (uses the same pool, not the loop's state), but ordering keeps
+    # the journal trail readable.
+    if bootstrap_result.telemetry is not None:
+        try:
+            await bootstrap_result.telemetry.emit_event(
+                "node.shutdown",
+                {"plugins": [p.manifest.name for p in bootstrap_result.plugins]},
+            )
+        except Exception:  # noqa: BLE001 — never block teardown
+            logger.exception("[shutdown] telemetry emit_event raised")
+        try:
+            await bootstrap_result.telemetry.stop()
+        except Exception:  # noqa: BLE001 — never block teardown
+            logger.exception("[shutdown] telemetry stop raised")
 
     factory = _make_context_factory(
         pool,

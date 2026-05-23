@@ -126,6 +126,8 @@ def create_app(
     app.state.behaviour_registry = None
     app.state.behaviour_dispatcher = None
     app.state.command_registry = None
+    app.state.telemetry = None
+    app.state.node_identity = None
     app.state.auth_public_pem = auth_public_pem
     app.state.auth_private_pem = auth_private_pem
 
@@ -196,6 +198,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.plugins = boot.plugins
         app.state.behaviour_registry = boot.behaviour_registry
         app.state.behaviour_dispatcher = boot.behaviour_dispatcher
+        app.state.telemetry = boot.telemetry
+        app.state.node_identity = boot.node_identity
         logger.info(
             "[lifespan] tool registry populated with %d tool(s)",
             len(boot.tool_registry.surface() or []),
@@ -283,6 +287,8 @@ def create_app_from_env() -> FastAPI:
     app.state.behaviour_registry = None
     app.state.behaviour_dispatcher = None
     app.state.command_registry = None
+    app.state.telemetry = None
+    app.state.node_identity = None
     app.state.auth_public_pem = None
     app.state.auth_private_pem = None
 

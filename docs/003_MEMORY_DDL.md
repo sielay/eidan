@@ -26,10 +26,15 @@ table that the others FK into:
 | `agent_context`   | Per-agent identity: code-shipped defaults + user overrides. |
 | `user_context`    | Durable user facts: identity, goals, constraints, prefs. |
 | `llm_calls`       | Per-provider-call telemetry: tokens, cost, latency, error. |
+| `node_heartbeats` | Per-process liveness UPSERT, host-global. See [024](./024_NODE_TELEMETRY.md). |
+| `node_events`     | Per-node activity stream (append-only). See [024](./024_NODE_TELEMETRY.md). |
 
 `eidan.users(id)` is assumed to exist already, owned by an earlier
 core migration (`migrations/versions/<ts>_init_users.py`, per
-`002_MIGRATIONS.md §1`). Every memory table FKs into it.
+`002_MIGRATIONS.md §1`). Every *user-scoped* memory table FKs into
+it; the two host-global telemetry tables (`node_heartbeats`,
+`node_events`) deliberately don't, because node identity belongs
+to the *process*, not the user (see [024](./024_NODE_TELEMETRY.md)).
 
 ---
 
