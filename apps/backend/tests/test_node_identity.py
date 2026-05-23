@@ -18,6 +18,7 @@ from eidan_backend.node_identity import _VALID_NODE_TYPES, detect
 _DETECTOR_ENV = (
     "EIDAN_NODE_ID",
     "EIDAN_NODE_TYPE",
+    "EIDAN_NODE_METADATA_HEROKU_APP",
     "FLY_MACHINE_ID",
     "FLY_APP_NAME",
     "FLY_REGION",
@@ -67,6 +68,22 @@ def test_heroku_fingerprint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert identity.node_id == "heroku-web.1"
     assert identity.node_type == "heroku"
     assert identity.metadata["heroku_dyno"] == "web.1"
+    # Without EIDAN_NODE_METADATA_HEROKU_APP set the key is absent
+    # (not just empty), so the dashboard knows not to render it.
+    assert "heroku_app" not in identity.metadata
+
+
+def test_heroku_metadata_app_env_picked_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Heroku doesn't inject the app name as an env var by default.
+    Operators who want the label set EIDAN_NODE_METADATA_HEROKU_APP
+    in the dyno config vars; the detector surfaces it on the
+    heartbeat metadata."""
+    monkeypatch.setenv("DYNO", "worker.2")
+    monkeypatch.setenv("EIDAN_NODE_METADATA_HEROKU_APP", "eidan-prod")
+    identity = detect()
+    assert identity.metadata["heroku_app"] == "eidan-prod"
 
 
 def test_kubernetes_fingerprint(monkeypatch: pytest.MonkeyPatch) -> None:

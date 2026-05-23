@@ -223,6 +223,54 @@ async def test_emit_event_swallows_db_failure(
     )
 
 
+async def test_emit_event_invalid_conversation_id_does_not_raise(
+    eidan_db: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A malformed conversation_id string must not raise to the
+    caller — the "telemetry never breaks job execution" invariant
+    covers parsing failures, not just DB failures. Treat as no
+    conversation and emit the row anyway."""
+    import logging
+
+    pool = await create_pool(eidan_db)
+    try:
+        emitter = TelemetryEmitter(
+            pool=pool,
+            identity=_identity("bad-conv-node"),
+            heartbeat_interval_seconds=3600,
+        )
+        await emitter.start()
+        try:
+            with caplog.at_level(
+                logging.ERROR, logger="eidan_backend.telemetry"
+            ):
+                # Not a UUID. Pre-fix this raised ValueError to the caller.
+                await emitter.emit_event(
+                    "test.bad", {"why": "garbage"}, conversation_id="not-a-uuid"
+                )
+
+            # Row landed, with conversation_id NULL.
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT type, conversation_id FROM eidan.node_events "
+                    "WHERE node_id = 'bad-conv-node' AND type = 'test.bad'"
+                )
+            assert row is not None
+            assert row["conversation_id"] is None
+
+            # And the parsing failure was logged.
+            assert any(
+                "invalid conversation_id" in r.message
+                and r.levelno >= logging.ERROR
+                for r in caplog.records
+            )
+        finally:
+            await emitter.stop()
+    finally:
+        await pool.close()
+
+
 def test_node_id_hash_is_stable() -> None:
     """The advisory-lock key for seq allocation must be stable across
     process restarts; we encode the same node_id consistently."""

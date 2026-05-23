@@ -106,15 +106,20 @@ def _detect_heroku() -> NodeIdentity | None:
 
     Dyno hostnames rotate on every restart, so the dyno *name* (the
     DYNO env var) is the stable-ish identifier. Heroku's app name
-    isn't injected as an env var by default; operators who want it
-    set ``EIDAN_NODE_METADATA_HEROKU_APP=<app>`` (or override
-    ``EIDAN_NODE_ID`` outright).
+    isn't injected as an env var by default; set
+    ``EIDAN_NODE_METADATA_HEROKU_APP=<app>`` in the dyno's config
+    vars to surface it in the heartbeat metadata (or override
+    ``EIDAN_NODE_ID`` outright if you want both the id and the app
+    label to come from the same place).
     """
     dyno = os.environ.get("DYNO")
     if not dyno:
         return None
     metadata = _base_metadata()
     metadata["heroku_dyno"] = dyno
+    heroku_app = os.environ.get("EIDAN_NODE_METADATA_HEROKU_APP")
+    if heroku_app:
+        metadata["heroku_app"] = heroku_app
     return NodeIdentity(
         node_id=f"heroku-{dyno}",
         node_type="heroku",
@@ -182,10 +187,14 @@ def detect() -> NodeIdentity:
     detector still fills in ``node_type`` + metadata from the
     platform fingerprint. ``EIDAN_NODE_TYPE`` lets the operator
     override the auto-detected label (e.g. running on a fly machine
-    but treating it as 'pi' for grouping). Unknown types fall back
-    to 'local' with a structured logger warning at caller-side; we
-    don't raise here because identity detection is on the boot hot
-    path and a typo in ``EIDAN_NODE_TYPE`` should not block start.
+    but treating it as 'pi' for grouping). An ``EIDAN_NODE_TYPE``
+    value outside the allow-list (typo, unsupported platform) is
+    silently ignored — we fall back to the auto-detected type so the
+    CHECK constraint on ``node_heartbeats.node_type`` never fires.
+    Identity detection sits on the boot hot path; a typo in env
+    must not block start, and adding a logger call here would
+    require importing logging before the rest of bootstrap is
+    wired.
     """
     # Run a detector chain. The first hit wins; absent any hit,
     # _detect_local() always succeeds.

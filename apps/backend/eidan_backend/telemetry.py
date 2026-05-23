@@ -223,7 +223,24 @@ class TelemetryEmitter:
         and lets you drill into the payload on demand.
         """
         payload = payload or {}
-        conv_id = self._coerce_uuid(conversation_id)
+        # Coerce inside the swallow boundary — an invalid UUID string
+        # would otherwise raise to the caller and break the "telemetry
+        # never crashes the loop" invariant. Treat malformed input as
+        # "no conversation" and keep emitting.
+        try:
+            conv_id = self._coerce_uuid(conversation_id)
+        except (ValueError, TypeError):
+            logger.exception(
+                "telemetry: invalid conversation_id for %s — dropping link",
+                event_type,
+                extra={
+                    "event": "telemetry.invalid_conversation_id",
+                    "type": event_type,
+                    "node_id": self._identity.node_id,
+                    "raw_value": repr(conversation_id),
+                },
+            )
+            conv_id = None
 
         # Mirror to stdout logs first — even if the DB write fails,
         # the line shows up in journalctl / fly logs.

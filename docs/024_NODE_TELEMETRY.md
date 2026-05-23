@@ -324,7 +324,7 @@ uv add logtail-python
 ```
 
 ```python
-# /opt/eidan/site-customise.py — or any module imported before the server starts
+# /opt/eidan/site_customise.py — or any module imported before the server starts
 import logging
 import os
 from logtail import LogtailHandler
@@ -336,7 +336,7 @@ if token:
     logging.getLogger().addHandler(handler)
 ```
 
-Hook it into the process via `PYTHONSTARTUP=/opt/eidan/site-customise.py`
+Hook it into the process via `PYTHONSTARTUP=/opt/eidan/site_customise.py`
 or a tiny wrapper that imports it before invoking the CLI. Every
 `telemetry.*` event then lands in BetterStack with the
 `event=node.boot node_id=... payload={...}` fields preserved as
