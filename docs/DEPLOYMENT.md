@@ -873,27 +873,33 @@ Quick BetterStack shape:
 
 ```bash
 sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan add logtail-python
+sudo mkdir -p /opt/eidan/forwarders && sudo chown eidan:eidan /opt/eidan/forwarders
+```
+
+Drop the handler into `/opt/eidan/forwarders/sitecustomize.py`:
+
+```python
+import logging, os
+
+token = os.environ.get("EIDAN_LOGTAIL_TOKEN")
+if token:
+    from logtail import LogtailHandler
+    logging.getLogger().addHandler(LogtailHandler(source_token=token))
 ```
 
 Then in `/etc/eidan/eidan.env`:
 
 ```ini
 EIDAN_LOGTAIL_TOKEN=<your-source-token>
-PYTHONSTARTUP=/opt/eidan/site_customise.py
+PYTHONPATH=/opt/eidan/forwarders
 ```
 
-And `/opt/eidan/site_customise.py`:
+Python auto-imports any `sitecustomize` module on `sys.path` at
+interpreter startup — for **every** interpreter, interactive or
+not. (`PYTHONSTARTUP` only fires for interactive sessions, so
+it's useless for a deployed server. Don't use it.)
 
-```python
-import logging, os
-from logtail import LogtailHandler
-
-token = os.environ.get("EIDAN_LOGTAIL_TOKEN")
-if token:
-    logging.getLogger().addHandler(LogtailHandler(source_token=token))
-```
-
-The handler runs once at interpreter startup; every `telemetry.*`
+Restart the unit and the handler runs once at interpreter startup; every `telemetry.*`
 event lands in BetterStack with the `event=` / `node_id=` /
 `payload=` fields preserved as searchable attributes. Same shape
 works for Loki (file handler scraped by Promtail) or Datadog (the

@@ -223,6 +223,26 @@ async def test_emit_event_swallows_db_failure(
     )
 
 
+async def test_start_raises_on_eager_heartbeat_failure(eidan_db: str) -> None:
+    """The eager first heartbeat is **strict**: if it fails, start()
+    raises so the boot caller can disable telemetry rather than
+    enter a silent-FK-failure state. The background-loop refreshes
+    keep swallowing (see test_emit_event_swallows_db_failure for
+    the swallow contract on the other side)."""
+    pool = await create_pool(eidan_db)
+    await pool.close()  # close before start() to force the eager beat to fail
+
+    emitter = TelemetryEmitter(
+        pool=pool,
+        identity=_identity("dead-on-arrival"),
+        heartbeat_interval_seconds=3600,
+    )
+    with pytest.raises(Exception):  # noqa: B017 — any DB-side error counts
+        await emitter.start()
+    # No background task should have been scheduled.
+    assert emitter._task is None
+
+
 async def test_emit_event_invalid_conversation_id_does_not_raise(
     eidan_db: str,
     caplog: pytest.LogCaptureFixture,

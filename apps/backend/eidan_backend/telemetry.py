@@ -118,10 +118,19 @@ class TelemetryEmitter:
         ``node_heartbeats`` row exists by the time the first event
         write fires. The event table's FK to ``node_heartbeats``
         would otherwise raise 23503 on the first emission of a
-        fresh process. potem's flyHeartbeat does the same; the Pi
-        emitter, which doesn't have an FK, doesn't bother.
+        fresh process.
+
+        The eager heartbeat is **strict** — it does NOT swallow the
+        underlying DB error. The boot caller (:func:`bootstrap`)
+        wraps :meth:`start` in try/except so a hard failure here
+        (table missing, DB unreachable, RLS misconfiguration) means
+        "telemetry disabled this boot" rather than "boot fails".
+        The background loop, in contrast, swallows so a transient
+        DB blip mid-run doesn't kill the heartbeat task. potem's
+        ``flyHeartbeat.ts`` makes the same split (loud at startup,
+        quiet during refresh).
         """
-        await self._upsert_heartbeat()
+        await self._upsert_heartbeat_strict()
         self._task = asyncio.create_task(
             self._run_loop(), name="eidan-telemetry-heartbeat"
         )
@@ -174,24 +183,40 @@ class TelemetryEmitter:
                 pass
             await self._upsert_heartbeat()
 
+    async def _upsert_heartbeat_strict(self) -> None:
+        """Write one heartbeat row. Raises on failure.
+
+        Used by :meth:`start` so the boot caller can see "telemetry
+        is wired correctly" vs "this node is going to silently
+        FK-fail every event for the rest of its lifetime".
+        """
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO eidan.node_heartbeats
+                  (node_id, node_type, status, last_seen, metadata)
+                VALUES ($1, $2, 'online', NOW(), $3::jsonb)
+                ON CONFLICT (node_id) DO UPDATE
+                  SET status    = 'online',
+                      last_seen = NOW(),
+                      metadata  = EXCLUDED.metadata,
+                      node_type = EXCLUDED.node_type
+                """,
+                self._identity.node_id,
+                self._identity.node_type,
+                json.dumps(self._identity.metadata),
+            )
+
     async def _upsert_heartbeat(self) -> None:
+        """Background-loop refresh. Swallows DB failures.
+
+        A transient blip mid-run must not crash the heartbeat task;
+        the next interval retries. Use
+        :meth:`_upsert_heartbeat_strict` from :meth:`start` if you
+        want the boot path to see the failure.
+        """
         try:
-            async with self._pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO eidan.node_heartbeats
-                      (node_id, node_type, status, last_seen, metadata)
-                    VALUES ($1, $2, 'online', NOW(), $3::jsonb)
-                    ON CONFLICT (node_id) DO UPDATE
-                      SET status    = 'online',
-                          last_seen = NOW(),
-                          metadata  = EXCLUDED.metadata,
-                          node_type = EXCLUDED.node_type
-                    """,
-                    self._identity.node_id,
-                    self._identity.node_type,
-                    json.dumps(self._identity.metadata),
-                )
+            await self._upsert_heartbeat_strict()
         except Exception:  # noqa: BLE001 — telemetry must never crash the loop
             logger.exception(
                 "telemetry: heartbeat upsert failed — will retry in %ds",

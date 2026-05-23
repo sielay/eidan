@@ -1335,7 +1335,7 @@ async def list_nodes_endpoint(request: Request) -> dict[str, Any]:
                 "status": r["status"],
                 "last_seen": r["last_seen"].isoformat(),
                 "seconds_since": r["seconds_since"],
-                "metadata": _coerce_jsonb(r["metadata"]),
+                "metadata": decode_jsonb(r["metadata"]),
                 "created_at": r["created_at"].isoformat(),
                 "updated_at": r["updated_at"].isoformat(),
             }
@@ -1432,7 +1432,7 @@ async def list_node_events_endpoint(
                 "seq": r["seq"],
                 "ts": r["ts"].isoformat(),
                 "type": r["type"],
-                "payload": _coerce_jsonb(r["payload"]),
+                "payload": decode_jsonb(r["payload"]),
                 "conversation_id": (
                     str(r["conversation_id"])
                     if r["conversation_id"] is not None
@@ -1442,12 +1442,3 @@ async def list_node_events_endpoint(
             for r in rows
         ],
     }
-
-
-def _coerce_jsonb(value: Any) -> Any:
-    """asyncpg returns jsonb as a JSON-decoded str on some versions, a
-    dict on others. Hand a dict back either way so the FastAPI
-    serialiser doesn't double-encode."""
-    if isinstance(value, str):
-        return json.loads(value)
-    return value

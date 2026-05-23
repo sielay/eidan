@@ -415,9 +415,14 @@ async def bootstrap(
         node_identity.node_type,
     )
 
-    # Start the per-node telemetry emitter. The eager first heartbeat
-    # has to succeed before any event_emit can land (FK constraint),
-    # so this runs *before* the boot/plugin.activate events below.
+    # Start the per-node telemetry emitter. ``start()`` performs the
+    # eager first heartbeat *strictly* — if it fails (table missing,
+    # DB unreachable, RLS misconfiguration), the exception surfaces
+    # here and we disable telemetry for this boot rather than fall
+    # through into milestone emits that would silently FK-fail
+    # (eidan.node_events.node_id references eidan.node_heartbeats).
+    # The background loop inside start() keeps swallowing so a
+    # transient blip later doesn't kill the heartbeat task.
     telemetry: TelemetryEmitter | None = None
     if start_telemetry:
         telemetry = TelemetryEmitter(pool=pool, identity=node_identity)

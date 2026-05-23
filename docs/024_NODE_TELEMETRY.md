@@ -317,42 +317,114 @@ add them to your bootstrap shell (Pi systemd ExecStartPre, Fly
 custom entrypoint, k8s init container, …) before `eidan admin
 server` starts.
 
+### 6.0 The hook point: `sitecustomize.py` on `PYTHONPATH`
+
+Python imports a module named `sitecustomize` automatically at
+interpreter startup if one is found on `sys.path` — for **every**
+interpreter, interactive or not. (`PYTHONSTARTUP` does the same
+but **only for interactive sessions**, so it's useless for a
+deployed server. Don't use it.)
+
+Drop a `sitecustomize.py` next to the server and prepend its
+directory to `PYTHONPATH` in the systemd unit / Fly Dockerfile /
+k8s pod spec. The handler attachment runs before `eidan admin
+server` imports anything telemetry-related, so every subsequent
+log record (including the early bootstrap lines) is forwarded.
+
+A standalone directory keeps the file off `sys.path` until the
+operator opts in:
+
+```bash
+sudo mkdir -p /opt/eidan/forwarders
+# write the handler module next (see §6.1+)
+sudo chown -R eidan:eidan /opt/eidan/forwarders
+```
+
+Then in `/etc/eidan/eidan.env`:
+
+```ini
+PYTHONPATH=/opt/eidan/forwarders
+```
+
+(Or amend the systemd unit's `Environment=PYTHONPATH=...` line
+directly. The env-file route survives `git pull` on `/opt/eidan`.)
+
+Confirm the hook fires once with `python -c 'import sitecustomize'`
+under the same env — no error means Python found and ran your
+module.
+
 ### 6.1 BetterStack (Logtail)
 
 ```bash
-uv add logtail-python
+sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan add logtail-python
 ```
 
+`/opt/eidan/forwarders/sitecustomize.py`:
+
 ```python
-# /opt/eidan/site_customise.py — or any module imported before the server starts
 import logging
 import os
-from logtail import LogtailHandler
 
 token = os.environ.get("EIDAN_LOGTAIL_TOKEN")
 if token:
+    from logtail import LogtailHandler
     handler = LogtailHandler(source_token=token)
     handler.setLevel(logging.INFO)
     logging.getLogger().addHandler(handler)
 ```
 
-Hook it into the process via `PYTHONSTARTUP=/opt/eidan/site_customise.py`
-or a tiny wrapper that imports it before invoking the CLI. Every
-`telemetry.*` event then lands in BetterStack with the
+Then in `/etc/eidan/eidan.env`:
+
+```ini
+PYTHONPATH=/opt/eidan/forwarders
+EIDAN_LOGTAIL_TOKEN=<your-source-token>
+```
+
+Every `telemetry.*` event then lands in BetterStack with the
 `event=node.boot node_id=... payload={...}` fields preserved as
-top-level attributes (Logtail parses `extra=`).
+top-level attributes (Logtail parses `extra=` fields off the
+LogRecord).
 
 ### 6.2 Loki (via Promtail-on-host)
 
-The simplest shape: write a logrotate-friendly file handler in
-the bootstrap shell, point Promtail at it:
+The simplest shape: write a logrotate-friendly file handler from
+the same `sitecustomize.py` slot, point Promtail at it. The
+telemetry emitter passes its fields via `extra=`, so they land
+on the LogRecord as direct attributes (`record.event`,
+`record.node_id`, `record.payload`, `record.conversation_id`) —
+not under an `extra` key. The format string lists them
+explicitly:
 
 ```python
+# /opt/eidan/forwarders/sitecustomize.py
+import logging
+
+class TelemetryJsonFormatter(logging.Formatter):
+    """Emit one JSON object per record, picking out the fields the
+    eidan telemetry emitter sets via `extra=` plus the stdlib
+    LogRecord essentials. A bare %(extra)s wouldn't work — stdlib
+    `logging` has no `extra` attribute; `extra=` kwargs are
+    flattened onto the record's __dict__."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        import json
+        payload = {
+            "ts": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            # telemetry-specific extras (None when the record came
+            # from another module that didn't set them).
+            "event": getattr(record, "event", None),
+            "node_id": getattr(record, "node_id", None),
+            "node_type": getattr(record, "node_type", None),
+            "conversation_id": getattr(record, "conversation_id", None),
+            "telemetry_payload": getattr(record, "payload", None),
+        }
+        return json.dumps({k: v for k, v in payload.items() if v is not None})
+
 fh = logging.FileHandler("/var/log/eidan/events.jsonl")
-fh.setFormatter(logging.Formatter(
-    '{"ts":"%(asctime)s","level":"%(levelname)s",'
-    '"logger":"%(name)s","message":%(message)r,"extra":%(extra)s}'
-))
+fh.setFormatter(TelemetryJsonFormatter())
 logging.getLogger().addHandler(fh)
 ```
 
@@ -362,9 +434,10 @@ JSONL on disk is the contract.
 
 ### 6.3 Datadog
 
-`pip install datadog` then attach a `DatadogLogsHandler` to the
-root logger in the same site-customise pattern as §6.1, with
-`DD_API_KEY` from the env.
+`uv add datadog` then attach a `DatadogLogsHandler` to the root
+logger in the same `sitecustomize.py` slot as §6.1, with
+`DD_API_KEY` from the env. Datadog's handler uses the same
+`record.__dict__` attribute lookup pattern as Logtail.
 
 ### 6.4 Why not bake it in?
 
