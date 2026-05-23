@@ -23,6 +23,22 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         make \
     && rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI — required by the gh / git plugins shipped in the
+# coding bundle (and useful for ad-hoc operator work). Pulled from
+# GitHub's official apt source rather than the base image's repos
+# so the version stays current. The keyring is dropped into
+# /usr/share/keyrings so the source-list entry can pin signing to
+# it (modern Debian dispensation; no /etc/apt/trusted.gpg.d
+# wildcarding).
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | tee /usr/share/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
 # uv: workspace + venv manager. Copy the prebuilt binaries from the
 # official image rather than running the installer script — pinning
 # is explicit and the layer is small.

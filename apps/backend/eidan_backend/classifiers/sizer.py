@@ -18,15 +18,13 @@ _SIZER_MODEL = "claude-haiku-4-5-20251001"
 _ALLOWED_MODELS: tuple[str, ...] = (
     "claude-haiku-4-5-20251001",
     "claude-sonnet-4-6",
-    "claude-opus-4-7",
 )
 
 _SIZER_SYSTEM = (
     "Pick a model class for the primary call. Reply with ONLY one of "
     "the exact strings below — no prose, no code fences:\n\n"
-    "claude-haiku-4-5-20251001  — chitchat or trivial questions\n"
-    "claude-sonnet-4-6          — typical questions and commands\n"
-    "claude-opus-4-7            — complex reasoning, multi-step tasks, "
+    "claude-haiku-4-5-20251001  — most questions and commands\n"
+    "claude-sonnet-4-6          — complex reasoning, multi-step tasks, "
     "or high-urgency / high-sensitivity work"
 )
 
@@ -48,6 +46,9 @@ async def pick_model(
     ``system_prefix`` is the per-turn TZ header (issue #51) the loop
     prepends so every provider call within a turn shares the same
     clock.
+
+    If user explicitly requests Opus (e.g. "use opus", "opus model"),
+    escalate to it regardless of sizer assessment.
     """
     skills_hint = ", ".join(scope.skills) if scope.skills else "(none)"
     user_block = (
@@ -67,4 +68,10 @@ async def pick_model(
 
     text = "".join(chunks).strip()
     match = next((m for m in _ALLOWED_MODELS if m in text), None)
+
+    # Override to Opus if user explicitly requests it
+    user_text_lower = user_text.lower()
+    if any(phrase in user_text_lower for phrase in ("use opus", "opus model", "claude opus", "claude-opus")):
+        match = "claude-opus-4-7"
+
     return SizerResult(model=match), call

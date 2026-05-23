@@ -23,7 +23,9 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ..:/workspaces/eidan:cached
+      # See docker-compose.yml — parent mount lets plugin symlinks
+      # into sibling bundle repos resolve inside the container.
+      - ../..:/workspaces:cached
     command: sleep infinity
     environment:
       # In-container DATABASE_URL — points at the `db` sidecar.
