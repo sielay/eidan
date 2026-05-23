@@ -1,4 +1,13 @@
+# syntax=docker/dockerfile:1.7
 # Tracked, generic Fly.io image for the eidan backend.
+#
+# The `# syntax=` directive above pins the Dockerfile frontend so
+# the BuildKit-only features below (`RUN --mount=type=secret`,
+# `RUN --mount=type=cache`) work even on hosts whose default
+# frontend predates them. Fly's remote builder already runs
+# BuildKit; local `docker build` invocations need
+# `DOCKER_BUILDKIT=1` (Docker Desktop / engines from the last few
+# years enable it by default).
 #
 # An operator deploys from a vanilla clone of upstream eidan — no
 # files are edited, no fork is required. Per-deploy choices come in
@@ -40,7 +49,8 @@ FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    UV_CACHE_DIR=/tmp/uv-cache
+    UV_CACHE_DIR=/root/.cache/uv \
+    UV_LINK_MODE=copy
 
 # git is needed at install time for the gh: bundle source path;
 # keeping it in the final image is fine — bundle re-installs at
@@ -61,7 +71,13 @@ COPY plugins ./plugins
 COPY packages ./packages
 COPY migrations ./migrations
 
-RUN uv sync --frozen --no-dev
+# BuildKit cache mount keeps the uv wheel/sdist cache OUT of the
+# image — without it, every cached artefact lands in the final
+# layer and bloats the image. `UV_LINK_MODE=copy` (set above)
+# avoids the cross-filesystem hardlink warning since the cache and
+# the install target live on different mounts.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 # Optional bundle install. No-op when EIDAN_BUNDLES is empty (the
 # default), so a core-only build behaves exactly like the historical
@@ -73,6 +89,7 @@ RUN uv sync --frozen --no-dev
 ARG EIDAN_BUNDLES=""
 ARG EIDAN_PLUGIN_SOURCE=""
 RUN --mount=type=secret,id=github_token,required=false \
+    --mount=type=cache,target=/root/.cache/uv \
     set -eu; \
     if [ -n "$EIDAN_BUNDLES" ]; then \
         if [ -z "$EIDAN_PLUGIN_SOURCE" ]; then \
