@@ -25,7 +25,27 @@ import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = _REPO_ROOT / "migrations" / "alembic.ini"
-PLUGINS_DIR = _REPO_ROOT / "plugins"
+
+
+def _resolve_plugins_dir() -> Path:
+    """Pick where ``eidan plugin install/list/remove`` reads & writes.
+
+    Honours ``EIDAN_PLUGINS_DIR`` so a baked image (Fly, k8s, …) can
+    target a mounted volume rather than the in-image ``./plugins/``.
+    The runtime host applies the same precedence in
+    ``eidan_backend.http.app._resolve_plugins_dir``, so install +
+    runtime read from the same directory.
+
+    Tests monkeypatch :data:`PLUGINS_DIR` directly and don't care
+    about the env, so the env lookup happens once at import time.
+    """
+    env_value = os.environ.get("EIDAN_PLUGINS_DIR", "").strip()
+    if env_value:
+        return Path(env_value).expanduser()
+    return _REPO_ROOT / "plugins"
+
+
+PLUGINS_DIR = _resolve_plugins_dir()
 
 
 def _need_database_url() -> str:
