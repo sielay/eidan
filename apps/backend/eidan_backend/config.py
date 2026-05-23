@@ -113,14 +113,16 @@ class BackendSettings(BaseSettings):
         ),
     )
     default_model: str = Field(
-        "claude-opus-4-7",
+        "claude-haiku-4-5-20251001",
         validation_alias="EIDAN_DEFAULT_MODEL",
         description=(
             "Model name the host passes to the provider on every "
-            "call when no per-route override is set. Must be a "
-            "model the configured provider can actually serve "
-            "(e.g. `phi3` when `EIDAN_PROVIDER=ollama` and you've "
-            "`ollama pull phi3`'d it)."
+            "call when no per-route override is set. Defaults to "
+            "Haiku — the cheapest Anthropic tier — so an operator "
+            "who boots without setting EIDAN_DEFAULT_MODEL doesn't "
+            "get billed at Opus rates by accident. Override per "
+            "node: `phi3` on Ollama, `claude-sonnet-4-6` for a "
+            "stronger foreground agent on Fly, etc."
         ),
     )
 

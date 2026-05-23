@@ -21,13 +21,16 @@ def _set_minimum_env(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_default_model_defaults_to_claude_opus_when_env_unset(
+def test_default_model_defaults_to_haiku_when_env_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Haiku is the safe default: cheapest Anthropic tier, so an
+    operator who boots without configuring EIDAN_DEFAULT_MODEL
+    doesn't get billed at Opus rates by accident."""
     _set_minimum_env(monkeypatch)
     monkeypatch.delenv("EIDAN_DEFAULT_MODEL", raising=False)
     settings = BackendSettings()
-    assert settings.default_model == "claude-opus-4-7"
+    assert settings.default_model == "claude-haiku-4-5-20251001"
 
 
 def test_default_model_reads_eidan_default_model_env(

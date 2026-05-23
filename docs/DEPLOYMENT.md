@@ -318,16 +318,33 @@ If you want a web UI, follow §8. The Vercel project's
 reachable — directly via a public DNS record + reverse proxy, or
 indirectly via Tailscale / Cloudflare Tunnel / WireGuard.
 
-### 3.10 Confirming Sentry is enabled
+### 3.10 Sentry status (Phase 1: deterministic only)
 
 Sentry is a `tier: core` plugin and is enabled by default
-(`EIDAN_SENTRY_ENABLED=1`). Phase 1 ships **deterministic
-detectors** — overdue commitments, long-silence gaps, accumulating
-note shelves. The Phi-3 / Ollama open-ended pattern matcher lands
-with the local-model adapter; until then your `EIDAN_SENTRY_MODEL`
-value sits unused but configured.
+(`EIDAN_SENTRY_ENABLED=1`). **Important caveat: Phase 1 ships
+deterministic detectors only** — overdue commitments, long-silence
+gaps, scope-drift checks. Three hand-coded SQL/threshold checks
+run on the `PT5M` schedule and write rows to
+`plugin_sentry.escalations` / `plugin_sentry.nudges`. **No LLM
+call yet.**
 
-Confirm in the journal that the tick fires every 5 minutes:
+The Phi-3 / Ollama open-ended pattern matcher described in
+[SENTRY_FEATURE_SPEC.md](./SENTRY_FEATURE_SPEC.md) lands with the
+local-model adapter — see the stubs in
+`plugins/sentry/eidan_sentry/plugin.py` and `patterns.py`. Until
+then, `EIDAN_SENTRY_MODEL=phi3` is a configured-but-unused slot:
+the env var exists so the wiring lands cleanly when the adapter
+ships, but **setting it today does not make Sentry call phi3.**
+
+Concretely on this Pi:
+
+- The foreground agent (your CLI / chat turns) **does** call phi3
+  via Ollama — that's `EIDAN_PROVIDER=ollama` +
+  `EIDAN_DEFAULT_MODEL=phi3`.
+- The Sentry tick runs the three deterministic detectors and does
+  **not** call phi3 (or any LLM) today.
+
+Confirm the tick is firing:
 
 ```bash
 journalctl -u eidan-backend | grep sentry
@@ -456,7 +473,7 @@ fly secrets set --app eidan-api \
   EIDAN_AUTH_MASTER_KEY="<recorded-offline>" \
   EIDAN_AUTH_ALLOWED_EMAIL="you@yourdomain.com" \
   EIDAN_PROVIDER="anthropic" \
-  EIDAN_DEFAULT_MODEL="claude-opus-4-7" \
+  EIDAN_DEFAULT_MODEL="claude-sonnet-4-6" \
   ANTHROPIC_API_KEY="sk-ant-..." \
   EIDAN_SENTRY_ENABLED="0" \
   EIDAN_SMTP_HOST="smtp.fastmail.com" \
