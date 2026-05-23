@@ -308,6 +308,36 @@ you need (e.g. reading the literal contents of a markdown spec).
   staged. Do not pass `--no-verify` to bypass them; fix the source
   instead.
 
+## Commit hygiene
+
+**Never commit, stage with intent to commit, push, or open a PR
+without explicit operator confirmation in the current turn.** This
+repo is the AGPL public core; anything committed here is one merge
+away from the public mirror (`docs/016_REPO_SANITISATION.md`).
+Bundle-private code, scratchpads, half-formed designs, draft
+specs, and operator-internal notes belong in sibling repos or in
+gitignored files — never in core history.
+
+Specifically:
+
+- Default to "don't commit" unless the operator's current-turn
+  message explicitly asks for it ("commit this", "open a PR",
+  "push"). A prior turn's authorisation does NOT carry forward.
+- Edits to tracked files are fine without confirmation; the
+  confirmation gate is the `git commit` / `git push` /
+  `gh pr create` boundary.
+- Scratchpads, plans, and working notes go in gitignored paths
+  (e.g. `plugins/_BUILD_PLAN.md`, the `/plugins/*` allowlist in
+  `.gitignore`). Don't promote them to tracked files
+  speculatively.
+- If a commit looks justified but the operator hasn't asked, stop
+  and ask — list the staged files and the proposed message, and
+  wait. Same rule for PRs.
+- This rule is stricter than the agent's default "ask before
+  destructive operations" because a single commit to the wrong
+  repo can leak canary / paid-bundle material to the public
+  mirror. Treat every `git commit` here as load-bearing.
+
 ## Release shape
 
 Public mirror is a **flat commit per tagged release** — this repo's
