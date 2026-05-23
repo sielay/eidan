@@ -69,7 +69,10 @@ def _resolve_plugins_dir(app_state_value: object | None) -> Path:
         return Path(str(app_state_value))
     env_value = os.environ.get("EIDAN_PLUGINS_DIR", "").strip()
     if env_value:
-        return Path(env_value)
+        # Mirror the CLI's expansion (apps/cli/eidan_cli/admin.py) so
+        # ``EIDAN_PLUGINS_DIR=~/eidan-plugins`` resolves the same in
+        # both processes — otherwise install + runtime drift.
+        return Path(env_value).expanduser()
     return _DEFAULT_PLUGINS_DIR
 
 

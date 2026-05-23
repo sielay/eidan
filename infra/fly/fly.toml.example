@@ -49,5 +49,5 @@ primary_region = "lhr"          # change me to your nearest Fly region
   # in-image `/app/plugins` baked at build time. Set this to a
   # writable mount (e.g. `/var/lib/eidan/plugins`) to swap bundles
   # without rebuilding the image — currently roadmap, see
-  # docs/ROADMAP.md.
+  # ROADMAP.md (repo root).
   # EIDAN_PLUGINS_DIR     = "/var/lib/eidan/plugins"

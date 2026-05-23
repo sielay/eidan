@@ -540,13 +540,20 @@ private-org flow. The token is mounted via
 `--build-secret` so it never lands in an image layer:
 
 ```bash
-echo -n "$YOUR_GITHUB_PAT" > ~/.eidan/github-token   # 0600, root-readable
+mkdir -p ~/.eidan
+install -m 0600 /dev/null ~/.eidan/github-token       # 0600 before any byte lands
+printf '%s' "$YOUR_GITHUB_PAT" > ~/.eidan/github-token
 fly deploy -c ~/ops/eidan-fly.toml \
   --dockerfile infra/fly/Dockerfile \
   --build-arg EIDAN_BUNDLES=eidan-pro,eidan-lifestyle \
   --build-arg EIDAN_PLUGIN_SOURCE=gh:sielay \
   --build-secret id=github_token,src=$HOME/.eidan/github-token
 ```
+
+(`install -m 0600 /dev/null ...` creates the file with mode `0600`
+*before* the PAT is written, so the token never exists on disk in a
+world-readable state — a plain `echo > file` honours the shell's
+umask and may leave the file readable to other local users.)
 
 (Swapping bundles without rebuilding the image requires runtime
 plugin install to a Fly volume — currently roadmap, see
@@ -579,12 +586,16 @@ Follow §8. `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.yourdomain.com`.
 
 This repo intentionally does **not** carry a `.github/workflows/`
 deploy entry — the public mirror should not ship CI that talks to
-someone else's Fly account. Run CI from your own ops repo or from
-a private fork of just the workflow. A minimal job (paste into
-`.github/workflows/deploy-api.yml` of your ops repo, with this
-repo added as a submodule or a checkout step) looks like:
+someone else's Fly account. Run CI from your own ops repo. A
+minimal job that lives in **your ops repo** (which holds your
+`fly.toml`) and pulls upstream eidan into a subdirectory looks
+like:
 
 ```yaml
+# .github/workflows/deploy-api.yml in YOUR ops repo.
+# Repo layout assumed:
+#   ./fly.toml        ← your copy of fly.toml.example, edited
+#   ./eidan/          ← upstream sielay/eidan, checked out below
 name: Deploy API
 on: { push: { branches: [main] } }
 jobs:
@@ -592,18 +603,26 @@ jobs:
     runs-on: ubuntu-latest
     concurrency: { group: fly-deploy, cancel-in-progress: false }
     steps:
-      - uses: actions/checkout@v4
-        with: { repository: sielay/eidan, ref: v0.1.0 }
+      - uses: actions/checkout@v4        # your ops repo (holds fly.toml)
+      - uses: actions/checkout@v4        # upstream eidan into ./eidan
+        with:
+          repository: sielay/eidan
+          ref: v0.1.0
+          path: eidan
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: |
           flyctl deploy --remote-only \
-            -c $GITHUB_WORKSPACE/../fly.toml \
-            --dockerfile infra/fly/Dockerfile
+            -c "$GITHUB_WORKSPACE/fly.toml" \
+            --dockerfile eidan/infra/fly/Dockerfile \
+            eidan
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 ```
 
-Generate the token with `fly tokens create deploy`.
+The trailing `eidan` positional arg tells `flyctl deploy` to use
+that directory as the build context — the Dockerfile's `COPY`
+lines resolve against it. Generate the token with
+`fly tokens create deploy`.
 
 ---
 

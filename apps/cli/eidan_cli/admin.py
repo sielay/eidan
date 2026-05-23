@@ -36,8 +36,12 @@ def _resolve_plugins_dir() -> Path:
     ``eidan_backend.http.app._resolve_plugins_dir``, so install +
     runtime read from the same directory.
 
-    Tests monkeypatch :data:`PLUGINS_DIR` directly and don't care
-    about the env, so the env lookup happens once at import time.
+    The env lookup happens once at import time so the CLI's command
+    handlers can keep referring to :data:`PLUGINS_DIR` as a constant.
+    Command-level tests monkeypatch :data:`PLUGINS_DIR` directly to
+    redirect writes; the resolver itself is covered by
+    ``apps/cli/tests/test_plugins_dir_env.py``, which invokes this
+    function after setting the env.
     """
     env_value = os.environ.get("EIDAN_PLUGINS_DIR", "").strip()
     if env_value:
