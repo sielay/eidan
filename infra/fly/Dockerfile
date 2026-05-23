@@ -88,6 +88,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # operator's explicit `eidan admin db migrate` cover migration).
 ARG EIDAN_BUNDLES=""
 ARG EIDAN_PLUGIN_SOURCE=""
+# The github_token build secret is mounted optionally so that the
+# common `local:<path>` source (no PAT needed) and the core-only
+# build (no bundles at all) don't have to pass --build-secret. The
+# `gh:` source path checks for the secret explicitly below and
+# aborts at the boundary if it's missing — otherwise the CLI's
+# clone step would fail deep inside with a less obvious message.
 RUN --mount=type=secret,id=github_token,required=false \
     --mount=type=cache,target=/root/.cache/uv \
     set -eu; \
@@ -96,9 +102,21 @@ RUN --mount=type=secret,id=github_token,required=false \
             echo "EIDAN_BUNDLES is set but EIDAN_PLUGIN_SOURCE is empty; see infra/fly/Dockerfile header." >&2; \
             exit 2; \
         fi; \
-        if [ -f /run/secrets/github_token ]; then \
-            export EIDAN_GITHUB_TOKEN="$(cat /run/secrets/github_token)"; \
-        fi; \
+        case "$EIDAN_PLUGIN_SOURCE" in \
+            gh:*) \
+                if [ ! -f /run/secrets/github_token ]; then \
+                    echo "EIDAN_PLUGIN_SOURCE=$EIDAN_PLUGIN_SOURCE requires a github_token build secret." >&2; \
+                    echo "Pass --build-secret id=github_token,src=/path/to/token to fly deploy." >&2; \
+                    exit 2; \
+                fi; \
+                export EIDAN_GITHUB_TOKEN="$(cat /run/secrets/github_token)"; \
+                ;; \
+            local:*) ;; \
+            *) \
+                echo "Unsupported EIDAN_PLUGIN_SOURCE scheme: $EIDAN_PLUGIN_SOURCE (use gh:<org> or local:<path>)." >&2; \
+                exit 2; \
+                ;; \
+        esac; \
         export EIDAN_PLUGIN_INSTALL_NO_MIGRATE=1; \
         export EIDAN_PLUGIN_SOURCE; \
         for bundle in $(echo "$EIDAN_BUNDLES" | tr ',' ' '); do \
