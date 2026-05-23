@@ -45,8 +45,43 @@ logger = logging.getLogger(__name__)
 
 # Default location for plugin discovery. Resolved relative to the repo
 # root: apps/backend/eidan_backend/http/app.py → parents[4] is the repo
-# root, which holds the top-level ``plugins/`` directory.
+# root, which holds the top-level ``plugins/`` directory. Operators
+# running from a baked image (e.g. Fly, k8s) can override with
+# ``EIDAN_PLUGINS_DIR`` so the runtime reads from a writable mount
+# without needing the source tree on disk.
 _DEFAULT_PLUGINS_DIR = Path(__file__).resolve().parents[4] / "plugins"
+
+
+def _resolve_plugins_dir(app_state_value: object | None) -> Path:
+    """Pick the plugin discovery root.
+
+    Precedence:
+
+    1. ``app.state.plugins_dir`` — set explicitly by a caller (tests
+       primarily). Highest priority so a test never reads from a
+       stray operator env.
+    2. ``EIDAN_PLUGINS_DIR`` env — production override. Lets a baked
+       image read plugins from a mounted volume so bundles can be
+       swapped without rebuilding the image.
+    3. ``_DEFAULT_PLUGINS_DIR`` — the in-repo / in-image default.
+    """
+    if app_state_value is not None:
+        # The pre-helper code used a truthiness check
+        # (``if getattr(app.state, "plugins_dir", None)``), so an
+        # explicit ``""`` / whitespace fell through to the default.
+        # Preserve that behaviour: only honour a non-blank value, and
+        # match the env path's ``.expanduser()`` so a caller setting
+        # ``~/...`` does not get a literal tilde.
+        text = str(app_state_value).strip()
+        if text:
+            return Path(text).expanduser()
+    env_value = os.environ.get("EIDAN_PLUGINS_DIR", "").strip()
+    if env_value:
+        # Mirror the CLI's expansion (apps/cli/eidan_cli/admin.py) so
+        # ``EIDAN_PLUGINS_DIR=~/eidan-plugins`` resolves the same in
+        # both processes — otherwise install + runtime drift.
+        return Path(env_value).expanduser()
+    return _DEFAULT_PLUGINS_DIR
 
 
 def create_app(
@@ -119,11 +154,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     pool closes.
     """
     backend: BackendSettings = app.state.backend_settings
-    plugins_dir = Path(
-        app.state.plugins_dir
-        if getattr(app.state, "plugins_dir", None)
-        else _DEFAULT_PLUGINS_DIR
-    )
+    plugins_dir = _resolve_plugins_dir(getattr(app.state, "plugins_dir", None))
 
     pool = await create_pool(backend.database_url)
     app.state.pool = pool

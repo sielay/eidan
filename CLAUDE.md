@@ -308,6 +308,58 @@ you need (e.g. reading the literal contents of a markdown spec).
   staged. Do not pass `--no-verify` to bypass them; fix the source
   instead.
 
+## No-fork policy
+
+**Operators MUST be able to run, deploy, customise, and upgrade
+eidan from a vanilla `git clone` of upstream, without ever
+editing a tracked file in this repo.** A fork is a one-way door
+for an operator — once they fork, every upstream update becomes a
+merge they have to resolve, and any in-fork edits leak to the
+mirror if they ever contribute back.
+
+The bar applies to every operator-facing surface we design:
+deployment recipes, CI templates, plugin install, runtime
+config, dev-loop instructions. If a feature's documented happy
+path is "add this file to the repo" or "edit `pyproject.toml` to
+add your dependency," that's a design failure — back up and find
+a shape that doesn't force the fork.
+
+How this lands in practice:
+
+- **Per-deploy choices come from env vars, secrets, CLI flags,
+  and build args** — not from edits to tracked files. Examples:
+  Fly app name + region live in the operator's own gitignored
+  `fly.toml` (copied once from `infra/fly/fly.toml.example`),
+  paid bundles install via `EIDAN_BUNDLES` + `EIDAN_PLUGIN_SOURCE`
+  build args, plugin discovery root via `EIDAN_PLUGINS_DIR`.
+- **Tracked artefacts ship generic and consumed as-is.** A
+  `Dockerfile` we ship has zero per-operator strings in it. A
+  config we ship is either fully generic or has a `.example`
+  suffix and a copy-first workflow. Operator-private CI lives in
+  the operator's own ops repo, not in `.github/workflows/` of
+  upstream.
+- **Plugins are dropped in, not patched in.** The plugin
+  contract (`docs/001_PLUGINS.md`) and the bundle distribution
+  model (`docs/018_DISTRIBUTION_AND_BUNDLES.md`) mean a plugin's
+  full surface area is its own directory under `plugins/<name>/`.
+  Adding a plugin never requires editing core code.
+- **Runtime extension points before code edits.** If a new
+  capability needs a fixed list (allowed origins, supported
+  providers, registered behaviours), express it as something the
+  operator passes in (env var, plugin manifest, CLI flag) rather
+  than something they append to a tracked source file.
+
+When reviewing or designing a feature, the gut check is: *can a
+single operator-internal change live entirely in (a) the
+operator's environment, (b) the operator's own ops/bundle repo,
+or (c) a gitignored config — without touching this repo's git
+history?* If the answer is no, the design needs another pass.
+
+This rule is parallel to **Commit hygiene** below: that one
+keeps operator-internal junk OUT of the public mirror; this one
+keeps the public mirror designed so operators never need to put
+their junk in.
+
 ## Commit hygiene
 
 **Never commit, stage with intent to commit, push, or open a PR

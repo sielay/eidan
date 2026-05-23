@@ -1,0 +1,53 @@
+# Example Fly.io app config for an eidan backend.
+#
+# This file is shipped as an EXAMPLE on purpose: you copy it once into
+# a path you manage yourself (your own ops repo, or just a gitignored
+# `fly.toml` somewhere on your laptop) and point `fly deploy -c` at
+# your copy. Upstream eidan never carries your `app = ...` value or
+# domain, so a `git pull` from upstream can never disturb your deploy.
+#
+# Workflow (full recipe in docs/DEPLOYMENT.md §4):
+#
+#   1. cp infra/fly/fly.toml.example ~/ops/eidan/fly.toml
+#   2. Edit `app`, `primary_region`, `EIDAN_HTTP_CORS_ORIGINS`.
+#   3. Set secrets (NEVER in this file): `fly secrets set --app <app> ...`.
+#   4. fly deploy -c ~/ops/eidan/fly.toml \
+#        --dockerfile infra/fly/Dockerfile \
+#        --build-arg EIDAN_BUNDLES=...  (optional)
+#
+# Only non-secret runtime config belongs in [env]. Secrets live in
+# `fly secrets set` and are surfaced to the process as env vars at
+# runtime.
+
+app            = "eidan-api"   # change me
+primary_region = "lhr"          # change me to your nearest Fly region
+
+[build]
+  dockerfile = "infra/fly/Dockerfile"
+
+[http_service]
+  internal_port        = 8000
+  force_https          = true
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type       = "requests"
+    soft_limit = 25
+    hard_limit = 50
+
+[env]
+  # Non-secret runtime config only. Everything else goes via
+  # `fly secrets set` (see docs/DEPLOYMENT.md §4.4 and §6).
+  EIDAN_HTTP_HOST         = "0.0.0.0"
+  EIDAN_DEPLOYMENT_MODE   = "production"
+  # Comma-separated list of origins the Next.js frontend is served
+  # from. Change to your domain.
+  EIDAN_HTTP_CORS_ORIGINS = "https://app.example.com"
+  # Where the backend reads plugins from at boot. Defaults to the
+  # in-image `/app/plugins` baked at build time. Set this to a
+  # writable mount (e.g. `/var/lib/eidan/plugins`) to swap bundles
+  # without rebuilding the image — currently roadmap, see
+  # ROADMAP.md (repo root).
+  # EIDAN_PLUGINS_DIR     = "/var/lib/eidan/plugins"
