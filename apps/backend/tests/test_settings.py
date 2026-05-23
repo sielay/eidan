@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Env-var binding tests for :class:`BackendSettings`.
 
 Most existing tests construct `BackendSettings(**kwargs)` directly to
