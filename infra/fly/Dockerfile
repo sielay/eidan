@@ -22,12 +22,15 @@
 #                        `gh:`. Read at install time via
 #                        `EIDAN_GITHUB_TOKEN` (re-exported below).
 #
-# Typical invocation from a clean checkout:
+# Typical invocation from a clean checkout (run from the eidan
+# checkout root so `--dockerfile infra/fly/Dockerfile` and the
+# COPY lines below both resolve against the same build context):
 #
 #   fly deploy -c $YOUR_FLY_TOML --dockerfile infra/fly/Dockerfile \
 #     --build-arg EIDAN_BUNDLES=eidan-pro,eidan-lifestyle \
 #     --build-arg EIDAN_PLUGIN_SOURCE=gh:sielay \
-#     --build-secret id=github_token,src=$HOME/.eidan/github-token
+#     --build-secret id=github_token,src=$HOME/.eidan/github-token \
+#     .
 #
 # Runtime secrets (DATABASE_URL, EIDAN_AUTH_MASTER_KEY, provider
 # credentials, …) are set via `fly secrets set` and are NOT build
@@ -70,6 +73,7 @@ RUN uv sync --frozen --no-dev
 ARG EIDAN_BUNDLES=""
 ARG EIDAN_PLUGIN_SOURCE=""
 RUN --mount=type=secret,id=github_token,required=false \
+    set -eu; \
     if [ -n "$EIDAN_BUNDLES" ]; then \
         if [ -z "$EIDAN_PLUGIN_SOURCE" ]; then \
             echo "EIDAN_BUNDLES is set but EIDAN_PLUGIN_SOURCE is empty; see infra/fly/Dockerfile header." >&2; \
@@ -81,7 +85,8 @@ RUN --mount=type=secret,id=github_token,required=false \
         export EIDAN_PLUGIN_INSTALL_NO_MIGRATE=1; \
         export EIDAN_PLUGIN_SOURCE; \
         for bundle in $(echo "$EIDAN_BUNDLES" | tr ',' ' '); do \
-            uv run eidan admin plugin install "$bundle" --force; \
+            uv run eidan admin plugin install "$bundle" --force \
+                || { echo "bundle install failed for $bundle; aborting build" >&2; exit 1; }; \
         done; \
     fi
 

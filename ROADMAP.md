@@ -46,7 +46,7 @@ copy `infra/fly/fly.toml.example` somewhere they own, and run
 `fly deploy --dockerfile infra/fly/Dockerfile`. Paid bundles are
 installed **at image-build time** via `EIDAN_BUNDLES` +
 `EIDAN_PLUGIN_SOURCE` build args + a `github_token` build secret,
-which calls the existing `eidan plugin install` CLI inside the
+which calls the existing `eidan admin plugin install` CLI inside the
 build sandbox. The runtime resolves the plugin discovery root
 through `EIDAN_PLUGINS_DIR` (`apps/backend/eidan_backend/http/app.py`,
 `apps/cli/eidan_cli/admin.py`), so a baked image can point at a

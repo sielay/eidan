@@ -522,10 +522,14 @@ with a local provider — out of scope for this recipe.
 ### 4.5 Deploy + custom domain
 
 Core-only deploy from a vanilla checkout — no in-repo edits, no
-`infra/fly/fly.toml` (you use the copy you made in §4.1):
+`infra/fly/fly.toml` (you use the copy you made in §4.1). The
+trailing `.` is the build context; run from the eidan checkout
+root so `--dockerfile infra/fly/Dockerfile` and the Dockerfile's
+`COPY` lines both resolve:
 
 ```bash
-fly deploy -c ~/ops/eidan-fly.toml --dockerfile infra/fly/Dockerfile
+cd /path/to/your/eidan/checkout
+fly deploy -c ~/ops/eidan-fly.toml --dockerfile infra/fly/Dockerfile .
 fly certs create --app eidan-api api.yourdomain.com
 # Add the A + AAAA records Fly prints, wait for "Issued".
 ```
@@ -547,7 +551,8 @@ fly deploy -c ~/ops/eidan-fly.toml \
   --dockerfile infra/fly/Dockerfile \
   --build-arg EIDAN_BUNDLES=eidan-pro,eidan-lifestyle \
   --build-arg EIDAN_PLUGIN_SOURCE=gh:sielay \
-  --build-secret id=github_token,src=$HOME/.eidan/github-token
+  --build-secret id=github_token,src=$HOME/.eidan/github-token \
+  .
 ```
 
 (`install -m 0600 /dev/null ...` creates the file with mode `0600`
