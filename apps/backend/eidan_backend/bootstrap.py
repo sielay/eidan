@@ -30,9 +30,9 @@ from typing import Any
 import asyncpg
 
 from .behaviours import Behaviour, BehaviourDispatcher, BehaviourRegistry
-from .node_identity import NodeIdentity, detect as detect_node_identity
-from .telemetry import TelemetryEmitter
 from .memory_tools import register_memory_tools
+from .node_identity import NodeIdentity
+from .node_identity import detect as detect_node_identity
 from .notifications import build_default_router
 from .persistence import flag_orphaned_assistant_messages
 from .plugins import (
@@ -46,6 +46,7 @@ from .plugins import (
     schema_for_plugin,
 )
 from .secrets import make_secret_accessor, validate_required_secrets
+from .telemetry import TelemetryEmitter
 from .tools import Tool, ToolRegistry
 
 logger = logging.getLogger(__name__)

@@ -13,7 +13,6 @@ from __future__ import annotations
 import pytest
 from eidan_backend.node_identity import _VALID_NODE_TYPES, detect
 
-
 # All env keys the detector reads. Tests start with these cleared so
 # the laptop-running-tests doesn't accidentally inherit a fly token.
 _DETECTOR_ENV = (

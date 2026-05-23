@@ -170,7 +170,7 @@ class TelemetryEmitter:
                 )
                 # If wait_for returns rather than times out, stop was set.
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             await self._upsert_heartbeat()
 
