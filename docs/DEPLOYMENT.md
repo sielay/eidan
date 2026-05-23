@@ -252,6 +252,17 @@ EIDAN_PROVIDER=ollama
 OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
 EIDAN_DEFAULT_MODEL=phi3
 
+# --- Node identity (telemetry — see §9 + docs/024) -----------------
+# Optional. Auto-detected from the platform fingerprint when unset:
+# Fly machine id, heroku DYNO, k8s pod name, or short hostname here
+# on the Pi. Pin EIDAN_NODE_ID when one host runs multiple processes
+# (e.g. a worker + a REPL) so they don't trample each other's
+# heartbeat rows. EIDAN_NODE_TYPE regroups a node in the dashboard
+# (e.g. EIDAN_NODE_TYPE=pi on a Fly machine that's functionally a
+# background worker).
+# EIDAN_NODE_ID=pi-kasha
+# EIDAN_NODE_TYPE=pi
+
 # --- Sentry plugin (per-plugin override) ---------------------------
 # Sentry pins its own model so it stays cheap even when the host's
 # default model gets swapped later. Phase 1 detectors are
@@ -776,6 +787,130 @@ No third-party SDK in the bundle.
 dyno. Same trade-offs apply — you give up Vercel's edge cache and
 preview-per-branch for a single billing surface. Vercel is the
 default unless you have a specific reason to consolidate.
+
+---
+
+## 9. Observability
+
+Every backend process — Pi, Fly, Heroku dyno, k8s pod, local
+laptop — writes per-node telemetry into the shared Postgres so
+the operator (or an agent acting on the operator's behalf) can
+answer "which nodes are alive, and what is each one doing right
+now?". Full spec in [docs/024_NODE_TELEMETRY.md](./024_NODE_TELEMETRY.md);
+this section is the deploy-shaped summary.
+
+### 9.1 What gets emitted, for free
+
+Per process at boot, the runtime resolves a `(node_id, node_type,
+metadata)` triple — auto-detected from `FLY_MACHINE_ID` / `DYNO` /
+`KUBERNETES_SERVICE_HOST` / hostname unless `EIDAN_NODE_ID` /
+`EIDAN_NODE_TYPE` override it (see §3.6 above for the Pi shape).
+
+Two writes happen continuously:
+
+- **`eidan.node_heartbeats`** — UPSERTed every 30 s. One row per
+  node. Drives the live/stale chip on `/api/admin/nodes`.
+- **`eidan.node_events`** — append-only stream. Core emits
+  `plugin.activate` (one per plugin), `dispatcher.started`,
+  `node.boot`, and `node.shutdown`. Plugins can add their own
+  types.
+
+Both writes are fire-and-forget: a transient DB outage logs a
+warning and the next 30 s heartbeat retries. The process keeps
+running.
+
+### 9.2 Reading it back
+
+Two HTTP routes, gated on a signed-in session:
+
+```bash
+curl https://api.yourdomain.com/api/admin/nodes \
+  -H "Authorization: Bearer <jwt>"
+# { "nodes": [ { node_id, node_type, status, last_seen, seconds_since, metadata, ... }, ... ] }
+
+curl "https://api.yourdomain.com/api/admin/nodes/pi-kasha/events?after_seq=0" \
+  -H "Authorization: Bearer <jwt>"
+# { "node_id": "pi-kasha", "events": [ { id, seq, ts, type, payload, conversation_id }, ... ] }
+```
+
+For ad-hoc inspection on the Pi:
+
+```bash
+sudo -u eidan psql "$DATABASE_URL" -c "
+  SELECT node_id, node_type, status,
+         now() - last_seen AS stale_for,
+         metadata
+    FROM eidan.node_heartbeats
+   ORDER BY last_seen DESC;
+"
+
+sudo -u eidan psql "$DATABASE_URL" -c "
+  SELECT seq, ts, type, payload
+    FROM eidan.node_events
+   WHERE node_id = 'pi-kasha'
+   ORDER BY seq DESC
+   LIMIT 50;
+"
+```
+
+### 9.3 Forwarding to BetterStack / Loki / Datadog
+
+Eidan does **not** ship a forwarder. Every event also mirrors to
+stdout as a structured `logging.info` line with `extra=` fields:
+
+```
+event=plugin.activate node_id=pi-kasha node_type=pi conversation_id=None
+  payload={'plugin': 'sentry', 'version': '0.1.0'}
+```
+
+So `journalctl -u eidan-backend` and `fly logs -a eidan-api`
+already carry the trail. To forward externally, attach a Python
+logging handler in the deploy shell **before** `eidan admin
+server` starts — the canonical recipes are in
+[docs/024 §6](./024_NODE_TELEMETRY.md#6-external-log-forwarding),
+including BetterStack (Logtail), Loki-via-Promtail, and Datadog.
+Quick BetterStack shape:
+
+```bash
+sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan add logtail-python
+```
+
+Then in `/etc/eidan/eidan.env`:
+
+```ini
+EIDAN_LOGTAIL_TOKEN=<your-source-token>
+PYTHONSTARTUP=/opt/eidan/site_customise.py
+```
+
+And `/opt/eidan/site_customise.py`:
+
+```python
+import logging, os
+from logtail import LogtailHandler
+
+token = os.environ.get("EIDAN_LOGTAIL_TOKEN")
+if token:
+    logging.getLogger().addHandler(LogtailHandler(source_token=token))
+```
+
+The handler runs once at interpreter startup; every `telemetry.*`
+event lands in BetterStack with the `event=` / `node_id=` /
+`payload=` fields preserved as searchable attributes. Same shape
+works for Loki (file handler scraped by Promtail) or Datadog (the
+`DatadogLogsHandler` from the `datadog` pip package). Three
+reasons we don't bake one in: avoiding a forwarder-SDK zoo,
+keeping operator-owned secrets out of `eidan.env`, and
+sidestepping the upstream-SDK churn cycle. [docs/024
+§6.4](./024_NODE_TELEMETRY.md#64-why-not-bake-it-in) has the
+longer rationale.
+
+### 9.4 Retention
+
+`node_events` is immutable, no TTL today (matches the `llm_calls`
+posture in [CLAUDE.md](../CLAUDE.md) → *Conventions*). When event
+volume on a real deployment starts to hurt, the cleanup lands as
+a small core plugin or behaviour — not a schema change. Until
+then, the trail accumulates.
 
 ---
 

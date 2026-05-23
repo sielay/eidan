@@ -1285,3 +1285,169 @@ async def get_cost_summary(
             conn, user_id=user_uuid, since=since
         )
         return {"scope": scope, **_format_summary(summary)}
+
+
+# ---------------------------------------------------------------------------
+# Node telemetry — heartbeats + per-node event tail.
+#
+# Mirrors potem's `/api/nodes` and `/api/nodes/<id>/events` shape so a
+# future UI can render them with the same component. Tables are
+# host-global (no user_id), so we don't go through `acquire(pool,
+# identity)` — that helper opens an RLS-scoped transaction we don't
+# need. The HTTP route itself is gated on a valid session via the
+# auth middleware (every /api/* route is, except /api/auth/*).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/admin/nodes")
+async def list_nodes_endpoint(request: Request) -> dict[str, Any]:
+    """List every node that's ever heartbeated, newest activity first.
+
+    Returns ``last_seen`` + ``seconds_since`` so the UI can render a
+    coloured chip ("online" if seconds_since < ~90, "stale" otherwise)
+    without doing its own clock arithmetic. ``metadata`` is the
+    platform-specific blob the emitter computed at boot (region, app,
+    pod namespace, …).
+    """
+    # Identity check fires via middleware; here we just need the pool.
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT node_id,
+                   node_type,
+                   status,
+                   last_seen,
+                   EXTRACT(EPOCH FROM (now() - last_seen))::int
+                                              AS seconds_since,
+                   metadata,
+                   created_at,
+                   updated_at
+              FROM eidan.node_heartbeats
+             ORDER BY last_seen DESC
+            """
+        )
+    return {
+        "nodes": [
+            {
+                "node_id": r["node_id"],
+                "node_type": r["node_type"],
+                "status": r["status"],
+                "last_seen": r["last_seen"].isoformat(),
+                "seconds_since": r["seconds_since"],
+                "metadata": _coerce_jsonb(r["metadata"]),
+                "created_at": r["created_at"].isoformat(),
+                "updated_at": r["updated_at"].isoformat(),
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.get("/api/admin/nodes/{node_id}/events")
+async def list_node_events_endpoint(
+    request: Request,
+    node_id: str,
+    after_seq: Annotated[
+        int,
+        Query(
+            ge=0,
+            description=(
+                "Return only events with seq > after_seq. Drives "
+                "incremental polling — UI passes the last seq it has "
+                "and gets the delta back."
+            ),
+        ),
+    ] = 0,
+    conversation_id: Annotated[
+        UUID | None,
+        Query(
+            description=(
+                "Filter to one conversation's slice of the timeline "
+                "(e.g. an expanded /conversations row). Without it, "
+                "returns the most recent 200 events node-wide."
+            )
+        ),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+) -> dict[str, Any]:
+    """Tail one node's recent activity.
+
+    Two query shapes:
+      - ``after_seq=N`` (without conversation_id) — latest ``limit``
+        rows since seq N, ordered DESC so the newest entries are at
+        the top of the response. Mirrors the chat-message tail.
+      - ``after_seq=N&conversation_id=<uuid>`` — slice of the timeline
+        bound to one turn, ordered ASC so the UI renders chronologically.
+
+    Empty list when the node has no events yet (or no events past
+    after_seq) — not a 404. 404 *is* returned when the node_id has
+    never heartbeated, which is a stronger signal of "wrong id".
+    """
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        node_exists = await conn.fetchval(
+            "SELECT 1 FROM eidan.node_heartbeats WHERE node_id = $1",
+            node_id,
+        )
+        if node_exists is None:
+            raise HTTPException(status_code=404, detail="unknown node_id")
+
+        if conversation_id is not None:
+            rows = await conn.fetch(
+                """
+                SELECT node_id, seq, ts, type, payload, conversation_id
+                  FROM eidan.node_events
+                 WHERE node_id = $1
+                   AND conversation_id = $2
+                   AND seq > $3
+                 ORDER BY seq ASC
+                 LIMIT $4
+                """,
+                node_id,
+                conversation_id,
+                after_seq,
+                limit,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT node_id, seq, ts, type, payload, conversation_id
+                  FROM eidan.node_events
+                 WHERE node_id = $1
+                   AND seq > $2
+                 ORDER BY seq DESC
+                 LIMIT $3
+                """,
+                node_id,
+                after_seq,
+                limit,
+            )
+
+    return {
+        "node_id": node_id,
+        "events": [
+            {
+                "id": f"{r['node_id']}:{r['seq']}",
+                "seq": r["seq"],
+                "ts": r["ts"].isoformat(),
+                "type": r["type"],
+                "payload": _coerce_jsonb(r["payload"]),
+                "conversation_id": (
+                    str(r["conversation_id"])
+                    if r["conversation_id"] is not None
+                    else None
+                ),
+            }
+            for r in rows
+        ],
+    }
+
+
+def _coerce_jsonb(value: Any) -> Any:
+    """asyncpg returns jsonb as a JSON-decoded str on some versions, a
+    dict on others. Hand a dict back either way so the FastAPI
+    serialiser doesn't double-encode."""
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
