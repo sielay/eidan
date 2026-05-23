@@ -28,7 +28,7 @@ ALEMBIC_INI = _REPO_ROOT / "migrations" / "alembic.ini"
 
 
 def _resolve_plugins_dir() -> Path:
-    """Pick where ``eidan plugin install/list/remove`` reads & writes.
+    """Pick where ``eidan admin plugin install/list/remove`` reads & writes.
 
     Honours ``EIDAN_PLUGINS_DIR`` so a baked image (Fly, k8s, …) can
     target a mounted volume rather than the in-image ``./plugins/``.

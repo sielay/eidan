@@ -533,8 +533,8 @@ fly certs create --app eidan-api api.yourdomain.com
 To install paid bundles **at image-build time** (no fork, no source
 checkout of the bundle on this machine), pass `EIDAN_BUNDLES` +
 `EIDAN_PLUGIN_SOURCE` as build args and the GitHub token as a
-build secret. The CLI's `eidan plugin install` path inside the
-Dockerfile then clones the bundle repos using
+build secret. The CLI's `eidan admin plugin install` path inside
+the Dockerfile then clones the bundle repos using
 [`docs/018 §3`](./018_DISTRIBUTION_AND_BUNDLES.md)'s
 private-org flow. The token is mounted via
 `--build-secret` so it never lands in an image layer:
@@ -609,7 +609,10 @@ jobs:
           repository: sielay/eidan
           ref: v0.1.0
           path: eidan
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # Pin third-party actions: floating refs like @master can ship
+      # surprise behaviour. `1.5` is the latest tagged release at the
+      # time of writing; for production, pin to a commit SHA instead.
+      - uses: superfly/flyctl-actions/setup-flyctl@1.5
       - run: |
           flyctl deploy --remote-only \
             -c "$GITHUB_WORKSPACE/fly.toml" \

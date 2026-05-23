@@ -8,8 +8,8 @@
 #   EIDAN_BUNDLES        comma-separated bundle slugs to install before
 #                        the image is sealed (e.g. "eidan-pro,eidan-lifestyle").
 #                        Empty (default) = core-only deploy.
-#   EIDAN_PLUGIN_SOURCE  passed straight to `eidan plugin install` and
-#                        must be set when EIDAN_BUNDLES is non-empty.
+#   EIDAN_PLUGIN_SOURCE  passed straight to `eidan admin plugin install`
+#                        and must be set when EIDAN_BUNDLES is non-empty.
 #                        Form is `gh:<org>` (private GitHub org) or
 #                        `local:<path>` for development copies that
 #                        landed in the build context.
