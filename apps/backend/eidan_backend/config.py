@@ -112,7 +112,19 @@ class BackendSettings(BaseSettings):
             "Ollama has pulled (`ollama pull phi3`, `ollama list`)."
         ),
     )
-    default_model: str = "claude-opus-4-7"
+    default_model: str = Field(
+        "claude-haiku-4-5-20251001",
+        validation_alias="EIDAN_DEFAULT_MODEL",
+        description=(
+            "Model name the host passes to the provider on every "
+            "call when no per-route override is set. Defaults to "
+            "Haiku — the cheapest Anthropic tier — so an operator "
+            "who boots without setting EIDAN_DEFAULT_MODEL doesn't "
+            "get billed at Opus rates by accident. Override per "
+            "node: `phi3` on Ollama, `claude-sonnet-4-6` for a "
+            "stronger foreground agent on Fly, etc."
+        ),
+    )
 
     # Budget caps (`docs/010 §2`). Per-turn is a hard stop *during* a
     # turn: the loop short-circuits before the next provider call when

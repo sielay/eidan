@@ -9,10 +9,12 @@ sequencer in [AGENTIC LOOP](./005_AGENTIC_LOOP.md)) elects a leader
 rather than assuming one process. Single-instance is a valid
 deployment, not a design assumption.
 
-This document is the **deployment menu**: which backend host, which
-frontend host, which auth provider, and how they fit together. It is
-intentionally short — vendor-specific runbooks (env vars, redirect
-URIs, build commands) live with the vendor's own docs.
+This document is a **menu of recipes**: pick the topology that
+matches what you already have (or want), and follow that recipe
+end-to-end. Cross-cutting reference material (auth env vars,
+database options, the Vercel frontend setup) lives in §6–§8 and is
+linked from every recipe so the recipe stays focused on platform
+specifics.
 
 ## 1. The pieces
 
@@ -22,368 +24,519 @@ URIs, build commands) live with the vendor's own docs.
 | **Frontend** (`apps/web`)  | Next.js (App Router). Renders chat UI, dashboards, plugin frontends. | Stateless; calls backend over HTTP / WS. |
 | **Database**             | Postgres 13+ with the `eidan` schema.                 | Single shared instance per deployment. |
 | **Auth**                 | Native — host mints + verifies RS256 JWTs against a keypair stored encrypted in Postgres. | Internal. No third-party identity provider. |
+| **LLM provider**         | Anthropic / OpenAI / Ollama (configurable per node).  | Stateless; each node picks its own provider. |
 
-## 2. Backend hosting
+A core design point: **each node picks its own LLM provider**. A Pi
+at home can run `EIDAN_PROVIDER=ollama` for everything (cheap,
+private, slow); a Fly machine can run `EIDAN_PROVIDER=anthropic`
+for the foreground agent; the Sentry plugin pins its own
+`EIDAN_SENTRY_MODEL` independently so background ticks stay cheap
+even on an Anthropic-default node. Postgres is the shared
+coordination point; provider choice is local.
 
-Pick one. The backend is a single FastAPI process; spin up as many
-processes as you need.
+## 2. Pick a recipe
 
-### 2.1 Fly.io
+| Recipe                     | Backend host    | Postgres host    | Frontend host | LLM provider on backend | When it fits                                            |
+|----------------------------|-----------------|------------------|---------------|--------------------------|---------------------------------------------------------|
+| **§3 Raspberry Pi**        | Pi (`systemd`)  | Pi-local or Supabase | Vercel    | Ollama (local, free)     | Self-host from your own hardware. Cheap, private, slow. |
+| **§4 Fly.io**              | Fly machines    | Fly Postgres / Neon | Vercel or Fly | Anthropic / OpenAI       | "Click to deploy" cloud, global reach, zero ops.        |
+| **§5 Distributed (reference)** | Fly API + Pi worker | Supabase     | Vercel        | Anthropic on Fly + Ollama on Pi | Latency-sensitive HTTP + always-on Pi workload.   |
 
-Recommended default for any deployment that wants global presence
-or zero-downtime rollouts. Each Fly machine is one backend process;
-auto-scaling and health checks come from Fly. Postgres lives on
-Fly (Fly Postgres) or an external provider (Neon, RDS, …).
-Suits **multi-instance with leader election** out of the box —
-multiple regions, one Postgres, leader role decided by a Postgres
-advisory lock.
+Heroku works too (vanilla web dyno + Heroku Postgres) but the
+trade-offs aren't materially different from Fly — pick Fly unless
+you already live on Heroku.
+
+---
+
+## 3. Recipe: Raspberry Pi (self-hosted, single-host)
+
+The reference "self-hosted on my own hardware" deployment. Pi runs
+the API + behaviour dispatcher + Ollama for local inference;
+Postgres lives either on the Pi or on Supabase; the Next.js UI
+lives on Vercel.
+
+Estimated monthly cost: ~£0 in software + ~£1–3 in electricity +
+Pi sunk cost. Adding Vercel hobby (free) and a domain (~£10/year)
+keeps the all-in under £5/month.
+
+### 3.0 Prerequisites
+
+- Raspberry Pi 4 or 5 with **4GB+ RAM**, **Debian Bookworm 64-bit**
+  (Raspberry Pi OS Lite recommended), reachable over SSH.
+- A domain you control (e.g. `eidan.yourdomain.com`) if you plan to
+  use the Vercel frontend with a custom domain. Optional if you'll
+  only hit the API directly.
+- Optional: SMTP credentials (Fastmail, Postmark, Mailgun, …) so
+  magic-link emails actually leave the box. Without them the link
+  is still logged to journald and you can copy it by hand.
+- A checked-out clone of this repo on your laptop (for the
+  migration step in §3.5).
+
+### 3.1 Create the service user + deploy dirs
+
+Do this **first** — every subsequent step assumes the `eidan`
+service user exists and owns `/opt/eidan`.
+
+```bash
+sudo useradd -r -s /bin/bash -d /home/eidan -m eidan
+sudo mkdir -p /opt/eidan /etc/eidan
+sudo chown eidan:eidan /opt/eidan
+```
+
+### 3.2 Install system deps + uv
+
+```bash
+sudo apt update && sudo apt install -y git curl
+sudo -u eidan bash -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+sudo -u eidan /home/eidan/.local/bin/uv python install 3.12
+```
+
+Raspberry Pi OS / Debian Bookworm ships Python 3.11 and does
+**not** carry `python3.12` in its default apt repos. eidan only
+requires `>=3.11`, but letting `uv` manage the interpreter avoids
+version drift across Pi vs. Fly (the Fly Dockerfile in §4 targets
+3.12). `uv sync` in §3.5 picks up the managed 3.12 automatically.
+
+### 3.3 Install Ollama + pull the sentry model
+
+The Pi's own LLM. Ollama's installer creates an `ollama` system
+user, drops a `systemd` unit, and exposes the OpenAI-compatible
+endpoint on `http://127.0.0.1:11434/v1`.
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+sudo systemctl enable --now ollama
+ollama pull phi3
+```
+
+Smoke-check:
+
+```bash
+curl http://127.0.0.1:11434/api/tags          # should list phi3
+ollama run phi3 "say hi in one word"           # ad-hoc test
+```
 
 Notes:
-- Fly machines are **ephemeral**. Long-running jobs that need
-  uninterrupted execution (large migrations, long classifier runs)
-  belong on a Pi or a long-lived host, not on a Fly machine that
-  may rotate.
-- The `fly.toml` checked-in to the repo holds only non-secret
-  config; secrets are set via `flyctl secrets set`.
 
-### 2.2 Heroku
+- The default `OLLAMA_HOST=127.0.0.1` is correct — the Pi exposes
+  Ollama only to localhost, not the LAN.
+- `phi3` (3.8B Q4) fits comfortably in 4GB RAM and is the default
+  sentry model (`EIDAN_SENTRY_MODEL=phi3` in `plugins/sentry/plugin.yaml`).
+  Swap for a heavier model (`ollama pull mistral`, `ollama pull
+  llama3.1:8b`) only if you have 8GB+ headroom.
+- Ollama auto-starts on boot via `systemctl enable --now`; the
+  eidan-backend unit in §3.7 declares `After=ollama.service` so the
+  daemon is up before eidan tries to call it.
 
-Works as a vanilla web dyno (one process per dyno). Heroku is the
-simplest "click to deploy" path for a single-instance, single-region
-hobby deployment. Limitations:
+### 3.4 Postgres
 
-- No long-running jobs in the standard tier (the dyno restarts every
-  24h). For an agent that runs long classifier or critic chains,
-  budget around the restart or run a worker dyno alongside.
-- Heroku Postgres works but is more expensive at scale than Fly /
-  Neon.
+Pick one. Local Postgres is simpler and keeps everything on the
+Pi; Supabase is recommended once you want off-box backups and a UI
+for inspection.
 
-### 2.3 Raspberry Pi (or any always-on home node)
+**Option A — Postgres on the Pi:**
 
-The reference "self-hosted on my own hardware" deployment. Run the
-backend as a `systemd` service:
+```bash
+sudo apt install -y postgresql
+sudo -u postgres psql <<'SQL'
+  CREATE ROLE eidan_app LOGIN PASSWORD 'CHANGE-ME-STRONG';
+  CREATE DATABASE eidan OWNER eidan_app;
+SQL
+```
+
+`DATABASE_URL` in §3.6 will be:
+`postgresql+asyncpg://eidan_app:CHANGE-ME-STRONG@127.0.0.1:5432/eidan`
+
+Back this up religiously (e.g. nightly `pg_dump | rclone` to
+external storage). The Pi is a single point of failure for both
+compute *and* data in this shape.
+
+**Option B — Supabase Postgres:**
+
+1. Supabase dashboard → **New project**. Pick a region near you.
+   Record the DB password.
+2. **Settings → Database → Connection string → URI (direct, port
+   5432, NOT the pooler)**. Copy it.
+3. `DATABASE_URL` will be:
+   `postgresql+asyncpg://postgres:<dbpw>@<host>:5432/postgres`.
+   You can swap to a dedicated `eidan_app` role later via
+   `EIDAN_CREATE_APP_ROLE=true` on the first migration run (see
+   §3.5).
+
+### 3.5 Clone + sync the repo, run migrations
+
+From the Pi (so the venv is built as `eidan` with `eidan`'s `uv`):
+
+```bash
+sudo -u eidan git clone https://github.com/sielay/eidan.git /opt/eidan
+sudo -u eidan git -C /opt/eidan checkout v0.1.0   # pin to a tag, not main
+sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan sync --no-dev
+```
+
+Generate the auth master key — **record it offline**, you'll set
+it on every backend host that joins this deployment:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Run migrations (one-shot, against the DB you picked in §3.4):
+
+```bash
+sudo -u eidan bash -lc '
+  DATABASE_URL="postgresql+asyncpg://eidan_app:CHANGE-ME@127.0.0.1:5432/eidan" \
+  EIDAN_AUTH_MASTER_KEY="<the-key-you-just-generated>" \
+  /home/eidan/.local/bin/uv --directory /opt/eidan run \
+    alembic -c apps/backend/alembic.ini upgrade head
+'
+```
+
+For Supabase + a dedicated app role, prepend
+`EIDAN_CREATE_APP_ROLE=true EIDAN_APP_DB_PASSWORD="<strong>"` to
+the migration command; the migration runner will create the role
+on first run.
+
+Verify in `psql` (or Supabase Studio) that `eidan.conversations`,
+`eidan.messages`, etc. exist and `eidan.auth_keypair` contains one
+row (minted on first import).
+
+### 3.6 Env file
+
+Write `/etc/eidan/eidan.env`, root-owned, group-readable by `eidan`:
 
 ```ini
-# /etc/systemd/system/eidan-backend.service
+# --- Database ------------------------------------------------------
+DATABASE_URL=postgresql+asyncpg://eidan_app:CHANGE-ME@127.0.0.1:5432/eidan
+# (or the Supabase URL from §3.4 option B)
+
+# --- Auth ----------------------------------------------------------
+EIDAN_AUTH_MASTER_KEY=<the-key-you-generated-in-3.5>
+EIDAN_AUTH_ALLOWED_EMAIL=you@yourdomain.com
+EIDAN_DEPLOYMENT_MODE=production
+
+# --- HTTP listener -------------------------------------------------
+# Bind to 0.0.0.0 if you'll point the Vercel frontend at this Pi
+# directly (via tailscale / cloudflared / wireguard). Bind to
+# 127.0.0.1 if the Pi is behind a reverse proxy on the same box.
+EIDAN_HTTP_HOST=0.0.0.0
+EIDAN_HTTP_PORT=8000
+
+# --- LLM provider (host-wide) --------------------------------------
+EIDAN_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
+EIDAN_DEFAULT_MODEL=phi3
+
+# --- Sentry plugin (per-plugin override) ---------------------------
+# Sentry pins its own model so it stays cheap even when the host's
+# default model gets swapped later. Phase 1 detectors are
+# deterministic; this slot is read by the local-model adapter
+# once it ships.
+EIDAN_SENTRY_ENABLED=1
+EIDAN_SENTRY_TICK_INTERVAL=PT5M
+EIDAN_SENTRY_MODEL=phi3
+
+# --- SMTP for magic-link (optional) --------------------------------
+# Omit to fall back to "link printed in journald". The link is
+# always logged regardless.
+EIDAN_SMTP_HOST=smtp.fastmail.com
+EIDAN_SMTP_PORT=465
+EIDAN_SMTP_USER=...
+EIDAN_SMTP_PASSWORD=...
+EIDAN_SMTP_FROM=eidan@yourdomain.com
+```
+
+Lock the perms:
+
+```bash
+sudo chown root:eidan /etc/eidan/eidan.env
+sudo chmod 0640 /etc/eidan/eidan.env
+```
+
+### 3.7 systemd unit
+
+`/etc/systemd/system/eidan-backend.service`:
+
+```ini
 [Unit]
-Description=Eidan backend
-After=network.target
+Description=Eidan backend (Pi)
+After=network-online.target ollama.service
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=eidan
-WorkingDirectory=/opt/eidan/apps/backend
+Group=eidan
+WorkingDirectory=/opt/eidan
 EnvironmentFile=/etc/eidan/eidan.env
-ExecStart=/opt/eidan/.venv/bin/python -m apps.backend
+ExecStart=/home/eidan/.local/bin/uv --directory /opt/eidan run eidan admin server
 Restart=on-failure
-RestartSec=5
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+Boot it:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now eidan-backend
-journalctl -u eidan-backend -f
+sudo journalctl -u eidan-backend -f
 ```
 
-A Pi is the **right home for long-running work** (jobs that exceed
-Fly's machine lifetime, batch ingest, scheduled runs). A common
-shape: Pi as the always-on worker, Fly as the latency-sensitive
-front for HTTP and WebSocket traffic — Postgres in the middle.
+### 3.8 Smoke-check
 
-### 2.4 Multi-instance topology (Fly + Pi + …)
+Watch journald for these markers on first boot:
 
-The backend is designed for this. Each instance opens its own
-Postgres pool; work that must have a single owner is gated by a
-Postgres advisory lock. A typical deployment:
+- `[bootstrap] behaviour dispatcher started with N cron job(s)` —
+  Sentry's tick schedule registered. If you're running multi-node,
+  whichever instance grabbed the Postgres advisory lock will print
+  this; the others print "another instance owns the dispatcher
+  lock" and stand by.
+- `[provider] ollama @ http://127.0.0.1:11434/v1 default_model=phi3` —
+  the host wired itself to Ollama.
 
-- **Fly machines** (≥1, possibly multi-region) — handle inbound
-  HTTP / WebSocket. Stateless per machine.
-- **Pi (or one designated Fly machine)** — runs the cron / leader
-  loop. Picks up the lock at startup; releases it on exit.
-- **Postgres** — single shared instance. The bottleneck and the
-  source of truth.
+From the laptop, against the Pi:
 
-There is no message bus today. Cross-instance coordination is
-Postgres `LISTEN`/`NOTIFY` plus advisory locks; that ceiling is
-fine for the scale this stack targets.
+```bash
+curl http://<pi-host>:8000/api/auth/config
+# Expect {"provider":"native", ...}
 
-### 2.5 Runbook: Fly API + Pi worker + Vercel UI + Supabase Postgres
+sudo -u eidan -E bash -lc '
+  set -a; source /etc/eidan/eidan.env; set +a
+  /home/eidan/.local/bin/uv --directory /opt/eidan run eidan admin doctor
+'
+# Reports DB connectivity, master key set, migrations at head.
+```
 
-The single-operator reference deployment. Step-by-step, top to
-bottom. The shape:
+### 3.9 Frontend (optional, via Vercel)
 
-- **Fly machine** in `lhr` (or your nearest region) — serves
-  `/api/*`. Stateless, auto-stops on idle.
-- **Raspberry Pi** at home — runs the leader-elected workload
-  (behaviour dispatcher, future Sentry tick, future Claude Code
-  worker). Shares one Postgres with Fly.
-- **Vercel** — Next.js UI on `app.<your-domain>`. Same auth domain
-  as the API, so the refresh cookie scopes cleanly.
-- **Supabase Postgres** — DB only. Auth lives in the eidan host
-  (`docs/011 §11`); Supabase is just an opinionated managed
-  Postgres with a UI for inspection.
+If you want a web UI, follow §8. The Vercel project's
+`NEXT_PUBLIC_EIDAN_BACKEND_URL` points at however the Pi is
+reachable — directly via a public DNS record + reverse proxy, or
+indirectly via Tailscale / Cloudflare Tunnel / WireGuard.
 
-Estimated cost at v1: Fly machine on the always-on plan ~$5/mo,
-Supabase free tier (or ~$25/mo if you outgrow it), Vercel hobby
-free, Pi sunk cost. ~$5–30/mo all-in.
+### 3.10 Sentry status (Phase 1: deterministic only)
 
-#### Prerequisites
+Sentry is a `tier: core` plugin and is enabled by default
+(`EIDAN_SENTRY_ENABLED=1`). **Important caveat: Phase 1 ships
+deterministic detectors only** — overdue commitments, long-silence
+gaps, scope-drift checks. Three hand-coded SQL/threshold checks
+run on the `PT5M` schedule and write:
 
-- Fly account + `flyctl` installed (`brew install flyctl` then `fly auth login`).
-- Vercel account + `vercel` CLI optional (`pnpm i -g vercel`).
-- Supabase account.
-- A domain you control (e.g. `eidan.yourdomain.com`) — needed for
-  the auth cookie to scope between the API and UI.
-- A Raspberry Pi (4 or 5 recommended, 4GB+ RAM) on your home network
-  reachable over SSH.
-- Local shell with Python 3.12, `uv`, `pnpm`, and a checked-out
-  clone of this repo.
+- one summary row per tick to `plugin_sentry.sentry_ticks`,
+- one row per detected pattern to `plugin_sentry.sentry_nudges`
+  (the user-visible nudge),
+- one row to `eidan.escalations` (core schema, surfaced in the
+  inbox) when a pattern crosses the escalation threshold or a
+  nudge delivery fails.
 
-#### Step 1 — Supabase project + Postgres role
+**No LLM call yet.**
 
-1. Supabase dashboard → **New project**. Region near your Fly region
-   (e.g. `eu-west-1` for `lhr`). Generate a strong DB password and
-   record it.
-2. Dashboard → **Settings → Database → Connection string → URI
-   (direct, port 5432, not the pooler)**. Copy it; you'll convert
-   the scheme to asyncpg in step 2.
-3. Decide if you want a dedicated `eidan_app` role (recommended) or
-   to run as the default `postgres` superuser (faster start, less
-   safe). The dedicated role is owned by
-   `migrations/versions/20260514_000005_eidan_app_role.py` and is
-   created automatically when `EIDAN_CREATE_APP_ROLE=true` +
-   `EIDAN_APP_DB_PASSWORD=<strong>` are set during the first
-   migration run.
-4. From your laptop, with `DATABASE_URL` pointing at Supabase, run
-   the migrations:
-   ```bash
-   DATABASE_URL="postgresql+asyncpg://postgres:<dbpw>@<host>:5432/postgres" \
-     EIDAN_CREATE_APP_ROLE=true \
-     EIDAN_APP_DB_PASSWORD="<choose-a-strong-password>" \
-     EIDAN_AUTH_MASTER_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" \
-     uv run --extra dev alembic -c apps/backend/alembic.ini upgrade head
-   ```
-   The `EIDAN_AUTH_MASTER_KEY` value is only needed because the
-   migration runner imports the auth subsystem at startup; the
-   *production* master key is set later as a Fly/Pi secret and
-   must be the SAME value across all hosts. Generate it once and
-   record it offline — losing it means re-minting the keypair +
-   wiping the secrets vault (`docs/012 §10`).
-5. Verify in Supabase Studio that `eidan.conversations`,
-   `eidan.messages`, etc. exist and that `eidan.auth_keypair`
-   contains one row (minted on first import).
+The Phi-3 / Ollama open-ended pattern matcher described in
+[SENTRY_FEATURE_SPEC.md](./SENTRY_FEATURE_SPEC.md) lands with the
+local-model adapter — see the stubs in
+`plugins/sentry/eidan_sentry/plugin.py` and `patterns.py`. Until
+then, `EIDAN_SENTRY_MODEL=phi3` is a configured-but-unused slot:
+the env var exists so the wiring lands cleanly when the adapter
+ships, but **setting it today does not make Sentry call phi3.**
 
-#### Step 2 — Fly app for the API
+Concretely on this Pi:
 
-The repo doesn't ship a prod Dockerfile or fly.toml yet — add them
-under `infra/fly/` once you've followed the runbook through;
-they're not committed because the operator owns app name + region
-choices.
+- The foreground agent (your CLI / chat turns) **does** call phi3
+  via Ollama — that's `EIDAN_PROVIDER=ollama` +
+  `EIDAN_DEFAULT_MODEL=phi3`.
+- The Sentry tick runs the three deterministic detectors and does
+  **not** call phi3 (or any LLM) today.
 
-1. **Dockerfile** at `infra/fly/Dockerfile`:
-   ```dockerfile
-   FROM python:3.12-slim-bookworm
-   ENV PYTHONUNBUFFERED=1 \
-       PYTHONDONTWRITEBYTECODE=1 \
-       UV_CACHE_DIR=/tmp/uv-cache
-   RUN pip install --no-cache-dir uv
-   WORKDIR /app
-   COPY pyproject.toml uv.lock ./
-   COPY apps/backend ./apps/backend
-   COPY plugins ./plugins
-   COPY packages/schemas ./packages/schemas
-   COPY migrations ./migrations
-   RUN uv sync --frozen --no-dev
-   EXPOSE 8000
-   CMD ["uv", "run", "eidan", "admin", "server", "--host", "0.0.0.0", "--port", "8000"]
-   ```
+Confirm the tick is firing:
 
-2. **fly.toml** at `infra/fly/fly.toml`:
-   ```toml
-   app            = "eidan-api"
-   primary_region = "lhr"
+```bash
+journalctl -u eidan-backend | grep sentry
+```
 
-   [build]
-     dockerfile = "infra/fly/Dockerfile"
+To pause it (e.g. during noisy testing): `EIDAN_SENTRY_ENABLED=0`
+in `eidan.env`, then `sudo systemctl restart eidan-backend`.
 
-   [http_service]
-     internal_port        = 8000
-     force_https          = true
-     auto_stop_machines   = "stop"
-     auto_start_machines  = true
-     min_machines_running = 0  # single-operator — sleep when idle is fine
+### 3.11 Updating
 
-     [http_service.concurrency]
-       type       = "requests"
-       soft_limit = 25
-       hard_limit = 50
+The Pi is the simplest update story — a cron job that pulls and
+restarts is the usual shape:
 
-   [env]
-     EIDAN_HTTP_HOST       = "0.0.0.0"
-     EIDAN_DEPLOYMENT_MODE = "production"
-     EIDAN_HTTP_CORS_ORIGINS = "https://app.<your-domain>"
-   ```
+```bash
+sudo -u eidan bash -lc '
+  cd /opt/eidan
+  git fetch --tags
+  git checkout v0.1.1                          # next tagged release
+  /home/eidan/.local/bin/uv sync --no-dev
+'
+sudo systemctl restart eidan-backend
+```
 
-3. Create the app, set secrets, deploy:
-   ```bash
-   cd <repo-root>
-   fly apps create eidan-api --org personal
-   fly secrets set --app eidan-api \
-     DATABASE_URL="postgresql+asyncpg://eidan_app:<approwd>@<supabase-host>:5432/postgres" \
-     EIDAN_AUTH_MASTER_KEY="<same-as-step-1>" \
-     EIDAN_AUTH_ALLOWED_EMAIL="you@yourdomain.com" \
-     ANTHROPIC_API_KEY="sk-ant-..." \
-     EIDAN_SMTP_HOST="smtp.fastmail.com" \
-     EIDAN_SMTP_PORT="465" \
-     EIDAN_SMTP_USER="..." \
-     EIDAN_SMTP_PASSWORD="..." \
-     EIDAN_SMTP_FROM="eidan@<your-domain>"
-   fly deploy -c infra/fly/fly.toml .
-   ```
+If a release ships migrations, re-run §3.5's `alembic upgrade
+head` before the restart.
 
-4. Wire a custom domain (so the cookie can scope to the apex):
-   ```bash
-   fly certs create --app eidan-api api.<your-domain>
-   ```
-   Add the DNS records Fly returns (A + AAAA), then wait for
-   `fly certs show api.<your-domain>` to report `Issued`.
+---
 
-5. Smoke-check:
-   ```bash
-   curl https://api.<your-domain>/api/auth/config
-   # Expect {"provider":"native","providers":["email","magic_link"], ...}
-   ```
+## 4. Recipe: Fly.io (cloud, all-Fly)
 
-#### Step 3 — Vercel UI
+The reference "cloud-only" deployment. Fly machine serves the API,
+Fly Postgres holds state, Vercel serves the frontend. Auto-scales
+to zero on idle.
 
-1. Vercel dashboard → **New project** → import this repo, root
-   `apps/web`.
-2. **Framework preset**: Next.js. **Build command**:
-   `pnpm --filter @eidan/web build`. **Install command**:
-   `pnpm install --frozen-lockfile`. **Output directory**:
-   `apps/web/.next` (default).
-3. **Environment variables**:
-   - `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.<your-domain>`
-4. Deploy. Set the production domain to
-   `app.<your-domain>` under **Settings → Domains**.
-5. Smoke-check: visit `https://app.<your-domain>`, click the
-   sign-in button. The magic link arrives by email; the verify
-   round-trip should land you on the conversation list.
+Estimated monthly cost: Fly machine on the always-on plan ~$5/mo,
+Fly Postgres ~$5/mo (1GB), Vercel hobby free. ~$10/mo all-in.
 
-#### Step 4 — Raspberry Pi worker
+### 4.0 Prerequisites
 
-Hardware assumption: Pi 4/5 with 4GB+ RAM, Debian Bookworm
-(Raspberry Pi OS 64-bit). Reachable from your laptop over SSH.
+- Fly account + `flyctl` (`brew install flyctl` then `fly auth login`).
+- Vercel account.
+- A domain you control.
+- Checked-out clone of this repo.
 
-1. **Install deps** (one-time, as `pi` or your user):
-   ```bash
-   sudo apt update && sudo apt install -y python3.12 python3.12-venv git curl
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
+### 4.1 Dockerfile
 
-2. **Clone + sync the repo**:
-   ```bash
-   git clone https://github.com/sielay/eidan.git /opt/eidan
-   cd /opt/eidan
-   git checkout v0.1.0   # pin to a tagged release, not main
-   uv sync --no-dev
-   ```
+The repo doesn't ship a prod Dockerfile — you own it because the
+exact apt deps depend on which plugins you bundle. Drop the
+following at `infra/fly/Dockerfile`:
 
-3. **Env file** at `/etc/eidan/eidan.env` (root-owned, mode 0600):
-   ```ini
-   DATABASE_URL=postgresql+asyncpg://eidan_app:<approwd>@<supabase-host>:5432/postgres
-   EIDAN_AUTH_MASTER_KEY=<same-as-step-1>
-   EIDAN_AUTH_ALLOWED_EMAIL=you@yourdomain.com
-   ANTHROPIC_API_KEY=sk-ant-...
-   EIDAN_DEPLOYMENT_MODE=production
-   # Bind to localhost — the Pi doesn't serve public HTTP, only
-   # cron / behaviours / leader-elected workload.
-   EIDAN_HTTP_HOST=127.0.0.1
-   EIDAN_HTTP_PORT=8000
-   ```
+```dockerfile
+FROM python:3.12-slim-bookworm
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_CACHE_DIR=/tmp/uv-cache
+RUN pip install --no-cache-dir uv
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+COPY apps/backend ./apps/backend
+COPY plugins ./plugins
+COPY packages/schemas ./packages/schemas
+COPY migrations ./migrations
+RUN uv sync --frozen --no-dev
+EXPOSE 8000
+CMD ["uv", "run", "eidan", "admin", "server", "--host", "0.0.0.0", "--port", "8000"]
+```
 
-4. **systemd unit** at `/etc/systemd/system/eidan-backend.service`:
-   ```ini
-   [Unit]
-   Description=Eidan backend (Pi worker — behaviour dispatcher / leader-elected jobs)
-   After=network-online.target
-   Wants=network-online.target
+### 4.2 fly.toml
 
-   [Service]
-   Type=simple
-   User=eidan
-   Group=eidan
-   WorkingDirectory=/opt/eidan
-   EnvironmentFile=/etc/eidan/eidan.env
-   ExecStart=/home/eidan/.local/bin/uv run eidan admin server
-   Restart=on-failure
-   RestartSec=5s
-   StandardOutput=journal
-   StandardError=journal
+`infra/fly/fly.toml`:
 
-   [Install]
-   WantedBy=multi-user.target
-   ```
+```toml
+app            = "eidan-api"
+primary_region = "lhr"
 
-5. **Boot it**:
-   ```bash
-   sudo useradd -r -s /bin/bash -d /home/eidan -m eidan
-   sudo chown -R eidan:eidan /opt/eidan
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now eidan-backend
-   sudo journalctl -u eidan-backend -f
-   ```
+[build]
+  dockerfile = "infra/fly/Dockerfile"
 
-6. **Leader election sanity check**. The behaviour dispatcher uses
-   a Postgres advisory lock — whichever instance grabs it first
-   runs cron / schedule jobs; the others see "another instance
-   owns the dispatcher lock" in logs and stand by. With Fly's
-   `min_machines_running = 0`, the Pi is the de-facto leader
-   because it's always on. To verify, watch the Pi journal for
-   `[bootstrap] behaviour dispatcher started with N cron job(s)`
-   and the Fly logs (`fly logs -a eidan-api`) for the
-   "stood-by" message.
+[http_service]
+  internal_port        = 8000
+  force_https          = true
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 0
 
-#### Step 5 — End-to-end smoke
+  [http_service.concurrency]
+    type       = "requests"
+    soft_limit = 25
+    hard_limit = 50
 
-From a clean browser:
+[env]
+  EIDAN_HTTP_HOST       = "0.0.0.0"
+  EIDAN_DEPLOYMENT_MODE = "production"
+  EIDAN_HTTP_CORS_ORIGINS = "https://app.yourdomain.com"
+```
 
-1. `https://app.<your-domain>` → click sign-in.
-2. Magic link arrives in your inbox → click it → land on the
-   conversation list.
-3. New conversation → "what is the time in london?" → SSE stream
-   produces `chunk` frames, no `[interrupted]`.
-4. From your laptop, against the Pi (over SSH):
-   ```bash
-   sudo -u eidan -E env $(grep -v '^#' /etc/eidan/eidan.env | xargs) \
-     /home/eidan/.local/bin/uv run eidan admin doctor
-   ```
-   Should report DB connectivity, master key set, migrations at
-   head.
+### 4.3 Postgres
 
-#### Step 6 — Secrets management
+```bash
+fly postgres create --name eidan-pg --org personal --region lhr \
+  --vm-size shared-cpu-1x --volume-size 1
+fly postgres attach --app eidan-api eidan-pg
+```
 
-The master key (`EIDAN_AUTH_MASTER_KEY`) is the single secret you
-must NEVER lose and NEVER leak. It seals the RS256 signing key
-plus every entry in `eidan.secrets_vault`. Recommended:
+`fly postgres attach` writes `DATABASE_URL` as a secret using the
+`postgres://` scheme. eidan needs `postgresql+asyncpg://`. Fly
+doesn't expose secret values through the CLI, so read the URL
+back from inside a running machine and re-set it under the
+correct scheme:
 
-- Store it offline (1Password / hardware key / paper in a safe).
-- Set it on Fly (`fly secrets set`) and the Pi (`/etc/eidan/eidan.env`).
-  Both must hold the exact same value.
-- Rotating it is documented in `docs/012 §10` — practically a
-  controlled outage where you wipe `eidan.auth_keypair` and
-  `eidan.secrets_vault` and re-seed.
+```bash
+# 1. Pull the attached URL from inside the machine (Fly masks
+# the value in `fly secrets list` but exposes it as an env var
+# to the running process).
+fly ssh console --app eidan-api -C 'printenv DATABASE_URL'
+# → postgres://<user>:<password>@<host>:5432/<db>?sslmode=disable
 
-Other secrets follow the same pattern but are recoverable:
-`ANTHROPIC_API_KEY`, `EIDAN_SMTP_PASSWORD`, the Supabase DB
-password.
+# 2. Re-set it with the asyncpg scheme. Quote carefully because
+# the password may contain shell metacharacters.
+fly secrets set --app eidan-api \
+  DATABASE_URL='postgresql+asyncpg://<user>:<password>@<host>:5432/<db>'
+```
 
-#### Step 7 — Optional: GitHub Actions deploy on merge to main
+Strip the `?sslmode=disable` query — asyncpg uses different
+TLS knobs. If you need TLS, append `?ssl=require` instead.
 
-If you want hands-off deploys on `main` push, add
+(Alternatively use Neon / Supabase / RDS — set `DATABASE_URL` by
+hand in step 4.4 below; you already know the password.)
+
+### 4.4 Auth + provider secrets
+
+Generate the master key once (`python -c "import secrets;
+print(secrets.token_urlsafe(48))"`) and store it offline. Then:
+
+```bash
+fly apps create eidan-api --org personal
+fly secrets set --app eidan-api \
+  EIDAN_AUTH_MASTER_KEY="<recorded-offline>" \
+  EIDAN_AUTH_ALLOWED_EMAIL="you@yourdomain.com" \
+  EIDAN_PROVIDER="anthropic" \
+  EIDAN_DEFAULT_MODEL="claude-sonnet-4-6" \
+  ANTHROPIC_API_KEY="sk-ant-..." \
+  EIDAN_SENTRY_ENABLED="0" \
+  EIDAN_SMTP_HOST="smtp.fastmail.com" \
+  EIDAN_SMTP_PORT="465" \
+  EIDAN_SMTP_USER="..." \
+  EIDAN_SMTP_PASSWORD="..." \
+  EIDAN_SMTP_FROM="eidan@yourdomain.com"
+```
+
+**Why `EIDAN_SENTRY_ENABLED=0` here:** the Sentry tick fires every
+5 minutes and would hammer Anthropic on a Fly machine that
+otherwise auto-stops to zero. Run Sentry on the Pi (§3) or wait
+for the local-model adapter. If you do want Sentry on Fly, pair it
+with a local provider — out of scope for this recipe.
+
+### 4.5 Deploy + custom domain
+
+```bash
+fly deploy -c infra/fly/fly.toml .
+fly certs create --app eidan-api api.yourdomain.com
+# Add the A + AAAA records Fly prints, wait for "Issued".
+```
+
+Run migrations (one-off, against the Fly Postgres):
+
+```bash
+fly ssh console --app eidan-api -C '
+  uv run alembic -c apps/backend/alembic.ini upgrade head
+'
+```
+
+Smoke-check:
+
+```bash
+curl https://api.yourdomain.com/api/auth/config
+# Expect {"provider":"native", ...}
+```
+
+### 4.6 Frontend
+
+Follow §8. `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.yourdomain.com`.
+
+### 4.7 Optional: GitHub Actions deploy on merge to main
+
 `.github/workflows/deploy-api.yml`:
 
 ```yaml
@@ -412,42 +565,101 @@ jobs:
 Generate the token with `fly tokens create deploy` and add it as
 `FLY_API_TOKEN` in repo settings.
 
-The Pi pulls and restarts itself on a `git pull` — there's
-nothing to wire up unless you want a similar automation; a cron
-job that runs `cd /opt/eidan && git fetch && git checkout <tag>
-&& uv sync --no-dev && systemctl restart eidan-backend` is the
-usual shape.
+---
 
-## 3. Frontend hosting
+## 5. Recipe: Distributed (Fly API + Pi worker + Vercel UI + Supabase Postgres)
 
-The frontend is a stock Next.js App Router app. Pick one.
+The reference multi-instance shape: Fly handles latency-sensitive
+HTTP, the Pi runs the always-on workload (behaviour dispatcher,
+Sentry, future Claude Code worker), Vercel serves the UI, Supabase
+holds shared state. Postgres advisory locks coordinate leader-only
+work — whichever instance grabs the lock first owns it.
 
-### 3.1 Vercel
+This recipe is composed from §3 and §4; treat the cross-references
+as the authoritative steps and use this section only for the deltas.
 
-Recommended default. Native target for Next.js: zero-config
-deploys, edge caching for static routes, automatic preview
-deployments per branch. The frontend talks to the backend over
-HTTPS / WSS using the public backend URL.
+### 5.0 Topology
 
-The frontend talks to the native auth endpoints
-(`/api/auth/magic-link`, `/api/auth/verify`, `/api/auth/refresh`)
-directly — there is no third-party SDK in the bundle.
+- **Fly machine** in your nearest region — serves `/api/*`.
+  Stateless, auto-stops on idle.
+- **Raspberry Pi** at home — leader-elected workload only. No
+  public HTTP. Same Postgres as Fly.
+- **Vercel** — Next.js UI on `app.yourdomain.com`.
+- **Supabase Postgres** — DB only.
 
-### 3.2 Fly.io
+Estimated monthly cost: Fly ~$5 + Supabase free tier (~$25 if you
+outgrow it) + Vercel free + Pi sunk cost = ~$5–30/mo all-in.
 
-Run the Next.js app as a Fly machine (Node runtime). Suits a
-deployment that wants the whole stack on one provider. You give
-up Vercel's edge cache and preview-per-branch ergonomics; you
-gain a single billing surface and the ability to colocate the
-frontend with the backend in one region.
+### 5.1 Supabase Postgres
 
-### 3.3 Heroku
+Follow §3.4 option B. The same `DATABASE_URL` will be used by
+both Fly and the Pi.
 
-Deploys as a Node web dyno. Same trade-offs as Fly for the
-frontend, plus Heroku's restart cadence. Best for a single hobby
-deployment that already lives on Heroku.
+### 5.2 Fly API
 
-## 4. Auth
+Follow §4 with these deltas:
+
+- **Skip §4.3** (Fly Postgres) — use the Supabase `DATABASE_URL`
+  instead, set it via `fly secrets set DATABASE_URL=...`.
+- **Set `EIDAN_SENTRY_ENABLED=0`** on Fly. Sentry runs on the Pi
+  in this topology; Fly leaves the advisory lock for the Pi to
+  grab.
+- The auth master key MUST be the same value on Fly and the Pi.
+
+### 5.3 Pi worker
+
+Follow §3 with these deltas:
+
+- **Skip §3.4** (local Postgres). Use the Supabase URL.
+- **§3.6 env file changes:**
+  - `EIDAN_HTTP_HOST=127.0.0.1` (Pi doesn't serve public HTTP).
+  - `EIDAN_PROVIDER=ollama`, `EIDAN_DEFAULT_MODEL=phi3` — the Pi
+    uses local inference for its own foreground work.
+  - `EIDAN_SENTRY_ENABLED=1`, `EIDAN_SENTRY_MODEL=phi3`.
+  - The same `EIDAN_AUTH_MASTER_KEY` as Fly.
+- **Skip §3.9** (Vercel frontend — set up once in §5.4 below, not
+  per-recipe).
+
+### 5.4 Vercel UI
+
+Follow §8 with `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.yourdomain.com`
+(the Fly app, not the Pi).
+
+### 5.5 Leader-election sanity check
+
+Watch both journals after both backends are up:
+
+```bash
+# Pi
+sudo journalctl -u eidan-backend -f | grep dispatcher
+
+# Fly
+fly logs -a eidan-api | grep dispatcher
+```
+
+The Pi should print `behaviour dispatcher started with N cron
+job(s)`. The Fly machine should print `another instance owns the
+dispatcher lock`. If both claim ownership, you have a Postgres
+configuration problem (two databases instead of one) — stop and
+diagnose before continuing.
+
+### 5.6 End-to-end smoke
+
+From a clean browser:
+
+1. `https://app.yourdomain.com` → click sign-in.
+2. Magic link arrives in email → click → land on the conversation
+   list.
+3. New conversation → "what is the time in london?" → SSE stream
+   produces `chunk` frames, no `[interrupted]`. (This call goes
+   through Fly → Anthropic; the Pi's Ollama is idle for foreground
+   work.)
+4. Wait 5–10 minutes, then `journalctl -u eidan-backend` on the
+   Pi → Sentry tick rows visible.
+
+---
+
+## 6. Reference: Auth
 
 Auth is native — see [011](./011_AUTH_FLOW.md). The host mints +
 verifies its own RS256 JWTs against a keypair stored encrypted in
@@ -456,68 +668,87 @@ verifies its own RS256 JWTs against a keypair stored encrypted in
 third-party identity provider, no JWKS round-trip, no OAuth
 broker.
 
-Set these in your deploy secret store **before** the first boot:
+Set these on **every backend host** (Pi, Fly, Heroku, …) before
+the first boot:
 
 | Env var                       | Why                                                                                |
 |-------------------------------|------------------------------------------------------------------------------------|
-| `EIDAN_AUTH_MASTER_KEY`       | HKDF-derives the Fernet key sealing the RS256 keypair + every vault entry.        |
+| `EIDAN_AUTH_MASTER_KEY`       | HKDF-derives the Fernet key sealing the RS256 keypair + every vault entry. **Same value on every node.** |
 | `EIDAN_AUTH_ALLOWED_EMAIL`    | The single email the magic-link endpoint will mint a link for. Unset = refuse-all.|
 | `EIDAN_SMTP_*`                | Outbound mail for the magic link. Optional — the link is always logged regardless. |
 | `EIDAN_DEPLOYMENT_MODE=production` | Switches the refresh cookie to `Secure` + suppresses the dev link echo.     |
 
-Generate the master key once with:
+Generate the master key once:
 
 ```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Rotating it later means losing the contents of `eidan.auth_keypair`,
-`eidan.auth_mfa_totp`, and `eidan.secrets_vault` — see
-[SECRETS §10](./012_SECRETS.md#10-master-key-rotation). Back the
-master key up out-of-band.
+**Back it up out-of-band** (1Password / hardware key / paper in a
+safe). Rotating it later means losing the contents of
+`eidan.auth_keypair`, `eidan.auth_mfa_totp`, and
+`eidan.secrets_vault` — see
+[SECRETS §10](./012_SECRETS.md#10-master-key-rotation).
 
-### 4.1 Multi-instance considerations
+Multi-instance has no per-instance auth state to synchronise —
+every host reads the keypair from Postgres at boot.
 
-Every state the auth subsystem reads or writes lives in Postgres.
-Two instances booting against the same database read the same
-keypair and verify tokens identically — there is no per-instance
-auth state to synchronise. Just set the same
-`EIDAN_AUTH_MASTER_KEY` on every machine.
+---
 
-## 5. Database
+## 7. Reference: Database
 
 Any Postgres ≥ 13 with `gen_random_uuid()`, `tsvector`, generated
 columns, and partial indexes. The host expects to own the `eidan`
 schema and operate on it as a regular Postgres connection — no
 data API, no PostgREST.
 
-Recommended hosts:
+| Host                | Used in     | Notes                                                                    |
+|---------------------|-------------|--------------------------------------------------------------------------|
+| **Postgres on Pi**  | §3 option A | Simplest, single point of failure for compute *and* data. Backup nightly.|
+| **Supabase**        | §3 option B, §5 | Managed Postgres + Studio for inspection. Free tier covers single-operator. |
+| **Fly Postgres**    | §4          | Colocated with Fly machines. ~$5/mo for 1GB.                             |
+| **Neon**            | (any)       | Serverless, autoscales. Good for cloud-only deployments.                 |
+| **RDS / Cloud SQL** | (any)       | Anything with a stable `postgresql://` connection string works.          |
 
-- **Fly Postgres** — colocated with backend Fly machines.
-- **Neon** — serverless Postgres, autoscaled.
-- **RDS / Cloud SQL / managed Postgres** — anything with a stable
-  connection string.
-- **Self-hosted Postgres on a Pi** — works for hobby deployments;
-  back up religiously.
-
-## 6. Recommended starting shapes
-
-Pick one based on what you already have running:
-
-| Shape                   | Backend                | Frontend | DB                | Runbook |
-|-------------------------|------------------------|----------|--------------------|---------|
-| **All Fly**             | Fly machine            | Fly      | Fly Postgres       | — |
-| **Hobbyist**            | Heroku web dyno        | Vercel   | Neon               | — |
-| **Self-host first**     | Raspberry Pi (`systemd`) | Vercel | Pi Postgres        | — |
-| **Distributed (reference)** | Fly machines + Pi worker | Vercel | Supabase Postgres | [§2.5](#25-runbook-fly-api--pi-worker--vercel-ui--supabase-postgres) |
-
-Auth is internal across every shape — set
-`EIDAN_AUTH_MASTER_KEY` and `EIDAN_AUTH_ALLOWED_EMAIL` on each
-backend host. The components don't know which infrastructure you
-chose.
+The `eidan_app` role is created automatically by
+`migrations/versions/20260514_000005_eidan_app_role.py` when
+`EIDAN_CREATE_APP_ROLE=true` + `EIDAN_APP_DB_PASSWORD=<strong>`
+are set on the first migration run. Recommended over running
+migrations as `postgres` superuser long-term.
 
 ---
 
-This document is intentionally short. Per-vendor runbooks (env
-var names, OAuth redirect URIs, build commands) live with the
-vendor and in this repo's `.env.example`.
+## 8. Reference: Vercel frontend
+
+The Next.js app is a stock App Router project. Used by every
+recipe above; spelled out once here.
+
+1. Vercel dashboard → **New project** → import this repo, root
+   `apps/web`.
+2. **Framework preset**: Next.js. **Build command**:
+   `pnpm --filter @eidan/web build`. **Install command**:
+   `pnpm install --frozen-lockfile`. **Output directory**:
+   `apps/web/.next` (default).
+3. **Environment variables**:
+   - `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.yourdomain.com`
+     (or wherever the recipe's backend lives).
+4. Deploy. Set the production domain to `app.yourdomain.com`
+   under **Settings → Domains**.
+5. Smoke-check: visit `https://app.yourdomain.com`, click sign-in.
+   The magic link arrives by email; the verify round-trip should
+   land you on the conversation list.
+
+The frontend talks directly to the native auth endpoints
+(`/api/auth/magic-link`, `/api/auth/verify`, `/api/auth/refresh`).
+No third-party SDK in the bundle.
+
+**Alternative hosts:** Fly machine (Node runtime), Heroku web
+dyno. Same trade-offs apply — you give up Vercel's edge cache and
+preview-per-branch for a single billing surface. Vercel is the
+default unless you have a specific reason to consolidate.
+
+---
+
+This document is intentionally a menu. Per-vendor knobs (exact
+env-var names for SMTP providers, DNS record forms, build flags)
+live with the vendor and in this repo's `.env.example`.
