@@ -73,9 +73,16 @@ class BootstrapResult:
     behaviour_registry: BehaviourRegistry = field(default_factory=BehaviourRegistry)
     behaviour_dispatcher: BehaviourDispatcher | None = None
     # Per-node telemetry emitter. Started in :func:`bootstrap`, stopped
-    # in :func:`shutdown`. ``None`` only when the caller opted out via
-    # ``start_telemetry=False`` (tests).
+    # in :func:`shutdown`. ``None`` when the caller opted out via
+    # ``start_telemetry=False`` OR when the eager heartbeat raised
+    # (the bootstrap wrapper logs and sets this to None so milestone
+    # emits below skip cleanly).
     telemetry: TelemetryEmitter | None = None
+    # Resolved by :func:`bootstrap` unconditionally — identity is
+    # cheap (pure Python, no DB / network) and host-global; HTTP
+    # routes and future plugin call sites may want it even when
+    # telemetry itself is disabled. The ``| None`` type slot exists
+    # only because the dataclass needs a default.
     node_identity: NodeIdentity | None = None
 
 

@@ -12,8 +12,13 @@ machines" vs "the Pi worker" vs "my laptop dev process".
 
 Resolution order, highest precedence first:
 
-1. ``EIDAN_NODE_ID`` / ``EIDAN_NODE_TYPE`` env vars — operator
-   override, always wins.
+1. ``EIDAN_NODE_ID`` env var — operator override on the id,
+   always wins. ``EIDAN_NODE_TYPE`` env var — operator override on
+   the type, wins **iff** the value is in the allow-list
+   (``pi``/``fly``/``heroku``/``k8s``/``local``); a typo or
+   unknown value falls through to auto-detection so the CHECK
+   constraint on ``node_heartbeats.node_type`` never fires from a
+   bad env value.
 2. Platform fingerprints — ``FLY_MACHINE_ID`` (Fly), ``DYNO``
    (Heroku), ``KUBERNETES_SERVICE_HOST`` (k8s).
 3. Fallback — short hostname, ``node_type='local'``.

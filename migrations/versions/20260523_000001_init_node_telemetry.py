@@ -191,13 +191,24 @@ def upgrade() -> None:
         ["node_id", sa.text("ts DESC")],
         schema="eidan",
     )
-    # Conversation-scoped queries (the agent asking "what happened
-    # on this turn?") want a partial index on conversation_id so
-    # the planner doesn't scan the whole node trail.
+    # Conversation-scoped slice — the /api/admin/nodes/{id}/events
+    # route runs:
+    #
+    #     WHERE node_id = $1
+    #       AND conversation_id = $2
+    #       AND seq > $3
+    #     ORDER BY seq ASC
+    #
+    # A partial composite on (node_id, conversation_id, seq) lets
+    # the planner satisfy the WHERE + ORDER BY off the index alone,
+    # no sort, no scan into the node-wide trail. Partial on
+    # `conversation_id IS NOT NULL` keeps the index small —
+    # scheduler-tick / boot rows (most of node_events) carry a NULL
+    # conversation_id and don't need to land here.
     op.create_index(
-        "node_events_conversation_idx",
+        "node_events_node_conversation_seq_idx",
         "node_events",
-        ["conversation_id"],
+        ["node_id", "conversation_id", "seq"],
         postgresql_where=sa.text("conversation_id IS NOT NULL"),
         schema="eidan",
     )
@@ -205,7 +216,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(
-        "node_events_conversation_idx",
+        "node_events_node_conversation_seq_idx",
         table_name="node_events",
         schema="eidan",
     )

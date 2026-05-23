@@ -85,8 +85,17 @@ class TelemetryEmitter:
     Construction does **not** start the loop. Call :meth:`start` to
     schedule the heartbeat task on the running loop; call
     :meth:`stop` from the FastAPI shutdown branch to cancel it
-    cleanly. :meth:`emit_event` is safe to call before or after
-    :meth:`start`.
+    cleanly.
+
+    Ordering matters: ``eidan.node_events.node_id`` has an FK into
+    ``eidan.node_heartbeats(node_id)``, so any :meth:`emit_event`
+    call *before* :meth:`start` has written the heartbeat row will
+    23503 inside the swallow-block — the caller doesn't see the
+    failure, but the row is dropped. In normal bootstrap order
+    (:meth:`start` first, milestone emits second) this isn't a
+    concern. Callers that emit before start (rare; only happens if
+    you defer start for a test) should expect those early events
+    to be lost.
 
     A failed heartbeat or event write is logged and swallowed. The
     process keeps running.

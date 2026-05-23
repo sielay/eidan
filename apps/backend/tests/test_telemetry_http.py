@@ -109,12 +109,12 @@ async def test_node_events_default_returns_desc(telemetry_client) -> None:
     )
     assert resp.status_code == 200
     body = resp.json()
-    # _seed emits seq 1, 2, 3 in order. DESC: seq=3 first.
-    # node.boot is also emitted by emitter.start(), so the actual order
-    # has those mixed in. Assert just on the "test.*" events.
-    types = [
-        e["type"] for e in body["events"] if e["type"].startswith("test.")
-    ]
+    # _seed() drives TelemetryEmitter directly — no bootstrap(),
+    # so no `node.boot` / `plugin.activate` rows. start() upserts
+    # the heartbeat (one row in node_heartbeats, none in
+    # node_events); emit_event x 3 then produces seq 1, 2, 3 in
+    # order. DESC: seq=3 first.
+    types = [e["type"] for e in body["events"]]
     assert types == ["test.2", "test.1", "test.0"]
     # id is "{node_id}:{seq}", same as potem.
     assert all(

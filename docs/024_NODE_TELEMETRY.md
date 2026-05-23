@@ -150,7 +150,7 @@ the same node don't race for the same seq.
 - PK on `(node_id, seq)`.
 - `node_events_node_seq_idx` on `(node_id, seq DESC)` — default tail query.
 - `node_events_node_ts_idx` on `(node_id, ts DESC)` — human-time-window queries.
-- `node_events_conversation_idx` on `(conversation_id)` partial `WHERE conversation_id IS NOT NULL` — conversation-scoped slice.
+- `node_events_node_conversation_seq_idx` on `(node_id, conversation_id, seq)` partial `WHERE conversation_id IS NOT NULL` — conversation-scoped slice. Composite matches the §5.2 query's `WHERE node_id = $1 AND conversation_id = $2 AND seq > $3 ORDER BY seq` so the planner satisfies the whole route off the index alone.
 
 No FK from `conversation_id` to `eidan.conversations(id)`: a
 conversation can be soft-deleted; the event trail must survive.
