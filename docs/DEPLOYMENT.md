@@ -186,7 +186,7 @@ Run migrations (one-shot, against the DB you picked in §3.4):
 sudo -u eidan bash -lc '
   DATABASE_URL="postgresql+asyncpg://eidan_app:CHANGE-ME@127.0.0.1:5432/eidan" \
   EIDAN_AUTH_MASTER_KEY="<the-key-you-just-generated>" \
-  /home/eidan/.local/bin/uv --directory /opt/eidan run --extra dev \
+  /home/eidan/.local/bin/uv --directory /opt/eidan run \
     alembic -c apps/backend/alembic.ini upgrade head
 '
 ```
@@ -449,18 +449,30 @@ fly postgres create --name eidan-pg --org personal --region lhr \
 fly postgres attach --app eidan-api eidan-pg
 ```
 
-`fly postgres attach` writes `DATABASE_URL` as a secret. Convert
-its scheme to asyncpg-friendly form (the Fly default is
-`postgres://`; eidan wants `postgresql+asyncpg://`):
+`fly postgres attach` writes `DATABASE_URL` as a secret using the
+`postgres://` scheme. eidan needs `postgresql+asyncpg://`. Fly
+doesn't expose secret values through the CLI, so read the URL
+back from inside a running machine and re-set it under the
+correct scheme:
 
 ```bash
-fly secrets list --app eidan-api    # find DATABASE_URL
+# 1. Pull the attached URL from inside the machine (Fly masks
+# the value in `fly secrets list` but exposes it as an env var
+# to the running process).
+fly ssh console --app eidan-api -C 'printenv DATABASE_URL'
+# → postgres://<user>:<password>@<host>:5432/<db>?sslmode=disable
+
+# 2. Re-set it with the asyncpg scheme. Quote carefully because
+# the password may contain shell metacharacters.
 fly secrets set --app eidan-api \
-  DATABASE_URL="postgresql+asyncpg://$(fly secrets list --app eidan-api -j | jq -r ...)"
+  DATABASE_URL='postgresql+asyncpg://<user>:<password>@<host>:5432/<db>'
 ```
 
+Strip the `?sslmode=disable` query — asyncpg uses different
+TLS knobs. If you need TLS, append `?ssl=require` instead.
+
 (Alternatively use Neon / Supabase / RDS — set `DATABASE_URL` by
-hand.)
+hand in step 4.4 below; you already know the password.)
 
 ### 4.4 Auth + provider secrets
 
@@ -501,7 +513,7 @@ Run migrations (one-off, against the Fly Postgres):
 
 ```bash
 fly ssh console --app eidan-api -C '
-  uv run --extra dev alembic -c apps/backend/alembic.ini upgrade head
+  uv run alembic -c apps/backend/alembic.ini upgrade head
 '
 ```
 
