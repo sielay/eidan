@@ -174,31 +174,49 @@ sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan sync --no-dev
 ```
 
 Generate the auth master key — **record it offline**, you'll set
-it on every backend host that joins this deployment:
+the same value on every backend host that joins this deployment
+(see §3.6 for why):
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Run migrations (one-shot, against the DB you picked in §3.4):
+> **Joining an existing deployment?** If another node (a laptop
+> bootstrap, a Fly machine, an earlier Pi) has already applied
+> migrations against this Postgres, **skip the migration step
+> below.** Alembic is version-tracked in `eidan.alembic_version`
+> and a re-run is a no-op, but skipping avoids the
+> `EIDAN_CREATE_APP_ROLE` env handling and the cognitive load of
+> wondering whether it did something. Verify with the
+> `psql` / Supabase Studio check at the end of this section.
+
+Run migrations (one-shot, against the DB you picked in §3.4).
+This invokes `eidan admin db migrate`, which runs core migrations
+under `migrations/alembic.ini` first and then iterates each
+installed plugin's private-schema migrations
+(`plugin_sentry`, …) in topological order — bare `alembic` would
+only do core and leave `plugin_sentry.sentry_ticks` etc. missing:
 
 ```bash
 sudo -u eidan bash -lc '
   DATABASE_URL="postgresql+asyncpg://eidan_app:CHANGE-ME@127.0.0.1:5432/eidan" \
   EIDAN_AUTH_MASTER_KEY="<the-key-you-just-generated>" \
   /home/eidan/.local/bin/uv --directory /opt/eidan run \
-    alembic -c apps/backend/alembic.ini upgrade head
+    eidan admin db migrate
 '
 ```
 
 For Supabase + a dedicated app role, prepend
 `EIDAN_CREATE_APP_ROLE=true EIDAN_APP_DB_PASSWORD="<strong>"` to
-the migration command; the migration runner will create the role
-on first run.
+the migration command; the role provisioning is idempotent
+(`CREATE` on first run, `ALTER` thereafter), so re-running with a
+new password rotates it.
 
 Verify in `psql` (or Supabase Studio) that `eidan.conversations`,
-`eidan.messages`, etc. exist and `eidan.auth_keypair` contains one
-row (minted on first import).
+`eidan.messages`, `eidan.auth_keypair`, and `plugin_sentry.sentry_ticks`
+exist. The `eidan.auth_keypair` row is minted lazily on first
+backend boot (not at migration time), so it'll be empty until
+§3.8.
 
 ### 3.6 Env file
 
@@ -210,7 +228,15 @@ DATABASE_URL=postgresql+asyncpg://eidan_app:CHANGE-ME@127.0.0.1:5432/eidan
 # (or the Supabase URL from §3.4 option B)
 
 # --- Auth ----------------------------------------------------------
-EIDAN_AUTH_MASTER_KEY=<the-key-you-generated-in-3.5>
+# MUST be byte-identical to the value on every other node that
+# connects to this Postgres (laptop bootstrap, Fly machines, other
+# Pis). The keypair in eidan.auth_keypair and every row in
+# eidan.secrets_vault is Fernet-sealed with HKDF(this); a node with
+# a different value can't decrypt them and will fail boot with
+# "EIDAN_AUTH_MASTER_KEY changing since the row was sealed" at
+# eidan_backend/auth_native/keys.py. If you've already bootstrapped
+# from a laptop, copy the value from THAT .env — do not regenerate.
+EIDAN_AUTH_MASTER_KEY=<the-key-from-3.5-or-from-the-bootstrapping-node>
 EIDAN_AUTH_ALLOWED_EMAIL=you@yourdomain.com
 EIDAN_DEPLOYMENT_MODE=production
 
@@ -516,13 +542,17 @@ fly certs create --app eidan-api api.yourdomain.com
 # Add the A + AAAA records Fly prints, wait for "Issued".
 ```
 
-Run migrations (one-off, against the Fly Postgres):
+Run migrations (one-off, against the Fly Postgres). Use `eidan
+admin db migrate` rather than bare `alembic` so the runner picks
+up each plugin's private-schema migrations in addition to core:
 
 ```bash
-fly ssh console --app eidan-api -C '
-  uv run alembic -c apps/backend/alembic.ini upgrade head
-'
+fly ssh console --app eidan-api -C 'uv run eidan admin db migrate'
 ```
+
+Skip this step if another node (a laptop bootstrap, the Pi) has
+already migrated this Postgres — alembic is version-tracked and
+a re-run is a no-op, but skipping keeps the deploy clean.
 
 Smoke-check:
 
