@@ -16,7 +16,7 @@ Failure handling matches potem (``apps/pi-node/pi_node/heartbeat.py``
 and ``apps/pi-node/pi_node/executor.py:_append_node_event``):
 **telemetry never breaks job execution.** Both writes catch every
 exception and log it; the next 30s heartbeat retries on its own, an
-event-write that lost is just lost.
+event write that is lost is just lost.
 
 Each ``emit_event`` call also fires a structured ``logging`` line
 with the same fields, so ``journalctl -u eidan-backend`` and
