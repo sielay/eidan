@@ -39,6 +39,17 @@ env:
       ISO-8601 duration between sentry ticks. The schedule trigger
       reads this verbatim, so changing it changes the cadence at
       activation time (no in-flight rescheduling).
+  - name: EIDAN_SENTRY_MODEL
+    required: false
+    default: "phi3"
+    description: >
+      Model name the sentry loop asks the host's provider for when
+      its open-ended pattern matcher runs. Pinned per-node so a
+      cheap local model (e.g. phi3 via Ollama) can drive sentry
+      independently of whatever the foreground agent uses. Phase 1
+      detectors are deterministic and do not call the model; this
+      slot is read by the Phi-3 / Ollama path that lands with the
+      local-model adapter (see plugin.py + patterns.py).
 
 backend:
   entrypoint: eidan_sentry.plugin:Plugin

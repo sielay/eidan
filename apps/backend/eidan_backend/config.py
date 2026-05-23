@@ -112,7 +112,17 @@ class BackendSettings(BaseSettings):
             "Ollama has pulled (`ollama pull phi3`, `ollama list`)."
         ),
     )
-    default_model: str = "claude-opus-4-7"
+    default_model: str = Field(
+        "claude-opus-4-7",
+        validation_alias="EIDAN_DEFAULT_MODEL",
+        description=(
+            "Model name the host passes to the provider on every "
+            "call when no per-route override is set. Must be a "
+            "model the configured provider can actually serve "
+            "(e.g. `phi3` when `EIDAN_PROVIDER=ollama` and you've "
+            "`ollama pull phi3`'d it)."
+        ),
+    )
 
     # Budget caps (`docs/010 §2`). Per-turn is a hard stop *during* a
     # turn: the loop short-circuits before the next provider call when
