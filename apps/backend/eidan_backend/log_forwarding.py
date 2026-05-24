@@ -89,6 +89,7 @@ import os
 import queue
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 from typing import Any
@@ -101,6 +102,36 @@ logger = logging.getLogger(__name__)
 # this once; we don't expect a second attach in the same process.
 _active_listener: logging.handlers.QueueListener | None = None
 _active_handler: logging.Handler | None = None
+
+# atexit's registration list grows unbounded if we re-register every
+# attach (tests cycle attach → reset → attach). Register once per
+# process; the hook is a no-op when no listener is active anyway.
+_atexit_registered = False
+
+
+def _redact_url(url: str) -> str:
+    """Return ``scheme://host[:port]/path`` only — strip userinfo + query.
+
+    Operators sometimes encode credentials in the intake URL:
+    ``https://user:token@in.example/log`` (basic auth-style) or
+    ``https://in.example/log?api_key=secret`` (Datadog-on-AWS via
+    query string). Both would otherwise leak into stderr ("POST to
+    <url> failed") AND into the intake itself (the startup log
+    line is itself forwarded). Strip both at every print site so
+    secrets stay where the operator put them.
+
+    A malformed URL falls back to ``"<unparseable>"`` so a bad
+    config still prints something useful for debugging without
+    risking partial leakage.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or ""
+        if parsed.port is not None:
+            host = f"{host}:{parsed.port}"
+        return f"{parsed.scheme}://{host}{parsed.path}"
+    except (ValueError, AttributeError):
+        return "<unparseable>"
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +208,10 @@ class _JsonHttpHandler(logging.Handler):
     ) -> None:
         super().__init__()
         self._url = url
+        # Redacted form for any user-facing print (stderr, journald).
+        # See :func:`_redact_url` for why — credentials in the URL
+        # shouldn't leak into logs.
+        self._safe_url = _redact_url(url)
         self._headers = {"Content-Type": "application/json", **headers}
         self._timeout = timeout_seconds
         self._failure_total = 0
@@ -244,7 +279,7 @@ class _JsonHttpHandler(logging.Handler):
                 else ""
             )
             print(
-                f"[log_forwarding] POST to {self._url} failed{count}: "
+                f"[log_forwarding] POST to {self._safe_url} failed{count}: "
                 f"{label}{exc}",
                 file=sys.stderr,
             )
@@ -450,14 +485,29 @@ def attach_log_forwarder_if_configured() -> bool:
 
     # Stop the listener at process exit so the background thread
     # joins cleanly. Best-effort; if Python is exiting hard there's
-    # nothing we can do.
-    atexit.register(_shutdown_forwarder)
+    # nothing we can do. Register once per process — tests cycling
+    # attach → reset → attach would otherwise accumulate stale
+    # callbacks in atexit's list. The hook is a no-op when no
+    # listener is active, so leaving it registered after a test
+    # reset is harmless.
+    global _atexit_registered
+    if not _atexit_registered:
+        atexit.register(_shutdown_forwarder)
+        _atexit_registered = True
 
+    safe_url = http_handler._safe_url
     logger.info(
         "log_forwarding: enabled — POSTing to %s at level %s",
-        url,
+        safe_url,
         level_name,
-        extra={"event": "log_forwarding.enabled", "url": url, "level": level_name},
+        extra={
+            "event": "log_forwarding.enabled",
+            # Redacted: this line is itself forwarded; the raw url
+            # may contain credentials / api key query params that
+            # would land in the intake.
+            "url": safe_url,
+            "level": level_name,
+        },
     )
     return True
 
