@@ -386,6 +386,29 @@ def attach_log_forwarder_if_configured() -> bool:
     if not url:
         return False
 
+    # Validate up front so a typo'd / non-HTTP URL refuses to attach
+    # with one stderr line instead of attaching successfully and
+    # then failing per-record forever. The redacted form is fine for
+    # the warning — it's only invalid in shape, but it may still
+    # contain secrets if the operator's mis-formatted URL has them.
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError as exc:
+        print(
+            f"[log_forwarding] EIDAN_LOG_FORWARD_URL={_redact_url(url)!r} "
+            f"could not be parsed — refusing to attach: {exc}",
+            file=sys.stderr,
+        )
+        return False
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        print(
+            f"[log_forwarding] EIDAN_LOG_FORWARD_URL={_redact_url(url)!r} "
+            f"must be an absolute http(s) URL with a host — refusing "
+            f"to attach",
+            file=sys.stderr,
+        )
+        return False
+
     headers: dict[str, str] = {}
     token = os.environ.get("EIDAN_LOG_FORWARD_TOKEN")
     if token:
@@ -424,10 +447,15 @@ def attach_log_forwarder_if_configured() -> bool:
     timeout_raw = os.environ.get("EIDAN_LOG_FORWARD_TIMEOUT", "5.0")
     try:
         timeout_seconds = float(timeout_raw)
+        if timeout_seconds <= 0:
+            # Mirror the QUEUE_SIZE validation. urlopen(timeout=0)
+            # raises immediately, turning a typo into a per-record
+            # failure streak.
+            raise ValueError("must be > 0")
     except ValueError:
         print(
             f"[log_forwarding] EIDAN_LOG_FORWARD_TIMEOUT={timeout_raw!r} "
-            f"not a number — falling back to 5.0",
+            f"not a positive number — falling back to 5.0",
             file=sys.stderr,
         )
         timeout_seconds = 5.0
@@ -496,17 +524,20 @@ def attach_log_forwarder_if_configured() -> bool:
         _atexit_registered = True
 
     safe_url = http_handler._safe_url
+    # `_format_record` only forwards a fixed allow-list of extras
+    # (event, node_id, node_type, conversation_id, payload). Stash
+    # the structured fields inside `payload` so they actually land
+    # in the forwarded JSON; otherwise they'd be set on the
+    # LogRecord but silently dropped at format time. Both `url` and
+    # `level` use the redacted form for the same reason as the
+    # message — this very line is itself forwarded.
     logger.info(
         "log_forwarding: enabled — POSTing to %s at level %s",
         safe_url,
         level_name,
         extra={
             "event": "log_forwarding.enabled",
-            # Redacted: this line is itself forwarded; the raw url
-            # may contain credentials / api key query params that
-            # would land in the intake.
-            "url": safe_url,
-            "level": level_name,
+            "payload": {"url": safe_url, "level": level_name},
         },
     )
     return True

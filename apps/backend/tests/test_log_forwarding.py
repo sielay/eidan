@@ -504,11 +504,12 @@ def test_intake_url_credentials_redacted_in_stderr_and_logs(
     """Operators sometimes encode credentials in the intake URL —
     basic-auth-style userinfo (``user:token@host``) or
     Datadog-via-query-string (``?api_key=secret``). Neither must
-    leak into stderr or into the forwarder's own startup line
-    (which is itself forwarded). Pins
+    leak into stderr OR into the forwarder's own startup line
+    (which is itself forwarded — those bytes end up in the very
+    intake whose URL we just leaked). Pins
     :func:`eidan_backend.log_forwarding._redact_url`'s use at
-    every print site so a regression flags here, not in an
-    operator's journald."""
+    every print + emit site so a regression flags here, not in an
+    operator's journald or in their log-aggregator's index."""
     monkeypatch.setenv(
         "EIDAN_LOG_FORWARD_URL",
         "https://user:s3cret@in.example/log?api_key=leak-me",
@@ -516,13 +517,8 @@ def test_intake_url_credentials_redacted_in_stderr_and_logs(
 
     import urllib.error
 
-    def always_fails(req, timeout):  # noqa: ARG001
-        raise urllib.error.URLError("simulated")
-
     captured: list = []
-    # Capture what gets POSTed too — the startup line is itself
-    # forwarded, so we need to assert the body doesn't carry the
-    # raw URL either.
+
     def fake_post(req, timeout):  # noqa: ARG001
         captured.append({"url": req.full_url, "body": req.data})
         raise urllib.error.URLError("simulated")
@@ -537,15 +533,79 @@ def test_intake_url_credentials_redacted_in_stderr_and_logs(
 
     stderr = capsys.readouterr().err
     # Forbidden substrings — secrets we set in the URL must not
-    # surface in operator-facing output.
-    for secret in ("s3cret", "leak-me", "user:"):
+    # surface in operator-facing output OR in the forwarded body.
+    secrets = ("s3cret", "leak-me", "user:")
+
+    for secret in secrets:
         assert secret not in stderr, (
             f"intake URL secret {secret!r} leaked into stderr:\n{stderr}"
         )
+
+    # The startup info line ("log_forwarding: enabled ...") is
+    # itself forwarded — assert its decoded JSON envelope carries
+    # only the redacted URL. The test fakes a failing POST, but
+    # the body still went through `_format_record` before the
+    # urlopen call raised, so we have it.
+    assert captured, "expected at least one POST attempt"
+    for c in captured:
+        body_text = c["body"].decode("utf-8")
+        for secret in secrets:
+            assert secret not in body_text, (
+                f"intake URL secret {secret!r} leaked into the "
+                f"forwarded JSON body (operator's intake would have "
+                f"received it):\n{body_text}"
+            )
+
     # Forwarder still tells the operator WHICH intake — host/path
     # are useful for debugging, just not the credentials.
     assert "in.example" in stderr
     assert "/log" in stderr
+
+
+def test_attach_refuses_non_http_url(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """A typo like `localhost:4317` (missing scheme) or `ftp://...`
+    must refuse to attach with one stderr line instead of attaching
+    and then per-record-failing forever. Validation runs at attach
+    time."""
+    for bad in (
+        "localhost:4317",
+        "ftp://in.example/log",
+        "not-a-url-at-all",
+        "://missing-scheme.example/log",
+    ):
+        _reset_for_tests()
+        monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", bad)
+        attached = attach_log_forwarder_if_configured()
+        assert attached is False, f"attach should refuse {bad!r}"
+        stderr = capsys.readouterr().err
+        assert "EIDAN_LOG_FORWARD_URL" in stderr
+        assert "refusing to attach" in stderr or "could not be parsed" in stderr
+
+
+def test_attach_falls_back_on_bad_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """A negative or zero timeout would make urlopen raise on every
+    emit. Fall back to the 5.0s default with one stderr line —
+    same posture as the URL / queue-size / level validation."""
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+
+    for bad in ("0", "-1", "not-a-number"):
+        _reset_for_tests()
+        capsys.readouterr()  # drain any prior stderr
+        monkeypatch.setenv("EIDAN_LOG_FORWARD_TIMEOUT", bad)
+        attached = attach_log_forwarder_if_configured()
+        assert attached is True, (
+            f"attach should still succeed for bad timeout {bad!r}; "
+            f"telemetry never breaks job execution"
+        )
+        stderr = capsys.readouterr().err
+        assert "EIDAN_LOG_FORWARD_TIMEOUT" in stderr
+        assert "falling back to 5.0" in stderr
 
 
 def test_post_failure_is_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
