@@ -340,23 +340,25 @@ One POST per log record. Body is a flat JSON object:
 
 ```json
 {
-  "ts":              "2026-05-24T08:30:00.123+00:00",
-  "level":           "INFO",
-  "logger":          "eidan_backend.telemetry",
-  "message":         "telemetry: node.boot",
-  "event":           "node.boot",
-  "node_id":         "kasha",
-  "node_type":       "pi",
-  "conversation_id": null,
-  "payload":         {"plugins": ["sentry"], "tool_count": 4}
+  "ts":      "2026-05-24T08:30:00.123+00:00",
+  "level":   "INFO",
+  "logger":  "eidan_backend.telemetry",
+  "message": "telemetry: node.boot",
+  "event":   "node.boot",
+  "node_id": "kasha",
+  "node_type": "pi",
+  "payload": {"plugins": ["sentry"], "tool_count": 4}
 }
 ```
 
 `event` / `node_id` / `node_type` / `conversation_id` / `payload`
 come from the telemetry emitter's `extra=` kwargs (see §3.2) and
-are only included when set. Records that didn't go through the
-telemetry path (raw stdlib logs from asyncpg, uvicorn) ship with
-just the four stdlib fields.
+are **only included when non-null**. The example above is for a
+node-level event (no conversation); a turn-bound event would
+carry `"conversation_id": "<uuid>"`. Records that didn't go
+through the telemetry path (raw stdlib logs from asyncpg,
+uvicorn) ship with just the four stdlib fields and `exception`
+when present.
 
 ### 6.3 BetterStack (Logtail)
 
@@ -373,14 +375,24 @@ Logtail accepts the flat JSON shape directly. The `event=` /
 
 ```ini
 EIDAN_LOG_FORWARD_URL=https://http-intake.logs.datadoghq.com/api/v2/logs
-EIDAN_LOG_FORWARD_HEADERS={"DD-API-KEY": "<your-api-key>"}
+EIDAN_LOG_FORWARD_HEADERS={"DD-API-KEY":"<your-api-key>"}
 ```
 
 Datadog uses `DD-API-KEY` instead of `Authorization: Bearer`, so
 the auth header goes through `EIDAN_LOG_FORWARD_HEADERS` rather
-than `EIDAN_LOG_FORWARD_TOKEN`. (Shell-escape the JSON if you set
-this on the command line: `EIDAN_LOG_FORWARD_HEADERS='{"DD-API-KEY":
-"abc"}'`.)
+than `EIDAN_LOG_FORWARD_TOKEN`.
+
+**systemd-`EnvironmentFile=` quoting.** systemd splits unquoted
+values on whitespace, so JSON with spaces gets truncated. Two
+safe shapes:
+
+- Drop the spaces, as above (`{"DD-API-KEY":"<key>"}`). Valid
+  JSON, parses identically.
+- Single-quote the whole value if you keep the spaces:
+  `EIDAN_LOG_FORWARD_HEADERS='{"DD-API-KEY": "<key>"}'`.
+
+If you `source /etc/eidan/eidan.env` into a shell, both shapes
+also work for `export`.
 
 ### 6.5 Loki
 

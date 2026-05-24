@@ -26,9 +26,15 @@ Env vars:
   Datadog: ``{"DD-API-KEY": "..."}``) or custom routing
   headers. Merged on top of any ``Authorization`` from
   ``EIDAN_LOG_FORWARD_TOKEN``.
-- ``EIDAN_LOG_FORWARD_LEVEL`` — optional. Minimum level to
-  forward, default ``INFO``. Set to ``WARNING`` to keep the
-  intake quieter.
+- ``EIDAN_LOG_FORWARD_LEVEL`` — optional. Minimum level the
+  forwarder's handler accepts, default ``INFO``. The
+  **effective** forwarded level is ``max(root_logger_level,
+  EIDAN_LOG_FORWARD_LEVEL)`` because the root logger's level
+  filters records before they reach any handler. To forward
+  INFO records when uvicorn defaults root to WARNING, raise
+  root to INFO via ``uvicorn --log-level info`` or via your
+  own ``logging.basicConfig`` — this module deliberately
+  doesn't mutate root to avoid surprising other handlers.
 - ``EIDAN_LOG_FORWARD_TIMEOUT`` — optional float seconds for
   the HTTP POST, default ``5.0``. Forwarder swallows on
   timeout (logs to stderr) so a slow intake doesn't drag the
@@ -235,8 +241,11 @@ def attach_log_forwarder_if_configured() -> bool:
             )
 
     level_name = os.environ.get("EIDAN_LOG_FORWARD_LEVEL", "INFO").upper()
-    level = logging.getLevelName(level_name)
-    if not isinstance(level, int):
+    # Prefer getLevelNamesMapping() (3.11+, single-purpose name→int)
+    # over getLevelName() — the latter's dual int↔str API trips
+    # readers, even though it does return an int for known names.
+    level = logging.getLevelNamesMapping().get(level_name)
+    if level is None:
         print(
             f"[log_forwarding] EIDAN_LOG_FORWARD_LEVEL={level_name!r} "
             f"unrecognised — falling back to INFO",
@@ -276,12 +285,16 @@ def attach_log_forwarder_if_configured() -> bool:
 
     root = logging.getLogger()
     root.addHandler(queue_handler)
-    # Don't lower the root logger level — operators set their root
-    # level via uvicorn's --log-level / standard logging config.
-    # This just ensures the forwarder receives at least INFO from
-    # the root pipeline.
-    if root.level == logging.NOTSET or root.level > level:
-        root.setLevel(level)
+    # Note: we deliberately do **not** mutate the root logger's
+    # level. The forwarder is opt-in via env, and silently
+    # globally-lowering root from WARNING to INFO would have
+    # surprising side effects on every other handler (stdout,
+    # journald, anything operators wired up themselves). The
+    # effective forwarded level is max(root.level, level): if a
+    # caller wants INFO records forwarded but their root is at
+    # WARNING, they set root via the normal path (uvicorn's
+    # --log-level info, or logging.basicConfig in their own
+    # startup) — this module stays out of that decision.
 
     _active_listener = listener
     _active_handler = queue_handler

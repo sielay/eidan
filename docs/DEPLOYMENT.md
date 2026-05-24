@@ -952,8 +952,14 @@ EIDAN_LOG_FORWARD_TOKEN=<your-source-token>
 
 ```ini
 EIDAN_LOG_FORWARD_URL=https://http-intake.logs.datadoghq.com/api/v2/logs
-EIDAN_LOG_FORWARD_HEADERS={"DD-API-KEY": "<your-api-key>"}
+EIDAN_LOG_FORWARD_HEADERS={"DD-API-KEY":"<your-api-key>"}
 ```
+
+> **systemd-`EnvironmentFile=` quoting.** systemd splits
+> unquoted values on whitespace. The JSON above has no spaces
+> on purpose so it parses cleanly. If you keep the spaces,
+> single-quote the value:
+> `EIDAN_LOG_FORWARD_HEADERS='{"DD-API-KEY": "<key>"}'`.
 
 **Axiom / Honeycomb / any HTTPS intake that accepts POST + JSON:**
 same shape as BetterStack — set `URL` plus either `TOKEN`

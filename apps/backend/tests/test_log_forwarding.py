@@ -39,8 +39,18 @@ def _clean_env_and_state(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in _FORWARDER_ENV:
         monkeypatch.delenv(key, raising=False)
     _reset_for_tests()
+    # The forwarder no longer mutates root logger level (that was a
+    # surprising side effect — see attach_log_forwarder_if_configured
+    # docstring). For tests that emit INFO records, set root to INFO
+    # here so records actually reach the QueueHandler instead of
+    # being filtered out at the root. Restored on teardown to avoid
+    # bleed into adjacent test modules.
+    root = logging.getLogger()
+    previous_level = root.level
+    root.setLevel(logging.INFO)
     yield
     _reset_for_tests()
+    root.setLevel(previous_level)
 
 
 def _make_record(
