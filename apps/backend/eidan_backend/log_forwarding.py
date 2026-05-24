@@ -39,6 +39,14 @@ Env vars:
   the HTTP POST, default ``5.0``. Forwarder swallows on
   timeout (logs to stderr) so a slow intake doesn't drag the
   process.
+- ``EIDAN_LOG_FORWARD_QUEUE_SIZE`` — optional bound on the
+  in-process buffer, default ``10000``. When the intake stalls
+  (network blip, auth rejection) the listener thread can't
+  drain; the queue fills up to this cap and further records
+  are dropped, with a rate-limited stderr warning. Operators
+  who'd rather block-then-OOM than drop can raise the bound
+  arbitrarily, but the back-pressure-to-drop posture matches
+  the "telemetry never breaks job execution" doctrine.
 
 JSON envelope per record::
 
@@ -72,6 +80,7 @@ record is dropped — telemetry must never break job execution
 from __future__ import annotations
 
 import atexit
+import copy
 import json
 import logging
 import logging.handlers
@@ -121,10 +130,13 @@ def _format_record(record: logging.LogRecord) -> dict[str, Any]:
         value = getattr(record, key, None)
         if value is not None:
             envelope[key] = value
-    if record.exc_info:
-        # logging.Formatter().formatException returns a multi-line
-        # traceback string; ship it as one field rather than try to
-        # restructure into a list — most intakes display it cleanly.
+    # Exception traceback. `exc_info` is the raw tuple; some upstream
+    # paths (a Formatter that already ran, or a non-forwarding queue
+    # handler that pre-formatted) may have already populated
+    # `exc_text` and may have cleared `exc_info`. Check both.
+    if getattr(record, "exc_text", None):
+        envelope["exception"] = record.exc_text
+    elif record.exc_info:
         envelope["exception"] = logging.Formatter().formatException(record.exc_info)
     return envelope
 
@@ -187,6 +199,78 @@ class _JsonHttpHandler(logging.Handler):
                 f"[log_forwarding] unexpected error: {exc!r}",
                 file=sys.stderr,
             )
+
+
+# ---------------------------------------------------------------------------
+# Queue handler — preserves exc_info + bounded with drop-on-full.
+# ---------------------------------------------------------------------------
+
+
+# Default queue size. At ~10/s log volume that's ~17 minutes of buffer
+# before back-pressure kicks in — generous for a transient intake
+# outage, small enough that an actually-dead intake can't OOM the
+# process. Override via EIDAN_LOG_FORWARD_QUEUE_SIZE.
+_DEFAULT_QUEUE_SIZE = 10_000
+
+
+class _ForwardingQueueHandler(logging.handlers.QueueHandler):
+    """In-process queue handler tuned for the forwarding pipeline.
+
+    Two deltas from the stdlib :class:`logging.handlers.QueueHandler`:
+
+    1. **Preserves ``exc_info`` / ``exc_text`` / ``stack_info``.**
+       The base ``prepare()`` strips these so the record is
+       pickleable for cross-process queues. We use an in-process
+       :class:`queue.Queue` — picklability is irrelevant, and
+       stripping them means tracebacks never reach the HTTP
+       handler. Override returns a shallow copy with all the
+       diagnostic fields intact.
+
+    2. **Drops on full queue without the noisy stderr traceback
+       the base ``handleError`` emits.** A bounded queue +
+       drop-on-full is the right back-pressure shape for
+       telemetry (lose data before crashing or eating memory),
+       but the base behaviour of writing a multi-line traceback
+       per dropped record floods stderr the moment the intake
+       slows. Replaced with a rate-limited single-line warning
+       every ``_DROP_REPORT_INTERVAL`` drops.
+    """
+
+    _DROP_REPORT_INTERVAL = 100
+
+    def __init__(self, log_queue: queue.Queue[logging.LogRecord]) -> None:
+        super().__init__(log_queue)
+        self._dropped_total = 0
+        self._dropped_since_last_report = 0
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        # Shallow copy so other handlers in the chain (stdout,
+        # journald) get the unmodified record — same precaution
+        # the stdlib impl takes (bpo-35726).
+        return copy.copy(record)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.enqueue(self.prepare(record))
+        except queue.Full:
+            # Drop. Don't propagate; don't hit self.handleError
+            # (which would write the full Full traceback per
+            # record — flooding stderr is worse than losing logs).
+            self._dropped_total += 1
+            self._dropped_since_last_report += 1
+            if self._dropped_since_last_report >= self._DROP_REPORT_INTERVAL:
+                print(
+                    f"[log_forwarding] queue full — dropped "
+                    f"{self._dropped_since_last_report} records "
+                    f"(total dropped this process: {self._dropped_total})",
+                    file=sys.stderr,
+                )
+                self._dropped_since_last_report = 0
+        except Exception:  # noqa: BLE001 — must not propagate
+            # Any other exception during enqueue (e.g. malformed
+            # record). Fall back to the stdlib escape hatch but
+            # don't let it bubble up.
+            self.handleError(record)
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +348,21 @@ def attach_log_forwarder_if_configured() -> bool:
         )
         timeout_seconds = 5.0
 
+    queue_size_raw = os.environ.get(
+        "EIDAN_LOG_FORWARD_QUEUE_SIZE", str(_DEFAULT_QUEUE_SIZE)
+    )
+    try:
+        queue_size = int(queue_size_raw)
+        if queue_size <= 0:
+            raise ValueError("must be positive")
+    except ValueError:
+        print(
+            f"[log_forwarding] EIDAN_LOG_FORWARD_QUEUE_SIZE={queue_size_raw!r} "
+            f"not a positive integer — falling back to {_DEFAULT_QUEUE_SIZE}",
+            file=sys.stderr,
+        )
+        queue_size = _DEFAULT_QUEUE_SIZE
+
     http_handler = _JsonHttpHandler(
         url=url,
         headers=headers,
@@ -271,12 +370,13 @@ def attach_log_forwarder_if_configured() -> bool:
     )
     http_handler.setLevel(level)
 
-    # Queue + listener so logger.info() doesn't block on the POST.
+    # Bounded queue + custom handler so logger.info() doesn't block
+    # on the POST AND a slow/dead intake can't OOM the process.
     # respect_handler_level=True so the http_handler.setLevel above
     # actually filters (otherwise the QueueListener would re-emit
     # everything regardless of the handler's own level).
-    log_queue: queue.SimpleQueue[Any] = queue.SimpleQueue()
-    queue_handler = logging.handlers.QueueHandler(log_queue)
+    log_queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=queue_size)
+    queue_handler = _ForwardingQueueHandler(log_queue)
     queue_handler.setLevel(level)
     listener = logging.handlers.QueueListener(
         log_queue, http_handler, respect_handler_level=True

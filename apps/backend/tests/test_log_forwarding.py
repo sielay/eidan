@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -266,6 +267,98 @@ def test_explicit_headers_override_bearer_token(
     headers = captured[0]["headers"]
     assert headers["Dd-api-key"] == "dd-secret"
     assert headers["Authorization"] == "Basic override"
+
+
+def test_exception_traceback_lands_in_post_through_queue_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: stdlib :class:`logging.handlers.QueueHandler.prepare`
+    clears ``record.exc_info`` / ``exc_text`` to make records
+    pickleable for cross-process queues. We use an in-process
+    queue, so :class:`_ForwardingQueueHandler` overrides
+    :meth:`prepare` to keep both. Without that override, exceptions
+    silently never reach the HTTP handler.
+
+    This test calls :func:`logger.exception` (the realistic
+    operator path: an error site catches + logs the traceback) and
+    asserts the captured POST body's ``exception`` field carries
+    the traceback string."""
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+
+    captured: list = []
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        _patch_urlopen(captured),
+    ):
+        attach_log_forwarder_if_configured()
+        log = logging.getLogger("eidan_backend.telemetry")
+        try:
+            raise RuntimeError("simulated provider error")
+        except RuntimeError:
+            log.exception(
+                "telemetry: %s",
+                "provider.failure",
+                extra={
+                    "event": "provider.failure",
+                    "node_id": "kasha",
+                    "node_type": "pi",
+                },
+            )
+        _wait_for_drain()
+
+    # Find the body for our event — attach itself logs a line too.
+    failure = next(
+        (c["body"] for c in captured if c["body"].get("event") == "provider.failure"),
+        None,
+    )
+    assert failure is not None, f"provider.failure missing from {captured}"
+    assert "exception" in failure, (
+        "exception field missing — QueueHandler.prepare() likely "
+        "stripped exc_info before the listener saw it"
+    )
+    assert "RuntimeError: simulated provider error" in failure["exception"]
+    assert "Traceback" in failure["exception"]
+
+
+def test_bounded_queue_drops_when_full(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """When the intake is hanging and the queue fills, records are
+    dropped (not OOM'd) and a rate-limited stderr line surfaces
+    the loss. This pins the back-pressure contract Copilot asked
+    for."""
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_QUEUE_SIZE", "5")
+
+    # Block the HTTP sender so the queue can't drain. Use a slow
+    # urlopen that the listener thread will sit on, letting us
+    # overflow the queue from the test thread.
+    drain_block = threading.Event()
+
+    def slow_urlopen(req, timeout):  # noqa: ARG001
+        drain_block.wait(timeout=5.0)
+        m = MagicMock()
+        m.__enter__.return_value.read.return_value = b""
+        return m
+
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        side_effect=slow_urlopen,
+    ):
+        attach_log_forwarder_if_configured()
+        # Push 200 records — way past the queue cap of 5 — so the
+        # drop counter must fire and the stderr line must surface.
+        log = logging.getLogger("eidan_backend.test_overflow")
+        for i in range(200):
+            log.warning("flood %d", i)
+        drain_block.set()  # let the listener drain whatever it has
+        _wait_for_drain(timeout=5.0)
+
+    stderr = capsys.readouterr().err
+    assert "queue full" in stderr, (
+        f"expected drop-warning in stderr, got: {stderr!r}"
+    )
 
 
 def test_post_failure_is_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:

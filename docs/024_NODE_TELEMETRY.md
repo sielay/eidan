@@ -328,6 +328,7 @@ on the host.
 | `EIDAN_LOG_FORWARD_HEADERS`  | No       | JSON-encoded dict of extra headers, merged on top. Escape hatch for non-Bearer auth (Datadog's `DD-API-KEY`, custom routing headers). |
 | `EIDAN_LOG_FORWARD_LEVEL`    | No       | Minimum level to forward; default `INFO`. Set to `WARNING` to keep the intake quieter. |
 | `EIDAN_LOG_FORWARD_TIMEOUT`  | No       | HTTP POST timeout in seconds; default `5.0`. Failures are swallowed (printed to stderr); the next log line tries again. |
+| `EIDAN_LOG_FORWARD_QUEUE_SIZE` | No     | Max in-process buffer size; default `10000`. When the intake stalls, records past this cap are dropped (rate-limited stderr warning every 100 drops). Prevents OOM under a hanging intake while keeping the "telemetry never breaks job execution" posture. |
 
 The forwarder attaches at boot from
 [`http/app.py`'s lifespan](../apps/backend/eidan_backend/http/app.py)
