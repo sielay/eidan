@@ -399,21 +399,62 @@ in `eidan.env`, then `sudo systemctl restart eidan-backend`.
 
 ### 3.11 Updating
 
-The Pi is the simplest update story — a cron job that pulls and
-restarts is the usual shape:
+The Pi is the simplest update story — pull the next tagged
+release, re-sync the venv, run any new migrations, restart the
+service:
 
 ```bash
+sudo -u eidan git -C /opt/eidan fetch --tags
+sudo -u eidan git -C /opt/eidan checkout v0.1.1   # next tagged release
+sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan sync --no-dev
+
+# Apply any new migrations. Idempotent — a no-op when the DB is
+# already at head. `eidan admin db migrate` runs core then
+# iterates plugin schemas, same command as §3.5.
 sudo -u eidan bash -lc '
-  cd /opt/eidan
-  git fetch --tags
-  git checkout v0.1.1                          # next tagged release
-  /home/eidan/.local/bin/uv sync --no-dev
+  set -a; source /etc/eidan/eidan.env; set +a
+  /home/eidan/.local/bin/uv --directory /opt/eidan run \
+    eidan admin db migrate
 '
+
 sudo systemctl restart eidan-backend
+sudo journalctl -u eidan-backend -f
 ```
 
-If a release ships migrations, re-run §3.5's `alembic upgrade
-head` before the restart.
+**Migration ordering.** Most eidan migrations are *additive*
+(new tables, new columns, new indexes) — you can apply them
+while the old service is still running because the running code
+doesn't know about the new objects and won't touch them. The
+recipe above runs migrations first, then restarts, so the new
+code finds the schema already prepared.
+
+For a *destructive* migration (drop column, rename table, change
+a CHECK constraint) stop the service before the migration so the
+old code can't write into a half-removed shape:
+
+```bash
+sudo systemctl stop eidan-backend
+# ... pull + sync + migrate as above ...
+sudo systemctl start eidan-backend
+```
+
+The release notes flag which migrations are destructive; assume
+additive when not stated.
+
+**Auto-update cron.** A cron job that pulls and restarts is the
+usual hands-off shape; just remember to skip auto-update during
+the brief window after a destructive release lands and before
+you've reviewed the release notes:
+
+```cron
+# /etc/cron.d/eidan-update — additive-safe nightly pull
+0 3 * * *  eidan  /opt/eidan/scripts/update.sh >> /var/log/eidan/update.log 2>&1
+```
+
+(Ship `/opt/eidan/scripts/update.sh` yourself; the eidan repo
+doesn't include it because the right tag-selection policy is
+operator-specific — `latest` tag, manually-pinned tag, or
+follow-main-with-care are all reasonable choices.)
 
 ---
 
@@ -431,63 +472,49 @@ Fly Postgres ~$5/mo (1GB), Vercel hobby free. ~$10/mo all-in.
 - Fly account + `flyctl` (`brew install flyctl` then `fly auth login`).
 - Vercel account.
 - A domain you control.
-- Checked-out clone of this repo.
+- A vanilla clone of this repo. **You don't fork and you don't
+  commit anything into it.** Everything per-deploy is either a
+  build-time flag on `fly deploy` or a runtime secret in
+  `fly secrets set`. The deploy artifacts (`infra/fly/Dockerfile`,
+  `infra/fly/fly.toml.example`) are tracked upstream and consumed
+  as-is, so `git pull` keeps working forever.
 
-### 4.1 Dockerfile
+### 4.1 Tracked deploy artifacts (no fork, no edits)
 
-The repo doesn't ship a prod Dockerfile — you own it because the
-exact apt deps depend on which plugins you bundle. Drop the
-following at `infra/fly/Dockerfile`:
+The repo ships two files you consume without editing:
 
-```dockerfile
-FROM python:3.12-slim-bookworm
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    UV_CACHE_DIR=/tmp/uv-cache
-RUN pip install --no-cache-dir uv
-WORKDIR /app
-COPY pyproject.toml uv.lock ./
-COPY apps/backend ./apps/backend
-COPY plugins ./plugins
-COPY packages/schemas ./packages/schemas
-COPY migrations ./migrations
-RUN uv sync --frozen --no-dev
-EXPOSE 8000
-CMD ["uv", "run", "eidan", "admin", "server", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### 4.2 fly.toml
-
-`infra/fly/fly.toml`:
-
-```toml
-app            = "eidan-api"
-primary_region = "lhr"
-
-[build]
-  dockerfile = "infra/fly/Dockerfile"
-
-[http_service]
-  internal_port        = 8000
-  force_https          = true
-  auto_stop_machines   = "stop"
-  auto_start_machines  = true
-  min_machines_running = 0
-
-  [http_service.concurrency]
-    type       = "requests"
-    soft_limit = 25
-    hard_limit = 50
-
-[env]
-  EIDAN_HTTP_HOST       = "0.0.0.0"
-  EIDAN_DEPLOYMENT_MODE = "production"
-  EIDAN_HTTP_CORS_ORIGINS = "https://app.yourdomain.com"
-```
-
-### 4.3 Postgres
+- `infra/fly/Dockerfile` — the build. Python 3.12 + uv + the
+  workspace, with two optional build args (`EIDAN_BUNDLES` and
+  `EIDAN_PLUGIN_SOURCE`) and one build secret (`github_token`)
+  that drive paid-bundle install at image-build time. Core-only
+  deploys pass nothing and behave like a stock build. The file
+  itself documents every knob in its header.
+- `infra/fly/fly.toml.example` — the app config. Copy it **once**
+  into a path you control (your own ops repo, or a gitignored
+  `fly.toml` on your laptop) and edit `app`, `primary_region`,
+  and `EIDAN_HTTP_CORS_ORIGINS`. Your `fly.toml` never enters
+  this repo.
 
 ```bash
+# One-time, on your machine:
+cp infra/fly/fly.toml.example ~/ops/eidan-fly.toml
+$EDITOR ~/ops/eidan-fly.toml          # app name + region + CORS origin
+```
+
+From here on, every `fly` command takes `-c ~/ops/eidan-fly.toml`.
+
+### 4.2 (reserved)
+
+`fly.toml` is no longer authored inline — see §4.1.
+
+
+### 4.3 Create the app + Postgres
+
+`fly postgres attach` needs the target app to exist, so create it
+first:
+
+```bash
+fly apps create eidan-api --org personal       # match `app =` in your fly.toml
 fly postgres create --name eidan-pg --org personal --region lhr \
   --vm-size shared-cpu-1x --volume-size 1
 fly postgres attach --app eidan-api eidan-pg
@@ -516,15 +543,14 @@ Strip the `?sslmode=disable` query — asyncpg uses different
 TLS knobs. If you need TLS, append `?ssl=require` instead.
 
 (Alternatively use Neon / Supabase / RDS — set `DATABASE_URL` by
-hand in step 4.4 below; you already know the password.)
+hand in §4.4; you already know the password.)
 
-### 4.4 Auth + provider secrets
+### 4.4 Runtime secrets (auth + provider + SMTP)
 
 Generate the master key once (`python -c "import secrets;
 print(secrets.token_urlsafe(48))"`) and store it offline. Then:
 
 ```bash
-fly apps create eidan-api --org personal
 fly secrets set --app eidan-api \
   EIDAN_AUTH_MASTER_KEY="<recorded-offline>" \
   EIDAN_AUTH_ALLOWED_EMAIL="you@yourdomain.com" \
@@ -547,11 +573,48 @@ with a local provider — out of scope for this recipe.
 
 ### 4.5 Deploy + custom domain
 
+Core-only deploy from a vanilla checkout — no in-repo edits, no
+`infra/fly/fly.toml` (you use the copy you made in §4.1). The
+trailing `.` is the build context; run from the eidan checkout
+root so `--dockerfile infra/fly/Dockerfile` and the Dockerfile's
+`COPY` lines both resolve:
+
 ```bash
-fly deploy -c infra/fly/fly.toml .
+cd /path/to/your/eidan/checkout
+fly deploy -c ~/ops/eidan-fly.toml --dockerfile infra/fly/Dockerfile .
 fly certs create --app eidan-api api.yourdomain.com
 # Add the A + AAAA records Fly prints, wait for "Issued".
 ```
+
+To install paid bundles **at image-build time** (no fork, no source
+checkout of the bundle on this machine), pass `EIDAN_BUNDLES` +
+`EIDAN_PLUGIN_SOURCE` as build args and the GitHub token as a
+build secret. The CLI's `eidan admin plugin install` path inside
+the Dockerfile then clones the bundle repos using
+[`docs/018 §3`](./018_DISTRIBUTION_AND_BUNDLES.md)'s
+private-org flow. The token is mounted via
+`--build-secret` so it never lands in an image layer:
+
+```bash
+mkdir -p ~/.eidan
+install -m 0600 /dev/null ~/.eidan/github-token       # 0600 before any byte lands
+printf '%s' "$YOUR_GITHUB_PAT" > ~/.eidan/github-token
+fly deploy -c ~/ops/eidan-fly.toml \
+  --dockerfile infra/fly/Dockerfile \
+  --build-arg EIDAN_BUNDLES=eidan-pro,eidan-lifestyle \
+  --build-arg EIDAN_PLUGIN_SOURCE=gh:sielay \
+  --build-secret id=github_token,src=$HOME/.eidan/github-token \
+  .
+```
+
+(`install -m 0600 /dev/null ...` creates the file with mode `0600`
+*before* the PAT is written, so the token never exists on disk in a
+world-readable state — a plain `echo > file` honours the shell's
+umask and may leave the file readable to other local users.)
+
+(Swapping bundles without rebuilding the image requires runtime
+plugin install to a Fly volume — currently roadmap, see
+[ROADMAP.md](./ROADMAP.md).)
 
 Run migrations (one-off, against the Fly Postgres). Use `eidan
 admin db migrate` rather than bare `alembic` so the runner picks
@@ -576,35 +639,50 @@ curl https://api.yourdomain.com/api/auth/config
 
 Follow §8. `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.yourdomain.com`.
 
-### 4.7 Optional: GitHub Actions deploy on merge to main
+### 4.7 Optional: CI deploy
 
-`.github/workflows/deploy-api.yml`:
+This repo intentionally does **not** carry a `.github/workflows/`
+deploy entry — the public mirror should not ship CI that talks to
+someone else's Fly account. Run CI from your own ops repo. A
+minimal job that lives in **your ops repo** (which holds your
+`fly.toml`) and pulls upstream eidan into a subdirectory looks
+like:
 
 ```yaml
+# .github/workflows/deploy-api.yml in YOUR ops repo.
+# Repo layout assumed:
+#   ./fly.toml        ← your copy of fly.toml.example, edited
+#   ./eidan/          ← upstream sielay/eidan, checked out below
 name: Deploy API
-on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/backend/**"
-      - "plugins/**"
-      - "packages/schemas/**"
-      - "migrations/**"
-      - "infra/fly/**"
+on: { push: { branches: [main] } }
 jobs:
   deploy:
     runs-on: ubuntu-latest
     concurrency: { group: fly-deploy, cancel-in-progress: false }
     steps:
-      - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only -c infra/fly/fly.toml .
+      - uses: actions/checkout@v4        # your ops repo (holds fly.toml)
+      - uses: actions/checkout@v4        # upstream eidan into ./eidan
+        with:
+          repository: sielay/eidan
+          ref: v0.1.0
+          path: eidan
+      # Pin third-party actions: floating refs like @master can ship
+      # surprise behaviour. `1.5` is the latest tagged release at the
+      # time of writing; for production, pin to a commit SHA instead.
+      - uses: superfly/flyctl-actions/setup-flyctl@1.5
+      - run: |
+          flyctl deploy --remote-only \
+            -c "$GITHUB_WORKSPACE/fly.toml" \
+            --dockerfile eidan/infra/fly/Dockerfile \
+            eidan
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 ```
 
-Generate the token with `fly tokens create deploy` and add it as
-`FLY_API_TOKEN` in repo settings.
+The trailing `eidan` positional arg tells `flyctl deploy` to use
+that directory as the build context — the Dockerfile's `COPY`
+lines resolve against it. Generate the token with
+`fly tokens create deploy`.
 
 ---
 
@@ -640,11 +718,12 @@ both Fly and the Pi.
 
 Follow §4 with these deltas:
 
-- **Skip §4.3** (Fly Postgres) — use the Supabase `DATABASE_URL`
-  instead, set it via `fly secrets set DATABASE_URL=...`.
-- **Set `EIDAN_SENTRY_ENABLED=0`** on Fly. Sentry runs on the Pi
-  in this topology; Fly leaves the advisory lock for the Pi to
-  grab.
+- **§4.3** — `fly apps create eidan-api` still applies; **skip the
+  `fly postgres create` + `fly postgres attach` lines** and set
+  `DATABASE_URL` to the Supabase URL via `fly secrets set` instead.
+- **Set `EIDAN_SENTRY_ENABLED=0`** on Fly (already done in §4.4).
+  Sentry runs on the Pi in this topology; Fly leaves the advisory
+  lock for the Pi to grab.
 - The auth master key MUST be the same value on Fly and the Pi.
 
 ### 5.3 Pi worker
