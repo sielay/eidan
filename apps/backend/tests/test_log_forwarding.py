@@ -32,6 +32,7 @@ _FORWARDER_ENV = (
     "EIDAN_LOG_FORWARD_HEADERS",
     "EIDAN_LOG_FORWARD_LEVEL",
     "EIDAN_LOG_FORWARD_TIMEOUT",
+    "EIDAN_LOG_FORWARD_QUEUE_SIZE",
 )
 
 
@@ -318,6 +319,90 @@ def test_exception_traceback_lands_in_post_through_queue_path(
     )
     assert "RuntimeError: simulated provider error" in failure["exception"]
     assert "Traceback" in failure["exception"]
+
+
+def test_sustained_post_failures_are_rate_limited(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """A down intake must not flood stderr at one line per record.
+    The handler prints the FIRST failure of a streak (so the
+    outage is visible) and then suppresses noise until it hits
+    the rate-limit interval, then prints a summary line. Pin the
+    contract so a future change doesn't restore the per-record
+    spam Copilot called out."""
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://nowhere.invalid/log")
+
+    import urllib.error
+
+    def always_fails(req, timeout):  # noqa: ARG001
+        raise urllib.error.URLError("simulated outage")
+
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        side_effect=always_fails,
+    ):
+        attach_log_forwarder_if_configured()
+        log = logging.getLogger("eidan_backend.test_failure_flood")
+        # 50 failed POSTs — should produce ONE stderr line, not 50,
+        # because the rate-limit interval is 100.
+        for i in range(50):
+            log.warning("burst %d", i)
+        _wait_for_drain(timeout=5.0)
+
+    stderr_lines = [
+        line for line in capsys.readouterr().err.splitlines()
+        if "POST" in line and "failed" in line
+    ]
+    # First-failure line. NOT 50 lines.
+    assert 1 <= len(stderr_lines) <= 2, (
+        f"expected 1–2 failure lines (first + maybe boundary), "
+        f"got {len(stderr_lines)}:\n" + "\n".join(stderr_lines)
+    )
+
+
+def test_post_recovery_reports_after_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """When the intake comes back after a failure streak, the
+    next successful POST prints a recovery line — operators see
+    both the start of the outage and the end."""
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://flaky.example/log")
+
+    import urllib.error
+
+    state = {"healthy": False}
+
+    captured: list = []
+    mock = MagicMock()
+    mock.__enter__.return_value.read.return_value = b""
+
+    def conditional(req, timeout):  # noqa: ARG001
+        if not state["healthy"]:
+            raise urllib.error.URLError("intake down")
+        captured.append({"url": req.full_url})
+        return mock
+
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        side_effect=conditional,
+    ):
+        attach_log_forwarder_if_configured()
+        log = logging.getLogger("eidan_backend.test_recovery")
+        # Failing streak.
+        for i in range(5):
+            log.warning("down %d", i)
+        _wait_for_drain(timeout=5.0)
+        # Intake comes back.
+        state["healthy"] = True
+        log.warning("up again")
+        _wait_for_drain(timeout=5.0)
+
+    stderr = capsys.readouterr().err
+    assert "POST recovered" in stderr, (
+        f"expected recovery line in stderr, got:\n{stderr}"
+    )
 
 
 def test_bounded_queue_drops_when_full(

@@ -48,18 +48,19 @@ Env vars:
   arbitrarily, but the back-pressure-to-drop posture matches
   the "telemetry never breaks job execution" doctrine.
 
-JSON envelope per record::
+JSON envelope per record (telemetry extras are **only included
+when non-None** — a node-level event omits ``conversation_id``;
+a turn-bound event includes it as a UUID string)::
 
     {
-      "ts":              "2026-05-24T08:30:00.123+00:00",
-      "level":           "INFO",
-      "logger":          "eidan_backend.telemetry",
-      "message":         "telemetry: node.boot",
-      "event":           "node.boot",         # from extra=
-      "node_id":         "kasha",             # from extra=
-      "node_type":       "pi",                # from extra=
-      "conversation_id": null,                # from extra=
-      "payload":         {...}                # from extra=
+      "ts":      "2026-05-24T08:30:00.123+00:00",
+      "level":   "INFO",
+      "logger":  "eidan_backend.telemetry",
+      "message": "telemetry: node.boot",
+      "event":   "node.boot",           # from extra=
+      "node_id": "kasha",               # from extra=
+      "node_type": "pi",                # from extra=
+      "payload": {...}                  # from extra=
     }
 
 Vendor-specific shape transformations (Loki's ``streams[]``
@@ -152,7 +153,20 @@ class _JsonHttpHandler(logging.Handler):
     Wrap with :class:`logging.handlers.QueueListener` so the
     sync POST runs on a background thread, not the caller's
     thread.
+
+    Failure noise is rate-limited: the first failure of a streak
+    prints (so operators see "the intake just went down"), then
+    further failures are quietly counted until ``_FAILURE_REPORT_INTERVAL``
+    passes, then one summary line prints. On the next successful
+    POST the counter resets, so a transient blip-then-recovery
+    surfaces a single line both ways instead of one line per
+    dropped record.
     """
+
+    # Print every Nth failure during a sustained outage. Matches
+    # the cadence in :class:`_ForwardingQueueHandler` so the two
+    # rate-limit surfaces feel consistent in journald.
+    _FAILURE_REPORT_INTERVAL = 100
 
     def __init__(
         self,
@@ -165,13 +179,15 @@ class _JsonHttpHandler(logging.Handler):
         self._url = url
         self._headers = {"Content-Type": "application/json", **headers}
         self._timeout = timeout_seconds
+        self._failure_total = 0
+        self._failures_since_last_report = 0
 
     def emit(self, record: logging.LogRecord) -> None:
         # Swallow every failure mode — logging-handler exceptions
         # propagate to the original logger.error / logger.info call
         # otherwise, and we promised telemetry never breaks the
         # caller. logging's own `handleError` is the documented
-        # escape hatch; we just print and move on.
+        # escape hatch; we just print and move on (rate-limited).
         try:
             envelope = _format_record(record)
             body = json.dumps(envelope).encode("utf-8")
@@ -190,13 +206,46 @@ class _JsonHttpHandler(logging.Handler):
             # URLError). Print rather than log — re-logging via
             # the same root logger would recurse through this
             # very handler.
-            print(
-                f"[log_forwarding] POST to {self._url} failed: {exc}",
-                file=sys.stderr,
-            )
+            self._report_failure(exc)
         except Exception as exc:  # noqa: BLE001 — must not propagate
+            # Genuinely unexpected — JSON serialisation crash, a
+            # bug in _format_record, etc. Treat as a failure for
+            # rate-limiting too so a record that always raises
+            # doesn't itself flood stderr.
+            self._report_failure(exc, prefix="unexpected error")
+        else:
+            # POST succeeded. If we were in a failing streak, surface
+            # the recovery so operators see both edges of an outage —
+            # then reset the counter so the next failure batch starts
+            # with a fresh "first failure" print.
+            if self._failures_since_last_report:
+                print(
+                    f"[log_forwarding] POST recovered after "
+                    f"{self._failures_since_last_report} failure(s) "
+                    f"(total during this process: {self._failure_total})",
+                    file=sys.stderr,
+                )
+            self._failures_since_last_report = 0
+
+    def _report_failure(self, exc: BaseException, *, prefix: str = "") -> None:
+        self._failure_total += 1
+        self._failures_since_last_report += 1
+        # Print on the FIRST failure (so an operator sees the
+        # outage start) and then every Nth.
+        should_report = (
+            self._failures_since_last_report == 1
+            or self._failures_since_last_report % self._FAILURE_REPORT_INTERVAL == 0
+        )
+        if should_report:
+            label = f"{prefix}: " if prefix else ""
+            count = (
+                f" (total during this process: {self._failure_total})"
+                if self._failures_since_last_report > 1
+                else ""
+            )
             print(
-                f"[log_forwarding] unexpected error: {exc!r}",
+                f"[log_forwarding] POST to {self._url} failed{count}: "
+                f"{label}{exc}",
                 file=sys.stderr,
             )
 
