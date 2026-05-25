@@ -448,7 +448,13 @@ def attach_log_forwarder_if_configured() -> bool:
             file=sys.stderr,
         )
         return False
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    # `parsed.hostname` rather than `parsed.netloc` — the latter
+    # is truthy for shapes like `http://:1234` (port-only netloc)
+    # where there's no actual host to connect to. urlparse returns
+    # hostname=None in that case, which is the real signal.
+    # Matches :func:`_redact_url`'s hostname check; the two
+    # validators agree on what "has a host" means.
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
         print(
             f"[log_forwarding] EIDAN_LOG_FORWARD_URL={_redact_url(url)!r} "
             f"must be an absolute http(s) URL with a host — refusing "

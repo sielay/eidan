@@ -570,12 +570,22 @@ def test_attach_refuses_non_http_url(
     """A typo like `localhost:4317` (missing scheme) or `ftp://...`
     must refuse to attach with one stderr line instead of attaching
     and then per-record-failing forever. Validation runs at attach
-    time."""
+    time.
+
+    Also covers port-only netlocs (``http://:1234``): urlparse
+    treats those as having a truthy `netloc`, but `hostname` is
+    None — there's no host to connect to, so the attach must
+    refuse. Earlier round-5 fix used `netloc` and slipped this
+    through; switched to `hostname` (matches `_redact_url`'s
+    check) to close the gap."""
     for bad in (
         "localhost:4317",
         "ftp://in.example/log",
         "not-a-url-at-all",
         "://missing-scheme.example/log",
+        "http://:1234",          # port-only netloc, no host
+        "http://:9999/log",      # port-only with path
+        "https:///log",          # empty netloc, just a path
     ):
         _reset_for_tests()
         monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", bad)
