@@ -323,6 +323,36 @@ sudo systemctl enable --now eidan-backend
 sudo journalctl -u eidan-backend -f
 ```
 
+**One thing to fix while you're here.** Raspberry Pi OS pins
+journald to RAM-only storage by default
+(`/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf`) to
+spare the SD card. With that default in place, the `journalctl`
+command above shows nothing from before the most recent boot —
+including the minutes leading up to whatever made you reboot in the
+first place. Override it once:
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo tee /etc/systemd/journald.conf.d/persistent.conf >/dev/null <<'EOF'
+[Journal]
+Storage=persistent
+EOF
+sudo systemctl restart systemd-journald
+sudo journalctl --flush
+```
+
+Verify the per-machine-id directory was created and the journal is
+now living on disk:
+
+```bash
+ls /var/log/journal/$(cat /etc/machine-id)/   # non-empty
+sudo journalctl --list-boots                  # will grow across reboots
+```
+
+Capped by journald's default `SystemMaxUse=200M`. SD-card wear is
+not a concern at that volume on modern cards — but if you want a
+tighter cap, set `SystemMaxUse=` in the same dropin.
+
 ### 3.8 Smoke-check
 
 Watch journald for these markers on first boot:
