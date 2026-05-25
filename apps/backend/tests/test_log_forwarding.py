@@ -585,6 +585,53 @@ def test_attach_refuses_non_http_url(
         assert "refusing to attach" in stderr or "could not be parsed" in stderr
 
 
+def test_invalid_level_fallback_reports_info_in_startup_line(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """When LEVEL is a typo we fall back to INFO. The startup
+    info line must say INFO, not the typo — otherwise operators
+    see 'POSTing at level FOO' in journald and waste time
+    looking for what FOO means."""
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_LEVEL", "VERBOSE")  # not a stdlib level
+
+    captured: list = []
+
+    def fake_post(req, timeout):  # noqa: ARG001
+        captured.append({"body": req.data})
+        m = MagicMock()
+        m.__enter__.return_value.read.return_value = b""
+        return m
+
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        side_effect=fake_post,
+    ):
+        attach_log_forwarder_if_configured()
+        _wait_for_drain(timeout=5.0)
+
+    stderr = capsys.readouterr().err
+    # The fallback warning fires once, mentioning the typo.
+    assert "VERBOSE" in stderr
+    assert "falling back to INFO" in stderr
+
+    # But the forwarded startup line — and the message the
+    # operator sees in their intake — reports the effective
+    # level (INFO), not the typo. The startup info line is the
+    # only INFO record this test produces, so it's the one in
+    # the body.
+    assert captured, "expected at least the startup info line to forward"
+    boot_body = json.loads(captured[0]["body"].decode("utf-8"))
+    assert "at level INFO" in boot_body["message"], (
+        f"startup message should reflect effective level, got: "
+        f"{boot_body['message']!r}"
+    )
+    # And the structured payload too.
+    assert boot_body["payload"]["level"] == "INFO"
+    assert "VERBOSE" not in boot_body["message"]
+
+
 def test_attach_falls_back_on_bad_timeout(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,

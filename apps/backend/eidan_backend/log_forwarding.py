@@ -365,8 +365,20 @@ class _ForwardingQueueHandler(logging.handlers.QueueHandler):
 def attach_log_forwarder_if_configured() -> bool:
     """Inspect env, attach the forwarder if ``EIDAN_LOG_FORWARD_URL`` is set.
 
-    Returns ``True`` when a forwarder was attached, ``False`` when
-    no URL was configured (the no-op path operators get by default).
+    Returns ``True`` when a forwarder was attached. Returns
+    ``False`` for either of:
+
+    - ``EIDAN_LOG_FORWARD_URL`` is unset — the no-op path
+      operators get by default.
+    - ``EIDAN_LOG_FORWARD_URL`` is set but doesn't parse as an
+      absolute http(s) URL with a host. The handler stays
+      detached and one stderr line surfaces the typo. Other
+      malformed knobs (``EIDAN_LOG_FORWARD_TIMEOUT``,
+      ``EIDAN_LOG_FORWARD_LEVEL``, ``EIDAN_LOG_FORWARD_HEADERS``,
+      ``EIDAN_LOG_FORWARD_QUEUE_SIZE``) **fall back to defaults
+      with a stderr warning and still attach** — only the URL
+      itself is a hard requirement.
+
     Idempotent: calling twice is a no-op (the first attach wins);
     callers shouldn't need to worry about boot ordering.
 
@@ -443,6 +455,10 @@ def attach_log_forwarder_if_configured() -> bool:
             file=sys.stderr,
         )
         level = logging.INFO
+        # Sync the name too so the startup info line below (and its
+        # forwarded payload) reflects the *effective* level rather
+        # than the operator's typo.
+        level_name = "INFO"
 
     timeout_raw = os.environ.get("EIDAN_LOG_FORWARD_TIMEOUT", "5.0")
     try:
