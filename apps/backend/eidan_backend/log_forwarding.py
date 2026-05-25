@@ -110,7 +110,8 @@ _atexit_registered = False
 
 
 def _redact_url(url: str) -> str:
-    """Return ``scheme://host[:port]/path`` only — strip userinfo + query.
+    """Return ``scheme://host[:port]/path`` only — strip userinfo, query,
+    and fragment.
 
     Operators sometimes encode credentials in the intake URL:
     ``https://user:token@in.example/log`` (basic auth-style) or
@@ -120,18 +121,24 @@ def _redact_url(url: str) -> str:
     line is itself forwarded). Strip both at every print site so
     secrets stay where the operator put them.
 
-    A malformed URL falls back to ``"<unparseable>"`` so a bad
-    config still prints something useful for debugging without
-    risking partial leakage.
+    **Strict** — only returns a redacted form when both scheme is
+    http/https AND hostname is present. Anything else falls back
+    to ``"<unparseable>"``. Reason: a typo like
+    ``"user:token@host"`` (no scheme) parses with
+    ``scheme="user"`` and ``path="token@host"`` — reconstructing
+    naively would echo the token back to stderr. Better to print
+    nothing recognisable than to leak.
     """
     try:
         parsed = urllib.parse.urlparse(url)
-        host = parsed.hostname or ""
-        if parsed.port is not None:
-            host = f"{host}:{parsed.port}"
-        return f"{parsed.scheme}://{host}{parsed.path}"
     except (ValueError, AttributeError):
         return "<unparseable>"
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return "<unparseable>"
+    host = parsed.hostname
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    return f"{parsed.scheme}://{host}{parsed.path}"
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +219,17 @@ class _JsonHttpHandler(logging.Handler):
         # See :func:`_redact_url` for why — credentials in the URL
         # shouldn't leak into logs.
         self._safe_url = _redact_url(url)
-        self._headers = {"Content-Type": "application/json", **headers}
+        # Force Content-Type to application/json regardless of what
+        # the operator-supplied EIDAN_LOG_FORWARD_HEADERS set. Strip
+        # case-insensitive variants first so an operator using
+        # ``content-type`` (lowercase) doesn't sneak past a naive
+        # dict merge. The forwarder's wire format is JSON; an
+        # operator who needs a different MIME type for their intake
+        # has misconfigured something.
+        operator_headers = {
+            k: v for k, v in headers.items() if k.lower() != "content-type"
+        }
+        self._headers = {**operator_headers, "Content-Type": "application/json"}
         self._timeout = timeout_seconds
         self._failure_total = 0
         self._failures_since_last_report = 0
@@ -235,11 +252,30 @@ class _JsonHttpHandler(logging.Handler):
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 # Drain the response so the connection can be reused.
                 resp.read()
+        except urllib.error.HTTPError as exc:
+            # HTTPError is a URLError subclass AND a file-like
+            # response object — the 4xx/5xx body is on the
+            # exception itself. The `urlopen(...) as resp:` context
+            # manager above never runs for the error path, so the
+            # underlying socket stays alive until the exception is
+            # garbage-collected. Under sustained auth-rejection at
+            # high log volume that leaks file descriptors; the
+            # urllib3 / requests stacks special-case this for the
+            # same reason. Best-effort drain + close before we
+            # report.
+            try:
+                exc.read()
+            except Exception:  # noqa: BLE001 — body may already be drained
+                pass
+            try:
+                exc.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._report_failure(exc)
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
-            # Most operational failures land here (DNS, network,
-            # auth-rejection 4xx via HTTPError which subclasses
-            # URLError). Print rather than log — re-logging via
-            # the same root logger would recurse through this
+            # Most non-HTTP operational failures land here (DNS,
+            # network, timeout). Print rather than log — re-logging
+            # via the same root logger would recurse through this
             # very handler.
             self._report_failure(exc)
         except Exception as exc:  # noqa: BLE001 — must not propagate

@@ -15,6 +15,7 @@ import json
 import logging
 import threading
 import time
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -583,6 +584,122 @@ def test_attach_refuses_non_http_url(
         stderr = capsys.readouterr().err
         assert "EIDAN_LOG_FORWARD_URL" in stderr
         assert "refusing to attach" in stderr or "could not be parsed" in stderr
+
+
+def test_redact_url_strict_on_malformed_scheme() -> None:
+    """A typo like ``"user:token@host"`` (no scheme) parses with
+    ``scheme="user"`` and ``path="token@host"``. A naive
+    "scheme://host/path" reconstruction would echo the token
+    back. Pin the strict-validation contract — any non-http(s)
+    scheme OR missing hostname falls back to ``<unparseable>``."""
+    from eidan_backend.log_forwarding import _redact_url
+
+    # Direct typo Copilot called out: parses but the secret is in
+    # the path, not the netloc.
+    assert _redact_url("user:token@host") == "<unparseable>"
+    # Other non-http(s) schemes — ftp, file, javascript, etc.
+    assert _redact_url("ftp://user:pass@host/x") == "<unparseable>"
+    assert _redact_url("file:///etc/passwd") == "<unparseable>"
+    assert _redact_url("javascript:alert(1)") == "<unparseable>"
+    # Genuinely unparseable.
+    assert _redact_url("") == "<unparseable>"
+    assert _redact_url("not a url") == "<unparseable>"
+    # http(s) WITH credentials — should still redact, not bail.
+    assert (
+        _redact_url("https://user:s3cret@in.example/log?api_key=leak")
+        == "https://in.example/log"
+    )
+    # Fragment should be stripped too.
+    assert (
+        _redact_url("https://in.example/log#fragment-leak")
+        == "https://in.example/log"
+    )
+
+
+def test_content_type_cannot_be_overridden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The forwarder's wire format is JSON. An operator who sets
+    Content-Type via EIDAN_LOG_FORWARD_HEADERS (any case variant)
+    must not break the contract — final Content-Type is forced to
+    application/json post-merge."""
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+    # Lower-case variant + a custom value the operator might typo.
+    monkeypatch.setenv(
+        "EIDAN_LOG_FORWARD_HEADERS",
+        '{"content-type":"text/plain","DD-API-KEY":"abc"}',
+    )
+
+    captured: list = []
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        _patch_urlopen(captured),
+    ):
+        attach_log_forwarder_if_configured()
+        logging.getLogger().warning("trigger")
+        _wait_for_drain()
+
+    headers = captured[0]["headers"]
+    # urllib normalises header names to Title-Case on access, so
+    # we look for the canonical form.
+    assert headers["Content-type"] == "application/json", (
+        f"Content-Type must be forced to JSON; got: {headers!r}"
+    )
+    # Operator's other custom header survived.
+    assert headers["Dd-api-key"] == "abc"
+
+
+def test_http_error_response_body_is_drained() -> None:
+    """``HTTPError`` is a URLError subclass AND a file-like
+    response object. Under sustained 4xx/5xx (e.g. bad auth) at
+    high log volume the underlying socket would leak fds if the
+    body is never drained / closed. Pin the drain contract by
+    raising a mock HTTPError that tracks read()/close() calls."""
+    from eidan_backend.log_forwarding import _JsonHttpHandler
+
+    drain_calls = {"read": 0, "close": 0}
+
+    class _FakeHTTPError(urllib.error.HTTPError):
+        def __init__(self) -> None:
+            # HTTPError(url, code, msg, hdrs, fp) — fp can be None,
+            # we override read/close anyway.
+            super().__init__("https://x/log", 500, "Server Error", {}, None)
+
+        def read(self, *args, **kwargs):  # noqa: ARG002
+            drain_calls["read"] += 1
+            return b"upstream error body"
+
+        def close(self):
+            drain_calls["close"] += 1
+
+    handler = _JsonHttpHandler(
+        url="https://in.example/log",
+        headers={},
+        timeout_seconds=1.0,
+    )
+
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        side_effect=_FakeHTTPError(),
+    ):
+        record = logging.LogRecord(
+            name="x", level=logging.INFO, pathname=__file__, lineno=1,
+            msg="m", args=(), exc_info=None,
+        )
+        # Direct emit (bypass the queue) — no thread races to
+        # complicate the assertion on drain counts.
+        handler.emit(record)
+
+    assert drain_calls["read"] >= 1, (
+        "HTTPError body must be read() before the exception is "
+        "discarded; otherwise sustained 4xx/5xx leaks fds"
+    )
+    assert drain_calls["close"] >= 1, (
+        "HTTPError must be close()d so the underlying socket can "
+        "be returned to the keepalive pool"
+    )
+    # Failure was still counted.
+    assert handler._failure_total == 1
 
 
 def test_invalid_level_fallback_reports_info_in_startup_line(
