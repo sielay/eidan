@@ -998,10 +998,11 @@ wants).
 
 Restart the service (`sudo systemctl restart eidan-backend`) and
 every `telemetry.*` event lands in the intake. The envelope
-carries `event=` and `node_id=` on every record; `payload=` and
-`conversation_id=` appear when the emitter set them (lifecycle
-events like `telemetry.heartbeat_started` / `.heartbeat_stopped`
-are node-level and carry no `payload`; `conversation_id` is set
+carries `event=` and `node_id=` on every telemetry event
+record; `payload=` and `conversation_id=` appear when the
+emitter set them (lifecycle events like
+`telemetry.heartbeat_started` / `.heartbeat_stopped` are
+node-level and carry no `payload`; `conversation_id` is set
 only on turn-bound events). Full field reference in
 [docs/024 §6.2](./024_NODE_TELEMETRY.md#62-json-envelope). The
 forwarder is non-blocking (POSTs happen on a background thread)
