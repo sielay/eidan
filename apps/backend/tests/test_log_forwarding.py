@@ -322,6 +322,99 @@ def test_exception_traceback_lands_in_post_through_queue_path(
     assert "Traceback" in failure["exception"]
 
 
+def test_queue_handler_prepare_clears_args_preserves_exc_info() -> None:
+    """Direct unit on :class:`_ForwardingQueueHandler.prepare`.
+
+    Stdlib :class:`logging.handlers.QueueHandler.prepare` does two
+    things at once: pre-formats the message AND strips
+    ``exc_info``/``exc_text``/``stack_info`` (so the record is
+    pickleable for cross-process queues). Our in-process override
+    has to do the first (release arg references — a 10k-deep
+    queue holding 50 kB arg objects per record is a real memory
+    hit during an intake outage) but NOT the second (we don't
+    need pickling and the HTTP handler relies on
+    ``exc_info``/``exc_text`` to forward tracebacks)."""
+    import queue as _q
+    import sys
+
+    from eidan_backend.log_forwarding import _ForwardingQueueHandler
+
+    handler = _ForwardingQueueHandler(_q.Queue(maxsize=10))
+
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        exc = sys.exc_info()
+
+    record = logging.LogRecord(
+        name="t",
+        level=logging.INFO,
+        pathname="x",
+        lineno=1,
+        msg="rendering %s",
+        args=("payload",),
+        exc_info=exc,
+        func=None,
+    )
+    record.exc_text = "<rendered traceback>"
+    record.stack_info = "<stack snapshot>"
+
+    out = handler.prepare(record)
+
+    assert out is not record, "prepare must return a copy, not mutate the original"
+    assert out.msg == "rendering payload", "msg must be pre-formatted"
+    assert out.args is None, "args must be cleared so the queue doesn't hold refs"
+    assert out.exc_info is exc, "exc_info must survive (overrides stdlib)"
+    assert out.exc_text == "<rendered traceback>", "exc_text must survive"
+    assert out.stack_info == "<stack snapshot>", "stack_info must survive"
+    # Original record untouched — other handlers in the chain (stdout,
+    # journald, file) still see the un-pre-formatted form.
+    assert record.args == ("payload",)
+    assert record.msg == "rendering %s"
+
+
+def test_queue_handler_formats_message_in_realistic_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end: a ``logger.info("processed %s", obj)`` flowing
+    through the full forwarder pipeline lands a POST whose
+    ``message`` field is the formatted form (not the
+    ``"processed %s"`` template). Proves prepare()'s
+    ``record.msg = record.getMessage()`` step runs on the
+    realistic path — the args-clearing memory-pressure fix
+    from the same prepare() call is then guaranteed by the
+    direct unit test above."""
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+
+    captured: list = []
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        _patch_urlopen(captured),
+    ):
+        attach_log_forwarder_if_configured()
+        log = logging.getLogger("eidan_backend.test_args_format")
+        log.info(
+            "processed %s",
+            "the-payload",
+            extra={
+                "event": "args.format",
+                "node_id": "test",
+                "node_type": "test",
+            },
+        )
+        _wait_for_drain()
+
+    body = next(
+        (c["body"] for c in captured if c["body"].get("event") == "args.format"),
+        None,
+    )
+    assert body is not None, f"args.format record never forwarded: {captured}"
+    assert body["message"] == "processed the-payload", (
+        f"expected pre-formatted args in message, got: {body['message']!r} "
+        "— prepare() may not have run record.getMessage() on the queued copy"
+    )
+
+
 def test_sustained_post_failures_are_rate_limited(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,

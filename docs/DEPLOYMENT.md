@@ -1010,12 +1010,14 @@ process; the next log line tries again.
 
 > **Heads-up on log levels.** The forwarder only sees records the
 > root logger lets through; it deliberately does not mutate the
-> root level. If the service runs with uvicorn's default root
-> level (`WARNING`), INFO-level telemetry lines never reach the
-> handler and won't forward. To forward INFO, raise root
-> explicitly — `uvicorn --log-level info` in the systemd
-> `ExecStart=`, or `logging.basicConfig(level=logging.INFO)`
-> early at boot. Detail in
+> root level. The `eidan-backend-http` entry point already lifts
+> root to whatever `EIDAN_HTTP_LOG_LEVEL` is set to (default
+> `info`), so the env-only operator surface is intact — just add
+> `EIDAN_HTTP_LOG_LEVEL=info` (or whichever floor you want
+> forwarded) to `/etc/eidan/eidan.env` and restart. The one
+> edge: if `EIDAN_HTTP_LOG_FILE=""` (file logging disabled), the
+> custom log config that lifts root isn't built and uvicorn's
+> stock config keeps root at `WARNING`. Detail in
 > [docs/024 §6.1](./024_NODE_TELEMETRY.md#61-env-vars).
 
 #### Loki (via relay)

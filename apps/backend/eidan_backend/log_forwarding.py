@@ -38,11 +38,14 @@ Env vars:
   forwarder's handler accepts, default ``INFO``. The
   **effective** forwarded level is ``max(root_logger_level,
   EIDAN_LOG_FORWARD_LEVEL)`` because the root logger's level
-  filters records before they reach any handler. To forward
-  INFO records when uvicorn defaults root to WARNING, raise
-  root to INFO via ``uvicorn --log-level info`` or via your
-  own ``logging.basicConfig`` — this module deliberately
-  doesn't mutate root to avoid surprising other handlers.
+  filters records before they reach any handler. In the
+  standard ``eidan-backend-http`` deployment the root logger's
+  level comes from ``EIDAN_HTTP_LOG_LEVEL`` (default ``info``)
+  via :func:`eidan_backend.http.server._build_log_config`, so
+  the env-only operator surface is intact — just bump
+  ``EIDAN_HTTP_LOG_LEVEL`` and the forwarder picks it up. This
+  module deliberately doesn't mutate root itself, to avoid
+  surprising other handlers wired by uvicorn / the operator.
 - ``EIDAN_LOG_FORWARD_TIMEOUT`` — optional float seconds for
   the HTTP POST, default ``5.0``. Forwarder swallows on
   timeout (logs to stderr) so a slow intake doesn't drag the
@@ -357,13 +360,18 @@ class _ForwardingQueueHandler(logging.handlers.QueueHandler):
 
     Two deltas from the stdlib :class:`logging.handlers.QueueHandler`:
 
-    1. **Preserves ``exc_info`` / ``exc_text`` / ``stack_info``.**
-       The base ``prepare()`` strips these so the record is
-       pickleable for cross-process queues. We use an in-process
-       :class:`queue.Queue` — picklability is irrelevant, and
-       stripping them means tracebacks never reach the HTTP
-       handler. Override returns a shallow copy with all the
-       diagnostic fields intact.
+    1. **Preserves ``exc_info`` / ``exc_text`` / ``stack_info``
+       while still dropping ``args`` references.** The base
+       ``prepare()`` does two distinct things — it pre-formats
+       the message (``record.msg = record.getMessage()``) and
+       clears ``args`` (release references to potentially large
+       argument objects), AND it strips the exc/stack fields
+       for pickleability. We need the former (a bounded 10k
+       queue holding 50-kB arg objects per record is a real
+       memory pressure during an intake outage) but not the
+       latter (we use an in-process queue — picklability is
+       irrelevant — and the HTTP handler relies on
+       ``exc_info``/``exc_text`` to forward tracebacks).
 
     2. **Drops on full queue without the noisy stderr traceback
        the base ``handleError`` emits.** A bounded queue +
@@ -390,7 +398,19 @@ class _ForwardingQueueHandler(logging.handlers.QueueHandler):
         # Shallow copy so other handlers in the chain (stdout,
         # journald) get the unmodified record — same precaution
         # the stdlib impl takes (bpo-35726).
-        return copy.copy(record)
+        rec = copy.copy(record)
+        # Pre-format the message and drop arg references — matches
+        # the stdlib's prepare() optimisation. Without this, a
+        # ``logger.info("processed %s", big_payload)`` call holds
+        # the original ``big_payload`` alive inside the queue for
+        # the lifetime of the backlog. Under a 10k-deep queue
+        # during an intake outage that's a real memory hit.
+        rec.msg = rec.getMessage()
+        rec.args = None
+        # exc_info / exc_text / stack_info are NOT cleared here —
+        # see the class docstring for why (in-process queue, HTTP
+        # handler needs the traceback fields intact).
+        return rec
 
     def emit(self, record: logging.LogRecord) -> None:
         try:

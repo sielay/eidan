@@ -341,12 +341,23 @@ plugin activate, telemetry `node.boot`) land in the intake too.
 > would surprise stdout/journald and any other handler the
 > operator has wired up. Net effect: the threshold actually
 > forwarded is `max(root_logger_level, EIDAN_LOG_FORWARD_LEVEL)`.
-> To forward INFO records when uvicorn defaults root to `WARNING`,
-> raise root explicitly (e.g. `uvicorn --log-level info`, or your
-> own `logging.basicConfig(level=logging.INFO)` early at boot).
-> Likewise, a logger configured with `propagate=False` won't
-> reach root at all, so its records are not in scope regardless
-> of level.
+>
+> In the standard `eidan-backend-http` / `eidan admin server`
+> deployment, the operator's lever for root level is **another
+> env var, `EIDAN_HTTP_LOG_LEVEL`** (default `info`, see
+> [`HttpSettings.log_level`](../apps/backend/eidan_backend/config.py)).
+> The HTTP entry point's log-config builder lifts the root logger
+> to that level when it constructs uvicorn's `dictConfig` (see
+> [`http/server.py:_build_log_config`](../apps/backend/eidan_backend/http/server.py)),
+> so the no-fork / env-only operator model is intact — there's no
+> need to edit unit files, pass uvicorn CLI flags, or write a
+> `logging.basicConfig` shim. One edge: if `EIDAN_HTTP_LOG_FILE`
+> is set to the empty string (file logging disabled), the custom
+> log config isn't built and uvicorn's stock config keeps root at
+> `WARNING`; in that case the forwarder will only see WARNING+
+> records regardless of `EIDAN_LOG_FORWARD_LEVEL`. Likewise, a
+> logger configured with `propagate=False` won't reach root at
+> all, so its records are not in scope regardless of level.
 
 ### 6.2 JSON envelope
 
