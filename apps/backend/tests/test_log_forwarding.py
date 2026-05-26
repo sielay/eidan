@@ -649,30 +649,24 @@ def test_atexit_hook_registered_only_once_across_resets(
     log_forwarding._atexit_registered = False
     atexit_module.unregister(log_forwarding._shutdown_forwarder)
 
+    baseline_callbacks: int | None = None
+    if hasattr(atexit_module, "_ncallbacks"):
+        baseline_callbacks = atexit_module._ncallbacks()
+
     for _ in range(5):
         attach_log_forwarder_if_configured()
         _reset_for_tests()
 
-    # atexit's internal callback registry is private. Inspect via
-    # the documented unregister helper: unregister returns
-    # nothing but DOES remove all entries for the function. Count
-    # by trying to unregister and checking if subsequent calls
-    # leave anything. Cleaner: use atexit._ncallbacks() on 3.11+.
-    if hasattr(atexit_module, "_ncallbacks"):
-        # Drop ours from the count first, then re-register a
-        # known marker, then count.
-        atexit_module.unregister(log_forwarding._shutdown_forwarder)
-        # Verify a re-register only lands ONE entry.
-        log_forwarding._atexit_registered = False
-        attach_log_forwarder_if_configured()
-        # Re-attaching should NOT add a second copy.
-        attach_log_forwarder_if_configured()
-        # Now unregister returns silently — we just need to know
-        # that there's a single entry to remove. Pin via the flag
-        # (if it's True, we registered exactly once).
+    # atexit's internal callback registry is private. On runtimes
+    # exposing atexit._ncallbacks(), assert repeated attach/reset
+    # cycles add exactly one callback relative to the clean
+    # baseline established above.
+    if baseline_callbacks is not None:
+        assert atexit_module._ncallbacks() == baseline_callbacks + 1
         assert log_forwarding._atexit_registered is True
     else:
-        # Fallback: just assert the flag is True and didn't bounce.
+        # Fallback for runtimes without _ncallbacks(): we can only
+        # verify that the module-level registration guard is set.
         assert log_forwarding._atexit_registered is True
 
 
