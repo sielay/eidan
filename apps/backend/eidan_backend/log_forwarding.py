@@ -3,9 +3,17 @@
 
 When ``EIDAN_LOG_FORWARD_URL`` is set, this module attaches a
 non-blocking JSON-over-HTTP handler to the root logger at boot.
-Every ``logging.info()`` (including the telemetry mirror lines
-fired by :mod:`eidan_backend.telemetry`) POSTs as one JSON
-object to the configured URL.
+Each log record that **reaches the handler** — i.e. passes both
+the root logger's effective level AND the forwarder's
+``EIDAN_LOG_FORWARD_LEVEL`` filter — POSTs as one JSON object to
+the configured URL. The handler is attached to the root logger,
+so any logger that propagates to root (the stdlib default,
+including the telemetry mirror lines fired by
+:mod:`eidan_backend.telemetry`) is in scope; loggers configured
+with ``propagate=False`` are not. The forwarder deliberately
+does not mutate the root logger's level — to forward INFO when
+uvicorn defaults root to WARNING, raise root explicitly (see
+``EIDAN_LOG_FORWARD_LEVEL`` below).
 
 Designed to land BetterStack (Logtail), Datadog, Axiom,
 Honeycomb, and any custom HTTP intake without the operator
@@ -128,6 +136,11 @@ def _redact_url(url: str) -> str:
     ``scheme="user"`` and ``path="token@host"`` — reconstructing
     naively would echo the token back to stderr. Better to print
     nothing recognisable than to leak.
+
+    IPv6 literals are bracketed on the way back out
+    (``urlparse('https://[::1]:1234/log').hostname`` is the bare
+    ``"::1"``, which would otherwise serialise as the invalid
+    ``"https://::1:1234/log"``).
     """
     try:
         parsed = urllib.parse.urlparse(url)
@@ -136,6 +149,8 @@ def _redact_url(url: str) -> str:
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         return "<unparseable>"
     host = parsed.hostname
+    if ":" in host:
+        host = f"[{host}]"
     if parsed.port is not None:
         host = f"{host}:{parsed.port}"
     return f"{parsed.scheme}://{host}{parsed.path}"

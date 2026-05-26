@@ -962,7 +962,7 @@ sudo -u eidan psql "$DATABASE_URL" -c "
 "
 ```
 
-### 9.3 Forwarding to BetterStack / Datadog / Axiom
+### 9.3 External log forwarding (BetterStack / Datadog / Axiom / Loki)
 
 Core ships an env-configured HTTP/JSON forwarder
 ([`apps/backend/eidan_backend/log_forwarding.py`](../apps/backend/eidan_backend/log_forwarding.py))
@@ -1003,11 +1003,14 @@ forwarder is non-blocking (POSTs happen on a background thread)
 and swallows network failures — a dead intake doesn't drag the
 process; the next log line tries again.
 
-**Loki** wants a specific envelope shape that doesn't match
-eidan's flat JSON; point eidan at a Vector / Fluent Bit relay or
-scrape `journalctl -u eidan-backend` from Promtail's
-`systemd_journal` source. Detail in
-[docs/024 §6.5](./024_NODE_TELEMETRY.md#65-loki).
+#### Loki (via relay)
+
+Loki wants a specific envelope shape that doesn't match eidan's
+flat JSON, so the direct env-config recipe above doesn't apply.
+Point eidan at a Vector / Fluent Bit relay that translates flat
+JSON → Loki's `streams[]` envelope, or scrape `journalctl -u
+eidan-backend` from Promtail's `systemd_journal` source. Detail
+in [docs/024 §6.5](./024_NODE_TELEMETRY.md#65-loki).
 
 Without `EIDAN_LOG_FORWARD_URL` set, every event still mirrors to
 stdout — `journalctl -u eidan-backend` and `fly logs -a eidan-api`

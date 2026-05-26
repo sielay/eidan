@@ -624,6 +624,17 @@ def test_redact_url_strict_on_malformed_scheme() -> None:
         _redact_url("https://in.example/log#fragment-leak")
         == "https://in.example/log"
     )
+    # IPv6 literals — urlparse strips the brackets, so the redactor
+    # has to put them back, otherwise the rebuilt URL is invalid
+    # ("https://::1:1234/log").
+    assert (
+        _redact_url("https://[::1]:1234/log")
+        == "https://[::1]:1234/log"
+    )
+    assert (
+        _redact_url("https://[2001:db8::1]/log")
+        == "https://[2001:db8::1]/log"
+    )
 
 
 def test_content_type_cannot_be_overridden(
