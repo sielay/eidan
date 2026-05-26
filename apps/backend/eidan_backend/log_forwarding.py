@@ -168,10 +168,20 @@ def _redact_url(url: str) -> str:
 # JSON envelope
 # ---------------------------------------------------------------------------
 #
-# Fields the telemetry emitter sets via extra=. We pull each one off
-# the LogRecord with getattr so records that didn't go through the
-# telemetry path (e.g. raw stdlib logs from uvicorn, asyncpg) still
-# format cleanly — those fields just come out None.
+# **Strict allow-list** of top-level keys the forwarder copies from
+# the LogRecord's `extra=` kwargs into the outbound JSON envelope.
+# Any other `extra=` key the emitter sets (e.g. ad-hoc fields like
+# ``interval_seconds``, ``type``, ``raw_value``) is **silently
+# dropped** — by design: the wire contract is a small fixed shape so
+# operators can write Datadog / BetterStack search rules against
+# stable attribute names. Per-event detail belongs in ``payload``
+# (a nested dict), not as a sibling top-level key. Telemetry emit
+# sites in :mod:`eidan_backend.telemetry` follow this convention.
+#
+# Each field is pulled off the LogRecord with getattr so records
+# that didn't go through the telemetry path (raw stdlib logs from
+# uvicorn, asyncpg) still format cleanly — the fields just come
+# out None and are then omitted from the envelope.
 _TELEMETRY_EXTRAS: tuple[str, ...] = (
     "event",
     "node_id",

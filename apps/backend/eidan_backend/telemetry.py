@@ -150,7 +150,11 @@ class TelemetryEmitter:
                 "event": "telemetry.heartbeat_started",
                 "node_id": self._identity.node_id,
                 "node_type": self._identity.node_type,
-                "interval_seconds": self._interval,
+                # Per-event detail goes in payload — flat extras
+                # outside the forwarder's allow-list (event /
+                # node_id / node_type / conversation_id / payload)
+                # are silently dropped by `_format_record`.
+                "payload": {"interval_seconds": self._interval},
             },
         )
 
@@ -269,9 +273,14 @@ class TelemetryEmitter:
                 event_type,
                 extra={
                     "event": "telemetry.invalid_conversation_id",
-                    "type": event_type,
                     "node_id": self._identity.node_id,
-                    "raw_value": repr(conversation_id),
+                    # `type` + `raw_value` are per-event detail and
+                    # belong in payload — flat extras outside the
+                    # forwarder's allow-list get dropped.
+                    "payload": {
+                        "type": event_type,
+                        "raw_value": repr(conversation_id),
+                    },
                 },
             )
             conv_id = None
@@ -329,8 +338,11 @@ class TelemetryEmitter:
                 event_type,
                 extra={
                     "event": "telemetry.emit_failed",
-                    "type": event_type,
                     "node_id": self._identity.node_id,
+                    # `type` is per-event detail and belongs in
+                    # payload — flat extras outside the forwarder's
+                    # allow-list get dropped.
+                    "payload": {"type": event_type},
                 },
             )
 

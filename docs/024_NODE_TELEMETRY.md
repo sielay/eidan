@@ -380,10 +380,23 @@ One POST per log record. Body is a flat JSON object:
 come from the telemetry emitter's `extra=` kwargs (see §3.2) and
 are **only included when non-null**. The example above is for a
 node-level event (no conversation); a turn-bound event would
-carry `"conversation_id": "<uuid>"`. Records that didn't go
-through the telemetry path (raw stdlib logs from asyncpg,
-uvicorn) ship with just the four stdlib fields and `exception`
-when present.
+carry `"conversation_id": "<uuid>"`.
+
+> **Allow-list contract.** Only those five top-level keys are
+> copied out of `extra=` into the envelope — the forwarder's
+> `_TELEMETRY_EXTRAS` tuple is a **strict allow-list**. Any other
+> `extra=` key an emit site sets (ad-hoc fields like
+> `interval_seconds`, `type`, `raw_value`) is **silently dropped**
+> — the wire contract is a small fixed shape so operators can
+> write Datadog / BetterStack search rules against stable names.
+> Per-event detail belongs inside `payload` (a nested dict),
+> not as a sibling top-level key. Adding a new top-level key to
+> the envelope is a deliberate core change — bump the version of
+> this section if you do.
+
+Records that didn't go through the telemetry path (raw stdlib
+logs from asyncpg, uvicorn) ship with just the four stdlib
+fields and `exception` when present.
 
 ### 6.3 BetterStack (Logtail)
 
