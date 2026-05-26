@@ -326,7 +326,7 @@ on the host.
 | `EIDAN_LOG_FORWARD_URL`      | Yes (to enable) | HTTP intake URL. Forwarder is off when unset. |
 | `EIDAN_LOG_FORWARD_TOKEN`    | No       | Sent as `Authorization: Bearer <token>` — common BetterStack / Axiom / Honeycomb shape. |
 | `EIDAN_LOG_FORWARD_HEADERS`  | No       | JSON-encoded dict of extra headers, merged on top. Escape hatch for non-Bearer auth (Datadog's `DD-API-KEY`, custom routing headers). |
-| `EIDAN_LOG_FORWARD_LEVEL`    | No       | Minimum level to forward; default `INFO`. Set to `WARNING` to keep the intake quieter. |
+| `EIDAN_LOG_FORWARD_LEVEL`    | No       | Minimum level the forwarder's handler accepts; default `INFO`. **Effective forwarded threshold is `max(root_logger_level, EIDAN_LOG_FORWARD_LEVEL)`** — see the note below. Set to `WARNING` to keep the intake quieter. |
 | `EIDAN_LOG_FORWARD_TIMEOUT`  | No       | HTTP POST timeout in seconds; default `5.0`. Failures are swallowed (printed to stderr); the next log line tries again. |
 | `EIDAN_LOG_FORWARD_QUEUE_SIZE` | No     | Max in-process buffer size; default `10000`. When the intake stalls, records past this cap are dropped (rate-limited stderr warning every 100 drops). Prevents OOM under a hanging intake while keeping the "telemetry never breaks job execution" posture. |
 
@@ -334,6 +334,19 @@ The forwarder attaches at boot from
 [`http/app.py`'s lifespan](../apps/backend/eidan_backend/http/app.py)
 before the pool is created, so the early boot lines (DB connect,
 plugin activate, telemetry `node.boot`) land in the intake too.
+
+> **Root-logger gating.** Python's logging stack filters records
+> at the root logger's effective level *before* any handler runs.
+> The forwarder deliberately does not mutate the root level — that
+> would surprise stdout/journald and any other handler the
+> operator has wired up. Net effect: the threshold actually
+> forwarded is `max(root_logger_level, EIDAN_LOG_FORWARD_LEVEL)`.
+> To forward INFO records when uvicorn defaults root to `WARNING`,
+> raise root explicitly (e.g. `uvicorn --log-level info`, or your
+> own `logging.basicConfig(level=logging.INFO)` early at boot).
+> Likewise, a logger configured with `propagate=False` won't
+> reach root at all, so its records are not in scope regardless
+> of level.
 
 ### 6.2 JSON envelope
 

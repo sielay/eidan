@@ -1003,6 +1003,16 @@ forwarder is non-blocking (POSTs happen on a background thread)
 and swallows network failures — a dead intake doesn't drag the
 process; the next log line tries again.
 
+> **Heads-up on log levels.** The forwarder only sees records the
+> root logger lets through; it deliberately does not mutate the
+> root level. If the service runs with uvicorn's default root
+> level (`WARNING`), INFO-level telemetry lines never reach the
+> handler and won't forward. To forward INFO, raise root
+> explicitly — `uvicorn --log-level info` in the systemd
+> `ExecStart=`, or `logging.basicConfig(level=logging.INFO)`
+> early at boot. Detail in
+> [docs/024 §6.1](./024_NODE_TELEMETRY.md#61-env-vars).
+
 #### Loki (via relay)
 
 Loki wants a specific envelope shape that doesn't match eidan's
