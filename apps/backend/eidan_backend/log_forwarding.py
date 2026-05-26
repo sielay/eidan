@@ -159,8 +159,12 @@ def _redact_url(url: str) -> str:
     host = parsed.hostname
     if ":" in host:
         host = f"[{host}]"
-    if parsed.port is not None:
-        host = f"{host}:{parsed.port}"
+    try:
+        port = parsed.port
+    except ValueError:
+        return "<unparseable>"
+    if port is not None:
+        host = f"{host}:{port}"
     return f"{parsed.scheme}://{host}{parsed.path}"
 
 
