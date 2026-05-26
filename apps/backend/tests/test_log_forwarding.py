@@ -447,6 +447,91 @@ def test_bounded_queue_drops_when_full(
     )
 
 
+def test_queue_drop_surfaces_on_first_drop_of_streak(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """The first drop of a streak prints immediately — operators
+    must not have to wait for 99 silent drops before seeing the
+    queue fill. Matches the HTTP-failure cadence in
+    :class:`_JsonHttpHandler`. Drop-volume here (queue cap 2 plus
+    a handful of overflows) stays well under the 100-record
+    batch threshold, so without the first-of-streak print the
+    test would see an empty stderr."""
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_QUEUE_SIZE", "2")
+
+    drain_block = threading.Event()
+
+    def slow_urlopen(req, timeout):  # noqa: ARG001
+        drain_block.wait(timeout=5.0)
+        m = MagicMock()
+        m.__enter__.return_value.read.return_value = b""
+        return m
+
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        side_effect=slow_urlopen,
+    ):
+        attach_log_forwarder_if_configured()
+        log = logging.getLogger("eidan_backend.test_first_drop")
+        # Cap is 2; push 6. Expect at least 1 drop (the exact
+        # count depends on listener scheduling), and the stderr
+        # line must appear without waiting for the 100-batch.
+        for i in range(6):
+            log.warning("trickle %d", i)
+        drain_block.set()
+        _wait_for_drain(timeout=5.0)
+
+    stderr = capsys.readouterr().err
+    assert "queue full" in stderr, (
+        f"expected first-drop warning in stderr, got: {stderr!r}"
+    )
+
+
+def test_queue_drop_surfaces_recovery_line(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """After the listener catches up and the queue accepts a
+    record again, stderr surfaces a 'queue accepted' line —
+    operators see both edges of a queue-full episode the same
+    way they do for HTTP failures (`test_recovery_line_prints_after_failing_streak`).
+    """
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_QUEUE_SIZE", "2")
+
+    drain_block = threading.Event()
+
+    def gated_urlopen(req, timeout):  # noqa: ARG001
+        drain_block.wait(timeout=5.0)
+        m = MagicMock()
+        m.__enter__.return_value.read.return_value = b""
+        return m
+
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        side_effect=gated_urlopen,
+    ):
+        attach_log_forwarder_if_configured()
+        log = logging.getLogger("eidan_backend.test_queue_recovery")
+        # Force a drop streak.
+        for i in range(10):
+            log.warning("fill %d", i)
+        # Let the listener drain everything queued so far.
+        drain_block.set()
+        _wait_for_drain(timeout=5.0)
+        # Now the queue has space again — the next emit should
+        # enqueue successfully and trip the recovery print.
+        log.warning("after-drain")
+        _wait_for_drain(timeout=5.0)
+
+    stderr = capsys.readouterr().err
+    assert "queue accepted" in stderr, (
+        f"expected queue-recovery line in stderr, got: {stderr!r}"
+    )
+
+
 def test_atexit_hook_registered_only_once_across_resets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

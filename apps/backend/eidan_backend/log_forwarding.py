@@ -51,10 +51,14 @@ Env vars:
   in-process buffer, default ``10000``. When the intake stalls
   (network blip, auth rejection) the listener thread can't
   drain; the queue fills up to this cap and further records
-  are dropped, with a rate-limited stderr warning. Operators
-  who'd rather block-then-OOM than drop can raise the bound
-  arbitrarily, but the back-pressure-to-drop posture matches
-  the "telemetry never breaks job execution" doctrine.
+  are dropped. A single-line stderr warning fires on the
+  **first** drop of a streak and then every 100 drops, with a
+  "queue accepted" line when the listener catches up — so brief
+  queue fills are immediately visible and sustained outages
+  don't flood the log. Operators who'd rather block-then-OOM
+  than drop can raise the bound arbitrarily, but the
+  back-pressure-to-drop posture matches the "telemetry never
+  breaks job execution" doctrine.
 
 JSON envelope per record (telemetry extras are **only included
 when non-None** — a node-level event omits ``conversation_id``;
@@ -367,8 +371,12 @@ class _ForwardingQueueHandler(logging.handlers.QueueHandler):
        telemetry (lose data before crashing or eating memory),
        but the base behaviour of writing a multi-line traceback
        per dropped record floods stderr the moment the intake
-       slows. Replaced with a rate-limited single-line warning
-       every ``_DROP_REPORT_INTERVAL`` drops.
+       slows. Replaced with the same first-of-streak +
+       every-Nth + recovery cadence :class:`_JsonHttpHandler`
+       uses for HTTP failures — operators see brief queue
+       fills immediately (not after 99 silent drops) and see
+       both edges of a sustained outage without flooding the
+       log.
     """
 
     _DROP_REPORT_INTERVAL = 100
@@ -391,21 +399,48 @@ class _ForwardingQueueHandler(logging.handlers.QueueHandler):
             # Drop. Don't propagate; don't hit self.handleError
             # (which would write the full Full traceback per
             # record — flooding stderr is worse than losing logs).
-            self._dropped_total += 1
-            self._dropped_since_last_report += 1
-            if self._dropped_since_last_report >= self._DROP_REPORT_INTERVAL:
-                print(
-                    f"[log_forwarding] queue full — dropped "
-                    f"{self._dropped_since_last_report} records "
-                    f"(total dropped this process: {self._dropped_total})",
-                    file=sys.stderr,
-                )
-                self._dropped_since_last_report = 0
+            self._report_drop()
+            return
         except Exception:  # noqa: BLE001 — must not propagate
             # Any other exception during enqueue (e.g. malformed
             # record). Fall back to the stdlib escape hatch but
             # don't let it bubble up.
             self.handleError(record)
+            return
+        # Successful enqueue. If we were in a drop streak, surface
+        # the recovery so operators see both edges of a queue-full
+        # episode — then reset the counter so the next streak starts
+        # with a fresh "first drop" print. Mirrors the HTTP path's
+        # success branch.
+        if self._dropped_since_last_report:
+            print(
+                f"[log_forwarding] queue accepted after "
+                f"{self._dropped_since_last_report} dropped record(s) "
+                f"(total dropped this process: {self._dropped_total})",
+                file=sys.stderr,
+            )
+            self._dropped_since_last_report = 0
+
+    def _report_drop(self) -> None:
+        self._dropped_total += 1
+        self._dropped_since_last_report += 1
+        # Print on the FIRST drop of a streak (so the operator sees
+        # the queue fill the moment it happens, not 99 records later)
+        # and then every Nth. Matches _JsonHttpHandler._report_failure.
+        should_report = (
+            self._dropped_since_last_report == 1
+            or self._dropped_since_last_report % self._DROP_REPORT_INTERVAL == 0
+        )
+        if should_report:
+            count = (
+                f" (total dropped this process: {self._dropped_total})"
+                if self._dropped_since_last_report > 1
+                else ""
+            )
+            print(
+                f"[log_forwarding] queue full — record dropped{count}",
+                file=sys.stderr,
+            )
 
 
 # ---------------------------------------------------------------------------
