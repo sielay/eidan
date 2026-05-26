@@ -12,8 +12,9 @@ including the telemetry mirror lines fired by
 :mod:`eidan_backend.telemetry`) is in scope; loggers configured
 with ``propagate=False`` are not. The forwarder deliberately
 does not mutate the root logger's level — to forward INFO when
-uvicorn defaults root to WARNING, raise root explicitly (see
-``EIDAN_LOG_FORWARD_LEVEL`` below).
+uvicorn defaults root to WARNING, raise root explicitly via root
+logger configuration or, in the standard HTTP deployment, via
+``EIDAN_HTTP_LOG_LEVEL`` as described below.
 
 Designed to land BetterStack (Logtail), Datadog, Axiom,
 Honeycomb, and any custom HTTP intake without the operator
