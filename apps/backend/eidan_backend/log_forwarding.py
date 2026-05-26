@@ -217,11 +217,11 @@ class _JsonHttpHandler(logging.Handler):
 
     Failure noise is rate-limited: the first failure of a streak
     prints (so operators see "the intake just went down"), then
-    further failures are quietly counted until ``_FAILURE_REPORT_INTERVAL``
-    passes, then one summary line prints. On the next successful
-    POST the counter resets, so a transient blip-then-recovery
-    surfaces a single line both ways instead of one line per
-    dropped record.
+    further failures are quietly counted and one summary line
+    prints for every ``_FAILURE_REPORT_INTERVAL`` additional
+    failures. On the next successful POST the counter resets, so
+    a transient blip-then-recovery surfaces a single line both
+    ways instead of one line per dropped record.
     """
 
     # Print every Nth failure during a sustained outage. Matches
