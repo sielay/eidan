@@ -280,6 +280,14 @@ exposes:
 - `ctx.register_behaviours(handlers)` — register behaviours declared
   in the manifest.
 - `ctx.register_mcp(server)` — when `mcp.enabled`.
+- `ctx.publish_event(name, payload)` — emit on the in-process event
+  bus, the same one the manifest's `behaviours[]` `event:` triggers
+  subscribe to. The host generates the idempotency key, fans out to
+  every matching subscriber, and returns the per-subscriber results
+  in registration order. This is the supported publish side of
+  `event:` — plugins MUST NOT reach into private host internals or
+  spin up their own pub/sub substrate. `None` on degraded boots (no
+  dispatcher); plugins fall back accordingly.
 - `ctx.logger` — structured logger pre-tagged with `plugin=<name>`.
 
 Direct imports from `eidan.internal.*` are forbidden and rejected at
