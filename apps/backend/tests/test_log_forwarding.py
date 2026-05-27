@@ -375,6 +375,67 @@ def test_queue_handler_prepare_clears_args_preserves_exc_info() -> None:
     assert record.msg == "rendering %s"
 
 
+def test_payload_with_non_json_values_is_stringified_not_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A telemetry mirror line carrying a UUID / datetime / Exception
+    inside ``payload`` must still reach the intake. Without
+    ``json.dumps(envelope, default=str)`` in
+    :class:`_JsonHttpHandler.emit`, the whole envelope would raise
+    ``TypeError`` and the record would be silently dropped as an
+    "unexpected error" — precisely when the operator most needs
+    the diagnostic.
+
+    The telemetry emit_event mirror line fires BEFORE the DB-side
+    ``json.dumps(payload)`` validation, so the forwarder sees the
+    untrusted value first."""
+    import uuid
+    from datetime import UTC, datetime
+
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+
+    payload_uuid = uuid.uuid4()
+    payload_dt = datetime(2026, 5, 27, 12, 0, 0, tzinfo=UTC)
+    payload_exc = RuntimeError("downstream failure")
+
+    captured: list = []
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        _patch_urlopen(captured),
+    ):
+        attach_log_forwarder_if_configured()
+        log = logging.getLogger("eidan_backend.test_nonjson_payload")
+        log.info(
+            "telemetry: %s",
+            "non.json.values",
+            extra={
+                "event": "non.json.values",
+                "node_id": "test",
+                "node_type": "test",
+                "payload": {
+                    "id": payload_uuid,
+                    "when": payload_dt,
+                    "exc": payload_exc,
+                },
+            },
+        )
+        _wait_for_drain()
+
+    body = next(
+        (c["body"] for c in captured if c["body"].get("event") == "non.json.values"),
+        None,
+    )
+    assert body is not None, (
+        f"record was dropped — json.dumps likely raised TypeError on a "
+        f"non-serialisable payload value. captured={captured}"
+    )
+    # Each value stringified via default=str (which calls str(), NOT
+    # .isoformat() — datetime's str() uses a space separator).
+    assert body["payload"]["id"] == str(payload_uuid)
+    assert body["payload"]["when"] == str(payload_dt)
+    assert "downstream failure" in body["payload"]["exc"]
+
+
 def test_queue_handler_formats_message_in_realistic_pipeline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

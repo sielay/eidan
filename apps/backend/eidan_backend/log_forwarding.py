@@ -286,7 +286,20 @@ class _JsonHttpHandler(logging.Handler):
         # escape hatch; we just print and move on (rate-limited).
         try:
             envelope = _format_record(record)
-            body = json.dumps(envelope).encode("utf-8")
+            # `default=str` lets the forwarder tolerate user-supplied
+            # values inside `payload` that aren't natively
+            # JSON-serialisable — UUID, datetime, exception, Decimal,
+            # Path, etc. Without it, `json.dumps` raises TypeError on
+            # the whole envelope and the record is dropped as an
+            # "unexpected error", which is exactly the wrong outcome
+            # for the realistic case (telemetry mirror line fires
+            # BEFORE the DB-side `json.dumps(payload)` validation in
+            # :meth:`TelemetryEmitter.emit_event`, so a bad value
+            # surfaces here first and would silently kill the
+            # diagnostic the operator needs). Stringifying unknown
+            # values is lossy but visible — the operator sees
+            # ``"<uuid>"`` in the intake instead of nothing.
+            body = json.dumps(envelope, default=str).encode("utf-8")
             req = urllib.request.Request(
                 self._url,
                 data=body,
