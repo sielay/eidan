@@ -715,13 +715,58 @@ def attach_log_forwarder_if_configured() -> bool:
     return True
 
 
-def _shutdown_forwarder() -> None:
-    """Cleanly stop the background listener thread. Idempotent."""
+_SHUTDOWN_JOIN_TIMEOUT_S = 2.0
+
+
+def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> None:
+    """Stop the background listener thread + detach the handler.
+
+    Idempotent (returns early when nothing is attached). Used by:
+
+    - the atexit hook registered in
+      :func:`attach_log_forwarder_if_configured` (process exit),
+    - the HTTP app's lifespan teardown
+      (:mod:`eidan_backend.http.app`), so re-lifecycling the app
+      in the same interpreter (tests, embedded ASGI servers)
+      doesn't leak handler/thread state between runs,
+    - :func:`_reset_for_tests`.
+
+    **Bounded.** :meth:`logging.handlers.QueueListener.stop` joins
+    the listener thread unconditionally. If the intake is hung or
+    the operator configured a large ``EIDAN_LOG_FORWARD_TIMEOUT``,
+    that join can stall service shutdown / atexit for minutes.
+    Inline a bounded variant: signal the sentinel, join with a
+    deadline (default 2s — enough for one in-flight POST under
+    normal conditions), and walk away if the thread doesn't
+    finish. The listener thread is daemon (see
+    :meth:`logging.handlers.QueueListener.start`), so abandoning
+    it is safe — interpreter exit reaps it; the cost is one
+    in-flight POST gets lost. Losing a record is the right
+    trade against blocking service restart under a forwarding
+    outage (same "telemetry never breaks job execution" doctrine
+    as the rest of the module).
+    """
     global _active_listener, _active_handler
-    if _active_listener is None:
+    listener = _active_listener
+    if listener is None:
         return
     try:
-        _active_listener.stop()
+        listener.enqueue_sentinel()
+        thread = listener._thread
+        if thread is not None:
+            thread.join(timeout=join_timeout_s)
+            if thread.is_alive():
+                print(
+                    f"[log_forwarding] shutdown: listener thread did not "
+                    f"finish within {join_timeout_s}s — abandoning "
+                    f"(in-flight POST will be lost; interpreter exit "
+                    f"will reap the daemon thread)",
+                    file=sys.stderr,
+                )
+            # Match what listener.stop() would have set; allows
+            # subsequent stop() / start() to be sane on the same
+            # listener object even though we don't re-use it.
+            listener._thread = None
     except Exception:  # noqa: BLE001 — best-effort teardown
         pass
     if _active_handler is not None:

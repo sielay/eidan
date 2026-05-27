@@ -688,6 +688,68 @@ def test_queue_drop_surfaces_recovery_line(
     )
 
 
+def test_shutdown_bounded_when_listener_thread_is_stuck(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """Shutdown must not hang on a wedged listener thread. The
+    realistic case: intake is hung (network blip, auth deadlock),
+    the listener thread is blocked inside urlopen, and the
+    operator restarts the service / process exits. Without a
+    bounded join, ``_shutdown_forwarder`` blocks indefinitely
+    via the stdlib's unbounded ``QueueListener.stop()``.
+
+    Pins: shutdown returns within join_timeout_s + slack, and
+    the abandonment warning surfaces on stderr."""
+    from eidan_backend.log_forwarding import _shutdown_forwarder
+
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+
+    # Block urlopen forever so the listener thread sits inside the
+    # POST when shutdown fires.
+    block = threading.Event()
+
+    def hung_urlopen(req, timeout):  # noqa: ARG001
+        block.wait()  # never released
+        m = MagicMock()
+        m.__enter__.return_value.read.return_value = b""
+        return m
+
+    try:
+        with patch(
+            "eidan_backend.log_forwarding.urllib.request.urlopen",
+            side_effect=hung_urlopen,
+        ):
+            attach_log_forwarder_if_configured()
+            # Force a record into the queue so the listener is
+            # actively blocked inside urlopen, not just idle.
+            logging.getLogger("eidan_backend.test_stuck_shutdown").warning(
+                "fill the queue so the listener picks it up"
+            )
+            # Tiny sleep to let the listener pick up the record
+            # and enter the hung urlopen call.
+            time.sleep(0.1)
+
+            start = time.monotonic()
+            _shutdown_forwarder(join_timeout_s=0.3)
+            elapsed = time.monotonic() - start
+
+        # Returned within the deadline plus slack for thread
+        # bookkeeping (handler removal, globals reset).
+        assert elapsed < 1.5, (
+            f"shutdown took {elapsed:.2f}s — expected < 1.5s "
+            f"(join_timeout_s=0.3 plus slack)"
+        )
+        stderr = capsys.readouterr().err
+        assert "abandoning" in stderr, (
+            f"expected abandonment warning in stderr, got: {stderr!r}"
+        )
+    finally:
+        # Release the blocked urlopen so the abandoned daemon
+        # thread can exit cleanly and not leak between tests.
+        block.set()
+
+
 def test_atexit_hook_registered_only_once_across_resets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

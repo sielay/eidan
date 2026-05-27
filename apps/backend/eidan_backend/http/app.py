@@ -161,7 +161,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # EIDAN_LOG_FORWARD_HEADERS from env; no-op when unset. Runs
     # *before* pool creation so the boot lines (DB connect, plugin
     # activate, telemetry node.boot) land in the forwarder too.
-    from ..log_forwarding import attach_log_forwarder_if_configured
+    from ..log_forwarding import (
+        _shutdown_forwarder,
+        attach_log_forwarder_if_configured,
+    )
 
     attach_log_forwarder_if_configured()
 
@@ -221,6 +224,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             except Exception:  # noqa: BLE001 — never block pool close
                 logger.exception("[lifespan] plugin shutdown raised")
         await pool.close()
+        # Tear down the log forwarder symmetrically with attach
+        # above. Bounded internally (see log_forwarding doc) so a
+        # hung intake can't block lifespan teardown. Without this,
+        # re-lifecycling the app in the same interpreter (tests
+        # using TestClient, embedded ASGI servers) leaks the
+        # QueueListener thread + root handler between runs.
+        _shutdown_forwarder()
 
 
 def _build_provider_from_settings(backend: BackendSettings) -> Provider:
