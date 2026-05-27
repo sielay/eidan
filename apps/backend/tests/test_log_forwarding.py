@@ -150,11 +150,13 @@ def test_attach_no_op_when_url_unset() -> None:
 
 def test_attach_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://intake.example/log")
-    assert attach_log_forwarder_if_configured() is True
-    handlers_after_first = list(logging.getLogger().handlers)
-    # Second call must NOT double-attach.
-    assert attach_log_forwarder_if_configured() is True
-    assert logging.getLogger().handlers == handlers_after_first
+    captured: list[dict[str, object]] = []
+    with patch("urllib.request.urlopen", _patch_urlopen(captured)):
+        assert attach_log_forwarder_if_configured() is True
+        handlers_after_first = list(logging.getLogger().handlers)
+        # Second call must NOT double-attach.
+        assert attach_log_forwarder_if_configured() is True
+        assert logging.getLogger().handlers == handlers_after_first
 
 
 # ---------------------------------------------------------------------------
