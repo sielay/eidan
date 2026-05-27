@@ -77,6 +77,11 @@ class _FakePool:
         raise NotImplementedError("the test plugins should not call db.acquire()")
 
 
+_EXAMPLE_CORE_DIR = (
+    Path(__file__).resolve().parents[3] / "plugins" / "example-core"
+)
+
+
 class _StubPluginBase(PluginBase):
     """No-op subclass so :class:`LoadedPlugin` has a concrete ``plugin``
     attribute when a test builds the loader's record by hand. The
@@ -221,11 +226,10 @@ async def test_context_factory_binds_publish_event_to_dispatcher(
         registry,
         behaviour_dispatcher=dispatcher,
     )
-    plugin_dir = Path(__file__).resolve().parents[3] / "plugins" / "example-core"
     loaded = LoadedPlugin(
-        manifest=load_manifest(plugin_dir),
+        manifest=load_manifest(_EXAMPLE_CORE_DIR),
         plugin=_StubPluginBase(),  # type: ignore[arg-type]
-        plugin_dir=plugin_dir,
+        plugin_dir=_EXAMPLE_CORE_DIR,
     )
     ctx = factory(loaded)
 
@@ -250,11 +254,10 @@ async def test_context_factory_publish_event_is_none_without_dispatcher(
         BehaviourRegistry(),
         behaviour_dispatcher=None,
     )
-    plugin_dir = Path(__file__).resolve().parents[3] / "plugins" / "example-core"
     loaded = LoadedPlugin(
-        manifest=load_manifest(plugin_dir),
+        manifest=load_manifest(_EXAMPLE_CORE_DIR),
         plugin=_StubPluginBase(),  # type: ignore[arg-type]
-        plugin_dir=plugin_dir,
+        plugin_dir=_EXAMPLE_CORE_DIR,
     )
     ctx = factory(loaded)
 
