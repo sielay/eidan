@@ -149,6 +149,13 @@ def _redact_url(url: str) -> str:
     (``urlparse('https://[::1]:1234/log').hostname`` is the bare
     ``"::1"``, which would otherwise serialise as the invalid
     ``"https://::1:1234/log"``).
+
+    Bad ports (e.g. ``"https://in.example:abc/log"``) parse OK
+    but raise ``ValueError`` on the ``parsed.port`` lazy
+    attribute. Treated as unparseable rather than crashing the
+    caller — :func:`attach_log_forwarder_if_configured` calls
+    this from its stderr-warning path, and a crash there would
+    bubble out at boot.
     """
     try:
         parsed = urllib.parse.urlparse(url)
@@ -156,13 +163,13 @@ def _redact_url(url: str) -> str:
         return "<unparseable>"
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         return "<unparseable>"
-    host = parsed.hostname
-    if ":" in host:
-        host = f"[{host}]"
     try:
         port = parsed.port
     except ValueError:
         return "<unparseable>"
+    host = parsed.hostname
+    if ":" in host:
+        host = f"[{host}]"
     if port is not None:
         host = f"{host}:{port}"
     return f"{parsed.scheme}://{host}{parsed.path}"
@@ -524,8 +531,17 @@ def attach_log_forwarder_if_configured() -> bool:
     # then failing per-record forever. The redacted form is fine for
     # the warning — it's only invalid in shape, but it may still
     # contain secrets if the operator's mis-formatted URL has them.
+    #
+    # `parsed.port` is included in the parse-time try: it's a lazy
+    # attribute that raises ValueError on shapes like
+    # ``https://in.example:abc/log`` — folding the check in here
+    # means the same "refuse to attach" path catches the typo
+    # instead of letting it crash later inside the handler. Reuses
+    # :func:`_redact_url` for the same reason (it also has to
+    # tolerate bad ports for its stderr-warning callers).
     try:
         parsed = urllib.parse.urlparse(url)
+        _ = parsed.port  # trigger lazy parse so bad ports raise now
     except ValueError as exc:
         print(
             f"[log_forwarding] EIDAN_LOG_FORWARD_URL={_redact_url(url)!r} "

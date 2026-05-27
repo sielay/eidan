@@ -758,6 +758,12 @@ def test_attach_refuses_non_http_url(
         "http://:1234",          # port-only netloc, no host
         "http://:9999/log",      # port-only with path
         "https:///log",          # empty netloc, just a path
+        # Bad ports parse OK but `parsed.port` raises ValueError
+        # lazily — without folding the port check into the
+        # attach-time try, these would attach successfully and
+        # then crash on the first emit.
+        "https://in.example:abc/log",
+        "http://host:99999/x",
     ):
         _reset_for_tests()
         monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", bad)
@@ -807,6 +813,12 @@ def test_redact_url_strict_on_malformed_scheme() -> None:
         _redact_url("https://[2001:db8::1]/log")
         == "https://[2001:db8::1]/log"
     )
+    # Bad port — `parsed.port` is a lazy attribute that raises
+    # ValueError on non-integer ports. Must be caught so callers
+    # (notably the attach-time validator's stderr-warning path)
+    # don't crash on a typo.
+    assert _redact_url("https://in.example:abc/log") == "<unparseable>"
+    assert _redact_url("http://host:99999/x") == "<unparseable>"
 
 
 def test_content_type_cannot_be_overridden(
