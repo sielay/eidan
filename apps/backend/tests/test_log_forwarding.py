@@ -750,6 +750,60 @@ def test_shutdown_bounded_when_listener_thread_is_stuck(
         block.set()
 
 
+def test_shutdown_handles_queue_full_on_sentinel(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """The realistic shutdown-during-outage case the previous test
+    doesn't exercise: queue is full when shutdown fires and
+    :meth:`QueueListener.enqueue_sentinel` raises ``queue.Full``.
+
+    Pre-fix, the broad ``except Exception`` in
+    ``_shutdown_forwarder`` swallowed it silently and skipped both
+    the join AND the abandonment warning — teardown was
+    non-deterministic and observable only via "the listener thread
+    is still alive somehow", which is the opposite of useful.
+
+    Direct unit test (no live listener thread) because driving an
+    integration-style saturation deterministically races the
+    listener's consumption rate. Pre-loading the queue to maxsize
+    and skipping ``listener.start()`` gives the exact state
+    ``enqueue_sentinel`` would hit during a real outage shutdown.
+    """
+    import queue as _q
+
+    from eidan_backend import log_forwarding
+
+    full_queue: _q.Queue = _q.Queue(maxsize=1)
+    full_queue.put_nowait("placeholder")  # at capacity
+
+    listener = logging.handlers.QueueListener(
+        full_queue, logging.NullHandler()
+    )
+    # Skip .start() — no background thread means the queue stays
+    # full when _shutdown_forwarder calls enqueue_sentinel.
+
+    log_forwarding._active_listener = listener
+    log_forwarding._active_handler = None
+    try:
+        log_forwarding._shutdown_forwarder(join_timeout_s=0.5)
+    finally:
+        # Belt-and-braces — fixture cleanup will also handle this,
+        # but the test sets the globals directly so clean up directly.
+        log_forwarding._active_listener = None
+        log_forwarding._active_handler = None
+
+    stderr = capsys.readouterr().err
+    assert "queue saturated" in stderr, (
+        f"expected queue-saturation abandonment warning, got: {stderr!r}"
+    )
+    # _shutdown_forwarder must NOT have proceeded to the join+abandon
+    # path — sentinel_enqueued was False, so the listener-thread
+    # warning is the wrong shape for this case.
+    assert "listener thread did not finish" not in stderr, (
+        f"queue-saturation path should skip the join warning, got: {stderr!r}"
+    )
+
+
 def test_atexit_hook_registered_only_once_across_resets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

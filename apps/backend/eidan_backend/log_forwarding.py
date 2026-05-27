@@ -750,25 +750,57 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
     listener = _active_listener
     if listener is None:
         return
+
+    sentinel_enqueued = False
     try:
         listener.enqueue_sentinel()
-        thread = listener._thread
-        if thread is not None:
-            thread.join(timeout=join_timeout_s)
-            if thread.is_alive():
-                print(
-                    f"[log_forwarding] shutdown: listener thread did not "
-                    f"finish within {join_timeout_s}s — abandoning "
-                    f"(in-flight POST will be lost; interpreter exit "
-                    f"will reap the daemon thread)",
-                    file=sys.stderr,
-                )
-            # Match what listener.stop() would have set; allows
-            # subsequent stop() / start() to be sane on the same
-            # listener object even though we don't re-use it.
-            listener._thread = None
-    except Exception:  # noqa: BLE001 — best-effort teardown
+        sentinel_enqueued = True
+    except queue.Full:
+        # Realistic shutdown-during-outage case: intake hung,
+        # listener thread blocked inside urlopen, bounded queue
+        # at maxsize. `enqueue_sentinel` uses `put_nowait` under
+        # the hood and raises `queue.Full`. There's nothing
+        # useful we can do — the thread can't process the
+        # sentinel anyway (it's stuck in urlopen), so we skip
+        # the join and abandon. Daemon flag on the listener
+        # thread (set by QueueListener.start) means interpreter
+        # exit reaps it. Surface the cause explicitly: a
+        # silently-swallowed `queue.Full` here is the exact
+        # non-determinism Copilot flagged on the 17th-pass
+        # commit — pin the behaviour with an observable warning.
+        print(
+            "[log_forwarding] shutdown: queue saturated — cannot "
+            "signal listener exit, abandoning thread (interpreter "
+            "exit will reap the daemon thread)",
+            file=sys.stderr,
+        )
+    except Exception:  # noqa: BLE001 — final safety net for stdlib drift
+        # enqueue_sentinel is a one-liner over put_nowait today.
+        # If a future stdlib change adds new failure modes, we
+        # still need to fall through to handler-detach + globals
+        # reset rather than propagate.
         pass
+
+    if sentinel_enqueued:
+        try:
+            thread = listener._thread
+            if thread is not None:
+                thread.join(timeout=join_timeout_s)
+                if thread.is_alive():
+                    print(
+                        f"[log_forwarding] shutdown: listener thread did "
+                        f"not finish within {join_timeout_s}s — abandoning "
+                        f"(in-flight POST will be lost; interpreter exit "
+                        f"will reap the daemon thread)",
+                        file=sys.stderr,
+                    )
+                # Match what listener.stop() would have set; allows
+                # subsequent stop() / start() to be sane on the same
+                # listener object even though we don't re-use it.
+                listener._thread = None
+        except Exception:  # noqa: BLE001 — best-effort teardown
+            pass
+
     if _active_handler is not None:
         try:
             logging.getLogger().removeHandler(_active_handler)
