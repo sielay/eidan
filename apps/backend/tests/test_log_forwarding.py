@@ -963,21 +963,30 @@ def test_attach_falls_back_on_bad_timeout(
 ) -> None:
     """A negative or zero timeout would make urlopen raise on every
     emit. Fall back to the 5.0s default with one stderr line —
-    same posture as the URL / queue-size / level validation."""
+    same posture as the URL / queue-size / level validation.
+
+    Patches ``urllib.request.urlopen`` for the whole loop: each
+    attach emits a startup INFO line that the QueueListener
+    background thread then POSTs to the configured URL. Without
+    the patch the test would do a real network call to
+    ``https://in.example/log`` (and ``_reset_for_tests()`` can
+    block waiting for it), violating this module's no-real-HTTP
+    test guarantee."""
     monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
 
-    for bad in ("0", "-1", "not-a-number"):
-        _reset_for_tests()
-        capsys.readouterr()  # drain any prior stderr
-        monkeypatch.setenv("EIDAN_LOG_FORWARD_TIMEOUT", bad)
-        attached = attach_log_forwarder_if_configured()
-        assert attached is True, (
-            f"attach should still succeed for bad timeout {bad!r}; "
-            f"telemetry never breaks job execution"
-        )
-        stderr = capsys.readouterr().err
-        assert "EIDAN_LOG_FORWARD_TIMEOUT" in stderr
-        assert "falling back to 5.0" in stderr
+    with patch("urllib.request.urlopen", return_value=MagicMock()):
+        for bad in ("0", "-1", "not-a-number"):
+            _reset_for_tests()
+            capsys.readouterr()  # drain any prior stderr
+            monkeypatch.setenv("EIDAN_LOG_FORWARD_TIMEOUT", bad)
+            attached = attach_log_forwarder_if_configured()
+            assert attached is True, (
+                f"attach should still succeed for bad timeout {bad!r}; "
+                f"telemetry never breaks job execution"
+            )
+            stderr = capsys.readouterr().err
+            assert "EIDAN_LOG_FORWARD_TIMEOUT" in stderr
+            assert "falling back to 5.0" in stderr
 
 
 def test_post_failure_is_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
