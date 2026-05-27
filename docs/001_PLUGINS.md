@@ -284,10 +284,16 @@ exposes:
   bus, the same one the manifest's `behaviours[]` `event:` triggers
   subscribe to. The host generates the idempotency key, fans out to
   every matching subscriber, and returns the per-subscriber results
-  in registration order. This is the supported publish side of
-  `event:` — plugins MUST NOT reach into private host internals or
-  spin up their own pub/sub substrate. `None` on degraded boots (no
-  dispatcher); plugins fall back accordingly.
+  in registration order. `__idempotency_key__` on `payload` is a
+  reserved field: when present it overrides the host-generated key
+  and is stripped before subscribers see the payload, so retries
+  that supply the same key collapse to the original dispatch.
+  Plugins not doing that MUST NOT name a payload field
+  `__idempotency_key__` — the value would be dropped. This is the
+  supported publish side of `event:` — plugins MUST NOT reach into
+  private host internals or spin up their own pub/sub substrate.
+  `None` on degraded boots (no dispatcher); plugins fall back
+  accordingly.
 - `ctx.logger` — structured logger pre-tagged with `plugin=<name>`.
 
 Direct imports from `eidan.internal.*` are forbidden and rejected at

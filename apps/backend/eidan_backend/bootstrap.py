@@ -63,9 +63,14 @@ class BootstrapResult:
       every plugin contributed cron / event handlers to. The
       dispatcher reads from it.
     - ``behaviour_dispatcher`` — owns the APScheduler that fires
-      cron-triggered behaviours. ``None`` when no plugins registered
-      any behaviours; otherwise started in :func:`bootstrap` and
-      stopped in :func:`shutdown`.
+      cron- and schedule-triggered behaviours, and also the
+      ``publish_event`` accessor plugins receive via
+      ``ctx.publish_event``. Constructed whenever any plugins are
+      discovered, even if none of them register behaviours, so the
+      event-bus publish path is always wired. ``None`` only on the
+      empty-plugins early-return. ``start()`` runs only when the
+      registry has at least one behaviour AND ``start_dispatcher``
+      is True; stopped in :func:`shutdown`.
     """
 
     plugins: list[LoadedPlugin]

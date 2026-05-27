@@ -130,6 +130,13 @@ class EventPublisher(Protocol):
     whose key has already fired (host-side dedupe) does not appear in
     the list.
 
+    ``__idempotency_key__`` on ``payload`` is a reserved field: when
+    present it overrides the host-generated key and is stripped from
+    the payload before subscribers see it. Use it deliberately when
+    re-publishing on retry should collapse to the original dispatch;
+    otherwise avoid the field name so an accidental collision doesn't
+    silently drop data.
+
     ``None`` when the bootstrap was wired without a behaviour
     dispatcher (the unit-test path); plugins that want to fall back
     gracefully check ``if ctx.publish_event is None``.
