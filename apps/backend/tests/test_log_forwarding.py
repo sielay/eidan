@@ -655,9 +655,10 @@ def test_atexit_hook_registered_only_once_across_resets(
     if hasattr(atexit_module, "_ncallbacks"):
         baseline_callbacks = atexit_module._ncallbacks()
 
-    for _ in range(5):
-        attach_log_forwarder_if_configured()
-        _reset_for_tests()
+    with patch("urllib.request.urlopen", return_value=MagicMock()):
+        for _ in range(5):
+            attach_log_forwarder_if_configured()
+            _reset_for_tests()
 
     # atexit's internal callback registry is private. On runtimes
     # exposing atexit._ncallbacks(), assert repeated attach/reset
