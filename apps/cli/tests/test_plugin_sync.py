@@ -26,6 +26,7 @@ def plugins_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("EIDAN_PLUGIN_LINK", raising=False)
     monkeypatch.delenv("EIDAN_GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("EIDAN_PLUGIN_INSTALL_NO_MIGRATE", raising=False)
+    monkeypatch.delenv("EIDAN_PLUGIN_INSTALL_NO_LOCK", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     return target
 
@@ -226,3 +227,61 @@ def test_sync_malformed_lock_errors_cleanly(
     assert rc == 1
     err = capsys.readouterr().err
     assert "schema" in err
+
+
+def test_sync_install_does_not_mutate_operator_lock(
+    plugins_dir: Path,
+) -> None:
+    """``plugin sync`` reinstalls a bundle without rewriting the lock.
+
+    The fixture bundle pulls in a transitive baseline dep. A naïve
+    ``sync → plugin_install → _record_install_in_lock`` chain would
+    upsert that baseline plugin into the operator's lock, making sync
+    re-declare what it was supposed to merely apply. With
+    ``EIDAN_PLUGIN_INSTALL_NO_LOCK`` wired in by ``plugin_sync`` the
+    lock the operator wrote stays byte-identical after the run.
+    """
+    operator_lock = [
+        plugin_lock.LockEntry(
+            name="example-foo",
+            version="0.1.0",
+            bundle="example-bundle",
+            source=f"local:{FIXTURES}",
+        ),
+    ]
+    plugin_lock.write_lock(plugins_dir, operator_lock)
+    before = (plugins_dir / ".lock").read_text()
+
+    rc = admin.plugin_sync(dry_run=False, prune=False)
+    assert rc == 0
+    # Files landed (dep included).
+    assert (plugins_dir / "example-foo" / "plugin.yaml").is_file()
+    assert (plugins_dir / "example-baseline-plugin" / "plugin.yaml").is_file()
+    # Lock untouched — the operator's declared file is the source of
+    # truth here, the install path must not rewrite it.
+    assert (plugins_dir / ".lock").read_text() == before
+
+
+def test_sync_no_prune_hints_at_extras(
+    plugins_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without ``--prune``, sync should not pretend everything is in sync
+    when there are bundled plugins on disk that the lock omits."""
+    rc = admin.plugin_install(
+        bundle="example-bundle",
+        from_dir=str(FIXTURES / "example-bundle"),
+    )
+    assert rc == 0
+    capsys.readouterr()
+
+    # Drop one entry from the lock; the on-disk plugin is now drift.
+    locked = plugin_lock.read_lock(plugins_dir)
+    pruned_lock = [e for e in locked if e.name != "example-bar"]
+    plugin_lock.write_lock(plugins_dir, pruned_lock)
+
+    rc = admin.plugin_sync(dry_run=True, prune=False)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "no changes planned" in out
+    assert "example-bar" in out
+    assert "--prune" in out

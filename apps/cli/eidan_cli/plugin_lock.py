@@ -112,8 +112,14 @@ def write_lock(plugins_dir: Path, entries: list[LockEntry]) -> None:
     reviewing ``git diff plugins/.lock`` (or its analogue) sees only
     real semantic changes. The write goes via a sibling tempfile +
     rename so a crash mid-write cannot leave the lock truncated.
+
+    Any filesystem failure (permission denied on the plugins dir,
+    disk full mid-write, cross-device rename) is re-raised as
+    ``LockFileError`` so callers can treat lock-file IO uniformly —
+    install/remove/sync all catch this single type and surface it as
+    a non-fatal warning rather than letting an ``OSError`` crash the
+    CLI after the plugin files are already on disk.
     """
-    plugins_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema": LOCK_SCHEMA_VERSION,
         "plugins": [
@@ -129,8 +135,12 @@ def write_lock(plugins_dir: Path, entries: list[LockEntry]) -> None:
     text = yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
     target = lock_path(plugins_dir)
     tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(target)
+    try:
+        plugins_dir.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(target)
+    except OSError as exc:
+        raise LockFileError(f"could not write {target}: {exc}") from exc
 
 
 def upsert(entries: list[LockEntry], new: list[LockEntry]) -> list[LockEntry]:

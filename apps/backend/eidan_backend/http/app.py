@@ -75,12 +75,18 @@ def _seed_plugins_volume_if_empty(resolved: Path) -> None:
     - the image-baked dir does not exist or has no children (running
       outside an image — e.g. a test that only wired the env override
       to redirect reads).
+
+    The "non-empty" check looks for at least one child directory, not
+    just any child entry. A pre-created ``plugins/.lock`` (or any other
+    dotfile / file) does not count as a populated volume — without this
+    distinction an operator who hand-seeded a lock file before first
+    boot would end up with a backend running with zero core plugins.
     """
     if resolved == _DEFAULT_PLUGINS_DIR:
         return
     try:
         resolved.mkdir(parents=True, exist_ok=True)
-        if any(resolved.iterdir()):
+        if any(child.is_dir() for child in resolved.iterdir()):
             return
     except OSError as exc:
         logger.warning(

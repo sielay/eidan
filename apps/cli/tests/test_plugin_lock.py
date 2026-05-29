@@ -181,3 +181,32 @@ def test_plan_sync_prune_off_by_default() -> None:
     ]
     plan = plugin_lock.plan_sync([], installed, prune=False)
     assert plan.prune == []
+
+
+def test_write_lock_wraps_oserror_as_lockfile_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A filesystem failure mid-write surfaces as ``LockFileError``.
+
+    Callers (``plugin install`` / ``plugin remove``) catch
+    ``LockFileError`` and treat lock-write failures as non-fatal; an
+    unwrapped ``OSError`` would crash the CLI after the plugin files
+    are already on disk.
+    """
+
+    def _boom(self: Path, *_args: object, **_kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", _boom)
+    with pytest.raises(plugin_lock.LockFileError):
+        plugin_lock.write_lock(
+            tmp_path,
+            [
+                plugin_lock.LockEntry(
+                    name="alpha",
+                    version="0.1.0",
+                    bundle="ba",
+                    source="gh:org",
+                )
+            ],
+        )

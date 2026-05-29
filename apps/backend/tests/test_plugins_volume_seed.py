@@ -93,6 +93,28 @@ def test_no_volume_no_seed(
     ]
 
 
+def test_volume_with_only_lockfile_still_gets_seeded(
+    fake_image_default: Path, tmp_path: Path
+) -> None:
+    """A pre-staged ``.lock`` (or other dotfile) must not block seeding.
+
+    An operator can hand-seed ``plugins/.lock`` on a fresh volume to
+    declare which paid bundles ``plugin sync`` should pull on first
+    boot. The seeder's emptiness check looks for child *directories*
+    so this dotfile-only volume is still treated as empty and the
+    image-baked tier-core plugins land before the host boots.
+    """
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    (volume / ".lock").write_text("schema: 1\nplugins: []\n")
+    app_module._seed_plugins_volume_if_empty(volume)
+    # Pre-existing lock survived; the image-baked plugins were copied
+    # in alongside it.
+    assert (volume / ".lock").is_file()
+    assert (volume / "core-plugin-a" / "plugin.yaml").is_file()
+    assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
+
+
 def test_missing_image_default_is_noop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

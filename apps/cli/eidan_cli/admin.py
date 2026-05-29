@@ -664,12 +664,23 @@ def plugin_install(
     # another machine. A lock-write failure is non-fatal — the plugin
     # files are already on disk and the operator can hand-edit
     # plugins/.lock if needed.
-    try:
-        _record_install_in_lock(
-            PLUGINS_DIR, result.installed, source_spec=result.source_spec
-        )
-    except plugin_lock.LockFileError as exc:
-        print(f"warning: could not update plugins/.lock: {exc}", file=sys.stderr)
+    #
+    # ``EIDAN_PLUGIN_INSTALL_NO_LOCK=1`` skips the upsert entirely.
+    # ``plugin sync`` sets it while reconciling so the lock stays the
+    # declarative input rather than getting rewritten by the installs
+    # it drove (e.g. when a bundle reinstall transitively pulls in
+    # additional dep bundles whose rows weren't in the operator's
+    # lock to begin with).
+    if os.environ.get("EIDAN_PLUGIN_INSTALL_NO_LOCK") != "1":
+        try:
+            _record_install_in_lock(
+                PLUGINS_DIR, result.installed, source_spec=result.source_spec
+            )
+        except plugin_lock.LockFileError as exc:
+            print(
+                f"warning: could not update plugins/.lock: {exc}",
+                file=sys.stderr,
+            )
 
     # Auto-migrate so the plugin's tables exist before the host's
     # lifespan-time activation tries to use them (`docs/018 §3`,
@@ -1118,10 +1129,39 @@ def _format_install_action(
     return f"{verb} bundle {bundle} from {source_spec} ({plugins})"
 
 
-def _print_sync_plan(plan: plugin_lock.SyncPlan, *, dry_run: bool) -> None:
-    """Render the plan in the same order it will be applied."""
+def _print_sync_plan(
+    plan: plugin_lock.SyncPlan,
+    installed: list[plugin_lock.InstalledView],
+    *,
+    dry_run: bool,
+    prune: bool,
+) -> None:
+    """Render the plan in the same order it will be applied.
+
+    When the plan is empty, the wording distinguishes two cases:
+
+    - ``--prune`` was set: there is no actionable drift, period.
+    - ``--prune`` was omitted but the disk has bundle-installed
+      plugins that are not in the lock: sync is deliberately ignoring
+      that drift; tell the operator how to act on it.
+    """
     nothing = not (plan.install_bundles or plan.upgrades or plan.prune)
     if nothing:
+        if not prune:
+            locked = set(plan.in_sync)
+            extras = sorted(
+                iv.name
+                for iv in installed
+                if iv.bundle is not None and iv.name not in locked
+            )
+            if extras:
+                joined = ", ".join(extras)
+                print(
+                    "no changes planned; "
+                    f"{len(extras)} bundle-installed plugin(s) not in "
+                    f"plugins/.lock ({joined}). Pass --prune to remove them."
+                )
+                return
         print("plugins/.lock is in sync with plugins/.")
         return
     for source_spec, bundle, names in plan.install_bundles:
@@ -1206,14 +1246,27 @@ def plugin_sync(*, dry_run: bool = False, prune: bool = False) -> int:
 
     installed = _installed_views_for_sync(PLUGINS_DIR)
     plan = plugin_lock.plan_sync(lock_entries, installed, prune=prune)
-    _print_sync_plan(plan, dry_run=dry_run)
+    _print_sync_plan(plan, installed, dry_run=dry_run, prune=prune)
     if dry_run:
         return 0
 
-    for source_spec, bundle, _names in plan.install_bundles:
-        rc = _apply_sync_install(source_spec, bundle)
-        if rc != 0:
-            return rc
+    # Reconciling installs MUST NOT rewrite the lock — the lock is the
+    # declarative input here, not a fresh record of the install. A
+    # bundle reinstall can transitively pull in dep bundles whose rows
+    # were never in the operator's lock; without this gate those rows
+    # would silently appear after a sync run.
+    saved_no_lock = os.environ.get("EIDAN_PLUGIN_INSTALL_NO_LOCK")
+    os.environ["EIDAN_PLUGIN_INSTALL_NO_LOCK"] = "1"
+    try:
+        for source_spec, bundle, _names in plan.install_bundles:
+            rc = _apply_sync_install(source_spec, bundle)
+            if rc != 0:
+                return rc
+    finally:
+        if saved_no_lock is None:
+            os.environ.pop("EIDAN_PLUGIN_INSTALL_NO_LOCK", None)
+        else:
+            os.environ["EIDAN_PLUGIN_INSTALL_NO_LOCK"] = saved_no_lock
 
     if prune and plan.prune:
         try:
