@@ -46,8 +46,19 @@ primary_region = "lhr"          # change me to your nearest Fly region
   # from. Change to your domain.
   EIDAN_HTTP_CORS_ORIGINS = "https://app.example.com"
   # Where the backend reads plugins from at boot. Defaults to the
-  # in-image `/app/plugins` baked at build time. Set this to a
-  # writable mount (e.g. `/var/lib/eidan/plugins`) to swap bundles
-  # without rebuilding the image — currently roadmap, see
-  # ROADMAP.md (repo root).
+  # in-image `/app/plugins` baked at build time. Uncomment the next
+  # line AND the [[mounts]] block below to swap bundles at runtime
+  # without rebuilding the image (docs/DEPLOYMENT.md §4 — runtime
+  # plugin install). On first boot the backend seeds an empty volume
+  # with the image-baked tier:core plugins so the machine is
+  # immediately functional; subsequent `eidan admin plugin install`
+  # calls land in the volume and survive image upgrades.
   # EIDAN_PLUGINS_DIR     = "/var/lib/eidan/plugins"
+
+# Uncomment to mount a persistent plugin volume. Run
+# `fly volumes create eidan_plugins --size 1 -r <region>` first, then
+# `fly deploy`. See docs/DEPLOYMENT.md §4 for the runtime-install
+# workflow this enables.
+# [[mounts]]
+#   source      = "eidan_plugins"
+#   destination = "/var/lib/eidan/plugins"

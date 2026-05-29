@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -50,6 +51,65 @@ logger = logging.getLogger(__name__)
 # ``EIDAN_PLUGINS_DIR`` so the runtime reads from a writable mount
 # without needing the source tree on disk.
 _DEFAULT_PLUGINS_DIR = Path(__file__).resolve().parents[4] / "plugins"
+
+
+def _seed_plugins_volume_if_empty(resolved: Path) -> None:
+    """First-boot bootstrap for a writable plugins volume.
+
+    Operators running the published image plus a mounted volume (see
+    ``docs/DEPLOYMENT.md §4`` — runtime plugin install) point
+    ``EIDAN_PLUGINS_DIR`` at e.g. ``/var/lib/eidan/plugins``. The
+    volume is empty on first boot; without seeding, the host would
+    activate zero plugins and the operator would have to run
+    ``eidan admin plugin install`` for every core plugin before the
+    machine becomes useful. Instead we copy the image-baked
+    :data:`_DEFAULT_PLUGINS_DIR` into the volume on first boot so the
+    repo-shipped tier-core plugins are present immediately. Subsequent
+    boots find a populated volume and skip the seed.
+
+    Skipped when:
+
+    - ``resolved`` is the image-baked default (no volume in play);
+    - the volume already has any child directory (already seeded or
+      operator-populated via ``plugin install``);
+    - the image-baked dir does not exist or has no children (running
+      outside an image — e.g. a test that only wired the env override
+      to redirect reads).
+    """
+    if resolved == _DEFAULT_PLUGINS_DIR:
+        return
+    try:
+        resolved.mkdir(parents=True, exist_ok=True)
+        if any(resolved.iterdir()):
+            return
+    except OSError as exc:
+        logger.warning(
+            "[plugins] could not inspect %s for seeding: %s", resolved, exc
+        )
+        return
+    if not _DEFAULT_PLUGINS_DIR.is_dir():
+        return
+    children = [c for c in _DEFAULT_PLUGINS_DIR.iterdir() if c.is_dir()]
+    if not children:
+        return
+    seeded: list[str] = []
+    for child in children:
+        target = resolved / child.name
+        try:
+            shutil.copytree(child, target)
+        except OSError as exc:
+            logger.warning(
+                "[plugins] failed to seed %s into volume: %s", child.name, exc
+            )
+            continue
+        seeded.append(child.name)
+    if seeded:
+        logger.info(
+            "[plugins] seeded %d image-baked plugin(s) into %s: %s",
+            len(seeded),
+            resolved,
+            ", ".join(sorted(seeded)),
+        )
 
 
 def _resolve_plugins_dir(app_state_value: object | None) -> Path:
@@ -155,6 +215,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     backend: BackendSettings = app.state.backend_settings
     plugins_dir = _resolve_plugins_dir(getattr(app.state, "plugins_dir", None))
+    _seed_plugins_volume_if_empty(plugins_dir)
 
     pool = await create_pool(backend.database_url)
     app.state.pool = pool
