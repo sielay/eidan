@@ -50,6 +50,7 @@ def test_plugin_context_is_frozen_slots_dataclass() -> None:
         "register_tools",
         "notify",
         "spawn_turn",
+        "publish_event",
         "identity",
     }
     # slots=True: instance has no __dict__.
