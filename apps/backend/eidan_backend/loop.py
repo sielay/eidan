@@ -59,6 +59,7 @@ from .persistence import (
     ensure_default_agent_context,
     insert_assistant_message,
     insert_llm_call,
+    insert_plugin_llm_call,
     insert_tool_message,
     insert_user_message,
     load_conversation_messages,
@@ -66,6 +67,7 @@ from .persistence import (
     update_message_metadata,
     upsert_user,
 )
+from .pricing import compute_cost_usd
 from .providers.base import (
     AssistantBlock,
     AssistantChunk,
@@ -74,7 +76,7 @@ from .providers.base import (
     ToolUseBlock,
     UserMessage,
 )
-from .tools import ToolError, ToolRegistry
+from .tools import ToolContext, ToolError, ToolRegistry
 from .turn_header import EIDAN_BASE_IDENTITY, build_turn_header, compose_system_prompt
 
 _MAX_TOOL_ITERATIONS = 12  # `docs/005 §5.5` "loop bounds"
@@ -284,6 +286,85 @@ async def run_turn(
     # with ``current_identity`` above). Single ContextVar.set is sufficient
     # — overwritten by the next turn's set() in the same task.
     current_agent_id.set(agent_uuid)
+
+    # `docs/010 §3.1` row 5 — closure handed to plugin tool handlers
+    # via ``ToolContext.report_llm_call``. A plugin that invokes an LLM
+    # outside the host's Provider abstraction (vendor CLI, paid HTTP
+    # API, embedding upstream) calls this after the call completes;
+    # the host computes ``cost_usd`` from its price table (the SINGLE
+    # source of truth, ``docs/010 §2.1``) and writes the row before
+    # returning, so EP holds and the per-turn / per-conversation /
+    # per-day caps (`docs/010 §4`) include the spend uniformly with
+    # in-loop spend on the very next iteration's pre-call check.
+    async def _report_llm_call(
+        *,
+        provider: str,
+        model: str,
+        role: str = "plugin_tool",
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+        started_at: datetime,
+        finished_at: datetime | None = None,
+        request_id: str | None = None,
+        error: str | None = None,
+        error_type: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        # `eidan.llm_calls_tokens_chk` (the DB CHECK constraint) rejects
+        # negative counts, but a plugin author who tripped it would see
+        # an opaque asyncpg ``CheckViolationError`` wrapped as a generic
+        # tool failure. Validate at the boundary so the message names
+        # the offending axis and the plugin path stays loud.
+        for axis_name, axis_value in (
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+            ("cache_read_tokens", cache_read_tokens),
+            ("cache_creation_tokens", cache_creation_tokens),
+        ):
+            if axis_value < 0:
+                raise ToolError(
+                    f"report_llm_call: {axis_name}={axis_value} is negative; "
+                    "token counts must be >= 0"
+                )
+        cost = compute_cost_usd(
+            model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+        )
+        async with acquire(pool, ctx.identity) as inner_conn:
+            await insert_plugin_llm_call(
+                inner_conn,
+                user_id=user_uuid,
+                conversation_id=ctx.conversation_id,
+                message_id=user_message_id,
+                agent_id=agent_uuid,
+                role=role,
+                provider=provider,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_creation_tokens=cache_creation_tokens,
+                cost_usd=cost,
+                started_at=started_at,
+                finished_at=finished_at,
+                request_id=request_id,
+                error=error,
+                error_type=error_type,
+                metadata=metadata or {},
+            )
+
+    tool_ctx = ToolContext(
+        user_id=user_uuid,
+        conversation_id=ctx.conversation_id,
+        message_id=user_message_id,
+        agent_id=agent_uuid,
+        report_llm_call=_report_llm_call,
+    )
 
     history_tail = _project_history_tail(full_rows)
 
@@ -501,7 +582,7 @@ async def run_turn(
         tool_results: list[ToolResultBlock] = []
         for tu in tool_uses:
             try:
-                output = await registry.execute(tu.name, tu.input)
+                output = await registry.execute(tu.name, tu.input, tool_ctx)
                 tool_results.append(
                     ToolResultBlock(tool_use_id=tu.id, content=output)
                 )
@@ -685,7 +766,7 @@ async def run_turn(
             tool_results: list[ToolResultBlock] = []
             for tu in retry_tool_uses:
                 try:
-                    output = await registry.execute(tu.name, tu.input)
+                    output = await registry.execute(tu.name, tu.input, tool_ctx)
                     tool_results.append(
                         ToolResultBlock(tool_use_id=tu.id, content=output)
                     )

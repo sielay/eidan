@@ -102,6 +102,25 @@ each retry attempt writes its own `llm_calls` row, linked via
 retry. A flaky upstream that retries three times has billed three
 calls and the cap reflects that.
 
+**Plugin-emitted rows are first-class.** A plugin's tool handler
+that invokes an LLM (or any token-billed upstream) **outside**
+the host's in-process `Provider` abstraction — shelling out to a
+vendor CLI, hitting a paid HTTP API with the vendor's own SDK,
+calling an embedding endpoint directly — lands its spend on the
+same `eidan.llm_calls` table via `ctx.report_llm_call(...)` (see
+§3.1 row 5 and the writer surface pinned in
+`apps/backend/eidan_backend/tools.py:ToolContext`). The row
+carries the same (user_id, conversation_id, message_id,
+agent_id) anchors as the calling turn's in-loop rows, the same
+four token axes, and a `cost_usd` computed by the host's price
+table — the SINGLE source of truth, including `§3.4` env-var
+overrides. Caps (`§4`) and the analytics plugin (`§7`) aggregate
+plugin-emitted rows uniformly with in-loop rows. Per-tool
+ledgering (one `tool_calls` table, per-tool caps) is a separate
+follow-up (see `intro`'s out-of-scope list); today every paid
+upstream a plugin invokes lands in `llm_calls` and inherits the
+existing caps.
+
 ### 2.2 What the row does NOT carry
 
 The following are deliberately **not** columns on `llm_calls`:
@@ -152,7 +171,7 @@ provider call returning and the next step starting, the next
 process can see the row and resume, or surface a failure,
 without re-issuing the upstream call (and re-paying for it).
 
-### 3.1 The four moments a row is written
+### 3.1 The five moments a row is written
 
 | Trigger                              | Write site                                   | Notes                                                                  |
 |--------------------------------------|----------------------------------------------|------------------------------------------------------------------------|
@@ -160,12 +179,21 @@ without re-issuing the upstream call (and re-paying for it).
 | Stream aborted mid-message           | Same site, in the `except`/`finally` branch  | Whatever tokens flowed get accounted (`007 §4.4`); `error_type` set.   |
 | Typed `ProviderError` (`007 §8.1`)   | Same site, in the `except` branch            | `output_tokens=0` unless a stream had begun; `latency_ms` is time-to-failure. |
 | Per-turn deadline trips mid-call     | The cancellation hook in `005 §6.2`           | Row written before the runner returns the friendly timeout response.   |
+| Plugin tool calls a billed upstream **outside** the `Provider` abstraction (vendor CLI, paid HTTP API, embedding SDK) | Plugin handler invokes `await ctx.report_llm_call(...)` (`apps/backend/eidan_backend/tools.py:ToolContext`) | Same row shape. Anchors (`user_id`, `conversation_id`, `message_id`, `agent_id`) inherited from the calling turn. Host computes `cost_usd` from its price table (`§3.4`) — the plugin never multiplies tokens by a price itself. EP holds (the INSERT commits before the writer returns). Failed plugin calls still write a row with `error_type` set (§2.1 "Failed calls are still rows" applies). |
 
 The catch-all rule: a row is written before any user-visible
 response that depends on the call, **and** before any subsequent
 LLM call uses the result of this one. EP does not allow a
 "hot in-memory cache" of provider results that has not yet hit
-the DB to drive the next step.
+the DB to drive the next step. Row 5 is the plugin-emitted
+write site (`002 §1.1`'s extension point): the host snapshots
+the calling turn's anchors into a closure at the top of
+`run_turn`, hands it to the tool handler via
+`ToolContext.report_llm_call`, and the plugin invokes it once
+per upstream call it actually issues. A plugin that loops
+internally over several embeddings writes several rows — never
+aggregates, never updates an existing row's `cost_usd`
+(`§2.1` "frozen on the row").
 
 ### 3.2 Why EP and budgeting are inseparable
 
@@ -253,6 +281,17 @@ Caps live in three places, in increasing scope:
 The runner reads all three and takes the **minimum** of the
 applicable caps at check time. A user-level cap of $5/day can
 never be made looser by a per-agent override of $50/day.
+
+Every cap aggregates `SUM(cost_usd) FROM eidan.llm_calls` filtered
+on the appropriate anchor (`message_id`, `conversation_id`,
+`user_id`, `agent_id`). The aggregate is over the table — not
+over rows tagged with a particular `role` — so the four
+in-loop roles, the new `plugin_tool` role (§2.1's
+plugin-emitted writes), `subagent` rows from `008`, and every
+classifier/critic row all participate in the same cap. The
+budgeting code path treats "the row exists in `llm_calls` with
+a non-zero `cost_usd`" as the cost-bearing event; the writer
+that emitted it is unrelated to enforcement.
 
 ### 4.1 Per-turn cap
 
@@ -496,6 +535,18 @@ Pre-call wins on three axes:
   classifier calls, summariser calls, critic calls, agent
   router calls, and subagent spawns. One code path covers every
   role in `005 §1` and `008 §3`.
+
+Plugin-emitted rows (`§2.1`, `§3.1` row 5) participate in the
+check by virtue of landing in `eidan.llm_calls` before the next
+in-loop pre-call check runs. The check itself does not need
+a plugin-specific code path: it aggregates over the whole
+ledger and the plugin's row contributes its `cost_usd` to the
+same spend window as the next in-loop call's pre-flight check
+will see. A plugin tool that overshoots the per-turn cap in a
+single fan-out lands the spend on the ledger; the very next
+iteration of the primary loop sees the higher running total and
+the soft/hard cap (§4.1, §5.4) trips as if the spend had been
+billed to a primary call.
 
 ### 5.2 The check
 
