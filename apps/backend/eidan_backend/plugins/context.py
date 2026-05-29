@@ -126,7 +126,7 @@ class EventPublisher(Protocol):
     ``behaviours[]`` (`docs/006 §4`). The host generates the
     idempotency key, fans out to every behaviour whose trigger matches
     ``event:<name>``, and returns the per-subscriber
-    :class:`BehaviourResult`\\s in registration order. A subscriber
+    :class:`BehaviourResult`s in registration order. A subscriber
     whose key has already fired (host-side dedupe) does not appear in
     the list.
 
