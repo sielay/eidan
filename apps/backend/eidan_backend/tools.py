@@ -101,33 +101,43 @@ _NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 
 
 def _handler_accepts_context(handler: ToolHandler) -> bool:
-    """True when ``handler`` declares a second positional parameter.
+    """True when ``handler`` declares a second REQUIRED positional
+    parameter.
 
     The convention: a handler that wants ``ToolContext`` signs as
     ``async def name(args: dict, ctx: ToolContext) -> str``; one that
     doesn't keeps the historical ``async def name(args: dict) -> str``.
-    Detection is by positional-arity inspection — annotations are
-    optional and not required to match.
+    Detection is by required-positional-arity inspection — annotations
+    are optional and not required to match.
 
-    ``*args`` / ``**kwargs`` shapes are uncommon for tool handlers; if
-    a handler uses ``*args``, we conservatively treat it as
-    context-accepting so the loop hands it the richer surface.
+    Only parameters WITHOUT defaults count. A handler that uses extra
+    positional parameters with defaults for closure capture — e.g.
+    ``mcp.register_outbound_tools`` defines
+    ``handler(args, _name=..., _call=...)`` — has just one required
+    positional and is correctly treated as a single-arg handler. The
+    registry must not bind ``ToolContext`` to one of those closure
+    slots; doing so would shift the captured defaults at call time.
+
+    ``*args`` shapes are uncommon for tool handlers; a handler that
+    uses ``*args`` is conservatively treated as context-accepting so
+    the loop hands it the richer surface.
     """
     try:
         sig = inspect.signature(handler)
     except (TypeError, ValueError):
         # Built-in / C-defined callables can't be introspected.
         return False
-    positional = 0
+    required_positional = 0
     for param in sig.parameters.values():
         if param.kind in (
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         ):
-            positional += 1
+            if param.default is inspect.Parameter.empty:
+                required_positional += 1
         elif param.kind is inspect.Parameter.VAR_POSITIONAL:
             return True
-    return positional >= 2
+    return required_positional >= 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,16 +218,27 @@ class ToolRegistry:
     ) -> str:
         """Run the named tool handler.
 
-        ``ctx`` is forwarded when the handler declared two positional
-        parameters at registration. Single-arg handlers receive
-        ``args`` only — keeping the historical contract intact for
-        every tool that doesn't need the writer surface.
+        ``ctx`` is forwarded when the handler declared two required
+        positional parameters at registration. Single-arg handlers
+        receive ``args`` only — keeping the historical contract intact
+        for every tool that doesn't need the writer surface.
+
+        Fails fast with :class:`ToolError` when the tool was
+        registered as context-accepting but the caller did not supply
+        a context. Without this guard the handler would be called
+        with the wrong arity and the loop would surface an opaque
+        ``TypeError`` from the wrapped exception path.
         """
         tool = self._tools.get(name)
         if tool is None:
             raise ToolError(f"unknown tool: {name}")
+        if tool.accepts_context and ctx is None:
+            raise ToolError(
+                f"{name} declared a ToolContext parameter but caller "
+                "did not provide a context"
+            )
         try:
-            if tool.accepts_context and ctx is not None:
+            if tool.accepts_context:
                 return await tool.handler(args, ctx)
             return await tool.handler(args)
         except ToolError:

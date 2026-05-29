@@ -62,6 +62,41 @@ def test_var_args_handler_accepts_context() -> None:
     assert _handler_accepts_context(star_args) is True
 
 
+def test_closure_capture_handler_does_not_accept_context() -> None:
+    """A handler that uses extra positional parameters with DEFAULTS
+    for closure capture — the shape ``mcp.register_outbound_tools``
+    builds, ``handler(args, _name=..., _call=...)`` — must NOT be
+    treated as context-accepting. Otherwise the registry would bind
+    ``ToolContext`` to ``_name`` and shift the captured upstream
+    caller out of place, breaking the upstream call at runtime."""
+
+    async def upstream_handler(
+        args: dict,
+        _name: str = "search",
+        _call: object = object(),
+    ) -> str:
+        return ""
+
+    assert _handler_accepts_context(upstream_handler) is False
+
+
+def test_two_required_plus_optional_capture_accepts_context() -> None:
+    """A two-required-positional handler with extra closure-captured
+    defaults — ``handler(args, ctx, _captured=42)`` — IS still
+    context-accepting. Defaults beyond the required pair don't
+    disqualify it; the registry will pass ``ctx`` as the second
+    positional and leave the closure slots untouched."""
+
+    async def hybrid(
+        args: dict,
+        ctx: ToolContext,
+        _captured: int = 42,
+    ) -> str:
+        return ""
+
+    assert _handler_accepts_context(hybrid) is True
+
+
 def test_tool_post_init_records_accepts_context_flag() -> None:
     async def one_arg(args: dict) -> str:
         return ""
@@ -112,6 +147,59 @@ async def test_registry_passes_ctx_to_two_arg_handler() -> None:
     await registry.execute("t", {}, fake_ctx)
     assert len(seen_ctx) == 1
     assert seen_ctx[0] is fake_ctx
+
+
+@pytest.mark.asyncio
+async def test_registry_preserves_closure_capture_defaults() -> None:
+    """Regression: a handler shaped like the one
+    ``mcp.register_outbound_tools`` builds —
+    ``handler(args, _name=..., _call=...)`` — must receive its
+    captured defaults intact when invoked through the registry. A
+    prior detection rule treated any 2+ positional handler as
+    context-accepting and would have bound ``ctx`` to ``_name``."""
+    seen: list[tuple[str, object]] = []
+
+    async def upstream_call(name: str, args: dict) -> str:
+        seen.append((name, args))
+        return "from upstream"
+
+    async def handler(
+        args: dict,
+        _name: str = "search",
+        _call: object = upstream_call,
+    ) -> str:
+        # Closure defaults must remain the captured values, NOT a
+        # ToolContext shifted in from the registry.
+        assert _name == "search"
+        return await _call(_name, args)  # type: ignore[misc]
+
+    registry = ToolRegistry()
+    registry.register(
+        Tool(name="search", description="", input_schema={}, handler=handler)
+    )
+    fake_ctx = _build_dummy_tool_context()
+    out = await registry.execute("search", {"q": "x"}, fake_ctx)
+    assert out == "from upstream"
+    assert seen == [("search", {"q": "x"})]
+
+
+@pytest.mark.asyncio
+async def test_registry_raises_when_context_required_but_missing() -> None:
+    """Fail fast: a tool registered as context-accepting that is
+    invoked without a context should raise a clear ``ToolError``,
+    not the opaque ``TypeError`` the wrapped handler would otherwise
+    produce."""
+    from eidan_backend.tools import ToolError
+
+    async def needs_ctx(args: dict, ctx: ToolContext) -> str:
+        return "should not run"
+
+    registry = ToolRegistry()
+    registry.register(
+        Tool(name="needs_ctx", description="", input_schema={}, handler=needs_ctx)
+    )
+    with pytest.raises(ToolError, match="ToolContext"):
+        await registry.execute("needs_ctx", {}, None)
 
 
 @pytest.mark.asyncio
