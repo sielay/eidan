@@ -24,6 +24,7 @@ from eidan_backend.providers.base import AssistantChunk, ToolUseBlock
 from eidan_backend.tools import (
     Tool,
     ToolContext,
+    ToolError,
     ToolRegistry,
     _handler_accepts_context,
 )
@@ -416,6 +417,95 @@ async def test_failed_plugin_call_still_writes_a_row() -> None:
     # error[16] error_type[17] metadata[18]
     assert plugin_args[16] == "connection reset by peer"
     assert plugin_args[17] == "VendorStreamError"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "axis",
+    [
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_creation_tokens",
+    ],
+)
+async def test_report_llm_call_rejects_negative_token_axis(axis: str) -> None:
+    """A plugin that passes a negative count on any of the four token
+    axes hits a ``ToolError`` BEFORE the INSERT lands. The DB CHECK
+    constraint ``llm_calls_tokens_chk`` would catch this too, but
+    only after the round-trip, and the resulting
+    ``asyncpg.CheckViolationError`` is opaque about which axis tripped.
+    Failing in the writer names the axis directly so a plugin author
+    can find the offending arg without reading SQL.
+    """
+
+    raised: dict[str, BaseException] = {}
+
+    async def bad_vendor(args: dict, ctx: ToolContext) -> str:
+        kwargs: dict[str, object] = {
+            "provider": "vendor-cli",
+            "model": "claude-sonnet-4-6",
+            "started_at": datetime.now(UTC),
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+        }
+        kwargs[axis] = -1
+        try:
+            await ctx.report_llm_call(**kwargs)
+        except BaseException as exc:  # noqa: BLE001 — captured for assertions
+            raised["exc"] = exc
+            raise
+        return "ok"
+
+    registry = ToolRegistry()
+    registry.register(
+        Tool(
+            name="vendor",
+            description="",
+            input_schema={"type": "object"},
+            handler=bad_vendor,
+        )
+    )
+
+    provider = FakeProvider(
+        [
+            ScriptedTurn(text='["coding"]'),
+            ScriptedTurn(text="claude-sonnet-4-6"),
+            ScriptedTurn(text='{"actions": []}'),
+            ScriptedTurn(
+                text="trying",
+                tool_uses=[ToolUseBlock(id="toolu_b", name="vendor", input={})],
+            ),
+            ScriptedTurn(text="done"),
+        ]
+    )
+
+    store = FakeStore()
+    pool = FakePool(store)
+    ctx = TurnContext(identity=build_identity(), conversation_id=conversation_uuid())
+
+    async for _ in run_turn(
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        ctx=ctx,
+        user_text="please",
+        tool_registry=registry,
+        **TZ_TEST_KWARGS,
+    ):
+        pass
+
+    # The writer raised a ToolError that named the offending axis.
+    exc = raised.get("exc")
+    assert isinstance(exc, ToolError)
+    assert axis in str(exc)
+    # No plugin row landed.
+    plugin_rows = [
+        args for _sql, args in store.llm_calls() if args[3] == "plugin_tool"
+    ]
+    assert plugin_rows == []
 
 
 # ── helpers ─────────────────────────────────────────────────────────

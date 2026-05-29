@@ -89,7 +89,18 @@ class ToolContext:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-ToolHandler = Callable[..., Awaitable[str]]
+# The two handler shapes the registry knows how to dispatch
+# (`_handler_accepts_context`): a legacy single-arg handler that
+# takes only ``args``, or the new two-arg form that also receives a
+# :class:`ToolContext`. Keeping the alias narrow rather than
+# ``Callable[..., Awaitable[str]]`` means a handler registered with
+# an unsupported arity (e.g. three required positionals) is rejected
+# by the type checker before the registry's runtime arity check
+# fires.
+ToolHandler = (
+    Callable[[dict], Awaitable[str]]
+    | Callable[[dict, ToolContext], Awaitable[str]]
+)
 
 # Anthropic's Messages API enforces this pattern on tool names; OpenAI
 # is looser but accepts the same shape, so we use the strictest common

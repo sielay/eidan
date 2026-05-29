@@ -312,6 +312,22 @@ async def run_turn(
         error_type: str | None = None,
         metadata: dict | None = None,
     ) -> None:
+        # `eidan.llm_calls_tokens_chk` (the DB CHECK constraint) rejects
+        # negative counts, but a plugin author who tripped it would see
+        # an opaque asyncpg ``CheckViolationError`` wrapped as a generic
+        # tool failure. Validate at the boundary so the message names
+        # the offending axis and the plugin path stays loud.
+        for axis_name, axis_value in (
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+            ("cache_read_tokens", cache_read_tokens),
+            ("cache_creation_tokens", cache_creation_tokens),
+        ):
+            if axis_value < 0:
+                raise ToolError(
+                    f"report_llm_call: {axis_name}={axis_value} is negative; "
+                    "token counts must be >= 0"
+                )
         cost = compute_cost_usd(
             model,
             input_tokens=input_tokens,
