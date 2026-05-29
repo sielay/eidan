@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Host-level price table — `docs/010 §3.4`.
 
 `docs/010 §2.1` makes the host the SINGLE source of truth for cost.

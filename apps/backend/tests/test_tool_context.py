@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """ToolContext dispatch + plugin-emitted llm_calls — issue #16.
 
 Two surfaces:

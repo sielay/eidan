@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Host-level price table — `docs/010 §3.4` / pricing.py.
 
 The host-level :func:`compute_cost_usd` is the single source of
