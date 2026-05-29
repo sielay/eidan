@@ -33,6 +33,19 @@ _DEFAULT_AGENT_DESCRIPTION = (
 )
 
 
+def _ensure_aware_utc(value: datetime) -> datetime:
+    """Treat a naive datetime as UTC. Aware values pass through unchanged.
+
+    Plugin code may build timestamps with ``datetime.utcnow()`` (naive)
+    or ``datetime.now(UTC)`` (aware). Mixing the two raises
+    ``TypeError`` on subtraction, so callers that compute durations
+    coerce inputs through this helper first.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
 def decode_jsonb(value: Any) -> dict[str, Any]:
     """Normalise a jsonb column read.
 
@@ -486,8 +499,20 @@ async def insert_plugin_llm_call(
     (`docs/010 §3`). A plugin that re-invokes the upstream writes a
     new row — never updates an old one (§2.1 "Retries are separate
     rows").
+
+    Datetime normalisation: a plugin may hand us naive datetimes
+    (``datetime.utcnow()``) or aware ones (``datetime.now(UTC)``).
+    Mixing the two would raise ``TypeError`` on subtraction, so we
+    coerce both to UTC-aware here before computing latency. The
+    upstream column is ``timestamptz``, so the asyncpg adapter
+    expects aware values anyway. ``finished`` is clamped to
+    ``started_at`` so a clock skew never produces a negative
+    ``latency_ms``.
     """
-    finished = finished_at or datetime.now(UTC)
+    started_at = _ensure_aware_utc(started_at)
+    finished = _ensure_aware_utc(finished_at) if finished_at else datetime.now(UTC)
+    if finished < started_at:
+        finished = started_at
     latency_ms = int((finished - started_at).total_seconds() * 1000)
     metadata_json = json.dumps(metadata or {})
     await conn.execute(

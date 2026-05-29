@@ -115,13 +115,18 @@ async def test_registry_passes_ctx_to_two_arg_handler() -> None:
 
 
 @pytest.mark.asyncio
-async def test_two_arg_handler_without_ctx_falls_back_to_single_call() -> None:
-    """Defensive: a registry caller that omits ``ctx`` does not crash
-    a two-arg handler; the registry simply invokes it single-arg.
-    The handler decides whether to error or degrade."""
+async def test_single_arg_handler_runs_when_ctx_is_none() -> None:
+    """Defensive: a registry caller that omits ``ctx`` (passes
+    ``None``) does not crash a legacy single-arg handler. The
+    arity-aware dispatch in ``ToolRegistry.execute`` should detect
+    the one-arg signature and invoke it without trying to forward
+    the missing context. Two-arg handlers running without a context
+    are out of scope here — the loop always builds one — and would
+    fail at call time the same way any other missing required arg
+    would."""
     invocations: list[int] = []
 
-    async def handler(args: dict) -> str:  # noqa: ARG001 — fake one-arg adapter
+    async def handler(args: dict) -> str:  # noqa: ARG001 — legacy single-arg handler
         invocations.append(1)
         return ""
 
