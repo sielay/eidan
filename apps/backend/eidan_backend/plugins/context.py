@@ -137,9 +137,9 @@ class EventPublisher(Protocol):
     otherwise avoid the field name so an accidental collision doesn't
     silently drop data.
 
-    ``None`` when the bootstrap was wired without a behaviour
-    dispatcher (the unit-test path); plugins that want to fall back
-    gracefully check ``if ctx.publish_event is None``.
+    ``None`` when the host wires a context without a behaviour
+    dispatcher (e.g. during deactivate or in unit tests); plugins that want to
+    fall back gracefully check ``if ctx.publish_event is None``.
     """
 
     async def __call__(
