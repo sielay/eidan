@@ -24,16 +24,22 @@ from eidan_backend.http import app as app_module
 def fake_image_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Path:
-    """Stand in for ``_DEFAULT_PLUGINS_DIR`` with a controlled fixture."""
+    """Stand in for ``_DEFAULT_PLUGINS_DIR`` with a controlled fixture.
+
+    Manifests carry ``tier: core`` because the seeder filters out
+    paid-tier plugins (see :func:`app_module._seed_plugins_volume_if_empty`
+    — only tier:core is eligible for unattended seeding). The paid-tier
+    case has its own dedicated test below.
+    """
     src = tmp_path / "image-plugins"
     src.mkdir()
     (src / "core-plugin-a").mkdir()
     (src / "core-plugin-a" / "plugin.yaml").write_text(
-        "schema: 1\nname: core-plugin-a\nversion: 0.1.0\n"
+        "schema: 1\nname: core-plugin-a\nversion: 0.1.0\ntier: core\n"
     )
     (src / "core-plugin-b").mkdir()
     (src / "core-plugin-b" / "plugin.yaml").write_text(
-        "schema: 1\nname: core-plugin-b\nversion: 0.1.0\n"
+        "schema: 1\nname: core-plugin-b\nversion: 0.1.0\ntier: core\n"
     )
     monkeypatch.setattr(app_module, "_DEFAULT_PLUGINS_DIR", src)
     return src
@@ -182,3 +188,103 @@ def test_missing_image_default_is_noop(
     # Volume directory is created (mkdir) but stays empty.
     assert volume.is_dir()
     assert list(volume.iterdir()) == []
+
+
+def test_paid_tier_plugins_are_not_seeded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only ``tier: core`` plugins are eligible for unattended seeding.
+
+    A paid-tier plugin baked into the image (via build-arg) would
+    otherwise leak onto an operator volume without the explicit
+    ``eidan admin plugin install`` handshake and without a row in
+    ``plugins/.lock``. The seeder MUST skip it.
+    """
+    src = tmp_path / "image-plugins"
+    src.mkdir()
+    (src / "core-one").mkdir()
+    (src / "core-one" / "plugin.yaml").write_text(
+        "schema: 1\nname: core-one\nversion: 0.1.0\ntier: core\n"
+    )
+    (src / "paid-one").mkdir()
+    (src / "paid-one" / "plugin.yaml").write_text(
+        "schema: 1\nname: paid-one\nversion: 0.1.0\ntier: pro\n"
+    )
+    (src / "no-tier").mkdir()
+    (src / "no-tier" / "plugin.yaml").write_text(
+        "schema: 1\nname: no-tier\nversion: 0.1.0\n"
+    )
+    monkeypatch.setattr(app_module, "_DEFAULT_PLUGINS_DIR", src)
+
+    volume = tmp_path / "volume"
+    app_module._seed_plugins_volume_if_empty(volume)
+
+    assert (volume / "core-one" / "plugin.yaml").is_file()
+    assert not (volume / "paid-one").exists()
+    # No `tier:` ⇒ skip (safer than guessing — a manifest the loader
+    # would reject shouldn't auto-seed either).
+    assert not (volume / "no-tier").exists()
+
+
+def test_orphan_seed_tempdir_from_prior_crash_is_swept(
+    fake_image_default: Path, tmp_path: Path
+) -> None:
+    """A leftover ``.seed-<name>.tmp`` from a prior partial copy is removed.
+
+    Without the sweep, the per-plugin tempdir + rename loop would
+    refuse to retry the failed seed (``tmp.exists()`` ⇒ skip) on the
+    next boot and the volume would stay permanently missing the
+    plugin.
+    """
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    orphan = volume / ".seed-core-plugin-a.tmp"
+    orphan.mkdir()
+    (orphan / "leftover.txt").write_text("partial copy from prior crash")
+
+    app_module._seed_plugins_volume_if_empty(volume)
+
+    # Sweep + retry: the orphan tempdir is gone and the real plugin
+    # landed.
+    assert not orphan.exists()
+    assert (volume / "core-plugin-a" / "plugin.yaml").is_file()
+    assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
+
+
+def test_failed_copy_leaves_no_partial_target(
+    fake_image_default: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``copytree`` failure must not leave a half-populated target.
+
+    Without the temp+rename, a partial ``target/`` would be present
+    on the next boot and the seeder's ``target.exists()`` guard would
+    skip it forever. We force ``copytree`` to fail for one plugin and
+    verify (a) no ``target/`` was created and (b) the OTHER plugin
+    still seeded — failure for one plugin must not poison the loop.
+    """
+    real_copytree = app_module.shutil.copytree
+    calls: list[str] = []
+
+    def flaky_copytree(src: Path, dst: Path, *args: object, **kwargs: object) -> str:
+        calls.append(Path(src).name)
+        if Path(src).name == "core-plugin-a":
+            # Mid-copy failure: simulate the partial-tempdir that
+            # copytree leaves behind on its way out.
+            Path(dst).mkdir(parents=True, exist_ok=True)
+            (Path(dst) / "half.txt").write_text("partial")
+            raise OSError("simulated disk-full")
+        return real_copytree(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(app_module.shutil, "copytree", flaky_copytree)
+
+    volume = tmp_path / "volume"
+    app_module._seed_plugins_volume_if_empty(volume)
+
+    # No partial target — the temp-dir cleanup ran on failure.
+    assert not (volume / "core-plugin-a").exists()
+    assert not (volume / ".seed-core-plugin-a.tmp").exists()
+    # The other plugin's seed succeeded despite the sibling failure.
+    assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
+    assert sorted(calls) == ["core-plugin-a", "core-plugin-b"]

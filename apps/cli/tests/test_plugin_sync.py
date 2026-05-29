@@ -262,6 +262,60 @@ def test_sync_install_does_not_mutate_operator_lock(
     assert (plugins_dir / ".lock").read_text() == before
 
 
+def test_sync_prune_does_not_take_down_bundle_when_orphan_name_collides(
+    plugins_dir: Path, stub_remove: None
+) -> None:
+    """``--prune`` MUST resolve orphans by plugin name only.
+
+    The bundle/plugin-name overload in ``_resolve_remove_targets``
+    matches ``bundle.name`` first when called without the safety
+    flag. If a sync-orphan plugin name happens to equal an installed
+    ``bundle.name`` (collision can happen with paid bundles that ship
+    a same-named convenience plugin), the old prune path would take
+    the whole bundle down — including plugins the lock explicitly
+    declares should stay.
+
+    Setup: install ``example-bundle`` (two locked plugins), then add
+    a third bundle-installed plugin **named** ``example-bundle`` from
+    a separate bundle stanza; that orphan plugin is the prune target.
+    Expected: only the orphan disappears; both ``example-foo`` and
+    ``example-bar`` stay because they are still in the lock.
+    """
+    rc = admin.plugin_install(
+        bundle="example-bundle",
+        from_dir=str(FIXTURES / "example-bundle"),
+    )
+    assert rc == 0
+
+    # Add a colliding orphan: plugin whose name == another installed
+    # bundle's name. It has its own bundle stanza so it is prune-
+    # eligible, and it is NOT in the lock so it is an orphan.
+    colliding = plugins_dir / "example-bundle"
+    colliding.mkdir()
+    (colliding / "plugin.yaml").write_text(
+        "schema: 1\n"
+        "name: example-bundle\n"
+        "version: 0.1.0\n"
+        "tier: core\n"
+        "bundle:\n"
+        "  name: paid-collision\n"
+        "  kind: thematic\n"
+    )
+
+    rc = admin.plugin_sync(dry_run=False, prune=True)
+    assert rc == 0
+
+    # Only the colliding orphan was removed.
+    assert not colliding.exists()
+    # The locked bundle survived — neither sibling went down with it.
+    assert (plugins_dir / "example-foo" / "plugin.yaml").is_file()
+    assert (plugins_dir / "example-bar" / "plugin.yaml").is_file()
+    # Lock still mentions the surviving bundle.
+    locked = {e.name for e in plugin_lock.read_lock(plugins_dir)}
+    assert "example-foo" in locked
+    assert "example-bar" in locked
+
+
 def test_sync_no_prune_hints_at_extras(
     plugins_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

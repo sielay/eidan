@@ -893,19 +893,32 @@ def plugin_list() -> int:
 def _resolve_remove_targets(
     target: str,
     entries: list[_PluginEntry],
+    *,
+    by_plugin_name_only: bool = False,
 ) -> list[_PluginEntry]:
     """Return the plugin entries to remove for ``target``.
 
-    ``target`` matches first by **bundle name** (every plugin whose
-    manifest declares ``bundle.name == target``) and falls back to a
-    single-plugin match on ``name``. This is the (bundle | name)
-    overload the issue specifies — the CLI does not require the
-    operator to disambiguate; if both interpretations would match the
-    bundle wins because it is the more deliberate operation.
+    Default (``by_plugin_name_only=False``): ``target`` matches first
+    by **bundle name** (every plugin whose manifest declares
+    ``bundle.name == target``) and falls back to a single-plugin
+    match on ``name``. This is the (bundle | name) overload the CLI's
+    ``plugin remove`` exposes — the operator does not have to
+    disambiguate; if both interpretations would match, the bundle
+    wins because it is the more deliberate operation.
+
+    ``by_plugin_name_only=True``: skip the bundle-name match entirely
+    and resolve strictly by plugin ``name``. ``plugin sync --prune``
+    uses this so a plan that intends to delete one drifted plugin
+    cannot accidentally take an entire bundle down when a plugin
+    name happens to equal an installed ``bundle.name``. Without this
+    guard, pruning one orphan could run ``on_uninstall`` for every
+    sibling plugin in the colliding bundle — including ones the lock
+    explicitly declares should stay.
     """
-    by_bundle = [e for e in entries if e.bundle_name == target]
-    if by_bundle:
-        return by_bundle
+    if not by_plugin_name_only:
+        by_bundle = [e for e in entries if e.bundle_name == target]
+        if by_bundle:
+            return by_bundle
     by_name = [e for e in entries if e.name == target]
     return by_name
 
@@ -1033,12 +1046,23 @@ def _do_remove(
     *,
     plugins_dir: Path,
     database_url: str,
+    by_plugin_name_only: bool = False,
 ) -> list[str]:
-    """Resolve, tear down, delete; recurse on baseline auto-removal."""
+    """Resolve, tear down, delete; recurse on baseline auto-removal.
+
+    ``by_plugin_name_only`` forwards to :func:`_resolve_remove_targets`
+    — set by ``plugin sync --prune`` so a plugin-name target cannot
+    accidentally resolve to an entire bundle when the names collide.
+    The baseline auto-removal recursion below stays in bundle-name
+    mode because that step is keyed on ``bundle.name`` by
+    construction (`_baseline_bundles_to_auto_remove`).
+    """
     import asyncio
 
     entries = _scan_plugins(plugins_dir)
-    targets = _resolve_remove_targets(target, entries)
+    targets = _resolve_remove_targets(
+        target, entries, by_plugin_name_only=by_plugin_name_only
+    )
     if not targets:
         raise PluginRemoveError(
             f"no plugin or bundle named {target!r} is installed."
@@ -1275,10 +1299,17 @@ def plugin_sync(*, dry_run: bool = False, prune: bool = False) -> int:
             return int(exc.code) if isinstance(exc.code, int) else 2
         for name in plan.prune:
             try:
+                # ``by_plugin_name_only=True`` is the safety guard for
+                # the bundle/plugin name overload in `plugin remove`:
+                # the planner emits plugin names, but `_do_remove`
+                # would otherwise resolve a bundle-name match first
+                # and take the whole bundle down — including plugins
+                # the lock explicitly declares should stay.
                 removed = _do_remove(
                     name,
                     plugins_dir=PLUGINS_DIR,
                     database_url=database_url,
+                    by_plugin_name_only=True,
                 )
             except PluginRemoveError as exc:
                 print(str(exc), file=sys.stderr)
