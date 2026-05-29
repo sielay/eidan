@@ -962,62 +962,78 @@ sudo -u eidan psql "$DATABASE_URL" -c "
 "
 ```
 
-### 9.3 Forwarding to BetterStack / Loki / Datadog
+### 9.3 External log forwarding (BetterStack / Datadog / Axiom / Loki)
 
-Eidan does **not** ship a forwarder. Every event also mirrors to
-stdout as a structured `logging.info` line with `extra=` fields:
+Core ships an env-configured HTTP/JSON forwarder
+([`apps/backend/eidan_backend/log_forwarding.py`](../apps/backend/eidan_backend/log_forwarding.py))
+that attaches at boot. Operator surface is pure env-config in
+`/etc/eidan/eidan.env`; no Python file to drop, no `PYTHONPATH`,
+nothing to write under `/opt/eidan/`. Spec lives in
+[docs/024 §6](./024_NODE_TELEMETRY.md#6-external-log-forwarding).
 
-```
-event=plugin.activate node_id=pi-kasha node_type=pi conversation_id=None
-  payload={'plugin': 'sentry', 'version': '0.1.0'}
-```
-
-So `journalctl -u eidan-backend` and `fly logs -a eidan-api`
-already carry the trail. To forward externally, attach a Python
-logging handler in the deploy shell **before** `eidan admin
-server` starts — the canonical recipes are in
-[docs/024 §6](./024_NODE_TELEMETRY.md#6-external-log-forwarding),
-including BetterStack (Logtail), Loki-via-Promtail, and Datadog.
-Quick BetterStack shape:
-
-```bash
-sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan add logtail-python
-sudo mkdir -p /opt/eidan/forwarders && sudo chown eidan:eidan /opt/eidan/forwarders
-```
-
-Drop the handler into `/opt/eidan/forwarders/sitecustomize.py`:
-
-```python
-import logging, os
-
-token = os.environ.get("EIDAN_LOGTAIL_TOKEN")
-if token:
-    from logtail import LogtailHandler
-    logging.getLogger().addHandler(LogtailHandler(source_token=token))
-```
-
-Then in `/etc/eidan/eidan.env`:
+**BetterStack (Logtail):**
 
 ```ini
-EIDAN_LOGTAIL_TOKEN=<your-source-token>
-PYTHONPATH=/opt/eidan/forwarders
+EIDAN_LOG_FORWARD_URL=https://in.logs.betterstack.com
+EIDAN_LOG_FORWARD_TOKEN=<your-source-token>
 ```
 
-Python auto-imports any `sitecustomize` module on `sys.path` at
-interpreter startup — for **every** interpreter, interactive or
-not. (`PYTHONSTARTUP` only fires for interactive sessions, so
-it's useless for a deployed server. Don't use it.)
+**Datadog:**
 
-Restart the unit and the handler runs once at interpreter startup; every `telemetry.*`
-event lands in BetterStack with the `event=` / `node_id=` /
-`payload=` fields preserved as searchable attributes. Same shape
-works for Loki (file handler scraped by Promtail) or Datadog (the
-`DatadogLogsHandler` from the `datadog` pip package). Three
-reasons we don't bake one in: avoiding a forwarder-SDK zoo,
-keeping operator-owned secrets out of `eidan.env`, and
-sidestepping the upstream-SDK churn cycle. [docs/024
-§6.4](./024_NODE_TELEMETRY.md#64-why-not-bake-it-in) has the
-longer rationale.
+```ini
+EIDAN_LOG_FORWARD_URL=https://http-intake.logs.datadoghq.com/api/v2/logs
+EIDAN_LOG_FORWARD_HEADERS={"DD-API-KEY":"<your-api-key>"}
+```
+
+> **systemd-`EnvironmentFile=` quoting.** systemd splits
+> unquoted values on whitespace. The JSON above has no spaces
+> on purpose so it parses cleanly. If you keep the spaces,
+> single-quote the value:
+> `EIDAN_LOG_FORWARD_HEADERS='{"DD-API-KEY": "<key>"}'`.
+
+**Axiom / Honeycomb / any HTTPS intake that accepts POST + JSON:**
+same shape as BetterStack — set `URL` plus either `TOKEN`
+(`Authorization: Bearer`) or `HEADERS` (anything else the intake
+wants).
+
+Restart the service (`sudo systemctl restart eidan-backend`) and
+every `telemetry.*` event lands in the intake. The envelope
+carries `event=` and `node_id=` on every telemetry event
+record; `payload=` and `conversation_id=` appear when the
+emitter set them (including node-level lifecycle events when
+they have extra details — for example,
+`telemetry.heartbeat_started` includes
+`payload.interval_seconds`; `conversation_id` is set only on
+turn-bound events). Full field reference in
+[docs/024 §6.2](./024_NODE_TELEMETRY.md#62-json-envelope). The
+forwarder is non-blocking (POSTs happen on a background thread)
+and swallows network failures — a dead intake doesn't drag the
+process; the next log line tries again.
+
+> **Heads-up on log levels.** The forwarder only sees records the
+> root logger lets through; it deliberately does not mutate the
+> root level. The `eidan-backend-http` entry point already lifts
+> root to whatever `EIDAN_HTTP_LOG_LEVEL` is set to (default
+> `info`), so the env-only operator surface is intact — just add
+> `EIDAN_HTTP_LOG_LEVEL=info` (or whichever floor you want
+> forwarded) to `/etc/eidan/eidan.env` and restart. The one
+> edge: if `EIDAN_HTTP_LOG_FILE=""` (file logging disabled), the
+> custom log config that lifts root isn't built and uvicorn's
+> stock config keeps root at `WARNING`. Detail in
+> [docs/024 §6.1](./024_NODE_TELEMETRY.md#61-env-vars).
+
+#### Loki (via relay)
+
+Loki wants a specific envelope shape that doesn't match eidan's
+flat JSON, so the direct env-config recipe above doesn't apply.
+Point eidan at a Vector / Fluent Bit relay that translates flat
+JSON → Loki's `streams[]` envelope, or scrape `journalctl -u
+eidan-backend` from Promtail's `systemd_journal` source. Detail
+in [docs/024 §6.5](./024_NODE_TELEMETRY.md#65-loki).
+
+Without `EIDAN_LOG_FORWARD_URL` set, telemetry events still mirror via Python
+logging — check `journalctl -u eidan-backend` and/or `EIDAN_HTTP_LOG_FILE`
+(default `logs/backend.log`); on Fly, use `fly logs -a eidan-api`.
 
 ### 9.4 Retention
 
