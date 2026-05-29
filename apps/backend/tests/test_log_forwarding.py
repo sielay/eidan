@@ -902,6 +902,64 @@ def test_shutdown_retries_sentinel_when_listener_drains_during_race(
     )
 
 
+def test_shutdown_detaches_handler_before_enqueuing_sentinel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_shutdown_forwarder`` must remove the forwarder handler from
+    the root logger *before* it tries to enqueue the sentinel.
+
+    Order matters: while the handler is still attached, every
+    ``logger.info`` call on every thread keeps ``put_nowait``-ing
+    into the bounded queue. Under an intake outage the queue is
+    already at maxsize; producers refill slots as fast as we free
+    them, and ``enqueue_sentinel`` ends up in an unwinnable race —
+    the listener thread leaks across lifespans (TestClient,
+    embedded ASGI servers) even though shutdown could have
+    signaled it cleanly. Detach first stops the producers; from
+    that point the queue can only drain and the sentinel enqueue
+    is deterministic.
+
+    Pin: at the moment ``enqueue_sentinel`` fires, the forwarder
+    handler is no longer in ``logging.getLogger().handlers``.
+    """
+    from eidan_backend import log_forwarding
+
+    monkeypatch.setenv("EIDAN_LOG_FORWARD_URL", "https://in.example/log")
+
+    captured: list = []
+    with patch(
+        "eidan_backend.log_forwarding.urllib.request.urlopen",
+        _patch_urlopen(captured),
+    ):
+        attach_log_forwarder_if_configured()
+        forwarder_handler = log_forwarding._active_handler
+        listener = log_forwarding._active_listener
+        assert forwarder_handler is not None
+        assert listener is not None
+        assert forwarder_handler in logging.getLogger().handlers
+
+        observed: dict[str, bool] = {}
+        real_enqueue_sentinel = listener.enqueue_sentinel
+
+        def spy_enqueue_sentinel() -> None:
+            observed["handler_attached_at_sentinel"] = (
+                forwarder_handler in logging.getLogger().handlers
+            )
+            real_enqueue_sentinel()
+
+        listener.enqueue_sentinel = spy_enqueue_sentinel  # type: ignore[method-assign]
+
+        _wait_for_drain()
+        log_forwarding._shutdown_forwarder(join_timeout_s=0.5)
+
+    assert observed.get("handler_attached_at_sentinel") is False, (
+        "forwarder handler must be removed from root BEFORE "
+        "enqueue_sentinel fires — otherwise concurrent log calls "
+        "can keep refilling the bounded queue and starve the "
+        "shutdown signal"
+    )
+
+
 def test_atexit_hook_registered_only_once_across_resets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

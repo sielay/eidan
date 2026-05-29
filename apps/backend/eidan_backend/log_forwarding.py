@@ -745,28 +745,56 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
     trade against blocking service restart under a forwarding
     outage (same "telemetry never breaks job execution" doctrine
     as the rest of the module).
+
+    **Detach-before-signal.** The forwarder handler is removed
+    from the root logger *before* we attempt to enqueue the
+    sentinel. Order matters: other threads can still call
+    :func:`logger.info` during shutdown (uvicorn's own teardown,
+    asyncpg pool cleanup, plugin ``on_deactivate``), and as long
+    as the handler is attached every such call ``put_nowait``\'s
+    into the bounded queue. Under an intake outage the queue is
+    already at ``maxsize``; producers keep refilling it as fast
+    as we free slots, and ``enqueue_sentinel`` ends up in an
+    unwinnable race — the very "queue refilled before sentinel
+    retry" / "drop-retry lost the race" branches below. Detach
+    first stops the producers; from that point the queue can
+    only drain, the sentinel enqueue is deterministic, and the
+    listener thread joins cleanly.
     """
     global _active_listener, _active_handler
     listener = _active_listener
     if listener is None:
         return
 
+    # Detach the queue handler from the root logger BEFORE
+    # signalling the listener — see the docstring for the
+    # ordering rationale. Done unconditionally (best-effort) so
+    # the subsequent sentinel path operates in a no-producer
+    # world.
+    if _active_handler is not None:
+        try:
+            logging.getLogger().removeHandler(_active_handler)
+        except Exception:  # noqa: BLE001
+            pass
+
     sentinel_enqueued = False
     try:
         listener.enqueue_sentinel()
         sentinel_enqueued = True
     except queue.Full:
-        # Realistic shutdown-during-outage case: intake hung,
-        # listener thread blocked inside urlopen, bounded queue
-        # at maxsize. `enqueue_sentinel` uses `put_nowait` under
-        # the hood and raises `queue.Full`. Drop the oldest
-        # queued record to free a slot, then retry — losing one
-        # queued record is the right trade against leaking the
-        # listener thread across lifespans (TestClient, embedded
-        # ASGI servers), which is exactly what this function
-        # exists to prevent. Once the sentinel is in, the listener
-        # will exit cleanly as soon as its current urlopen
-        # returns (its own timeout or the next intake response).
+        # Shutdown-during-outage: intake hung, listener thread
+        # blocked inside urlopen, bounded queue at maxsize from
+        # prior producers. `enqueue_sentinel` uses `put_nowait`
+        # under the hood and raises `queue.Full`. The handler is
+        # already detached above, so no NEW producers can refill
+        # the queue — drop the oldest record to free a slot, then
+        # retry. Losing one queued record is the right trade
+        # against leaking the listener thread across lifespans
+        # (TestClient, embedded ASGI servers), which is exactly
+        # what this function exists to prevent. Once the sentinel
+        # is in, the listener exits cleanly as soon as its
+        # current urlopen returns (its own timeout or the next
+        # intake response).
         try:
             listener.queue.get_nowait()
             listener.enqueue_sentinel()
@@ -788,8 +816,11 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
                 listener.enqueue_sentinel()
                 sentinel_enqueued = True
             except queue.Full:
-                # A producer re-filled the slot in the meantime. Lost
-                # the race; abandon and surface why.
+                # In-flight `emit` on another thread (one that
+                # had already entered `callHandlers` before our
+                # detach) refilled the slot. Vanishingly rare
+                # post-detach, but possible — abandon and
+                # surface why.
                 print(
                     "[log_forwarding] shutdown: queue refilled before "
                     "sentinel retry — abandoning listener thread "
@@ -797,9 +828,10 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
                     file=sys.stderr,
                 )
         except queue.Full:
-            # A producer re-filled the slot before our retry put.
-            # The listener won't get a clean exit signal — abandon
-            # and surface why.
+            # Same window as the inner Full above: an in-flight
+            # `emit` on a thread that had already entered
+            # `callHandlers` before detach refilled the slot.
+            # Abandon and surface why.
             print(
                 "[log_forwarding] shutdown: queue saturated and "
                 "drop-retry lost the race — abandoning listener "
@@ -820,8 +852,8 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
             # not part of the public API. `getattr` keeps shutdown
             # correct if the attribute is ever renamed or removed
             # (the bounded-join degrades to a no-op rather than
-            # an AttributeError, and the handler detach + globals
-            # reset below still run).
+            # an AttributeError, and the globals reset below
+            # still run).
             thread = getattr(listener, "_thread", None)
             if thread is not None:
                 thread.join(timeout=join_timeout_s)
@@ -841,11 +873,6 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
         except Exception:  # noqa: BLE001 — best-effort teardown
             pass
 
-    if _active_handler is not None:
-        try:
-            logging.getLogger().removeHandler(_active_handler)
-        except Exception:  # noqa: BLE001
-            pass
     _active_listener = None
     _active_handler = None
 
