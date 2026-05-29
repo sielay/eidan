@@ -54,43 +54,51 @@ _DEFAULT_PLUGINS_DIR = Path(__file__).resolve().parents[4] / "plugins"
 
 
 def _seed_plugins_volume_if_empty(resolved: Path) -> None:
-    """First-boot bootstrap for a writable plugins volume.
+    """Per-plugin idempotent bootstrap for a writable plugins volume.
 
     Operators running the published image plus a mounted volume (see
-    ``docs/DEPLOYMENT.md §4`` — runtime plugin install) point
+    ``docs/DEPLOYMENT.md §4.6`` — runtime plugin install) point
     ``EIDAN_PLUGINS_DIR`` at e.g. ``/var/lib/eidan/plugins``. The
     volume is empty on first boot; without seeding, the host would
     activate zero plugins and the operator would have to run
     ``eidan admin plugin install`` for every core plugin before the
-    machine becomes useful. Instead we copy the image-baked
-    :data:`_DEFAULT_PLUGINS_DIR` into the volume on first boot so the
-    repo-shipped tier-core plugins are present immediately. Subsequent
-    boots find a populated volume and skip the seed.
+    machine becomes useful. Instead we copy each image-baked plugin
+    under :data:`_DEFAULT_PLUGINS_DIR` into the volume — but only when
+    the matching ``plugins/<name>/`` directory is not already there.
 
-    Skipped when:
+    Seeding is therefore **per-plugin and idempotent**. The three
+    states this handles uniformly:
 
-    - ``resolved`` is the image-baked default (no volume in play);
-    - the volume already has any child directory (already seeded or
-      operator-populated via ``plugin install``);
+    - Fresh volume on first boot: every image-baked plugin lands.
+    - Partial-seed recovery: an earlier boot copied some plugins and
+      then failed mid-loop (transient IO, disk-full, OOM). The next
+      boot copies the missing ones; the survivors are left alone.
+      An "any directory exists ⇒ skip" gate would have left the
+      volume permanently missing the late-half plugins.
+    - Operator-populated volume (paid bundles already installed): the
+      paid plugins survive untouched, and any image-baked plugin not
+      present on the volume (e.g. a new tier:core shipping in
+      ``v0.N+1``) lands next to them on the next deploy without
+      ``eidan admin plugin install`` ceremony.
+
+    A pre-staged ``plugins/.lock`` (or any other dotfile / file at the
+    volume root) is irrelevant to seeding — the only "is this plugin
+    already on disk?" question we ask is per target plugin directory.
+
+    Skipped entirely when:
+
+    - ``resolved`` is the image-baked default (no volume in play); or
     - the image-baked dir does not exist or has no children (running
       outside an image — e.g. a test that only wired the env override
       to redirect reads).
-
-    The "non-empty" check looks for at least one child directory, not
-    just any child entry. A pre-created ``plugins/.lock`` (or any other
-    dotfile / file) does not count as a populated volume — without this
-    distinction an operator who hand-seeded a lock file before first
-    boot would end up with a backend running with zero core plugins.
     """
     if resolved == _DEFAULT_PLUGINS_DIR:
         return
     try:
         resolved.mkdir(parents=True, exist_ok=True)
-        if any(child.is_dir() for child in resolved.iterdir()):
-            return
     except OSError as exc:
         logger.warning(
-            "[plugins] could not inspect %s for seeding: %s", resolved, exc
+            "[plugins] could not create %s for seeding: %s", resolved, exc
         )
         return
     if not _DEFAULT_PLUGINS_DIR.is_dir():
@@ -101,6 +109,11 @@ def _seed_plugins_volume_if_empty(resolved: Path) -> None:
     seeded: list[str] = []
     for child in children:
         target = resolved / child.name
+        if target.exists():
+            # Operator-populated, previously-seeded, or hand-edited —
+            # never overwrite. The host's plugin loader will read
+            # whatever's there.
+            continue
         try:
             shutil.copytree(child, target)
         except OSError as exc:

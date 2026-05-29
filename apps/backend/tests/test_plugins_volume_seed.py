@@ -48,10 +48,18 @@ def test_empty_volume_gets_seeded(
     assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
 
 
-def test_existing_volume_is_left_alone(
+def test_existing_paid_plugins_survive_alongside_seeded_core(
     fake_image_default: Path, tmp_path: Path
 ) -> None:
-    """A volume already populated by `plugin install` is never overwritten."""
+    """Operator-installed plugins are never overwritten, and image-baked
+    plugins still seed into the gaps around them.
+
+    Per-plugin idempotency means a volume that the operator has
+    already populated with paid bundles still gets the image-baked
+    tier:core plugins filled in. That covers the
+    ``v0.N+1`` deploy that ships a new tier:core: it lands next to
+    the existing paid plugins without a manual ``plugin install``.
+    """
     volume = tmp_path / "volume"
     volume.mkdir()
     (volume / "paid-plugin").mkdir()
@@ -59,17 +67,64 @@ def test_existing_volume_is_left_alone(
         "schema: 1\nname: paid-plugin\nversion: 0.1.0\n"
     )
     app_module._seed_plugins_volume_if_empty(volume)
-    # The pre-existing plugin survived.
+    # Operator's paid plugin survived untouched.
     assert (volume / "paid-plugin" / "plugin.yaml").is_file()
-    # And the image-baked seed did NOT clobber the volume — core-plugin-a
-    # is absent because the volume was non-empty.
-    assert not (volume / "core-plugin-a").exists()
+    # And the image-baked core plugins landed alongside it.
+    assert (volume / "core-plugin-a" / "plugin.yaml").is_file()
+    assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
+
+
+def test_existing_core_plugin_is_not_overwritten(
+    fake_image_default: Path, tmp_path: Path
+) -> None:
+    """A plugin directory of the same name as an image-baked one is left alone.
+
+    The seeder checks ``target.exists()`` per plugin — if the operator
+    hand-edited a core plugin or pinned an older copy, the boot does
+    not clobber it.
+    """
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    (volume / "core-plugin-a").mkdir()
+    (volume / "core-plugin-a" / "plugin.yaml").write_text(
+        "schema: 1\nname: core-plugin-a\nversion: 0.0.9-pinned\n"
+    )
+    app_module._seed_plugins_volume_if_empty(volume)
+    # Existing copy untouched.
+    assert (
+        "0.0.9-pinned" in (volume / "core-plugin-a" / "plugin.yaml").read_text()
+    )
+    # Sibling that was missing still gets seeded.
+    assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
+
+
+def test_partial_seed_recovers_missing_plugins(
+    fake_image_default: Path, tmp_path: Path
+) -> None:
+    """A partial seed (one plugin landed, one failed) heals on next boot.
+
+    Without per-plugin idempotency, the next boot would see a
+    non-empty volume and skip seeding — leaving the volume
+    permanently missing the late-half plugins. The fix iterates per
+    plugin and copies any that are still absent.
+    """
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    # Simulate a previous partial seed: core-plugin-a copied OK,
+    # core-plugin-b never landed (disk full, OOM, etc.).
+    (volume / "core-plugin-a").mkdir()
+    (volume / "core-plugin-a" / "plugin.yaml").write_text(
+        "schema: 1\nname: core-plugin-a\nversion: 0.1.0\n"
+    )
+    app_module._seed_plugins_volume_if_empty(volume)
+    assert (volume / "core-plugin-a" / "plugin.yaml").is_file()
+    assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
 
 
 def test_seed_is_idempotent(
     fake_image_default: Path, tmp_path: Path
 ) -> None:
-    """A second seed call is a no-op (the volume is now non-empty)."""
+    """A second seed call must not clobber a seeded plugin's contents."""
     volume = tmp_path / "volume"
     app_module._seed_plugins_volume_if_empty(volume)
     # Mutate one of the seeded plugins so we can detect re-seeding.

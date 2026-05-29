@@ -695,11 +695,21 @@ $EDITOR ~/ops/eidan-fly.toml         # uncomment EIDAN_PLUGINS_DIR + [[mounts]]
 fly deploy -c ~/ops/eidan-fly.toml --image ghcr.io/sielay/eidan:v0.1.0
 ```
 
-On first boot the backend notices the volume is empty and copies
-the image-baked tier:core plugins into it (one log line per seeded
-plugin in `fly logs`). The machine is functional immediately —
-sentry, core handlers, etc. are present from the seed. Subsequent
-boots find a populated volume and skip seeding entirely.
+On first boot the backend copies any image-baked tier:core plugin
+that is not already on the volume into it. The seed is per-plugin
+and idempotent — partial-seed crashes (disk full, OOM, transient IO)
+heal on the next boot rather than leaving the volume permanently
+short of some core plugins. Look for a single summary log line in
+`fly logs`:
+
+```
+[plugins] seeded N image-baked plugin(s) into /var/lib/eidan/plugins: a, b, c
+```
+
+The machine is functional immediately — sentry, core handlers, etc.
+are present from the seed. Subsequent boots that find every
+image-baked plugin already present emit no seed line at all (nothing
+to copy).
 
 **Adding a paid bundle at runtime.** No rebuild, no redeploy — open
 a console on the running machine and run the install:

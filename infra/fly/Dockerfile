@@ -53,7 +53,7 @@
 #   empty volume with the image-baked tier:core plugins on first
 #   boot, so the machine is functional immediately; subsequent
 #   `eidan admin plugin install` calls land in the volume and survive
-#   image upgrades. See docs/DEPLOYMENT.md §4.
+#   image upgrades. See docs/DEPLOYMENT.md §4.6.
 
 FROM python:3.12-slim-bookworm
 
