@@ -1031,9 +1031,9 @@ JSON → Loki's `streams[]` envelope, or scrape `journalctl -u
 eidan-backend` from Promtail's `systemd_journal` source. Detail
 in [docs/024 §6.5](./024_NODE_TELEMETRY.md#65-loki).
 
-Without `EIDAN_LOG_FORWARD_URL` set, every event still mirrors to
-stdout — `journalctl -u eidan-backend` and `fly logs -a eidan-api`
-remain the local-only fallback.
+Without `EIDAN_LOG_FORWARD_URL` set, telemetry events still mirror via Python
+logging — check `journalctl -u eidan-backend` and/or `EIDAN_HTTP_LOG_FILE`
+(default `logs/backend.log`); on Fly, use `fly logs -a eidan-api`.
 
 ### 9.4 Retention
 
