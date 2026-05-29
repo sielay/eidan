@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Unit tests for ``eidan_cli.plugin_lock``.
 
 The module is the pure read/write/diff layer that

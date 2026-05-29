@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``<plugins-dir>/.lock`` read/write/diff for ``eidan admin plugin sync``.
 
 The lock file is the declarative record of which CLI-installed plugins

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """End-to-end tests for the lock-writer hooks + ``plugin sync`` command.
 
 These tests stub the DB-touching helpers (matching the pattern in
