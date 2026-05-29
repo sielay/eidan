@@ -822,6 +822,86 @@ def test_shutdown_drops_oldest_record_to_signal_on_saturated_queue(
     )
 
 
+def test_shutdown_retries_sentinel_when_listener_drains_during_race(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """If the listener drains the queue between our initial
+    ``enqueue_sentinel`` (Full) and our ``get_nowait`` (Empty), the
+    queue now has room — ``_shutdown_forwarder`` must retry the
+    sentinel rather than abandon the listener.
+
+    Pre-fix: ``except (queue.Empty, queue.Full)`` lumped both races
+    together and always abandoned the listener, leaving a daemon
+    thread alive across lifespans even though the shutdown could
+    have signaled it cleanly.
+
+    Direct unit test with a queue subclass that simulates the race
+    deterministically — the listener thread's real drain rate is
+    not pinnable from a unit test.
+    """
+    import queue as _q
+
+    from eidan_backend import log_forwarding
+
+    class _DrainRaceQueue(_q.Queue):
+        """First ``put_nowait`` raises Full (queue "saturated"); the
+        ``get_nowait`` then simulates the listener having already
+        drained the queue (raises Empty + opens space); the next
+        ``put_nowait`` succeeds.
+        """
+
+        def __init__(self) -> None:
+            super().__init__(maxsize=1)
+            self._drained = False
+
+        def put_nowait(self, item: object) -> None:  # type: ignore[override]
+            if not self._drained:
+                raise _q.Full
+            super().put_nowait(item)
+
+        def get_nowait(self) -> object:  # type: ignore[override]
+            # Pretend the listener took the in-flight record between
+            # the failed put_nowait and this get_nowait. Mark the
+            # queue as drained so the retry put_nowait succeeds.
+            self._drained = True
+            raise _q.Empty
+
+    drain_race_queue = _DrainRaceQueue()
+    listener = logging.handlers.QueueListener(
+        drain_race_queue, logging.NullHandler()
+    )
+    # Skip .start() — the test queue's semantics simulate the
+    # listener's behaviour deterministically.
+
+    log_forwarding._active_listener = listener
+    log_forwarding._active_handler = None
+    try:
+        log_forwarding._shutdown_forwarder(join_timeout_s=0.5)
+    finally:
+        log_forwarding._active_listener = None
+        log_forwarding._active_handler = None
+
+    stderr = capsys.readouterr().err
+    # The drop-oldest branch did not fire (get_nowait raised Empty,
+    # not a successful drop) and the abandonment branches did not
+    # fire either (retry succeeded).
+    assert "dropped oldest queued record" not in stderr, (
+        f"expected the Empty-then-retry path, got: {stderr!r}"
+    )
+    assert "drop-retry lost the race" not in stderr, (
+        f"drop-retry path should not have fired, got: {stderr!r}"
+    )
+    assert "refilled before sentinel retry" not in stderr, (
+        f"refill abandonment should not have fired, got: {stderr!r}"
+    )
+    # The retry put_nowait landed the sentinel — queue holds exactly
+    # one item (the listener's private sentinel).
+    assert drain_race_queue.qsize() == 1, (
+        f"expected sentinel in queue post-shutdown, "
+        f"qsize={drain_race_queue.qsize()}"
+    )
+
+
 def test_atexit_hook_registered_only_once_across_resets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

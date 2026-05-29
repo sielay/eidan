@@ -777,11 +777,29 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
                 "(record lost)",
                 file=sys.stderr,
             )
-        except (queue.Empty, queue.Full):
-            # Empty: another consumer drained between Full and our
-            # get_nowait. Full: a producer re-filled the slot before
-            # the retry put. Either way, the listener won't get a
-            # clean exit signal — abandon and surface why.
+        except queue.Empty:
+            # The listener drained the queue between our initial
+            # `enqueue_sentinel` (Full) and this `get_nowait` (Empty),
+            # so the queue now has space — retry the sentinel rather
+            # than abandoning. Without this retry the listener thread
+            # would leak across lifespans even though shutdown could
+            # have signaled it cleanly.
+            try:
+                listener.enqueue_sentinel()
+                sentinel_enqueued = True
+            except queue.Full:
+                # A producer re-filled the slot in the meantime. Lost
+                # the race; abandon and surface why.
+                print(
+                    "[log_forwarding] shutdown: queue refilled before "
+                    "sentinel retry — abandoning listener thread "
+                    "(interpreter exit will reap the daemon)",
+                    file=sys.stderr,
+                )
+        except queue.Full:
+            # A producer re-filled the slot before our retry put.
+            # The listener won't get a clean exit signal — abandon
+            # and surface why.
             print(
                 "[log_forwarding] shutdown: queue saturated and "
                 "drop-retry lost the race — abandoning listener "
