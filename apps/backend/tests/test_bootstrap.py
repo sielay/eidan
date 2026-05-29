@@ -21,7 +21,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from eidan_backend.bootstrap import bootstrap
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from eidan_backend.behaviours import (
+    Behaviour,
+    BehaviourDispatcher,
+    BehaviourRegistry,
+    BehaviourResult,
+    TriggerEvent,
+    parse_trigger,
+)
+from eidan_backend.bootstrap import _make_context_factory, bootstrap
+from eidan_backend.plugins import LoadedPlugin, PluginBase, load_manifest
+from eidan_backend.tools import ToolRegistry
 
 # Memory introspection tools (docs/025) that the bootstrap pre-registers
 # on the tool registry, with or without plugins. Kept in lockstep with
@@ -64,6 +75,20 @@ class _FakePool:
 
     def acquire(self) -> Any:
         raise NotImplementedError("the test plugins should not call db.acquire()")
+
+
+_EXAMPLE_CORE_DIR = (
+    Path(__file__).resolve().parents[3] / "plugins" / "example-core"
+)
+
+
+class _StubPluginBase(PluginBase):
+    """No-op subclass so :class:`LoadedPlugin` has a concrete ``plugin``
+    attribute when a test builds the loader's record by hand. The
+    publish-event wiring tests never invoke the lifecycle hooks, but
+    :class:`LoadedPlugin` keeps the field non-optional."""
+
+    name = "stub"
 
 
 def _stage_plugins(tmp_path: Path) -> Path:
@@ -165,3 +190,75 @@ async def test_bootstrap_registers_behaviours_and_creates_dispatcher(
     behaviour_ids = {b.id for b in result.behaviour_registry.all()}
     assert "example-behaviour:tick" in behaviour_ids
     assert result.behaviour_dispatcher is not None
+
+
+@pytest.mark.asyncio
+async def test_context_factory_binds_publish_event_to_dispatcher(
+    tmp_path: Path,
+) -> None:
+    """A :class:`PluginContext` built by the bootstrap factory MUST
+    expose ``ctx.publish_event`` wired to the same
+    :class:`BehaviourDispatcher` the host owns, so plugins fan out
+    through the standard idempotency-key + per-subscriber dedupe
+    path rather than a parallel bus.
+
+    Covers `docs/001 §2.2` (publish side) and the issue-15 contract.
+    """
+    fired: list[TriggerEvent] = []
+
+    async def _subscriber(event: TriggerEvent) -> BehaviourResult:
+        fired.append(event)
+        return BehaviourResult(ok=True)
+
+    registry = BehaviourRegistry()
+    registry.register(
+        Behaviour(
+            id="example-core:probe-sub",
+            trigger=parse_trigger("event:probe.fired"),
+            handler=_subscriber,
+        )
+    )
+    dispatcher = BehaviourDispatcher(registry, scheduler=AsyncIOScheduler())
+
+    factory = _make_context_factory(
+        _FakePool(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        registry,
+        behaviour_dispatcher=dispatcher,
+    )
+    loaded = LoadedPlugin(
+        manifest=load_manifest(_EXAMPLE_CORE_DIR),
+        plugin=_StubPluginBase(),  # type: ignore[arg-type]
+        plugin_dir=_EXAMPLE_CORE_DIR,
+    )
+    ctx = factory(loaded)
+
+    assert ctx.publish_event is not None
+    results = await ctx.publish_event("probe.fired", {"payload": 1})
+
+    assert len(results) == 1
+    assert results[0].ok is True
+    assert [e.payload["payload"] for e in fired] == [1]
+
+
+@pytest.mark.asyncio
+async def test_context_factory_publish_event_is_none_without_dispatcher(
+    tmp_path: Path,
+) -> None:
+    """The factory must tolerate the degraded-boot path: when no
+    dispatcher is wired (deactivate path, future test stubs),
+    ``ctx.publish_event`` is ``None`` so plugins can fall back."""
+    factory = _make_context_factory(
+        _FakePool(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        BehaviourRegistry(),
+        behaviour_dispatcher=None,
+    )
+    loaded = LoadedPlugin(
+        manifest=load_manifest(_EXAMPLE_CORE_DIR),
+        plugin=_StubPluginBase(),  # type: ignore[arg-type]
+        plugin_dir=_EXAMPLE_CORE_DIR,
+    )
+    ctx = factory(loaded)
+
+    assert ctx.publish_event is None

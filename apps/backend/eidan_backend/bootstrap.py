@@ -63,9 +63,14 @@ class BootstrapResult:
       every plugin contributed cron / event handlers to. The
       dispatcher reads from it.
     - ``behaviour_dispatcher`` — owns the APScheduler that fires
-      cron-triggered behaviours. ``None`` when no plugins registered
-      any behaviours; otherwise started in :func:`bootstrap` and
-      stopped in :func:`shutdown`.
+      cron- and schedule-triggered behaviours, and also the
+      ``publish_event`` accessor plugins receive via
+      ``ctx.publish_event``. Constructed whenever any plugins are
+      discovered, even if none of them register behaviours, so the
+      event-bus publish path is always wired. ``None`` only on the
+      empty-plugins early-return. ``start()`` runs only when the
+      registry has at least one behaviour AND ``start_dispatcher``
+      is True; stopped in :func:`shutdown`.
     """
 
     plugins: list[LoadedPlugin]
@@ -133,6 +138,7 @@ def _make_context_factory(
     notification_router: Any | None = None,
     provider: Any | None = None,
     default_model: str | None = None,
+    behaviour_dispatcher: BehaviourDispatcher | None = None,
 ) -> Any:
     """Build a :class:`ContextFactory` closed over the host's wiring.
 
@@ -142,11 +148,22 @@ def _make_context_factory(
     provided (unit-test boot, "no LLM creds" mode), ``ctx.spawn_turn``
     is ``None`` so plugins can detect the absence and fall back to
     writing an escalation.
+
+    ``behaviour_dispatcher`` is optional for the same reason: when
+    provided, plugins receive a ``ctx.publish_event`` accessor bound
+    to :meth:`BehaviourDispatcher.publish_event` so they can emit on
+    the same event bus they subscribe to via the manifest's
+    ``behaviours[]``. When ``None`` (deactivate path, degraded boots),
+    ``ctx.publish_event`` is ``None`` and plugins must detect the
+    absence.
     """
     secret_accessor = make_secret_accessor(pool)
     notify_callable = _make_notify_callable(notification_router)
     spawn_turn_callable = _make_spawn_turn_callable(
         pool, provider, default_model, tool_registry
+    )
+    publish_event_callable = (
+        behaviour_dispatcher.publish_event if behaviour_dispatcher is not None else None
     )
 
     def _factory(loaded: LoadedPlugin) -> PluginContext:
@@ -187,6 +204,7 @@ def _make_context_factory(
             register_tools=_register_tools,
             notify=notify_callable,
             spawn_turn=spawn_turn_callable,
+            publish_event=publish_event_callable,
             identity=None,
         )
 
@@ -385,6 +403,15 @@ async def bootstrap(
     else:
         state = state_store
     notification_router = build_default_router()
+    # Construct the dispatcher BEFORE install_and_activate so the
+    # context factory can bind ``ctx.publish_event`` to
+    # :meth:`BehaviourDispatcher.publish_event`. The dispatcher reads
+    # from ``behaviour_registry`` at call time, so behaviours
+    # registered during activation are visible to the bus immediately.
+    # ``start()`` still runs after activation, gated on the registry
+    # having at least one behaviour and ``start_dispatcher`` being
+    # True.
+    dispatcher = BehaviourDispatcher(behaviour_registry, pool=pool)
     factory = _make_context_factory(
         pool,
         tool_registry,
@@ -392,6 +419,7 @@ async def bootstrap(
         notification_router=notification_router,
         provider=provider,
         default_model=default_model,
+        behaviour_dispatcher=dispatcher,
     )
 
     # Validate every plugin's required ``vault[]`` keys BEFORE the
@@ -455,27 +483,24 @@ async def bootstrap(
 
     # Start the behaviour dispatcher only when any plugin actually
     # registered behaviours — no point spinning up APScheduler for an
-    # empty registry. The dispatcher is owned by the BootstrapResult so
-    # ``shutdown()`` can stop it cleanly.
-    dispatcher: BehaviourDispatcher | None = None
-    if behaviour_registry.all():
-        # Pass the pool so the dispatcher can take cross-instance
-        # advisory locks before firing cron / schedule jobs
-        # (`docs/021`). Without it, two backend instances would
-        # double-fire the same behaviour every minute.
-        dispatcher = BehaviourDispatcher(behaviour_registry, pool=pool)
-        if start_dispatcher:
-            dispatcher.start()
-            cron_count = len(behaviour_registry.by_trigger_kind("cron"))
-            logger.info(
-                "[bootstrap] behaviour dispatcher started with %d cron job(s)",
-                cron_count,
+    # empty registry. The dispatcher itself is constructed above so
+    # the context factory can bind ``ctx.publish_event``; it carries
+    # the pool so it can take cross-instance advisory locks before
+    # firing cron / schedule jobs (`docs/021`). Without it, two
+    # backend instances would double-fire the same behaviour every
+    # minute.
+    if behaviour_registry.all() and start_dispatcher:
+        dispatcher.start()
+        cron_count = len(behaviour_registry.by_trigger_kind("cron"))
+        logger.info(
+            "[bootstrap] behaviour dispatcher started with %d cron job(s)",
+            cron_count,
+        )
+        if telemetry is not None:
+            await telemetry.emit_event(
+                "dispatcher.started",
+                {"cron_jobs": cron_count},
             )
-            if telemetry is not None:
-                await telemetry.emit_event(
-                    "dispatcher.started",
-                    {"cron_jobs": cron_count},
-                )
 
     if telemetry is not None:
         await telemetry.emit_event(

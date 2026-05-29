@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from fastapi import APIRouter
 
-    from eidan_backend.behaviours import Behaviour
+    from eidan_backend.behaviours import Behaviour, BehaviourResult
     from eidan_backend.identity import Identity
     from eidan_backend.tools import Tool
 
@@ -117,6 +117,39 @@ class TurnInitiator(Protocol):
 
 
 @runtime_checkable
+class EventPublisher(Protocol):
+    """In-process event-bus publish accessor handed to a plugin via
+    ``ctx.publish_event``.
+
+    Plugins call ``await ctx.publish_event(name, payload)`` to emit on
+    the same event bus they already subscribe to via the manifest's
+    ``behaviours[]`` (`docs/006 §4`). The host generates the
+    idempotency key, fans out to every behaviour whose trigger matches
+    ``event:<name>``, and returns the per-subscriber
+    :class:`BehaviourResult`s in registration order. A subscriber
+    whose key has already fired (host-side dedupe) does not appear in
+    the list.
+
+    ``__idempotency_key__`` on ``payload`` is a reserved field: when
+    present it overrides the host-generated key and is stripped from
+    the payload before subscribers see it. Use it deliberately when
+    re-publishing on retry should collapse to the original dispatch;
+    otherwise avoid the field name so an accidental collision doesn't
+    silently drop data.
+
+    ``None`` when the host wires a context without a behaviour
+    dispatcher (e.g. during deactivate or in unit tests); plugins that want to
+    fall back gracefully check ``if ctx.publish_event is None``.
+    """
+
+    async def __call__(
+        self,
+        name: str,
+        payload: dict | None = None,
+    ) -> list[BehaviourResult]: ...
+
+
+@runtime_checkable
 class NotificationSender(Protocol):
     """Out-of-band nudge accessor handed to a plugin via
     ``ctx.notify``.
@@ -160,6 +193,11 @@ class PluginContext:
       an inbound user JWT. ``None`` when no provider is wired
       (test boots, degraded starts); plugins fall back to writing
       escalations.
+    - ``publish_event``       — emit on the in-process event bus so
+      every subscribed behaviour fires (`docs/006 §4`). The host
+      generates the idempotency key and runs the standard
+      per-subscriber dedupe / audit path. ``None`` when the bootstrap
+      ran without a behaviour dispatcher (the unit-test path).
     - ``register_router``     — mounts a FastAPI router under the
       manifest's ``routes_prefix``.
     - ``register_behaviours`` — registers the plugin's
@@ -180,12 +218,14 @@ class PluginContext:
     register_tools: ToolRegistrar
     notify: NotificationSender | None = None
     spawn_turn: TurnInitiator | None = None
+    publish_event: EventPublisher | None = None
     identity: Identity | None = None
 
 
 __all__ = [
     "BehaviourRegistrar",
     "DbAccessor",
+    "EventPublisher",
     "NotificationSender",
     "PluginContext",
     "RouterRegistrar",
