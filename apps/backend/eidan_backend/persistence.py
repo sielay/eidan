@@ -33,6 +33,19 @@ _DEFAULT_AGENT_DESCRIPTION = (
 )
 
 
+def _ensure_aware_utc(value: datetime) -> datetime:
+    """Treat a naive datetime as UTC. Aware values pass through unchanged.
+
+    Plugin code may build timestamps with ``datetime.utcnow()`` (naive)
+    or ``datetime.now(UTC)`` (aware). Mixing the two raises
+    ``TypeError`` on subtraction, so callers that compute durations
+    coerce inputs through this helper first.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
 def decode_jsonb(value: Any) -> dict[str, Any]:
     """Normalise a jsonb column read.
 
@@ -447,6 +460,99 @@ async def insert_llm_call(
         finished_at,
         result.request_id,
         agent_id,
+    )
+
+
+async def insert_plugin_llm_call(
+    conn: asyncpg.Connection,
+    *,
+    user_id: UUID,
+    conversation_id: UUID | None,
+    message_id: UUID | None,
+    agent_id: UUID | None,
+    role: str,
+    provider: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int,
+    cache_creation_tokens: int,
+    cost_usd: float,
+    started_at: datetime,
+    finished_at: datetime | None,
+    request_id: str | None,
+    error: str | None,
+    error_type: str | None,
+    metadata: dict | None,
+) -> None:
+    """Write one ``eidan.llm_calls`` row on behalf of a plugin tool.
+
+    Variant of :func:`insert_llm_call` for the plugin-emitted path
+    (`docs/010 §3.1` row 5 / issue #16). The shape of the row is
+    identical — same four token axes, same ``cost_usd`` semantics
+    (frozen at write time, `docs/010 §2.1`), same ``role`` /
+    ``error_type`` columns. The split exists only because the
+    upstream caller is a plugin, not a :class:`ProviderCallResult`-
+    producing in-process adapter, so the argument shape differs.
+
+    EP holds: the INSERT commits before the function returns
+    (`docs/010 §3`). A plugin that re-invokes the upstream writes a
+    new row — never updates an old one (§2.1 "Retries are separate
+    rows").
+
+    Datetime normalisation: a plugin may hand us naive datetimes
+    (``datetime.utcnow()``) or aware ones (``datetime.now(UTC)``).
+    Mixing the two would raise ``TypeError`` on subtraction, so we
+    coerce both to UTC-aware here before computing latency. The
+    upstream column is ``timestamptz``, so the asyncpg adapter
+    expects aware values anyway. ``finished`` is clamped to
+    ``started_at`` so a clock skew never produces a negative
+    ``latency_ms``.
+    """
+    started_at = _ensure_aware_utc(started_at)
+    finished = _ensure_aware_utc(finished_at) if finished_at else datetime.now(UTC)
+    if finished < started_at:
+        finished = started_at
+    latency_ms = int((finished - started_at).total_seconds() * 1000)
+    metadata_json = json.dumps(metadata or {})
+    await conn.execute(
+        """
+        INSERT INTO eidan.llm_calls
+            (user_id, conversation_id, message_id, role,
+             provider, model,
+             input_tokens, output_tokens,
+             cache_read_tokens, cache_creation_tokens,
+             cost_usd, latency_ms,
+             started_at, finished_at, request_id, agent_id,
+             error, error_type, metadata)
+        VALUES
+            ($1, $2, $3, $4,
+             $5, $6,
+             $7, $8,
+             $9, $10,
+             $11, $12,
+             $13, $14, $15, $16,
+             $17, $18, $19::jsonb)
+        """,
+        user_id,
+        conversation_id,
+        message_id,
+        role,
+        provider,
+        model,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_creation_tokens,
+        cost_usd,
+        latency_ms,
+        started_at,
+        finished,
+        request_id,
+        agent_id,
+        error,
+        error_type,
+        metadata_json,
     )
 
 
