@@ -750,23 +750,28 @@ def test_shutdown_bounded_when_listener_thread_is_stuck(
         block.set()
 
 
-def test_shutdown_handles_queue_full_on_sentinel(
+def test_shutdown_drops_oldest_record_to_signal_on_saturated_queue(
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """The realistic shutdown-during-outage case the previous test
-    doesn't exercise: queue is full when shutdown fires and
-    :meth:`QueueListener.enqueue_sentinel` raises ``queue.Full``.
+    """When the bounded queue is at maxsize, ``_shutdown_forwarder``
+    must still get the sentinel through — otherwise the listener
+    thread leaks across lifespans (TestClient, embedded ASGI),
+    which is the exact bleed this function exists to prevent.
 
-    Pre-fix, the broad ``except Exception`` in
-    ``_shutdown_forwarder`` swallowed it silently and skipped both
-    the join AND the abandonment warning — teardown was
-    non-deterministic and observable only via "the listener thread
-    is still alive somehow", which is the opposite of useful.
+    Pre-fix: ``QueueListener.enqueue_sentinel`` raised
+    ``queue.Full``, the broad ``except`` swallowed it, sentinel
+    never landed, listener thread kept running.
+
+    Fix: drop the oldest queued record (losing one log line is
+    the right trade), retry the sentinel, and surface the cost
+    via stderr. The listener — once its current urlopen returns,
+    via its own timeout or an intake response — sees the sentinel
+    and exits cleanly.
 
     Direct unit test (no live listener thread) because driving an
     integration-style saturation deterministically races the
-    listener's consumption rate. Pre-loading the queue to maxsize
-    and skipping ``listener.start()`` gives the exact state
+    listener's drain rate. Pre-loading the queue to maxsize and
+    skipping ``listener.start()`` gives the exact state
     ``enqueue_sentinel`` would hit during a real outage shutdown.
     """
     import queue as _q
@@ -787,20 +792,28 @@ def test_shutdown_handles_queue_full_on_sentinel(
     try:
         log_forwarding._shutdown_forwarder(join_timeout_s=0.5)
     finally:
-        # Belt-and-braces — fixture cleanup will also handle this,
-        # but the test sets the globals directly so clean up directly.
         log_forwarding._active_listener = None
         log_forwarding._active_handler = None
 
     stderr = capsys.readouterr().err
-    assert "queue saturated" in stderr, (
-        f"expected queue-saturation abandonment warning, got: {stderr!r}"
+    assert "dropped oldest queued record" in stderr, (
+        f"expected drop-to-signal warning, got: {stderr!r}"
     )
-    # _shutdown_forwarder must NOT have proceeded to the join+abandon
-    # path — sentinel_enqueued was False, so the listener-thread
-    # warning is the wrong shape for this case.
-    assert "listener thread did not finish" not in stderr, (
-        f"queue-saturation path should skip the join warning, got: {stderr!r}"
+    # Drop-retry succeeded, so the abandonment-on-race branch must
+    # NOT have fired.
+    assert "drop-retry lost the race" not in stderr, (
+        f"drop-retry should have succeeded, got: {stderr!r}"
+    )
+    # The placeholder was dropped + the sentinel was enqueued — so
+    # the queue now contains exactly one item (the sentinel).
+    assert full_queue.qsize() == 1, (
+        f"expected sentinel in queue post-shutdown, qsize={full_queue.qsize()}"
+    )
+    sentinel = full_queue.get_nowait()
+    # QueueListener uses its own private sentinel — assert it's NOT
+    # our placeholder rather than reaching into stdlib internals.
+    assert sentinel != "placeholder", (
+        "placeholder should have been dropped; queue should hold the sentinel"
     )
 
 

@@ -759,21 +759,35 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
         # Realistic shutdown-during-outage case: intake hung,
         # listener thread blocked inside urlopen, bounded queue
         # at maxsize. `enqueue_sentinel` uses `put_nowait` under
-        # the hood and raises `queue.Full`. There's nothing
-        # useful we can do — the thread can't process the
-        # sentinel anyway (it's stuck in urlopen), so we skip
-        # the join and abandon. Daemon flag on the listener
-        # thread (set by QueueListener.start) means interpreter
-        # exit reaps it. Surface the cause explicitly: a
-        # silently-swallowed `queue.Full` here is the exact
-        # non-determinism Copilot flagged on the 17th-pass
-        # commit — pin the behaviour with an observable warning.
-        print(
-            "[log_forwarding] shutdown: queue saturated — cannot "
-            "signal listener exit, abandoning thread (interpreter "
-            "exit will reap the daemon thread)",
-            file=sys.stderr,
-        )
+        # the hood and raises `queue.Full`. Drop the oldest
+        # queued record to free a slot, then retry — losing one
+        # queued record is the right trade against leaking the
+        # listener thread across lifespans (TestClient, embedded
+        # ASGI servers), which is exactly what this function
+        # exists to prevent. Once the sentinel is in, the listener
+        # will exit cleanly as soon as its current urlopen
+        # returns (its own timeout or the next intake response).
+        try:
+            listener.queue.get_nowait()
+            listener.enqueue_sentinel()
+            sentinel_enqueued = True
+            print(
+                "[log_forwarding] shutdown: queue saturated — dropped "
+                "oldest queued record to signal listener exit "
+                "(record lost)",
+                file=sys.stderr,
+            )
+        except (queue.Empty, queue.Full):
+            # Empty: another consumer drained between Full and our
+            # get_nowait. Full: a producer re-filled the slot before
+            # the retry put. Either way, the listener won't get a
+            # clean exit signal — abandon and surface why.
+            print(
+                "[log_forwarding] shutdown: queue saturated and "
+                "drop-retry lost the race — abandoning listener "
+                "thread (interpreter exit will reap the daemon)",
+                file=sys.stderr,
+            )
     except Exception:  # noqa: BLE001 — final safety net for stdlib drift
         # enqueue_sentinel is a one-liner over put_nowait today.
         # If a future stdlib change adds new failure modes, we
@@ -783,7 +797,14 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
 
     if sentinel_enqueued:
         try:
-            thread = listener._thread
+            # `_thread` is a stdlib private attribute on
+            # QueueListener — stable across CPython 3.10–3.13 but
+            # not part of the public API. `getattr` keeps shutdown
+            # correct if the attribute is ever renamed or removed
+            # (the bounded-join degrades to a no-op rather than
+            # an AttributeError, and the handler detach + globals
+            # reset below still run).
+            thread = getattr(listener, "_thread", None)
             if thread is not None:
                 thread.join(timeout=join_timeout_s)
                 if thread.is_alive():
@@ -794,10 +815,11 @@ def _shutdown_forwarder(*, join_timeout_s: float = _SHUTDOWN_JOIN_TIMEOUT_S) -> 
                         f"will reap the daemon thread)",
                         file=sys.stderr,
                     )
-                # Match what listener.stop() would have set; allows
-                # subsequent stop() / start() to be sane on the same
-                # listener object even though we don't re-use it.
-                listener._thread = None
+                # Don't mutate `listener._thread` — we don't reuse the
+                # listener instance (a fresh one is built on the next
+                # attach), so the housekeeping wouldn't matter, and
+                # touching stdlib internals invites breakage on
+                # future Python versions.
         except Exception:  # noqa: BLE001 — best-effort teardown
             pass
 
