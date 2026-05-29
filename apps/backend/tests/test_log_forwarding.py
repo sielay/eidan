@@ -157,6 +157,11 @@ def test_attach_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
         # Second call must NOT double-attach.
         assert attach_log_forwarder_if_configured() is True
         assert logging.getLogger().handlers == handlers_after_first
+        # Drain before the urlopen patch unwinds — attach queues a
+        # `log_forwarding: enabled` INFO record that the listener
+        # thread would otherwise POST against the real network once
+        # the `with patch(...)` block exits.
+        _wait_for_drain()
 
 
 # ---------------------------------------------------------------------------

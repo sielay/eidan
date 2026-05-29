@@ -274,6 +274,7 @@ class TelemetryEmitter:
                 extra={
                     "event": "telemetry.invalid_conversation_id",
                     "node_id": self._identity.node_id,
+                    "node_type": self._identity.node_type,
                     # `type` + `raw_value` are per-event detail and
                     # belong in payload — flat extras outside the
                     # forwarder's allow-list get dropped.
@@ -339,6 +340,7 @@ class TelemetryEmitter:
                 extra={
                     "event": "telemetry.emit_failed",
                     "node_id": self._identity.node_id,
+                    "node_type": self._identity.node_type,
                     # `type` is per-event detail and belongs in
                     # payload — flat extras outside the forwarder's
                     # allow-list get dropped.
