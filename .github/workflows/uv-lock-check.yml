@@ -7,15 +7,15 @@ name: uv-lock-check
 # `uv lock --check` so the same kind of drift fails on the PR
 # instead of in production.
 #
-# Sibling of schemas-check.yml; same "regenerate locally and
-# commit" expectation.
+# No ``paths:`` filter on pull_request. If this workflow is added
+# to required status checks for branch protection, a path-skipped
+# run stays "pending" forever and blocks the PR from merging —
+# python-tests.yml takes the same posture for the same reason
+# (see its top-of-file note). ``uv lock --check`` is cheap, so the
+# always-on cost is negligible.
 
 on:
   pull_request:
-    paths:
-      - "**/pyproject.toml"
-      - "uv.lock"
-      - ".github/workflows/uv-lock-check.yml"
   push:
     branches: [main]
     paths:

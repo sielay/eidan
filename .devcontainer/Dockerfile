@@ -42,4 +42,4 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 # uv: workspace + venv manager. Copy the prebuilt binaries from the
 # official image rather than running the installer script — pinning
 # is explicit and the layer is small.
-COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
