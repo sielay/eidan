@@ -66,6 +66,26 @@ def test_read_lock_wrong_schema_raises(tmp_path: Path) -> None:
         plugin_lock.read_lock(tmp_path)
 
 
+def test_read_lock_empty_file_raises(tmp_path: Path) -> None:
+    """A truncated / hand-cleared lock must not look like first-install.
+
+    YAML parses empty (or whitespace / comments-only) content to
+    ``None``. Treating that as ``[]`` would let
+    ``plugin sync --prune`` against a half-edited lock wipe out every
+    bundle-installed plugin on disk. The first-install record is
+    ``schema: 1\\nplugins: []``, not an empty file.
+    """
+    (tmp_path / ".lock").write_text("")
+    with pytest.raises(plugin_lock.LockFileError):
+        plugin_lock.read_lock(tmp_path)
+
+
+def test_read_lock_whitespace_only_raises(tmp_path: Path) -> None:
+    (tmp_path / ".lock").write_text("# just a comment\n   \n")
+    with pytest.raises(plugin_lock.LockFileError):
+        plugin_lock.read_lock(tmp_path)
+
+
 def test_read_lock_missing_field_raises(tmp_path: Path) -> None:
     (tmp_path / ".lock").write_text(
         "schema: 1\nplugins:\n  - name: alpha\n    version: 0.1.0\n    bundle: ba\n"

@@ -61,6 +61,14 @@ def read_lock(plugins_dir: Path) -> list[LockEntry]:
     callers (sync, install) surface that as a non-zero exit so the
     operator can fix the file rather than have sync silently treat
     drift as the new ground truth.
+
+    An *empty* file (or one containing only whitespace / comments) is
+    also treated as malformed and raises. YAML parses both to ``None``,
+    and silently returning ``[]`` would make ``plugin sync --prune``
+    against a half-edited or truncated lock indistinguishable from a
+    fresh install — i.e. it would happily prune every bundle-installed
+    plugin on disk. The schema-bearing first-install record is
+    ``schema: 1\\nplugins: []``, not an empty file.
     """
     path = lock_path(plugins_dir)
     if not path.is_file():
@@ -70,7 +78,11 @@ def read_lock(plugins_dir: Path) -> list[LockEntry]:
     except (OSError, yaml.YAMLError) as exc:
         raise LockFileError(f"could not read {path}: {exc}") from exc
     if raw is None:
-        return []
+        raise LockFileError(
+            f"{path}: file is empty or contains no YAML. Expected "
+            f"`schema: {LOCK_SCHEMA_VERSION}` (delete the file to "
+            f"start from scratch)."
+        )
     if not isinstance(raw, dict):
         raise LockFileError(f"{path}: top level must be a mapping")
     schema = raw.get("schema")
@@ -134,7 +146,13 @@ def write_lock(plugins_dir: Path, entries: list[LockEntry]) -> None:
     }
     text = yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
     target = lock_path(plugins_dir)
-    tmp = target.with_suffix(target.suffix + ".tmp")
+    # ``.lock`` is a dotfile — ``Path(".lock").suffix`` is empty and
+    # ``with_suffix(".tmp")`` would silently produce ``.tmp`` instead of
+    # ``.lock.tmp`` on Python implementations where the dotfile-as-stem
+    # convention does not hold. Construct the sibling tempname by
+    # appending to ``.name`` so it is unambiguously ``.lock.tmp`` and
+    # the post-write atomicity test stays meaningful.
+    tmp = target.with_name(target.name + ".tmp")
     try:
         plugins_dir.mkdir(parents=True, exist_ok=True)
         tmp.write_text(text, encoding="utf-8")
