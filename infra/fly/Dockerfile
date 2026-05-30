@@ -58,7 +58,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir uv
+    && pip install --no-cache-dir uv==0.11.15
 
 WORKDIR /app
 

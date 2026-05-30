@@ -1,0 +1,39 @@
+name: uv-lock-check
+
+# Guard against pyproject.toml ↔ uv.lock drift. PR #30 added
+# aiosmtplib to apps/backend/pyproject.toml without refreshing the
+# workspace uv.lock; the drift only surfaced at `fly deploy` time
+# because the Dockerfile uses `uv sync --frozen`. This gate runs
+# `uv lock --check` so the same kind of drift fails on the PR
+# instead of in production.
+#
+# Sibling of schemas-check.yml; same "regenerate locally and
+# commit" expectation.
+
+on:
+  pull_request:
+    paths:
+      - "**/pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/uv-lock-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**/pyproject.toml"
+      - "uv.lock"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.11.15"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: uv lock --check
