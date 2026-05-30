@@ -125,8 +125,10 @@ def _seed_plugins_volume_if_needed(resolved: Path) -> None:
     **Atomicity.** Each plugin is copied into a private temporary
     directory next to the target and renamed into place once the
     copy finishes. A crash partway through ``copytree`` leaves the
-    tempdir (cleaned up on the next boot's mkstemp scan) rather than
-    a half-populated ``plugins/<name>/`` that the next boot would
+    tempdir (cleaned up by :func:`_sweep_orphan_seed_tempdirs` on
+    the next boot — an ``iterdir`` pass over the volume root that
+    drops anything matching ``.seed-*.tmp``) rather than a
+    half-populated ``plugins/<name>/`` that the next boot would
     treat as "already seeded".
 
     Seeding is therefore **per-plugin, atomic, and idempotent**. The
