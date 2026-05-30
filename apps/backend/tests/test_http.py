@@ -99,8 +99,8 @@ async def http_client(eidan_db: str, stub_provider) -> AsyncIterator:
 @pytest.mark.asyncio
 async def test_healthz_is_public(http_client) -> None:
     """``/api/healthz`` is unauthenticated and returns a 200 envelope
-    the self-hosted systemd watchdog in ``infra/systemd/`` probes with
-    ``curl -fsS`` — non-2xx must be unambiguously failure."""
+    that the self-hosted systemd watchdog in ``infra/systemd/`` probes
+    with ``curl -fsS`` — non-2xx must unambiguously be a failure."""
     client, _, _, _ = http_client
     resp = await client.get("/api/healthz")
     assert resp.status_code == 200

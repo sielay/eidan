@@ -13,6 +13,11 @@
 
 [Unit]
 Description=Eidan backend HTTP healthcheck
+# `After=` orders this unit after the backend so the probe waits for
+# its target to start. The default matches the script's default
+# `EIDAN_HEALTHCHECK_SERVICE=eidan-backend`; if you override that env
+# var, update this line to match (or drop `After=` — the timer's
+# `OnBootSec=2min` grace period also covers boot ordering).
 After=eidan-backend.service
 
 [Service]
