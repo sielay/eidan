@@ -10,8 +10,9 @@
 #
 # Pair with the matching systemd unit + timer in this directory.
 #
-# Behaviour: probe the backend's unauthenticated readiness endpoint;
-# on failure, increment a counter on disk; on `THRESHOLD` consecutive
+# Behaviour: probe the backend's unauthenticated liveness endpoint
+# (`/api/healthz` — process-up only, no DB or downstream check); on
+# failure, increment a counter on disk; on `THRESHOLD` consecutive
 # failures, log to syslog and restart the backend service. The
 # counter resets the moment a probe succeeds.
 #

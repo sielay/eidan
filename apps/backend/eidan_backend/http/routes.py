@@ -95,6 +95,25 @@ logger = logging.getLogger(__name__)
 
 
 # -----------------------------------------------------------------------------
+# /api/healthz
+# -----------------------------------------------------------------------------
+
+
+@router.get("/api/healthz")
+async def get_healthz() -> dict[str, str]:
+    """Process-liveness probe.
+
+    Public, unauthenticated (on the allowlist in ``http.auth``). Used
+    by the self-hosted systemd watchdog in ``infra/systemd/`` and by
+    any external uptime monitor. Returns 200 as long as the ASGI app
+    is up enough to route a request — it does NOT touch the DB or any
+    downstream dependency. Deeper checks belong on ``/api/readyz``
+    when that lands.
+    """
+    return {"status": "ok"}
+
+
+# -----------------------------------------------------------------------------
 # /api/auth/config
 # -----------------------------------------------------------------------------
 
