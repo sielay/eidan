@@ -394,6 +394,27 @@ def admin_plugin_remove(
     raise typer.Exit(admin.plugin_remove(target))
 
 
+@plugin_app.command("sync")
+def admin_plugin_sync(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the plan but make no changes.",
+    ),
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="Also remove plugins on disk that are not in plugins/.lock "
+        "(only plugins shipped in a bundle — repo-shipped core is never pruned).",
+    ),
+) -> None:
+    """Reconcile plugins/.lock against the installed tree.
+
+    See ``eidan_cli.admin:plugin_sync``.
+    """
+    raise typer.Exit(admin.plugin_sync(dry_run=dry_run, prune=prune))
+
+
 @plugin_app.command("lint")
 def admin_plugin_lint(
     name: str | None = typer.Argument(
