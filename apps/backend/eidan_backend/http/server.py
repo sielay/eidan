@@ -15,58 +15,65 @@ import uvicorn
 from ..config import load_http_settings
 
 
-def _build_log_config(log_file: str, log_level: str) -> dict | None:
-    """Extend uvicorn's default log config with a file handler.
+def _build_log_config(log_file: str, log_level: str) -> dict:
+    """Build the dictConfig handed to ``uvicorn.run``.
 
     Uvicorn applies its own ``dictConfig`` at startup; attaching a
-    ``FileHandler`` to the root logger before ``uvicorn.run`` gets
+    handler to the root logger before ``uvicorn.run`` gets
     overwritten. Instead, copy uvicorn's default config and weave in
-    one extra handler that also captures the app's own logger tree
+    handlers that also capture the app's own logger tree
     (``eidan_backend``, ``eidan_sentry``, …).
 
-    Returns ``None`` when ``log_file`` is empty so uvicorn picks up
-    its default config unchanged.
+    Always routes the app's logger tree to stderr via uvicorn's
+    ``default`` handler so deploy targets that collect logs from
+    stdout/stderr (Fly Machines, Docker, journald) see the
+    application's records — not just uvicorn's access log. When
+    ``log_file`` is set, also writes a copy to the named file.
     """
-    if not log_file:
-        return None
-    target = Path(log_file)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    abs_target = str(target.resolve())
-
-    # Start from uvicorn's stock config so the console output keeps
-    # its colour + format, then layer the file handler on top.
     from copy import deepcopy
 
     from uvicorn.config import LOGGING_CONFIG
 
     cfg = deepcopy(LOGGING_CONFIG)
-    cfg.setdefault("formatters", {})["file"] = {
-        "()": "logging.Formatter",
-        "fmt": "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        "datefmt": "%Y-%m-%dT%H:%M:%S",
-    }
-    cfg.setdefault("handlers", {})["file"] = {
-        "class": "logging.FileHandler",
-        "filename": abs_target,
-        "formatter": "file",
-        "level": log_level.upper(),
-        "encoding": "utf-8",
-    }
 
-    # Attach the file handler to every logger that already exists in
-    # uvicorn's stock config (uvicorn, uvicorn.access, uvicorn.error)
-    # AND set up the root logger to ship records from the rest of the
-    # app (``eidan_backend.*``, ``eidan_sentry.*``, ``plugins.*``).
-    for _name, logger_cfg in cfg.get("loggers", {}).items():
-        handlers = list(logger_cfg.get("handlers") or [])
-        if "file" not in handlers:
-            handlers.append("file")
-        logger_cfg["handlers"] = handlers
-        # Uvicorn loggers default to propagate=False; keep it that way
-        # so we don't double-log to the console via the root chain.
+    # The app's logger tree needs to reach the console regardless of
+    # whether file logging is enabled. uvicorn's ``default`` handler
+    # is the StreamHandler→stderr it ships with; attaching it to the
+    # root logger means every `logging.getLogger("eidan_backend.…")`
+    # record propagates to stderr.
+    root_handlers: list[str] = ["default"]
+
+    if log_file:
+        target = Path(log_file)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        abs_target = str(target.resolve())
+
+        cfg.setdefault("formatters", {})["file"] = {
+            "()": "logging.Formatter",
+            "fmt": "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+            "datefmt": "%Y-%m-%dT%H:%M:%S",
+        }
+        cfg.setdefault("handlers", {})["file"] = {
+            "class": "logging.FileHandler",
+            "filename": abs_target,
+            "formatter": "file",
+            "level": log_level.upper(),
+            "encoding": "utf-8",
+        }
+
+        # Mirror every uvicorn-owned logger to the file too. Uvicorn
+        # loggers default to ``propagate=False`` so we can't rely on
+        # the root chain to pick them up.
+        for _name, logger_cfg in cfg.get("loggers", {}).items():
+            handlers = list(logger_cfg.get("handlers") or [])
+            if "file" not in handlers:
+                handlers.append("file")
+            logger_cfg["handlers"] = handlers
+
+        root_handlers.append("file")
 
     cfg["root"] = {
-        "handlers": ["file"],
+        "handlers": root_handlers,
         "level": log_level.upper(),
     }
     return cfg
