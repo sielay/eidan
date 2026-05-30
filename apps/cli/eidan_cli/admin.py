@@ -552,7 +552,10 @@ def _read_plugin_version_and_bundle(
     ``bundle.name`` stays ``None`` so the caller can fall back to the
     install-time bundle slug.
     """
-    raw = _load_manifest_raw(plugin_dir) or {}
+    try:
+        raw = _load_manifest_raw(plugin_dir) or {}
+    except UnicodeDecodeError:
+        raw = {}
     version = raw.get("version")
     if not isinstance(version, str) or not version:
         version = "0"
