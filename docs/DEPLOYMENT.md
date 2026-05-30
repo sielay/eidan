@@ -520,18 +520,34 @@ The repo ships two files you consume without editing:
   deploys pass nothing and behave like a stock build. The file
   itself documents every knob in its header.
 - `infra/fly/fly.toml.example` — the app config. Copy it **once**
-  into a path you control (your own ops repo, or a gitignored
-  `fly.toml` on your laptop) and edit `app`, `primary_region`,
-  and `EIDAN_HTTP_CORS_ORIGINS`. Your `fly.toml` never enters
-  this repo.
+  to the repo root as `fly.toml` and edit `app`, `primary_region`,
+  and `EIDAN_HTTP_CORS_ORIGINS`. The root `fly.toml` is gitignored
+  (see `/fly.toml` in `.gitignore`) so your copy never enters this
+  repo's history.
 
 ```bash
-# One-time, on your machine:
-cp infra/fly/fly.toml.example ~/ops/eidan-fly.toml
-$EDITOR ~/ops/eidan-fly.toml          # app name + region + CORS origin
+# One-time, at the repo root:
+cp infra/fly/fly.toml.example fly.toml
+$EDITOR fly.toml          # app name + region + CORS origin
 ```
 
-From here on, every `fly` command takes `-c ~/ops/eidan-fly.toml`.
+**Why the repo root, not your `~/ops` directory.** flyctl resolves
+`[build] dockerfile` and `--dockerfile` paths **relative to the
+config file's directory**. The example references
+`infra/fly/Dockerfile`, which only resolves correctly when
+`fly.toml` sits alongside `infra/`. If you put the copy under
+`~/ops/eidan-fly.toml` instead, fly will look for
+`~/ops/infra/fly/Dockerfile` and fail at build time.
+
+From here on, run every `fly` command from the repo root — flyctl
+auto-discovers `./fly.toml`, no `-c` flag needed.
+
+What about secrets? Never in `fly.toml`. Anything in the `[env]`
+block of `fly.toml` is plain config — visible in `fly config show`
+and in deploy logs, and it travels with the file. Use
+`fly secrets set --app <app> ...` for `DATABASE_URL`,
+`EIDAN_AUTH_MASTER_KEY`, provider API keys, SMTP creds, etc.
+(§4.3–§4.4 do this).
 
 ### 4.2 (reserved)
 
@@ -604,14 +620,15 @@ with a local provider — out of scope for this recipe.
 ### 4.5 Deploy + custom domain
 
 Core-only deploy from a vanilla checkout — no in-repo edits, no
-`infra/fly/fly.toml` (you use the copy you made in §4.1). The
-trailing `.` is the build context; run from the eidan checkout
-root so `--dockerfile infra/fly/Dockerfile` and the Dockerfile's
-`COPY` lines both resolve:
+inline `fly.toml` authoring (you use the gitignored copy you made
+in §4.1). Run from the eidan checkout root: flyctl auto-discovers
+`./fly.toml`, the `[build] dockerfile` entry there resolves to
+`./infra/fly/Dockerfile`, and the Dockerfile's `COPY` lines resolve
+against the same root (which is also the implicit build context):
 
 ```bash
 cd /path/to/your/eidan/checkout
-fly deploy -c ~/ops/eidan-fly.toml --dockerfile infra/fly/Dockerfile .
+fly deploy
 fly certs create --app eidan-api api.yourdomain.com
 # Add the A + AAAA records Fly prints, wait for "Issued".
 ```
@@ -629,12 +646,10 @@ private-org flow. The token is mounted via
 mkdir -p ~/.eidan
 install -m 0600 /dev/null ~/.eidan/github-token       # 0600 before any byte lands
 printf '%s' "$YOUR_GITHUB_PAT" > ~/.eidan/github-token
-fly deploy -c ~/ops/eidan-fly.toml \
-  --dockerfile infra/fly/Dockerfile \
+fly deploy \
   --build-arg EIDAN_BUNDLES=eidan-pro,eidan-lifestyle \
   --build-arg EIDAN_PLUGIN_SOURCE=gh:sielay \
-  --build-secret id=github_token,src=$HOME/.eidan/github-token \
-  .
+  --build-secret id=github_token,src=$HOME/.eidan/github-token
 ```
 
 (`install -m 0600 /dev/null ...` creates the file with mode `0600`
