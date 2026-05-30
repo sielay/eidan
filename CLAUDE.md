@@ -225,6 +225,30 @@ Breaking changes ship per-type, not per-package — bump the `$id` to
 `/v2.json`, keep the old shape as `<Name>V1.schema.json` for one
 release cycle. See `docs/004_SCHEMAS.md §9`.
 
+### Add a Python dependency
+
+1. Add the package to the relevant workspace member's
+   `pyproject.toml` (`apps/backend/pyproject.toml`,
+   `apps/cli/pyproject.toml`, etc.) — or run `uv add <pkg>` in
+   that directory, which edits the same file.
+2. Run `uv lock` at the **repo root**. The workspace lockfile is
+   shared across all members; refreshing it here keeps every
+   member's resolution consistent.
+3. Commit `pyproject.toml` and `uv.lock` together. The
+   `uv-lock-check` pre-commit hook + the `uv-lock-check` CI
+   workflow both block a commit / PR that updates one without
+   the other. The Fly image builds with `uv sync --frozen`, so a
+   missed lock refresh otherwise only fails at deploy time.
+
+`uv` itself is pinned to `0.11.15` in five places — bump all of
+these in one PR when upgrading:
+
+- `infra/fly/Dockerfile` (production image)
+- `.devcontainer/Dockerfile` (local dev container)
+- `.github/workflows/python-tests.yml` (CI test run)
+- `.github/workflows/uv-lock-check.yml` (CI drift gate)
+- `.pre-commit-config.yaml` (local drift gate)
+
 ### Add a new plugin
 
 1. Create `plugins/<name>/` with a `plugin.yaml`. Declare `tier:` in
