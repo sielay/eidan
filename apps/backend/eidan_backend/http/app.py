@@ -153,7 +153,20 @@ def _seed_plugins_volume_if_empty(resolved: Path) -> None:
         return
     if not _DEFAULT_PLUGINS_DIR.is_dir():
         return
-    children = [c for c in _DEFAULT_PLUGINS_DIR.iterdir() if c.is_dir()]
+    try:
+        children = [c for c in _DEFAULT_PLUGINS_DIR.iterdir() if c.is_dir()]
+    except OSError as exc:
+        # An unreadable image-baked plugins dir (permission denied,
+        # corrupt filesystem) must not crash the lifespan — the host
+        # boots without seeding and the operator can re-deploy with a
+        # fixed image. Same posture as the mkdir / copy error handlers
+        # below: log, return, never raise.
+        logger.warning(
+            "[plugins] could not list %s for seeding: %s",
+            _DEFAULT_PLUGINS_DIR,
+            exc,
+        )
+        return
     if not children:
         return
     # Prior boot may have left a half-finished `.seed-<name>.tmp/`
@@ -217,8 +230,23 @@ def _seed_plugins_volume_if_empty(resolved: Path) -> None:
 
 
 def _sweep_orphan_seed_tempdirs(resolved: Path) -> None:
-    """Remove ``.seed-*.tmp`` directories left behind by a prior crash."""
-    for child in resolved.iterdir():
+    """Remove ``.seed-*.tmp`` directories left behind by a prior crash.
+
+    Best-effort: an unreadable volume root logs a warning and returns
+    rather than raising. The seeder caller has already produced enough
+    boot-line context (mkdir / iterdir-on-image-dir warnings); a
+    second failure here would just bury the actual cause.
+    """
+    try:
+        entries = list(resolved.iterdir())
+    except OSError as exc:
+        logger.warning(
+            "[plugins] could not list %s to sweep orphan tempdirs: %s",
+            resolved,
+            exc,
+        )
+        return
+    for child in entries:
         if not child.is_dir():
             continue
         if not (child.name.startswith(".seed-") and child.name.endswith(".tmp")):

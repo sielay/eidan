@@ -1215,6 +1215,18 @@ def _apply_sync_install(source_spec: str, bundle: str) -> int:
         )
         return 1
     scheme, _, target = source_spec.partition(":")
+    if not target:
+        # ``local:`` would otherwise resolve to the CWD via
+        # ``plugin_install(from_dir="")`` and ``gh:`` would push an
+        # ``EIDAN_PLUGIN_SOURCE`` value the install path can't parse.
+        # Either is a lock that says "install from somewhere" without
+        # saying *where* — reject explicitly rather than fall through.
+        print(
+            f"error: plugins/.lock source {source_spec!r} is missing the "
+            f"target after {scheme!r} (expected '{scheme}:<org-or-path>').",
+            file=sys.stderr,
+        )
+        return 1
     if scheme == "local":
         return plugin_install(bundle, from_dir=target, force=True)
     if scheme == "gh":

@@ -288,3 +288,63 @@ def test_failed_copy_leaves_no_partial_target(
     # The other plugin's seed succeeded despite the sibling failure.
     assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
     assert sorted(calls) == ["core-plugin-a", "core-plugin-b"]
+
+
+def test_unreadable_image_default_does_not_crash_lifespan(
+    fake_image_default: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``OSError`` listing the image-baked dir must not propagate.
+
+    Permissions or corruption on the read side would otherwise crash
+    the lifespan during boot rather than just log a warning and
+    continue without seeding.
+    """
+    original_iterdir = Path.iterdir
+
+    def boom(self: Path) -> object:
+        if self == fake_image_default:
+            raise OSError("permission denied")
+        return original_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", boom)
+    volume = tmp_path / "volume"
+
+    with caplog.at_level("WARNING", logger=app_module.logger.name):
+        app_module._seed_plugins_volume_if_empty(volume)
+
+    assert any(
+        "could not list" in record.message for record in caplog.records
+    )
+    # Nothing was seeded — the seeder bailed out cleanly.
+    assert not (volume / "core-plugin-a").exists()
+
+
+def test_unreadable_volume_during_sweep_does_not_crash_lifespan(
+    fake_image_default: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``OSError`` listing the volume in the sweep must not propagate."""
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    original_iterdir = Path.iterdir
+
+    def boom(self: Path) -> object:
+        if self == volume:
+            raise OSError("permission denied")
+        return original_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", boom)
+
+    with caplog.at_level("WARNING", logger=app_module.logger.name):
+        app_module._sweep_orphan_seed_tempdirs(volume)
+
+    assert any(
+        "could not list" in record.message
+        and "sweep" in record.message
+        for record in caplog.records
+    )

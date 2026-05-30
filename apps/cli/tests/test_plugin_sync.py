@@ -339,3 +339,26 @@ def test_sync_no_prune_hints_at_extras(
     assert "no changes planned" in out
     assert "example-bar" in out
     assert "--prune" in out
+
+
+def test_apply_sync_install_rejects_empty_target_after_scheme(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A lock row of ``local:`` or ``gh:`` has the scheme but no target.
+
+    Without an explicit check, ``plugin_install(from_dir="")`` would
+    resolve to the CWD (``local:``) or the install path would push an
+    unparseable ``EIDAN_PLUGIN_SOURCE`` (``gh:``). Either is a silent
+    foot-gun; sync must refuse with a non-zero exit and a clear error.
+    """
+    rc = admin._apply_sync_install("local:", bundle="anything")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "missing the target" in err
+    assert "'local:<org-or-path>'" in err
+
+    rc = admin._apply_sync_install("gh:", bundle="anything")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "missing the target" in err
+    assert "'gh:<org-or-path>'" in err
