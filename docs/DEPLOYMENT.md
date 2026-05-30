@@ -650,6 +650,11 @@ fly certs create --app eidan-api api.yourdomain.com
 # Add the A + AAAA records Fly prints, wait for "Issued".
 ```
 
+The custom domain is **not cosmetic** — the backend hostname must share
+its registrable domain with the frontend or the refresh-token cookie
+goes third-party and `SameSite=Lax` drops it. See [§6.1](#61-backend-custom-domain-is-load-bearing)
+before picking a name.
+
 To install paid bundles **at image-build time** (no fork, no source
 checkout of the bundle on this machine), pass `EIDAN_BUNDLES` +
 `EIDAN_PLUGIN_SOURCE` as build args and the GitHub token as a
@@ -976,6 +981,43 @@ safe). Rotating it later means losing the contents of
 Multi-instance has no per-instance auth state to synchronise —
 every host reads the keypair from Postgres at boot.
 
+### 6.1 Backend custom domain is load-bearing
+
+The verify endpoint sets `eidan_refresh` as an `httpOnly; SameSite=Lax`
+cookie scoped to `/api/auth/refresh`. That cookie is what keeps the
+session alive across access-token expiries — without it, the SPA falls
+back to a fresh magic-link round-trip on every reload.
+
+`SameSite=Lax` requires the request that triggers the cookie's send to
+be **same-site** with the cookie's origin. "Same-site" here is the
+**registrable domain** (eTLD+1), not the hostname:
+
+| Frontend host         | Backend host             | Cookie sent? |
+|-----------------------|--------------------------|--------------|
+| `app.example.com`     | `api.example.com`        | yes — same registrable domain (`example.com`) |
+| `example.com`         | `api.example.com`        | yes — same registrable domain |
+| `app.example.com`     | `eidan-api.fly.dev`      | **no — third-party, browser drops `Set-Cookie`** |
+| `app.example.com`     | `api.other-tld.dev`      | **no — different registrable domain** |
+
+Practical consequence: **before you pick a frontend domain, pick a
+backend custom domain that shares its registrable domain.** The Fly
+recipe in §4.5 already includes the cert step:
+
+```bash
+fly certs create --app eidan-api api.yourdomain.com
+# add the CNAME / A+AAAA records Fly prints, wait for "Issued".
+```
+
+then set `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.yourdomain.com` in
+the frontend (§8) and add the frontend origin to
+`EIDAN_HTTP_CORS_ORIGINS` in your `fly.toml` (§4.1).
+
+`SameSite=None; Secure` would also paper over a cross-registrable-domain
+shape, but it is the dead-man-walking option: Safari ITP blocks it
+already, Brave blocks it by default, and Chrome's third-party cookie
+deprecation kills it on the rest. The custom-domain shape is the only
+path that keeps working.
+
 ---
 
 ## 7. Reference: Database
@@ -1014,7 +1056,11 @@ recipe above; spelled out once here.
    `apps/web/.next` (default).
 3. **Environment variables**:
    - `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.yourdomain.com`
-     (or wherever the recipe's backend lives).
+     (or wherever the recipe's backend lives). The backend host MUST
+     share its registrable domain with the frontend host configured in
+     step 4 — see [§6.1](#61-backend-custom-domain-is-load-bearing).
+     Pointing at `eidan-api.fly.dev` while the frontend is on
+     `app.yourdomain.com` will silently break the refresh cookie.
 4. Deploy. Set the production domain to `app.yourdomain.com`
    under **Settings → Domains**.
 5. Smoke-check: visit `https://app.yourdomain.com`, click sign-in.
