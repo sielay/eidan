@@ -263,6 +263,17 @@ EIDAN_DEFAULT_MODEL=phi3
 # EIDAN_NODE_ID=pi-kasha
 # EIDAN_NODE_TYPE=pi
 
+# --- Plugin discovery (paid bundles — see §3.11) -------------------
+# Where the backend reads plugins from at boot. Defaults to the
+# in-repo `/opt/eidan/plugins/` baked into the git tree. Uncomment
+# to swap to a writable directory outside the git clone so
+# `eidan admin plugin install` can land paid bundles without
+# colliding with `git pull`. On first boot the backend seeds
+# the override with the in-repo `tier: core` plugins so the host
+# is immediately functional; subsequent `plugin install` calls
+# land alongside them.
+# EIDAN_PLUGINS_DIR=/var/lib/eidan/plugins
+
 # --- Sentry plugin (per-plugin override) ---------------------------
 # Sentry pins its own model so it stays cheap even when the host's
 # default model gets swapped later. Phase 1 detectors are
@@ -427,7 +438,70 @@ journalctl -u eidan-backend | grep sentry
 To pause it (e.g. during noisy testing): `EIDAN_SENTRY_ENABLED=0`
 in `eidan.env`, then `sudo systemctl restart eidan-backend`.
 
-### 3.11 Updating
+### 3.11 Paid bundle install — optional
+
+Skip this section if you only need the open-source core. To add paid
+bundles to a Pi the shape mirrors [§4.6](#46-runtime-plugin-install-fly-volume)
+(Fly runtime install) — a writable plugins directory outside the git
+clone, then `eidan admin plugin install` against it. The Pi has no
+Fly volume; a plain directory under `/var/lib/eidan/` plays the same
+role.
+
+**One-time setup.** Create the directory, uncomment
+`EIDAN_PLUGINS_DIR` in `/etc/eidan/eidan.env` (§3.6), then restart:
+
+```bash
+sudo install -d -m 0755 -o eidan -g eidan /var/lib/eidan/plugins
+sudo $EDITOR /etc/eidan/eidan.env       # uncomment EIDAN_PLUGINS_DIR
+sudo systemctl restart eidan-backend
+```
+
+On first boot the backend copies any in-repo `tier: core` plugin
+that is not already on the override directory into it. The seed is
+per-plugin and idempotent — partial-seed crashes (disk full,
+transient IO) heal on the next boot rather than leaving the
+directory permanently short of some core plugins. Look for a single
+summary log line:
+
+```bash
+sudo journalctl -u eidan-backend | grep '\[plugins\]'
+# [plugins] seeded N image-baked plugin(s) into /var/lib/eidan/plugins: ...
+```
+
+The backend is functional immediately — Sentry, core handlers, etc.
+land in the seed. Subsequent restarts that find every in-repo
+plugin already present emit no seed line at all (nothing to copy).
+
+**Install the bundle(s).** `eidan admin plugin install` reads the
+target directory from `EIDAN_PLUGINS_DIR`, clones the bundle's GitHub
+repo using `EIDAN_PLUGIN_SOURCE` + `EIDAN_GITHUB_TOKEN`, and (if
+`DATABASE_URL` is set in the install shell) auto-runs the bundle's
+private-schema migrations. Source `eidan.env` first so the
+`DATABASE_URL` from §3.6 is in scope:
+
+```bash
+sudo -u eidan bash -lc '
+  set -a; source /etc/eidan/eidan.env; set +a
+  export EIDAN_PLUGIN_SOURCE=gh:<org>
+  export EIDAN_GITHUB_TOKEN=<paste-your-PAT>
+  /home/eidan/.local/bin/uv --directory /opt/eidan run \
+    eidan admin plugin install <bundle>
+'
+sudo systemctl restart eidan-backend      # picks up the new plugins
+```
+
+The install writes both the plugin trees AND a row per plugin to
+`/var/lib/eidan/plugins/.lock`. The lock survives `git pull` of
+core because it lives outside `/opt/eidan/`. See §3.12 for the
+matching update flow.
+
+`EIDAN_GITHUB_TOKEN` is intentionally exported in the install shell
+only — keeping it out of `/etc/eidan/eidan.env` means the long-lived
+service process never has it in its environment. If you prefer a
+file, write it 0600 to `~eidan/.eidan/github-token` and `source` it
+into the install shell ad-hoc.
+
+### 3.12 Updating
 
 The Pi is the simplest update story — pull the next tagged
 release, re-sync the venv, run any new migrations, restart the
@@ -470,6 +544,35 @@ sudo systemctl start eidan-backend
 
 The release notes flag which migrations are destructive; assume
 additive when not stated.
+
+**Paid bundle updates.** `git pull` updates core; it does not touch
+the bundle plugins under `EIDAN_PLUGINS_DIR`. To bump bundle pins,
+edit `/var/lib/eidan/plugins/.lock` (the file written by §3.11's
+install — YAML, hand-editable, one entry per plugin) and reconcile:
+
+```bash
+sudo -u eidan bash -lc '
+  set -a; source /etc/eidan/eidan.env; set +a
+  export EIDAN_GITHUB_TOKEN=<paste-your-PAT>
+  /home/eidan/.local/bin/uv --directory /opt/eidan run \
+    eidan admin plugin sync --dry-run
+'
+# Plan only — prints which bundles will be installed / upgraded /
+# pruned, makes no changes.
+
+sudo -u eidan bash -lc '
+  set -a; source /etc/eidan/eidan.env; set +a
+  export EIDAN_GITHUB_TOKEN=<paste-your-PAT>
+  /home/eidan/.local/bin/uv --directory /opt/eidan run \
+    eidan admin plugin sync --prune
+'
+sudo systemctl restart eidan-backend
+```
+
+`--prune` removes bundle plugins no longer in the lock; it never
+touches the in-repo `tier: core` plugins seeded from `/opt/eidan/`,
+so the seeded inventory is safe. Sync re-uses `EIDAN_PLUGIN_SOURCE`
+recorded in each lock row, so it doesn't need to be re-exported.
 
 **Auto-update cron.** A cron job that pulls and restarts is the
 usual hands-off shape; just remember to skip auto-update during
