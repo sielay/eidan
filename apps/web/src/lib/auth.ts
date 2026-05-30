@@ -19,8 +19,9 @@
  *     <60s remain, refresh first.
  */
 
-const BACKEND_BASE: string =
-  process.env.NEXT_PUBLIC_EIDAN_BACKEND_URL ?? "";
+const BACKEND_BASE: string = (
+  process.env.NEXT_PUBLIC_EIDAN_BACKEND_URL ?? ""
+).replace(/\/+$/, "");
 
 interface AccessTokenSlot {
   token: string;
