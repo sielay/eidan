@@ -131,13 +131,21 @@ async def send_magic_link_email(
             start_tls=settings.starttls,
             timeout=10,
         )
+        logger.info(
+            "[auth-native] SMTP delivered to=%s via=%s:%s",
+            to_email,
+            settings.host,
+            settings.port,
+        )
         return True
     except asyncio.CancelledError:
         # Honour cancellation — don't swallow it as a generic error.
         raise
     except Exception as exc:  # noqa: BLE001 — never fail login on SMTP outage
         logger.warning(
-            "[auth-native] SMTP send failed (link is in the log above): %s",
+            "[auth-native] SMTP send failed via=%s:%s (link is in the log above): %s",
+            settings.host,
+            settings.port,
             exc,
         )
         return False
