@@ -1,19 +1,20 @@
 # Example Fly.io app config for an eidan backend.
 #
-# This file is shipped as an EXAMPLE on purpose: you copy it once into
-# a path you manage yourself (your own ops repo, or just a gitignored
-# `fly.toml` somewhere on your laptop) and point `fly deploy -c` at
-# your copy. Upstream eidan never carries your `app = ...` value or
-# domain, so a `git pull` from upstream can never disturb your deploy.
+# This file is shipped as an EXAMPLE on purpose: copy it once to the
+# repo root as `fly.toml` (gitignored — see /fly.toml in .gitignore)
+# and edit your copy. The `[build] dockerfile` path below is resolved
+# by flyctl **relative to the config file's directory**, which is why
+# the copy must live at the repo root, alongside `infra/`. Upstream
+# eidan never carries your `app = ...` value or domain, so a `git
+# pull` from upstream can never disturb your deploy.
 #
 # Workflow (full recipe in docs/DEPLOYMENT.md §4):
 #
-#   1. cp infra/fly/fly.toml.example ~/ops/eidan/fly.toml
+#   1. cp infra/fly/fly.toml.example fly.toml      # at the repo root
 #   2. Edit `app`, `primary_region`, `EIDAN_HTTP_CORS_ORIGINS`.
 #   3. Set secrets (NEVER in this file): `fly secrets set --app <app> ...`.
-#   4. fly deploy -c ~/ops/eidan/fly.toml \
-#        --dockerfile infra/fly/Dockerfile \
-#        --build-arg EIDAN_BUNDLES=...  (optional)
+#   4. fly deploy                                   # auto-picks ./fly.toml
+#        --build-arg EIDAN_BUNDLES=...              # (optional)
 #
 # Only non-secret runtime config belongs in [env]. Secrets live in
 # `fly secrets set` and are surfaced to the process as env vars at
