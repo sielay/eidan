@@ -105,6 +105,31 @@ def test_read_lock_missing_plugins_key_raises(tmp_path: Path) -> None:
         plugin_lock.read_lock(tmp_path)
 
 
+def test_read_lock_non_utf8_raises(tmp_path: Path) -> None:
+    """A non-UTF8 hand-edit must surface as ``LockFileError``.
+
+    The lock is operator-editable. An editor that wrote CP1252 /
+    latin-1 / etc. would otherwise raise ``UnicodeDecodeError`` from
+    ``read_text(encoding="utf-8")``, crashing the CLI instead of
+    routing through the "fix your lock" exit path.
+    """
+    (tmp_path / ".lock").write_bytes(b"schema: 1\nplugins:\n  - name: \xff\n")
+    with pytest.raises(plugin_lock.LockFileError):
+        plugin_lock.read_lock(tmp_path)
+
+
+def test_read_lock_duplicate_names_raises(tmp_path: Path) -> None:
+    """Two rows for the same plugin name are ambiguous; reject."""
+    (tmp_path / ".lock").write_text(
+        "schema: 1\n"
+        "plugins:\n"
+        "  - name: foo\n    version: 0.1.0\n    bundle: bx\n    source: gh:org\n"
+        "  - name: foo\n    version: 0.2.0\n    bundle: bx\n    source: gh:org\n"
+    )
+    with pytest.raises(plugin_lock.LockFileError):
+        plugin_lock.read_lock(tmp_path)
+
+
 def test_read_lock_missing_field_raises(tmp_path: Path) -> None:
     (tmp_path / ".lock").write_text(
         "schema: 1\nplugins:\n  - name: alpha\n    version: 0.1.0\n    bundle: ba\n"

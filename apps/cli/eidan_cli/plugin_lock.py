@@ -82,7 +82,12 @@ def read_lock(plugins_dir: Path) -> list[LockEntry]:
         return []
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        # ``UnicodeDecodeError`` reaches here when an operator hand-edits
+        # the lock in an editor that wrote non-UTF8 (CP1252 smart quotes,
+        # latin-1, etc.). The lock is an operator-facing file; a decode
+        # failure must surface as a normal LockFileError so the CLI's
+        # "fix your lock" exit path runs, not an unhandled traceback.
         raise LockFileError(f"could not read {path}: {exc}") from exc
     if raw is None:
         raise LockFileError(
@@ -107,6 +112,7 @@ def read_lock(plugins_dir: Path) -> list[LockEntry]:
     if not isinstance(plugins, list):
         raise LockFileError(f"{path}: 'plugins' must be a list")
     out: list[LockEntry] = []
+    seen_names: set[str] = set()
     for idx, item in enumerate(plugins):
         if not isinstance(item, dict):
             raise LockFileError(
@@ -118,9 +124,21 @@ def read_lock(plugins_dir: Path) -> list[LockEntry]:
                 raise LockFileError(
                     f"{path}: plugins[{idx}] missing/empty '{field}'"
                 )
+        # The lock is per-plugin (one row per ``plugins/<name>/`` dir);
+        # two rows for the same name are ambiguous — would sync install
+        # the first or the second version? Reject explicitly rather than
+        # silently picking one and letting the operator wonder why their
+        # hand-edit didn't take.
+        name = item["name"]
+        if name in seen_names:
+            raise LockFileError(
+                f"{path}: plugins[{idx}] duplicates name {name!r}; "
+                f"each plugin must have exactly one row."
+            )
+        seen_names.add(name)
         out.append(
             LockEntry(
-                name=item["name"],
+                name=name,
                 version=item["version"],
                 bundle=item["bundle"],
                 source=item["source"],

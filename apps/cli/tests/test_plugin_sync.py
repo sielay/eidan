@@ -204,6 +204,45 @@ def test_sync_prune_removes_orphan_bundle_plugins(
     assert (plugins_dir / "example-foo" / "plugin.yaml").is_file()
 
 
+def test_sync_prune_recomputes_after_install_picks_up_new_deps(
+    plugins_dir: Path, stub_remove: None
+) -> None:
+    """``--prune`` removes transitive deps pulled in by sync's own installs.
+
+    Scenario: the operator's lock declares ``example-bundle``'s own
+    plugins (foo + bar) but omits the transitive baseline plugin. The
+    install path auto-resolves ``bundle.yaml`` ``depends_on``, so a
+    sync install lands ``example-baseline-plugin`` on disk too. That
+    new directory is a bundle-installed plugin not in the lock — i.e.
+    a legitimate prune candidate. The pre-install prune plan was
+    empty (the dep didn't exist yet on disk), so the executor must
+    recompute against post-install state to converge in one run.
+    """
+    operator_lock = [
+        plugin_lock.LockEntry(
+            name="example-foo",
+            version="0.1.0",
+            bundle="example-bundle",
+            source=f"local:{FIXTURES}",
+        ),
+        plugin_lock.LockEntry(
+            name="example-bar",
+            version="0.1.0",
+            bundle="example-bundle",
+            source=f"local:{FIXTURES}",
+        ),
+    ]
+    plugin_lock.write_lock(plugins_dir, operator_lock)
+
+    rc = admin.plugin_sync(dry_run=False, prune=True)
+    assert rc == 0
+    # Locked plugins land.
+    assert (plugins_dir / "example-foo" / "plugin.yaml").is_file()
+    assert (plugins_dir / "example-bar" / "plugin.yaml").is_file()
+    # Transitive dep is pruned in the same run (was not in lock).
+    assert not (plugins_dir / "example-baseline-plugin").exists()
+
+
 def test_sync_prune_never_touches_repo_shipped_plugin(
     plugins_dir: Path, stub_remove: None
 ) -> None:

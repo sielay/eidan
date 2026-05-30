@@ -1304,30 +1304,45 @@ def plugin_sync(*, dry_run: bool = False, prune: bool = False) -> int:
         else:
             os.environ["EIDAN_PLUGIN_INSTALL_NO_LOCK"] = saved_no_lock
 
-    if prune and plan.prune:
-        try:
-            database_url = _need_database_url()
-        except SystemExit as exc:
-            return int(exc.code) if isinstance(exc.code, int) else 2
-        for name in plan.prune:
+    if prune:
+        # Recompute the prune set against the post-install disk state.
+        # A bundle reinstall above can transitively pull in NEW dep
+        # plugins (the install path auto-resolves ``bundle.yaml``
+        # ``depends_on``). Those dep plugins land as bundle-installed
+        # directories that aren't in the operator's lock, so they are
+        # legitimate prune candidates — but the pre-install plan was
+        # computed before they existed, so a single ``--prune`` run
+        # would miss them and the operator would need to re-run sync.
+        # Reading the disk again here makes one sync pass converge.
+        installed_after = _installed_views_for_sync(PLUGINS_DIR)
+        plan_after = plugin_lock.plan_sync(
+            lock_entries, installed_after, prune=True
+        )
+        if plan_after.prune:
             try:
-                # ``by_plugin_name_only=True`` is the safety guard for
-                # the bundle/plugin name overload in `plugin remove`:
-                # the planner emits plugin names, but `_do_remove`
-                # would otherwise resolve a bundle-name match first
-                # and take the whole bundle down — including plugins
-                # the lock explicitly declares should stay.
-                removed = _do_remove(
-                    name,
-                    plugins_dir=PLUGINS_DIR,
-                    database_url=database_url,
-                    by_plugin_name_only=True,
-                )
-            except PluginRemoveError as exc:
-                print(str(exc), file=sys.stderr)
-                return 1
-            for rname in removed:
-                print(f"pruned plugins/{rname}/")
+                database_url = _need_database_url()
+            except SystemExit as exc:
+                return int(exc.code) if isinstance(exc.code, int) else 2
+            for name in plan_after.prune:
+                try:
+                    # ``by_plugin_name_only=True`` is the safety guard
+                    # for the bundle/plugin name overload in
+                    # `plugin remove`: the planner emits plugin names,
+                    # but `_do_remove` would otherwise resolve a
+                    # bundle-name match first and take the whole
+                    # bundle down — including plugins the lock
+                    # explicitly declares should stay.
+                    removed = _do_remove(
+                        name,
+                        plugins_dir=PLUGINS_DIR,
+                        database_url=database_url,
+                        by_plugin_name_only=True,
+                    )
+                except PluginRemoveError as exc:
+                    print(str(exc), file=sys.stderr)
+                    return 1
+                for rname in removed:
+                    print(f"pruned plugins/{rname}/")
 
     return 0
 

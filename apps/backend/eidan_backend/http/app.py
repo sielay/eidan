@@ -78,7 +78,13 @@ def _read_plugin_tier(plugin_dir: Path) -> str | None:
         return None
     try:
         raw = yaml.safe_load(manifest.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        # ``UnicodeDecodeError`` covers a manifest written in something
+        # other than UTF-8 (rare in our shipped plugins, but possible
+        # in a baked image that pulled in a third-party bundle). Falling
+        # through to ``return None`` matches the OSError / YAMLError
+        # posture: the host loader will refuse the plugin with its own
+        # diagnostic, and the seeder must not crash the lifespan.
         return None
     if not isinstance(raw, dict):
         return None
