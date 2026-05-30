@@ -58,7 +58,11 @@ echo "$fails" > "$STATE_FILE"
 if [ "$fails" -ge "$THRESHOLD" ]; then
     logger -t eidan-healthcheck "FAIL #$fails — restarting $SERVICE"
     rm -f "$STATE_FILE"
-    systemctl restart "$SERVICE"
+    if ! systemctl restart "$SERVICE"; then
+        exit 2
+    fi
+    exit 1
 else
     logger -t eidan-healthcheck "FAIL #$fails (threshold $THRESHOLD) — not restarting yet"
+    exit 1
 fi
