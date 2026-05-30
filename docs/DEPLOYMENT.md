@@ -674,9 +674,21 @@ fly deploy \
 world-readable state — a plain `echo > file` honours the shell's
 umask and may leave the file readable to other local users.)
 
-(Swapping bundles without rebuilding the image requires runtime
-plugin install to a Fly volume — currently roadmap, see
-[ROADMAP.md](./ROADMAP.md).)
+**Alternative: deploy a published image.** Tagged releases land at
+`ghcr.io/sielay/eidan:vX.Y.Z`; an operator who doesn't want to build
+locally can skip the Dockerfile and the build args entirely:
+
+```bash
+fly deploy -c ~/ops/eidan-fly.toml --image ghcr.io/sielay/eidan:v0.1.0
+```
+
+The published image is core-only — paid bundles install at runtime
+(see §4.6) rather than at build time, so there is one image per
+release rather than one per (release × bundle set). The publishing
+pipeline lives outside this repo (the landing repo's release
+workflow); this repo is never aware of which registry the image
+lands in, so a `git pull` from upstream never changes who the deploy
+trusts.
 
 Run migrations (one-off, against the Fly Postgres). Use `eidan
 admin db migrate` rather than bare `alembic` so the runner picks
@@ -697,11 +709,100 @@ curl https://api.yourdomain.com/api/auth/config
 # Expect {"provider":"native", ...}
 ```
 
-### 4.6 Frontend
+### 4.6 Runtime plugin install (Fly volume)
+
+The §4.5 recipes install paid bundles at *image-build time* — every
+bundle swap means a rebuild. Mount a writable Fly volume at
+`/var/lib/eidan/plugins` instead, and `eidan admin plugin install`
+can be re-run against the live machine without a redeploy.
+
+**One-time setup.** Create the volume, uncomment the mount + env
+block in your `fly.toml` (the [`fly.toml.example`](../infra/fly/fly.toml.example)
+sibling has both blocks pre-written and commented out), then
+redeploy:
+
+```bash
+fly volumes create eidan_plugins --app eidan-api --size 1 -r lhr
+$EDITOR ~/ops/eidan-fly.toml         # uncomment EIDAN_PLUGINS_DIR + [[mounts]]
+fly deploy -c ~/ops/eidan-fly.toml --image ghcr.io/sielay/eidan:v0.1.0
+```
+
+On first boot the backend copies any image-baked tier:core plugin
+that is not already on the volume into it. The seed is per-plugin
+and idempotent — partial-seed crashes (disk full, OOM, transient IO)
+heal on the next boot rather than leaving the volume permanently
+short of some core plugins. Look for a single summary log line in
+`fly logs`:
+
+```
+[plugins] seeded N image-baked plugin(s) into /var/lib/eidan/plugins: a, b, c
+```
+
+The machine is functional immediately — sentry, core handlers, etc.
+are present from the seed. Subsequent boots that find every
+image-baked plugin already present emit no seed line at all (nothing
+to copy).
+
+**Adding a paid bundle at runtime.** No rebuild, no redeploy — open
+a console on the running machine and run the install:
+
+```bash
+fly ssh console --app eidan-api -C '
+  export EIDAN_PLUGIN_SOURCE=gh:sielay
+  export EIDAN_GITHUB_TOKEN=<paste-your-PAT>
+  eidan admin plugin install eidan-pro
+'
+fly machines restart --app eidan-api    # picks up the new plugins
+```
+
+The install writes both the plugin trees AND a row per plugin to
+`/var/lib/eidan/plugins/.lock`. The lock is durable across image
+upgrades because it lives on the volume, not in the image.
+
+**Declarative reconciliation: `eidan admin plugin sync`.** The lock
+file is the operator's source of truth — what *should* be installed.
+After hand-editing the lock (e.g. to swap `eidan-lifestyle` for
+`eidan-business`), reconcile the live tree against it:
+
+```bash
+fly ssh console --app eidan-api -C 'eidan admin plugin sync --dry-run'
+# Plan only — prints which bundles will be installed / upgraded /
+# pruned, makes no changes.
+
+fly ssh console --app eidan-api -C 'eidan admin plugin sync --prune'
+# Apply. --prune removes bundle plugins no longer in the lock; it
+# never touches repo-shipped core plugins (no `bundle:` stanza), so
+# the seeded tier:core inventory is safe.
+```
+
+Sync re-uses `EIDAN_PLUGIN_SOURCE` recorded in each lock row — set
+`EIDAN_GITHUB_TOKEN` on the console for gh-source rows. The lock
+is YAML and hand-editable; one entry per plugin:
+
+```yaml
+schema: 1
+plugins:
+  - name: calendar
+    version: 0.1.0
+    bundle: eidan-pro
+    source: gh:sielay
+  - name: imap
+    version: 0.1.0
+    bundle: eidan-pro
+    source: gh:sielay
+```
+
+**Migration story for image-baked deploys.** Machines already
+deployed without the volume keep working — the env override is the
+only switch, and unsetting it (or never setting it) falls back to
+the image-baked `/app/plugins` exactly as before. There is no
+forced cutover; operators opt in by mounting the volume.
+
+### 4.7 Frontend
 
 Follow §8. `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.yourdomain.com`.
 
-### 4.7 Optional: CI deploy
+### 4.8 Optional: CI deploy
 
 This repo intentionally does **not** carry a `.github/workflows/`
 deploy entry — the public mirror should not ship CI that talks to
