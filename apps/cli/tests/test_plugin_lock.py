@@ -274,3 +274,46 @@ def test_write_lock_wraps_oserror_as_lockfile_error(
                 )
             ],
         )
+
+
+def test_write_lock_cleans_up_tempfile_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed ``write_lock`` must not leave ``.lock.tmp`` behind.
+
+    ``write_text`` (partial write on disk-full) or ``replace``
+    (cross-device, permission flip) can leave the sibling tempfile
+    on disk after the failure. Without best-effort cleanup, the
+    next operator ``ls`` shows a stray ``.lock.tmp`` next to the
+    real lock and they wonder which one is authoritative. The
+    cleanup is best-effort: the original ``OSError`` is what we
+    want to surface, not a secondary unlink failure.
+    """
+    real_write_text = Path.write_text
+
+    def _flaky_write_text(
+        self: Path, *args: object, **kwargs: object
+    ) -> object:
+        if self.name == plugin_lock.LOCK_FILENAME + ".tmp":
+            # Write part of the file then fail, modelling a disk-full
+            # mid-write rather than a write that never started.
+            real_write_text(self, "partial\n", encoding="utf-8")
+            raise OSError("disk full")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", _flaky_write_text)
+    with pytest.raises(plugin_lock.LockFileError):
+        plugin_lock.write_lock(
+            tmp_path,
+            [
+                plugin_lock.LockEntry(
+                    name="alpha",
+                    version="0.1.0",
+                    bundle="ba",
+                    source="gh:org",
+                )
+            ],
+        )
+
+    assert not (tmp_path / (plugin_lock.LOCK_FILENAME + ".tmp")).exists()
+    assert not (tmp_path / plugin_lock.LOCK_FILENAME).exists()

@@ -1289,7 +1289,26 @@ def plugin_sync(*, dry_run: bool = False, prune: bool = False) -> int:
     an upstream ``git pull`` will put back next deploy.
 
     ``--dry-run`` prints the plan without applying it.
+
+    ``--prune`` requires the lock to exist on disk. A missing lock is
+    indistinguishable from "operator declares nothing installed" in
+    :func:`plugin_lock.read_lock` (returns ``[]``), and pruning against
+    that would delete every bundle-installed plugin on the live
+    machine — a high-impact foot-gun if the lock was lost to an upgrade
+    migration or accidental ``rm``. Refuse explicitly; an operator who
+    truly wants the empty-install state can ``touch`` a lock with
+    ``schema: 1`` / ``plugins: []`` and re-run.
     """
+    if prune and not plugin_lock.lock_path(PLUGINS_DIR).is_file():
+        print(
+            f"error: plugins/.lock is missing; refusing to run with --prune "
+            f"because that would treat every bundle-installed plugin as "
+            f"drift and delete it. Create an explicit empty lock "
+            f"(`schema: {plugin_lock.LOCK_SCHEMA_VERSION}`, `plugins: []`) "
+            f"to proceed with no declared installs.",
+            file=sys.stderr,
+        )
+        return 1
     try:
         lock_entries = plugin_lock.read_lock(PLUGINS_DIR)
     except plugin_lock.LockFileError as exc:

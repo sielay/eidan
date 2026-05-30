@@ -188,6 +188,18 @@ def write_lock(plugins_dir: Path, entries: list[LockEntry]) -> None:
         tmp.write_text(text, encoding="utf-8")
         tmp.replace(target)
     except OSError as exc:
+        # ``write_text`` (partial write on disk-full) or ``replace``
+        # (cross-device, permission flip) can leave the sibling tempfile
+        # behind. The CLI surfaces the wrapped error and continues, so
+        # without cleanup the next ``ls`` shows a stray ``.lock.tmp``
+        # alongside the real lock and operators wonder which is
+        # authoritative. Best-effort unlink keeps the directory tidy;
+        # swallow any secondary OSError because the original failure is
+        # what the caller needs to see.
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise LockFileError(f"could not write {target}: {exc}") from exc
 
 

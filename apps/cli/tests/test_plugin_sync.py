@@ -248,7 +248,10 @@ def test_sync_prune_never_touches_repo_shipped_plugin(
 ) -> None:
     # Drop a plugin into the tree with no bundle stanza — the repo-
     # shipped shape. With prune on and no lock entry, it must NOT be
-    # removed.
+    # removed. Write an explicit empty lock so the missing-lock guard
+    # doesn't short-circuit — the prune-vs-bundle-stanza policy is
+    # what this test is actually exercising.
+    (plugins_dir / ".lock").write_text("schema: 1\nplugins: []\n")
     (plugins_dir / "repo-core").mkdir()
     (plugins_dir / "repo-core" / "plugin.yaml").write_text(
         "schema: 1\nname: repo-core\nversion: 0.1.0\ntier: core\n"
@@ -427,6 +430,59 @@ def test_sync_no_prune_hints_at_extras(
     assert "no changes planned" in out
     assert "example-bar" in out
     assert "--prune" in out
+
+
+def test_sync_prune_refuses_when_lock_file_missing(
+    plugins_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``plugin sync --prune`` refuses if ``plugins/.lock`` is absent.
+
+    Without this guard, ``read_lock()`` returns ``[]`` for a missing
+    file and ``--prune`` would treat every bundle-installed plugin on
+    disk as drift and delete it. That's a high-impact foot-gun when
+    the lock was lost to an upgrade migration, a tooling bug, or an
+    accidental ``rm``. Sync MUST refuse and tell the operator how to
+    declare the empty-install state explicitly.
+    """
+    # Make sure no lock file exists; drop a bundle-installed plugin
+    # on disk so the would-be prune set is non-empty (to make the
+    # blast radius obvious to anyone reading the test).
+    lock = plugin_lock.lock_path(plugins_dir)
+    assert not lock.exists()
+    pdir = plugins_dir / "would-be-orphan"
+    pdir.mkdir()
+    (pdir / "plugin.yaml").write_text(
+        "schema: 1\n"
+        "name: would-be-orphan\n"
+        "version: 0.1.0\n"
+        "bundle:\n  name: bundle-z\n"
+    )
+
+    rc = admin.plugin_sync(prune=True)
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "plugins/.lock is missing" in err
+    assert "--prune" in err
+    assert "plugins: []" in err
+    # The on-disk plugin survived because sync bailed before any
+    # pruning logic ran.
+    assert pdir.is_dir()
+
+
+def test_sync_without_prune_still_works_when_lock_missing(
+    plugins_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``plugin sync`` (no ``--prune``) on a missing lock is a clean no-op.
+
+    The missing-lock guard is specific to ``--prune`` because that is
+    the only path with destructive blast radius from the empty-list
+    fallback. Plain sync against an empty desired set just installs
+    nothing — fine.
+    """
+    rc = admin.plugin_sync()
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "in sync" in out
 
 
 def test_apply_sync_install_rejects_empty_target_after_scheme(
