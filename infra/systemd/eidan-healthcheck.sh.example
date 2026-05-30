@@ -2,8 +2,10 @@
 # Example backend healthcheck + restart guard for a self-hosted
 # eidan deploy (bare metal / Raspberry Pi / long-lived VM).
 #
-# Copy once and edit your copy — this file ships as an EXAMPLE so a
-# `git pull` from upstream can never disturb your installed script:
+# Copy once and leave it alone — this file ships as a generic
+# EXAMPLE so a `git pull` from upstream can never disturb your
+# installed script. Per-deploy values belong in the unit file's
+# `Environment=` lines (see below), NOT in this script:
 #
 #   sudo install -m 0755 infra/systemd/eidan-healthcheck.sh.example \
 #       /usr/local/bin/eidan-healthcheck.sh
@@ -41,7 +43,11 @@ THRESHOLD="${EIDAN_HEALTHCHECK_THRESHOLD:-2}"
 SERVICE="${EIDAN_HEALTHCHECK_SERVICE:-eidan-backend}"
 STATE_FILE="${EIDAN_HEALTHCHECK_STATE:-/run/eidan-healthcheck.fails}"
 
-if curl -fsS --max-time "$TIMEOUT" -o /dev/null "$URL" 2>/dev/null; then
+# Keep stderr — `-S` surfaces curl's failure reason ("connection
+# refused", "operation timed out", …) and systemd captures it into
+# the journal so `journalctl -u eidan-healthcheck.service` is
+# enough to debug a stuck probe.
+if curl -fsS --max-time "$TIMEOUT" -o /dev/null "$URL"; then
     rm -f "$STATE_FILE"
     exit 0
 fi
