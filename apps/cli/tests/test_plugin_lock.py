@@ -86,6 +86,25 @@ def test_read_lock_whitespace_only_raises(tmp_path: Path) -> None:
         plugin_lock.read_lock(tmp_path)
 
 
+def test_read_lock_null_plugins_key_raises(tmp_path: Path) -> None:
+    """``plugins:`` set to YAML null (or omitted) must not look like ``[]``.
+
+    A hand-edited lock with `plugins:` (no value) parses as null and,
+    if we silently coalesce to ``[]``, ``plugin sync --prune`` would
+    treat every bundle-installed plugin on disk as drift. The
+    empty-install record is `plugins: []` — explicit only.
+    """
+    (tmp_path / ".lock").write_text("schema: 1\nplugins:\n")
+    with pytest.raises(plugin_lock.LockFileError):
+        plugin_lock.read_lock(tmp_path)
+
+
+def test_read_lock_missing_plugins_key_raises(tmp_path: Path) -> None:
+    (tmp_path / ".lock").write_text("schema: 1\n")
+    with pytest.raises(plugin_lock.LockFileError):
+        plugin_lock.read_lock(tmp_path)
+
+
 def test_read_lock_missing_field_raises(tmp_path: Path) -> None:
     (tmp_path / ".lock").write_text(
         "schema: 1\nplugins:\n  - name: alpha\n    version: 0.1.0\n    bundle: ba\n"

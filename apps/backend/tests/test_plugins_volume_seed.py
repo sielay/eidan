@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """First-boot volume seeding for ``EIDAN_PLUGINS_DIR``-mounted deploys.
 
-The lifespan handler calls :func:`_seed_plugins_volume_if_empty` after
+The lifespan handler calls :func:`_seed_plugins_volume_if_needed` after
 resolving the plugins dir. When the resolved path is a fresh, empty
 volume (Fly volume, k8s emptyDir, …) the seeder copies the image-baked
 ``_DEFAULT_PLUGINS_DIR`` contents into it so the host has its core
@@ -27,7 +27,7 @@ def fake_image_default(
     """Stand in for ``_DEFAULT_PLUGINS_DIR`` with a controlled fixture.
 
     Manifests carry ``tier: core`` because the seeder filters out
-    paid-tier plugins (see :func:`app_module._seed_plugins_volume_if_empty`
+    paid-tier plugins (see :func:`app_module._seed_plugins_volume_if_needed`
     — only tier:core is eligible for unattended seeding). The paid-tier
     case has its own dedicated test below.
     """
@@ -49,7 +49,7 @@ def test_empty_volume_gets_seeded(
     fake_image_default: Path, tmp_path: Path
 ) -> None:
     volume = tmp_path / "volume"
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
     assert (volume / "core-plugin-a" / "plugin.yaml").is_file()
     assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
 
@@ -72,7 +72,7 @@ def test_existing_paid_plugins_survive_alongside_seeded_core(
     (volume / "paid-plugin" / "plugin.yaml").write_text(
         "schema: 1\nname: paid-plugin\nversion: 0.1.0\n"
     )
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
     # Operator's paid plugin survived untouched.
     assert (volume / "paid-plugin" / "plugin.yaml").is_file()
     # And the image-baked core plugins landed alongside it.
@@ -95,7 +95,7 @@ def test_existing_core_plugin_is_not_overwritten(
     (volume / "core-plugin-a" / "plugin.yaml").write_text(
         "schema: 1\nname: core-plugin-a\nversion: 0.0.9-pinned\n"
     )
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
     # Existing copy untouched.
     assert (
         "0.0.9-pinned" in (volume / "core-plugin-a" / "plugin.yaml").read_text()
@@ -122,7 +122,7 @@ def test_partial_seed_recovers_missing_plugins(
     (volume / "core-plugin-a" / "plugin.yaml").write_text(
         "schema: 1\nname: core-plugin-a\nversion: 0.1.0\n"
     )
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
     assert (volume / "core-plugin-a" / "plugin.yaml").is_file()
     assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
 
@@ -132,11 +132,11 @@ def test_seed_is_idempotent(
 ) -> None:
     """A second seed call must not clobber a seeded plugin's contents."""
     volume = tmp_path / "volume"
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
     # Mutate one of the seeded plugins so we can detect re-seeding.
     sentinel = volume / "core-plugin-a" / "marker"
     sentinel.write_text("operator-edit")
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
     assert sentinel.read_text() == "operator-edit"
 
 
@@ -146,7 +146,7 @@ def test_no_volume_no_seed(
     """When resolved == _DEFAULT_PLUGINS_DIR the seeder is a no-op."""
     # Should not raise even though the path equals itself; the early
     # return is what we're checking.
-    app_module._seed_plugins_volume_if_empty(fake_image_default)
+    app_module._seed_plugins_volume_if_needed(fake_image_default)
     # No new directory was created alongside the fake default.
     assert sorted(p.name for p in fake_image_default.iterdir()) == [
         "core-plugin-a",
@@ -168,7 +168,7 @@ def test_volume_with_only_lockfile_still_gets_seeded(
     volume = tmp_path / "volume"
     volume.mkdir()
     (volume / ".lock").write_text("schema: 1\nplugins: []\n")
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
     # Pre-existing lock survived; the image-baked plugins were copied
     # in alongside it.
     assert (volume / ".lock").is_file()
@@ -184,7 +184,7 @@ def test_missing_image_default_is_noop(
     nonexistent = tmp_path / "no-image-baked"
     monkeypatch.setattr(app_module, "_DEFAULT_PLUGINS_DIR", nonexistent)
     volume = tmp_path / "volume"
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
     # Volume directory is created (mkdir) but stays empty.
     assert volume.is_dir()
     assert list(volume.iterdir()) == []
@@ -217,7 +217,7 @@ def test_paid_tier_plugins_are_not_seeded(
     monkeypatch.setattr(app_module, "_DEFAULT_PLUGINS_DIR", src)
 
     volume = tmp_path / "volume"
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
 
     assert (volume / "core-one" / "plugin.yaml").is_file()
     assert not (volume / "paid-one").exists()
@@ -242,7 +242,7 @@ def test_orphan_seed_tempdir_from_prior_crash_is_swept(
     orphan.mkdir()
     (orphan / "leftover.txt").write_text("partial copy from prior crash")
 
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
 
     # Sweep + retry: the orphan tempdir is gone and the real plugin
     # landed.
@@ -280,7 +280,7 @@ def test_failed_copy_leaves_no_partial_target(
     monkeypatch.setattr(app_module.shutil, "copytree", flaky_copytree)
 
     volume = tmp_path / "volume"
-    app_module._seed_plugins_volume_if_empty(volume)
+    app_module._seed_plugins_volume_if_needed(volume)
 
     # No partial target — the temp-dir cleanup ran on failure.
     assert not (volume / "core-plugin-a").exists()
@@ -313,7 +313,7 @@ def test_unreadable_image_default_does_not_crash_lifespan(
     volume = tmp_path / "volume"
 
     with caplog.at_level("WARNING", logger=app_module.logger.name):
-        app_module._seed_plugins_volume_if_empty(volume)
+        app_module._seed_plugins_volume_if_needed(volume)
 
     assert any(
         "could not list" in record.message for record in caplog.records

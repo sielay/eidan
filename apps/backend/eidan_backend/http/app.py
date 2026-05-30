@@ -86,8 +86,16 @@ def _read_plugin_tier(plugin_dir: Path) -> str | None:
     return tier if isinstance(tier, str) else None
 
 
-def _seed_plugins_volume_if_empty(resolved: Path) -> None:
+def _seed_plugins_volume_if_needed(resolved: Path) -> None:
     """Per-plugin idempotent bootstrap for a writable plugins volume.
+
+    Named ``_if_needed`` rather than ``_if_empty`` because the seeder
+    runs the per-plugin check even on a populated volume: a fresh
+    image-baked ``tier: core`` plugin that ships in ``v0.N+1`` lands
+    next to operator-installed paid bundles on the next deploy, with
+    no ``eidan admin plugin install`` ceremony required. The
+    "is the volume empty?" framing only describes the first-boot
+    case; this name covers the steady-state behaviour too.
 
     Operators running the published image plus a mounted volume (see
     ``docs/DEPLOYMENT.md §4.6`` — runtime plugin install) point
@@ -364,7 +372,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     backend: BackendSettings = app.state.backend_settings
     plugins_dir = _resolve_plugins_dir(getattr(app.state, "plugins_dir", None))
-    _seed_plugins_volume_if_empty(plugins_dir)
+    _seed_plugins_volume_if_needed(plugins_dir)
 
     # Optional external log forwarder (BetterStack / Datadog / etc.).
     # Reads EIDAN_LOG_FORWARD_URL + EIDAN_LOG_FORWARD_TOKEN /

@@ -69,6 +69,13 @@ def read_lock(plugins_dir: Path) -> list[LockEntry]:
     fresh install — i.e. it would happily prune every bundle-installed
     plugin on disk. The schema-bearing first-install record is
     ``schema: 1\\nplugins: []``, not an empty file.
+
+    The same posture extends to the ``plugins:`` key itself: a lock
+    like ``schema: 1\\nplugins:`` (YAML null) or ``schema: 1`` (key
+    absent) is rejected. ``[]`` MUST be explicit — the empty-install
+    record is a deliberate operator statement, not a fallback for a
+    half-edited file. Without this guard, ``--prune`` against such a
+    lock would treat every bundle-installed plugin on disk as drift.
     """
     path = lock_path(plugins_dir)
     if not path.is_file():
@@ -91,7 +98,12 @@ def read_lock(plugins_dir: Path) -> list[LockEntry]:
             f"{path}: schema={schema!r}; this CLI understands "
             f"schema={LOCK_SCHEMA_VERSION}."
         )
-    plugins = raw.get("plugins") or []
+    if "plugins" not in raw or raw["plugins"] is None:
+        raise LockFileError(
+            f"{path}: 'plugins' key is missing or null. The empty-install "
+            f"record must be explicit: `plugins: []`."
+        )
+    plugins = raw["plugins"]
     if not isinstance(plugins, list):
         raise LockFileError(f"{path}: 'plugins' must be a list")
     out: list[LockEntry] = []
