@@ -1,0 +1,29 @@
+# Example timer that fires eidan-healthcheck.service once per
+# minute after a 2-minute grace period on boot.
+#
+# Copy once, then enable:
+#
+#   sudo install -m 0644 infra/systemd/eidan-healthcheck.timer.example \
+#       /etc/systemd/system/eidan-healthcheck.timer
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now eidan-healthcheck.timer
+#
+# Cadence rationale: `OnBootSec=2min` lets the backend (and its
+# Postgres + downstream MCP processes) finish coming up after a
+# reboot before the watchdog starts probing, so an in-progress boot
+# is never misread as a hung worker. After that, `OnUnitActiveSec=1min`
+# probes every minute; combined with `THRESHOLD=2` in the script
+# that means a restart fires after roughly two consecutive failed
+# probes — long enough to ride out a transient blip, short enough
+# that a wedged worker doesn't sit broken for an hour.
+
+[Unit]
+Description=Probe eidan-backend liveness once per minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
