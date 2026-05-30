@@ -355,6 +355,55 @@ def test_sync_prune_does_not_take_down_bundle_when_orphan_name_collides(
     assert "example-bar" in locked
 
 
+def test_sync_prune_keeps_baseline_when_lock_still_declares_it(
+    plugins_dir: Path, stub_remove: None
+) -> None:
+    """``--prune`` MUST NOT auto-remove a baseline the lock still names.
+
+    Scenario: operator installs ``example-bundle`` (thematic ``foo`` +
+    ``bar``) which transitively pulls in ``example-baseline-plugin``.
+    The operator then hand-edits the lock to drop both thematic
+    plugins but keeps the baseline row — declaring "I only want the
+    baseline now".
+
+    The pre-fix ``plugin sync --prune`` path tore down the thematic
+    plugins via ``_do_remove``; ``_do_remove`` then saw "no thematic
+    remaining" and auto-removed the baseline bundle too
+    (`docs/018 §3` recursion), even though the lock still declared the
+    baseline plugin should stay. That broke the lock's "source of
+    truth" contract: a sync run could delete a plugin the lock
+    explicitly listed.
+
+    Expected: only the thematic plugins disappear; the baseline stays
+    because the lock still names it.
+    """
+    rc = admin.plugin_install(
+        bundle="example-bundle",
+        from_dir=str(FIXTURES / "example-bundle"),
+    )
+    assert rc == 0
+    # Sanity: the install pulled in the baseline as a transitive dep.
+    assert (plugins_dir / "example-baseline-plugin" / "plugin.yaml").is_file()
+
+    locked = plugin_lock.read_lock(plugins_dir)
+    baseline_only = [e for e in locked if e.name == "example-baseline-plugin"]
+    assert baseline_only, "fixture must have written the baseline row"
+    plugin_lock.write_lock(plugins_dir, baseline_only)
+
+    rc = admin.plugin_sync(dry_run=False, prune=True)
+    assert rc == 0
+
+    # Thematic plugins were the prune targets — they go.
+    assert not (plugins_dir / "example-foo").exists()
+    assert not (plugins_dir / "example-bar").exists()
+    # Baseline survives: the lock still declares it, and the prune
+    # path must not run the baseline auto-removal recursion.
+    assert (plugins_dir / "example-baseline-plugin" / "plugin.yaml").is_file()
+    # Lock is unchanged.
+    surviving = {e.name for e in plugin_lock.read_lock(plugins_dir)}
+    assert surviving == {"example-baseline-plugin"}
+
+
 def test_sync_no_prune_hints_at_extras(
     plugins_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -1047,6 +1047,7 @@ def _do_remove(
     plugins_dir: Path,
     database_url: str,
     by_plugin_name_only: bool = False,
+    auto_remove_baselines: bool = True,
 ) -> list[str]:
     """Resolve, tear down, delete; recurse on baseline auto-removal.
 
@@ -1056,6 +1057,17 @@ def _do_remove(
     The baseline auto-removal recursion below stays in bundle-name
     mode because that step is keyed on ``bundle.name`` by
     construction (`_baseline_bundles_to_auto_remove`).
+
+    ``auto_remove_baselines`` toggles the "no thematic remaining ⇒
+    drop the baseline bundles too" recursion. Default ``True`` matches
+    the ``plugin remove`` contract (`docs/018 §3` — the paid baseline
+    survives only as long as a thematic bundle is present). ``plugin
+    sync --prune`` passes ``False``: the lock is the source of truth
+    there, and a baseline plugin that the operator left in the lock
+    must survive the prune even when its last thematic sibling goes
+    away. If the operator wants the baseline gone too, it won't be in
+    the lock and the planner's own prune list will already include
+    each baseline plugin by name.
     """
     import asyncio
 
@@ -1078,15 +1090,16 @@ def _do_remove(
     _remove_directories(targets)
     removed = [e.name for e in targets]
 
-    remaining = _scan_plugins(plugins_dir)
-    for baseline_bundle in _baseline_bundles_to_auto_remove(remaining):
-        removed.extend(
-            _do_remove(
-                baseline_bundle,
-                plugins_dir=plugins_dir,
-                database_url=database_url,
+    if auto_remove_baselines:
+        remaining = _scan_plugins(plugins_dir)
+        for baseline_bundle in _baseline_bundles_to_auto_remove(remaining):
+            removed.extend(
+                _do_remove(
+                    baseline_bundle,
+                    plugins_dir=plugins_dir,
+                    database_url=database_url,
+                )
             )
-        )
     return removed
 
 
@@ -1332,11 +1345,23 @@ def plugin_sync(*, dry_run: bool = False, prune: bool = False) -> int:
                     # bundle-name match first and take the whole
                     # bundle down — including plugins the lock
                     # explicitly declares should stay.
+                    #
+                    # ``auto_remove_baselines=False`` is the matching
+                    # safety guard for the "last thematic gone ⇒ drop
+                    # the baseline too" recursion (`docs/018 §3`).
+                    # Pruning the last thematic plugin from a non-lock
+                    # bundle would otherwise auto-remove every baseline
+                    # plugin on disk — including ones the operator's
+                    # lock still declares should stay. Sync's own plan
+                    # already lists each baseline plugin by name if it
+                    # is truly orphaned, so this recursion would only
+                    # ever subtract beyond the operator's intent.
                     removed = _do_remove(
                         name,
                         plugins_dir=PLUGINS_DIR,
                         database_url=database_url,
                         by_plugin_name_only=True,
+                        auto_remove_baselines=False,
                     )
                 except PluginRemoveError as exc:
                     print(str(exc), file=sys.stderr)
