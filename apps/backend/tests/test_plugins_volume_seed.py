@@ -322,6 +322,60 @@ def test_unreadable_image_default_does_not_crash_lifespan(
     assert not (volume / "core-plugin-a").exists()
 
 
+def test_seed_blocks_while_external_lock_is_held(
+    fake_image_default: Path, tmp_path: Path
+) -> None:
+    """Concurrent seed callers serialize on the volume's ``.seed.lock``.
+
+    Models the multi-worker boot case raised on PR #19 (round 10):
+    without a lock, one worker's sweep or per-plugin ``tmp.exists()``
+    rmtree can wipe another worker's in-progress ``.seed-<name>.tmp/``
+    mid-copy. With the lock, a second caller blocks until the first
+    releases — by which point every plugin already exists on disk
+    and the loop skips them.
+
+    We hold the lock from the test thread, run the seeder in a
+    background thread, confirm it blocks, then release and confirm
+    the seeder proceeds. ``fcntl.flock`` is per-file-description on
+    Linux/macOS, so two ``os.open`` calls on the same path produce
+    independent FDs that contend correctly even within one process.
+    """
+    import fcntl
+    import os
+    import threading
+
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    lock_path = volume / ".seed.lock"
+
+    held_fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+    fcntl.flock(held_fd, fcntl.LOCK_EX)
+
+    completed = threading.Event()
+
+    def seed() -> None:
+        app_module._seed_plugins_volume_if_needed(volume)
+        completed.set()
+
+    worker = threading.Thread(target=seed)
+    worker.start()
+    try:
+        # Seeder is blocked on flock — nothing should have landed.
+        assert not completed.wait(timeout=0.5)
+        assert not (volume / "core-plugin-a").exists()
+        assert not (volume / "core-plugin-b").exists()
+    finally:
+        fcntl.flock(held_fd, fcntl.LOCK_UN)
+        os.close(held_fd)
+
+    assert completed.wait(timeout=5), "seeder did not finish after lock release"
+    worker.join(timeout=1)
+    assert not worker.is_alive()
+
+    assert (volume / "core-plugin-a" / "plugin.yaml").is_file()
+    assert (volume / "core-plugin-b" / "plugin.yaml").is_file()
+
+
 def test_unreadable_volume_during_sweep_does_not_crash_lifespan(
     fake_image_default: Path,
     tmp_path: Path,

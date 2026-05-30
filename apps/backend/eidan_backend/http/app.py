@@ -15,6 +15,7 @@ reads the public key from there to verify each inbound token.
 
 from __future__ import annotations
 
+import fcntl
 import logging
 import os
 import shutil
@@ -131,6 +132,17 @@ def _seed_plugins_volume_if_needed(resolved: Path) -> None:
     half-populated ``plugins/<name>/`` that the next boot would
     treat as "already seeded".
 
+    **Concurrency.** The sweep + per-plugin copy run under an
+    exclusive ``fcntl.flock`` on ``<volume>/.seed.lock`` so multiple
+    workers (uvicorn ``--workers >1`` or multi-instance startup
+    sharing a volume) serialize. A second caller blocks until the
+    first finishes, then enters and finds every seeded target in
+    place. This protects against the two race windows that
+    otherwise let one worker delete another's in-progress
+    ``.seed-<name>.tmp/``: the unconditional rmtree in
+    :func:`_sweep_orphan_seed_tempdirs`, and the per-plugin
+    ``tmp.exists()`` retry branch below.
+
     Seeding is therefore **per-plugin, atomic, and idempotent**. The
     three states this handles uniformly:
 
@@ -185,68 +197,114 @@ def _seed_plugins_volume_if_needed(resolved: Path) -> None:
         return
     if not children:
         return
-    # Prior boot may have left a half-finished `.seed-<name>.tmp/`
-    # tempdir behind (crash between copytree and the rename). Sweep
-    # those first so we don't conflict with a fresh attempt for the
-    # same plugin below.
-    _sweep_orphan_seed_tempdirs(resolved)
-    seeded: list[str] = []
-    for child in children:
-        target = resolved / child.name
-        if target.exists():
-            # Operator-populated, previously-seeded, or hand-edited —
-            # never overwrite. The host's plugin loader will read
-            # whatever's there.
-            continue
-        tier = _read_plugin_tier(child)
-        if tier != "core":
-            # Only tier:core plugins are eligible for unattended
-            # seeding (see docstring). Paid tiers in the image were
-            # baked in via `--build-arg EIDAN_BUNDLES=...`; the
-            # operator who chose that flag also runs the install path
-            # for them on the live machine.
-            continue
-        tmp = resolved / f".seed-{child.name}.tmp"
-        if tmp.exists():
-            # Defensive: sweep above should have caught this, but a
-            # rename race or readonly leftover would block copytree.
-            try:
-                shutil.rmtree(tmp)
-            except OSError as exc:
-                logger.warning(
-                    "[plugins] could not clear stale tempdir %s: %s",
-                    tmp,
-                    exc,
-                )
-                continue
+    # Inter-process exclusive lock around the sweep + per-plugin
+    # copy. The backend is multi-instance by design and a single
+    # machine can run multiple workers (uvicorn --workers >1, or
+    # multi-instance startup on the same volume). Without a lock,
+    # one worker's `_sweep_orphan_seed_tempdirs` or the per-plugin
+    # `tmp.exists()` rmtree branch can delete another worker's
+    # in-progress `.seed-<name>.tmp/`, leaving the target plugin
+    # unseeded or causing intermittent boot failures. With the
+    # lock, the second caller blocks until the first finishes;
+    # when it then enters the loop it finds every seeded target
+    # already in place and skips it. ``fcntl.flock`` is local-FS
+    # advisory — Fly volumes are local block devices, so this is
+    # the right primitive; do NOT rely on it on NFS.
+    lock_path = resolved / ".seed.lock"
+    try:
+        lock_fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+    except OSError as exc:
+        logger.warning(
+            "[plugins] could not open seed lock %s: %s", lock_path, exc
+        )
+        return
+    try:
         try:
-            shutil.copytree(child, tmp)
-            tmp.replace(target)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
         except OSError as exc:
             logger.warning(
-                "[plugins] failed to seed %s into volume: %s", child.name, exc
+                "[plugins] could not acquire seed lock %s: %s",
+                lock_path,
+                exc,
             )
-            # Best-effort cleanup of the tempdir so the next boot
-            # retries from a clean slate rather than tripping the
-            # "tmp.exists()" guard above.
+            return
+        # Prior boot may have left a half-finished `.seed-<name>.tmp/`
+        # tempdir behind (crash between copytree and the rename). Sweep
+        # those first so we don't conflict with a fresh attempt for the
+        # same plugin below. Safe to run unconditionally now we hold the
+        # lock — no concurrent boot worker can have an in-progress
+        # tempdir.
+        _sweep_orphan_seed_tempdirs(resolved)
+        seeded: list[str] = []
+        for child in children:
+            target = resolved / child.name
+            if target.exists():
+                # Operator-populated, previously-seeded, or hand-edited —
+                # never overwrite. The host's plugin loader will read
+                # whatever's there.
+                continue
+            tier = _read_plugin_tier(child)
+            if tier != "core":
+                # Only tier:core plugins are eligible for unattended
+                # seeding (see docstring). Paid tiers in the image were
+                # baked in via `--build-arg EIDAN_BUNDLES=...`; the
+                # operator who chose that flag also runs the install path
+                # for them on the live machine.
+                continue
+            tmp = resolved / f".seed-{child.name}.tmp"
             if tmp.exists():
+                # Defensive: sweep above should have caught this, but a
+                # readonly leftover would block copytree. Safe under the
+                # lock — no other worker can be writing into this path.
                 try:
                     shutil.rmtree(tmp)
-                except OSError:
-                    pass
-            continue
-        seeded.append(child.name)
-    if seeded:
-        logger.info(
-            "[plugins] seeded %d image-baked plugin(s) into %s: %s",
-            len(seeded),
-            resolved,
-            ", ".join(sorted(seeded)),
-        )
+                except OSError as exc:
+                    logger.warning(
+                        "[plugins] could not clear stale tempdir %s: %s",
+                        tmp,
+                        exc,
+                    )
+                    continue
+            try:
+                shutil.copytree(child, tmp)
+                tmp.replace(target)
+            except OSError as exc:
+                logger.warning(
+                    "[plugins] failed to seed %s into volume: %s",
+                    child.name,
+                    exc,
+                )
+                # Best-effort cleanup of the tempdir so the next boot
+                # retries from a clean slate rather than tripping the
+                # "tmp.exists()" guard above.
+                if tmp.exists():
+                    try:
+                        shutil.rmtree(tmp)
+                    except OSError:
+                        pass
+                continue
+            seeded.append(child.name)
+        if seeded:
+            logger.info(
+                "[plugins] seeded %d image-baked plugin(s) into %s: %s",
+                len(seeded),
+                resolved,
+                ", ".join(sorted(seeded)),
+            )
+    finally:
+        # ``os.close`` releases the flock as a side effect; explicit
+        # ``LOCK_UN`` is unnecessary and would be a second syscall.
+        os.close(lock_fd)
 
 
 def _sweep_orphan_seed_tempdirs(resolved: Path) -> None:
     """Remove ``.seed-*.tmp`` directories left behind by a prior crash.
+
+    **Intended to be called only by :func:`_seed_plugins_volume_if_needed`
+    while it holds the volume seed lock.** Calling this standalone
+    in a context where another boot worker may be writing into a
+    ``.seed-*.tmp/`` is unsafe — the unconditional ``rmtree`` will
+    delete the in-progress tempdir.
 
     Best-effort: an unreadable volume root logs a warning and returns
     rather than raising. The seeder caller has already produced enough
