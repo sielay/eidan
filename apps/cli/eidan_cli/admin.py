@@ -23,6 +23,8 @@ from uuid import UUID
 
 import yaml
 
+from . import plugin_lock
+
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = _REPO_ROOT / "migrations" / "alembic.ini"
 
@@ -450,11 +452,18 @@ def _install_bundle_tree(
     plugins_dir: Path,
     link: bool,
     visited: set[str],
-) -> list[str]:
-    """Install ``bundle_root`` and depth-first recurse on its ``depends_on``."""
-    installed = _install_plugins_from_bundle(
+) -> list[tuple[str, str]]:
+    """Install ``bundle_root`` and depth-first recurse on its ``depends_on``.
+
+    Each row in the result is ``(plugin_name, bundle_name)`` so the
+    caller can attribute a freshly-installed plugin to the bundle that
+    physically carried it — needed by ``plugins/.lock`` so
+    ``plugin sync`` knows which bundle to re-fetch when a row drifts.
+    """
+    plugin_names = _install_plugins_from_bundle(
         bundle_root, force=force, link=link, plugins_dir=plugins_dir
     )
+    installed: list[tuple[str, str]] = [(n, bundle_name) for n in plugin_names]
     visited.add(bundle_name)
     for dep in _load_bundle_dependencies(bundle_root):
         if dep in visited:
@@ -478,6 +487,28 @@ def _install_bundle_tree(
     return installed
 
 
+@dataclass(frozen=True)
+class _InstallResult:
+    """Output of one ``_do_install`` call.
+
+    ``installed`` carries ``(plugin_name, bundle_name)`` for every plugin
+    that landed on disk (top-level + transitive bundle deps).
+    ``source_spec`` is the canonical ``gh:<org>`` / ``local:<path>``
+    string the lock writer needs so a later ``plugin sync`` can
+    reproduce the install.
+    """
+
+    installed: list[tuple[str, str]]
+    source_spec: str
+
+
+def _source_spec(source: _Source) -> str:
+    """Format a ``_Source`` as the ``EIDAN_PLUGIN_SOURCE``-style string."""
+    if source.kind == "gh":
+        return f"gh:{source.root}"
+    return f"local:{source.root}"
+
+
 def _do_install(
     bundle: str | None,
     from_dir: str | None,
@@ -486,7 +517,7 @@ def _do_install(
     plugins_dir: Path,
     link: bool,
     visited: set[str],
-) -> list[str]:
+) -> _InstallResult:
     """Install a single bundle and recurse into its declared bundle deps."""
     source, bundle_root = _resolve_initial_source(bundle, from_dir)
     # For the gh path the bundle_root sits inside a tempdir the caller
@@ -495,7 +526,7 @@ def _do_install(
         bundle_root.parent if (source.kind == "gh" and from_dir is None) else None
     )
     try:
-        return _install_bundle_tree(
+        installed = _install_bundle_tree(
             source,
             bundle or bundle_root.name,
             bundle_root,
@@ -504,9 +535,88 @@ def _do_install(
             link=link,
             visited=visited,
         )
+        return _InstallResult(installed=installed, source_spec=_source_spec(source))
     finally:
         if top_cleanup is not None:
             shutil.rmtree(top_cleanup, ignore_errors=True)
+
+
+def _read_plugin_version_and_bundle(
+    plugin_dir: Path,
+) -> tuple[str, str | None]:
+    """Pull ``(version, bundle.name)`` out of an on-disk ``plugin.yaml``.
+
+    Both fields may be missing — the manifest's authoritative
+    validation happens in the backend loader, not here. We default
+    ``version`` to ``"0"`` so the lock writer always has a string;
+    ``bundle.name`` stays ``None`` so the caller can fall back to the
+    install-time bundle slug.
+    """
+    try:
+        raw = _load_manifest_raw(plugin_dir) or {}
+    except UnicodeDecodeError:
+        raw = {}
+    version = raw.get("version")
+    if not isinstance(version, str) or not version:
+        version = "0"
+    bundle_raw = raw.get("bundle")
+    bundle_name: str | None = None
+    if isinstance(bundle_raw, dict):
+        candidate = bundle_raw.get("name")
+        if isinstance(candidate, str) and candidate:
+            bundle_name = candidate
+    return version, bundle_name
+
+
+def _record_install_in_lock(
+    plugins_dir: Path,
+    installed: list[tuple[str, str]],
+    *,
+    source_spec: str,
+) -> None:
+    """Upsert one entry per freshly-installed plugin into ``plugins/.lock``.
+
+    The bundle name on each entry comes from the plugin's on-disk
+    ``bundle.name`` stanza when present (the authoritative record of
+    which bundle the plugin ships in) and falls back to the bundle
+    directory the install path materialised it from. ``source_spec``
+    is the same string across every entry from one install call —
+    deps reuse the parent's source.
+    """
+    entries = plugin_lock.read_lock(plugins_dir)
+    new_entries: list[plugin_lock.LockEntry] = []
+    for name, install_bundle in installed:
+        version, manifest_bundle = _read_plugin_version_and_bundle(
+            plugins_dir / name
+        )
+        new_entries.append(
+            plugin_lock.LockEntry(
+                name=name,
+                version=version,
+                bundle=manifest_bundle or install_bundle,
+                source=source_spec,
+            )
+        )
+    merged = plugin_lock.upsert(entries, new_entries)
+    plugin_lock.write_lock(plugins_dir, merged)
+
+
+def _record_remove_in_lock(
+    plugins_dir: Path,
+    removed_names: list[str],
+) -> None:
+    """Drop lock entries for plugins removed by ``plugin remove``.
+
+    A name that was never in the lock (e.g. a repo-shipped core plugin
+    deleted by hand) is a no-op — :func:`plugin_lock.remove` is keyed
+    by name and silently ignores unknown rows.
+    """
+    if not removed_names:
+        return
+    entries = plugin_lock.read_lock(plugins_dir)
+    remaining = plugin_lock.remove(entries, removed_names)
+    if remaining != entries:
+        plugin_lock.write_lock(plugins_dir, remaining)
 
 
 def plugin_install(
@@ -534,7 +644,7 @@ def plugin_install(
     """
     link = os.environ.get("EIDAN_PLUGIN_LINK") == "1"
     try:
-        installed = _do_install(
+        result = _do_install(
             bundle,
             from_dir,
             force=force,
@@ -547,11 +657,33 @@ def plugin_install(
         return 1
 
     verb = "linked" if link else "installed"
-    for name in installed:
+    for name, _ in result.installed:
         print(f"{verb} plugins/{name}/")
-    if not installed:
+    if not result.installed:
         print("nothing to install.", file=sys.stderr)
         return 1
+
+    # Update the lock so `plugin sync` can reproduce this install on
+    # another machine. A lock-write failure is non-fatal — the plugin
+    # files are already on disk and the operator can hand-edit
+    # plugins/.lock if needed.
+    #
+    # ``EIDAN_PLUGIN_INSTALL_NO_LOCK=1`` skips the upsert entirely.
+    # ``plugin sync`` sets it while reconciling so the lock stays the
+    # declarative input rather than getting rewritten by the installs
+    # it drove (e.g. when a bundle reinstall transitively pulls in
+    # additional dep bundles whose rows weren't in the operator's
+    # lock to begin with).
+    if os.environ.get("EIDAN_PLUGIN_INSTALL_NO_LOCK") != "1":
+        try:
+            _record_install_in_lock(
+                PLUGINS_DIR, result.installed, source_spec=result.source_spec
+            )
+        except plugin_lock.LockFileError as exc:
+            print(
+                f"warning: could not update plugins/.lock: {exc}",
+                file=sys.stderr,
+            )
 
     # Auto-migrate so the plugin's tables exist before the host's
     # lifespan-time activation tries to use them (`docs/018 §3`,
@@ -764,19 +896,32 @@ def plugin_list() -> int:
 def _resolve_remove_targets(
     target: str,
     entries: list[_PluginEntry],
+    *,
+    by_plugin_name_only: bool = False,
 ) -> list[_PluginEntry]:
     """Return the plugin entries to remove for ``target``.
 
-    ``target`` matches first by **bundle name** (every plugin whose
-    manifest declares ``bundle.name == target``) and falls back to a
-    single-plugin match on ``name``. This is the (bundle | name)
-    overload the issue specifies — the CLI does not require the
-    operator to disambiguate; if both interpretations would match the
-    bundle wins because it is the more deliberate operation.
+    Default (``by_plugin_name_only=False``): ``target`` matches first
+    by **bundle name** (every plugin whose manifest declares
+    ``bundle.name == target``) and falls back to a single-plugin
+    match on ``name``. This is the (bundle | name) overload the CLI's
+    ``plugin remove`` exposes — the operator does not have to
+    disambiguate; if both interpretations would match, the bundle
+    wins because it is the more deliberate operation.
+
+    ``by_plugin_name_only=True``: skip the bundle-name match entirely
+    and resolve strictly by plugin ``name``. ``plugin sync --prune``
+    uses this so a plan that intends to delete one drifted plugin
+    cannot accidentally take an entire bundle down when a plugin
+    name happens to equal an installed ``bundle.name``. Without this
+    guard, pruning one orphan could run ``on_uninstall`` for every
+    sibling plugin in the colliding bundle — including ones the lock
+    explicitly declares should stay.
     """
-    by_bundle = [e for e in entries if e.bundle_name == target]
-    if by_bundle:
-        return by_bundle
+    if not by_plugin_name_only:
+        by_bundle = [e for e in entries if e.bundle_name == target]
+        if by_bundle:
+            return by_bundle
     by_name = [e for e in entries if e.name == target]
     return by_name
 
@@ -904,12 +1049,35 @@ def _do_remove(
     *,
     plugins_dir: Path,
     database_url: str,
+    by_plugin_name_only: bool = False,
+    auto_remove_baselines: bool = True,
 ) -> list[str]:
-    """Resolve, tear down, delete; recurse on baseline auto-removal."""
+    """Resolve, tear down, delete; recurse on baseline auto-removal.
+
+    ``by_plugin_name_only`` forwards to :func:`_resolve_remove_targets`
+    — set by ``plugin sync --prune`` so a plugin-name target cannot
+    accidentally resolve to an entire bundle when the names collide.
+    The baseline auto-removal recursion below stays in bundle-name
+    mode because that step is keyed on ``bundle.name`` by
+    construction (`_baseline_bundles_to_auto_remove`).
+
+    ``auto_remove_baselines`` toggles the "no thematic remaining ⇒
+    drop the baseline bundles too" recursion. Default ``True`` matches
+    the ``plugin remove`` contract (`docs/018 §3` — the paid baseline
+    survives only as long as a thematic bundle is present). ``plugin
+    sync --prune`` passes ``False``: the lock is the source of truth
+    there, and a baseline plugin that the operator left in the lock
+    must survive the prune even when its last thematic sibling goes
+    away. If the operator wants the baseline gone too, it won't be in
+    the lock and the planner's own prune list will already include
+    each baseline plugin by name.
+    """
     import asyncio
 
     entries = _scan_plugins(plugins_dir)
-    targets = _resolve_remove_targets(target, entries)
+    targets = _resolve_remove_targets(
+        target, entries, by_plugin_name_only=by_plugin_name_only
+    )
     if not targets:
         raise PluginRemoveError(
             f"no plugin or bundle named {target!r} is installed."
@@ -925,15 +1093,16 @@ def _do_remove(
     _remove_directories(targets)
     removed = [e.name for e in targets]
 
-    remaining = _scan_plugins(plugins_dir)
-    for baseline_bundle in _baseline_bundles_to_auto_remove(remaining):
-        removed.extend(
-            _do_remove(
-                baseline_bundle,
-                plugins_dir=plugins_dir,
-                database_url=database_url,
+    if auto_remove_baselines:
+        remaining = _scan_plugins(plugins_dir)
+        for baseline_bundle in _baseline_bundles_to_auto_remove(remaining):
+            removed.extend(
+                _do_remove(
+                    baseline_bundle,
+                    plugins_dir=plugins_dir,
+                    database_url=database_url,
+                )
             )
-        )
     return removed
 
 
@@ -977,8 +1146,251 @@ def plugin_remove(target: str | None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    try:
+        _record_remove_in_lock(PLUGINS_DIR, removed)
+    except plugin_lock.LockFileError as exc:
+        print(f"warning: could not update plugins/.lock: {exc}", file=sys.stderr)
+
     for name in removed:
         print(f"removed plugins/{name}/")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# plugin sync — reconciler driven by plugins/.lock
+# ---------------------------------------------------------------------------
+
+
+def _format_install_action(
+    source_spec: str, bundle: str, plugin_names: list[str], *, dry_run: bool
+) -> str:
+    verb = "would install" if dry_run else "installing"
+    plugins = ", ".join(plugin_names) if plugin_names else "(none)"
+    return f"{verb} bundle {bundle} from {source_spec} ({plugins})"
+
+
+def _print_sync_plan(
+    plan: plugin_lock.SyncPlan,
+    installed: list[plugin_lock.InstalledView],
+    *,
+    dry_run: bool,
+    prune: bool,
+) -> None:
+    """Render the plan in the same order it will be applied.
+
+    When the plan is empty, the wording distinguishes two cases:
+
+    - ``--prune`` was set: there is no actionable drift, period.
+    - ``--prune`` was omitted but the disk has bundle-installed
+      plugins that are not in the lock: sync is deliberately ignoring
+      that drift; tell the operator how to act on it.
+    """
+    nothing = not (plan.install_bundles or plan.upgrades or plan.prune)
+    if nothing:
+        if not prune:
+            locked = set(plan.in_sync)
+            extras = sorted(
+                iv.name
+                for iv in installed
+                if iv.bundle is not None and iv.name not in locked
+            )
+            if extras:
+                joined = ", ".join(extras)
+                print(
+                    "no changes planned; "
+                    f"{len(extras)} bundle-installed plugin(s) not in "
+                    f"plugins/.lock ({joined}). Pass --prune to remove them."
+                )
+                return
+        print("plugins/.lock is in sync with plugins/.")
+        return
+    for source_spec, bundle, names in plan.install_bundles:
+        print(_format_install_action(source_spec, bundle, names, dry_run=dry_run))
+    for name, from_version, to_version in plan.upgrades:
+        print(f"upgrade: {name} {from_version} → {to_version}")
+    for name in plan.prune:
+        verb = "would prune" if dry_run else "pruning"
+        print(f"{verb} plugins/{name}/")
+
+
+def _apply_sync_install(source_spec: str, bundle: str) -> int:
+    """Reinstall one bundle via the existing :func:`plugin_install` path.
+
+    Sync uses ``force=True`` because the lock's intent is "this version
+    is what should be on disk" — if a partial / wrong version is
+    sitting there, overwriting it is the resolution. The source spec
+    is re-parsed here rather than threaded through as a structured
+    object so the lock-file format stays the same shape an operator
+    would hand-edit.
+    """
+    if ":" not in source_spec:
+        print(
+            f"error: plugins/.lock has unparseable source {source_spec!r}; "
+            "expected 'gh:<org>' or 'local:<path>'.",
+            file=sys.stderr,
+        )
+        return 1
+    scheme, _, target = source_spec.partition(":")
+    if not target:
+        # ``local:`` would otherwise resolve to the CWD via
+        # ``plugin_install(from_dir="")`` and ``gh:`` would push an
+        # ``EIDAN_PLUGIN_SOURCE`` value the install path can't parse.
+        # Either is a lock that says "install from somewhere" without
+        # saying *where* — reject explicitly rather than fall through.
+        print(
+            f"error: plugins/.lock source {source_spec!r} is missing the "
+            f"target after {scheme!r} (expected '{scheme}:<org-or-path>').",
+            file=sys.stderr,
+        )
+        return 1
+    if scheme == "local":
+        return plugin_install(bundle, from_dir=target, force=True)
+    if scheme == "gh":
+        saved = os.environ.get("EIDAN_PLUGIN_SOURCE")
+        os.environ["EIDAN_PLUGIN_SOURCE"] = source_spec
+        try:
+            return plugin_install(bundle, from_dir=None, force=True)
+        finally:
+            if saved is None:
+                os.environ.pop("EIDAN_PLUGIN_SOURCE", None)
+            else:
+                os.environ["EIDAN_PLUGIN_SOURCE"] = saved
+    print(
+        f"error: plugins/.lock has unsupported source scheme "
+        f"{scheme!r} (use 'gh:<org>' or 'local:<path>').",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _installed_views_for_sync(plugins_dir: Path) -> list[plugin_lock.InstalledView]:
+    """Project the on-disk plugin inventory into the lock module's view."""
+    return [
+        plugin_lock.InstalledView(
+            name=e.name,
+            version=e.version,
+            bundle=e.bundle_name,
+        )
+        for e in _scan_plugins(plugins_dir)
+    ]
+
+
+def plugin_sync(*, dry_run: bool = False, prune: bool = False) -> int:
+    """Reconcile ``plugins/.lock`` against the on-disk plugin tree.
+
+    The lock is the declarative record of CLI-installed plugins. Sync
+    installs anything in the lock that is missing or version-mismatched
+    on disk; with ``--prune`` it also removes plugins that came from a
+    bundle (i.e. their manifest carries a ``bundle:`` stanza) but are
+    no longer recorded in the lock.
+
+    Repo-shipped core plugins (no ``bundle:`` stanza) are never pruned
+    even with ``--prune`` set — a CLI-driven sync must not delete files
+    an upstream ``git pull`` will put back next deploy.
+
+    ``--dry-run`` prints the plan without applying it.
+
+    ``--prune`` requires the lock to exist on disk. A missing lock is
+    indistinguishable from "operator declares nothing installed" in
+    :func:`plugin_lock.read_lock` (returns ``[]``), and pruning against
+    that would delete every bundle-installed plugin on the live
+    machine — a high-impact foot-gun if the lock was lost to an upgrade
+    migration or accidental ``rm``. Refuse explicitly; an operator who
+    truly wants the empty-install state can ``touch`` a lock with
+    ``schema: 1`` / ``plugins: []`` and re-run.
+    """
+    if prune and not plugin_lock.lock_path(PLUGINS_DIR).is_file():
+        print(
+            f"error: plugins/.lock is missing; refusing to run with --prune "
+            f"because that would treat every bundle-installed plugin as "
+            f"drift and delete it. Create an explicit empty lock "
+            f"(`schema: {plugin_lock.LOCK_SCHEMA_VERSION}`, `plugins: []`) "
+            f"to proceed with no declared installs.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        lock_entries = plugin_lock.read_lock(PLUGINS_DIR)
+    except plugin_lock.LockFileError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    installed = _installed_views_for_sync(PLUGINS_DIR)
+    plan = plugin_lock.plan_sync(lock_entries, installed, prune=prune)
+    _print_sync_plan(plan, installed, dry_run=dry_run, prune=prune)
+    if dry_run:
+        return 0
+
+    # Reconciling installs MUST NOT rewrite the lock — the lock is the
+    # declarative input here, not a fresh record of the install. A
+    # bundle reinstall can transitively pull in dep bundles whose rows
+    # were never in the operator's lock; without this gate those rows
+    # would silently appear after a sync run.
+    saved_no_lock = os.environ.get("EIDAN_PLUGIN_INSTALL_NO_LOCK")
+    os.environ["EIDAN_PLUGIN_INSTALL_NO_LOCK"] = "1"
+    try:
+        for source_spec, bundle, _names in plan.install_bundles:
+            rc = _apply_sync_install(source_spec, bundle)
+            if rc != 0:
+                return rc
+    finally:
+        if saved_no_lock is None:
+            os.environ.pop("EIDAN_PLUGIN_INSTALL_NO_LOCK", None)
+        else:
+            os.environ["EIDAN_PLUGIN_INSTALL_NO_LOCK"] = saved_no_lock
+
+    if prune:
+        # Recompute the prune set against the post-install disk state.
+        # A bundle reinstall above can transitively pull in NEW dep
+        # plugins (the install path auto-resolves ``bundle.yaml``
+        # ``depends_on``). Those dep plugins land as bundle-installed
+        # directories that aren't in the operator's lock, so they are
+        # legitimate prune candidates — but the pre-install plan was
+        # computed before they existed, so a single ``--prune`` run
+        # would miss them and the operator would need to re-run sync.
+        # Reading the disk again here makes one sync pass converge.
+        installed_after = _installed_views_for_sync(PLUGINS_DIR)
+        plan_after = plugin_lock.plan_sync(
+            lock_entries, installed_after, prune=True
+        )
+        if plan_after.prune:
+            try:
+                database_url = _need_database_url()
+            except SystemExit as exc:
+                return int(exc.code) if isinstance(exc.code, int) else 2
+            for name in plan_after.prune:
+                try:
+                    # ``by_plugin_name_only=True`` is the safety guard
+                    # for the bundle/plugin name overload in
+                    # `plugin remove`: the planner emits plugin names,
+                    # but `_do_remove` would otherwise resolve a
+                    # bundle-name match first and take the whole
+                    # bundle down — including plugins the lock
+                    # explicitly declares should stay.
+                    #
+                    # ``auto_remove_baselines=False`` is the matching
+                    # safety guard for the "last thematic gone ⇒ drop
+                    # the baseline too" recursion (`docs/018 §3`).
+                    # Pruning the last thematic plugin from a non-lock
+                    # bundle would otherwise auto-remove every baseline
+                    # plugin on disk — including ones the operator's
+                    # lock still declares should stay. Sync's own plan
+                    # already lists each baseline plugin by name if it
+                    # is truly orphaned, so this recursion would only
+                    # ever subtract beyond the operator's intent.
+                    removed = _do_remove(
+                        name,
+                        plugins_dir=PLUGINS_DIR,
+                        database_url=database_url,
+                        by_plugin_name_only=True,
+                        auto_remove_baselines=False,
+                    )
+                except PluginRemoveError as exc:
+                    print(str(exc), file=sys.stderr)
+                    return 1
+                for rname in removed:
+                    print(f"pruned plugins/{rname}/")
+
     return 0
 
 
@@ -1260,4 +1672,5 @@ __all__ = [
     "plugin_install",
     "plugin_list",
     "plugin_remove",
+    "plugin_sync",
 ]

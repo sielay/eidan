@@ -44,6 +44,16 @@
 # Runtime secrets (DATABASE_URL, EIDAN_AUTH_MASTER_KEY, provider
 # credentials, …) are set via `fly secrets set` and are NOT build
 # args — see docs/DEPLOYMENT.md §4.4 and §6.
+#
+# Runtime plugin install (post-build bundle swaps):
+#   The image-baked /app/plugins is used by default. Operators who
+#   want to swap bundles without rebuilding set
+#   EIDAN_PLUGINS_DIR=/var/lib/eidan/plugins (env or fly secret)
+#   and mount a writable volume at that path. The backend seeds an
+#   empty volume with the image-baked tier:core plugins on first
+#   boot, so the machine is functional immediately; subsequent
+#   `eidan admin plugin install` calls land in the volume and survive
+#   image upgrades. See docs/DEPLOYMENT.md §4.6.
 
 FROM python:3.12-slim-bookworm
 

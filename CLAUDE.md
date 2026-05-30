@@ -330,6 +330,12 @@ you need (e.g. reading the literal contents of a markdown spec).
 - Pre-commit hooks regenerate schemas when `*.schema.json` is
   staged. Do not pass `--no-verify` to bypass them; fix the source
   instead.
+- Every **new** `.py` / `.ts` / `.tsx` file MUST start with
+  `SPDX-License-Identifier: AGPL-3.0-or-later` (Python comment or
+  JS/TS block comment, as appropriate). The `License Header Check`
+  workflow enforces this on additions only — see
+  `.github/license_header_exempt.txt` for the (short) exempt list
+  and `CONTRIBUTING.md` → "License header on new source files".
 
 ## No-fork policy
 
