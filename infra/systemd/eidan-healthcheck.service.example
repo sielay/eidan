@@ -1,0 +1,25 @@
+# Example oneshot unit that runs the eidan backend healthcheck.
+#
+# Copy once, then `systemctl daemon-reload`:
+#
+#   sudo install -m 0644 infra/systemd/eidan-healthcheck.service.example \
+#       /etc/systemd/system/eidan-healthcheck.service
+#
+# Pair with eidan-healthcheck.timer.example (the trigger) and
+# eidan-healthcheck.sh.example (the script). Overrides for the
+# script's defaults belong in `Environment=` lines below, NOT in
+# the script — keeps the script generic and the per-deploy values
+# in one place.
+
+[Unit]
+Description=Eidan backend HTTP healthcheck
+After=eidan-backend.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/eidan-healthcheck.sh
+# Uncomment to override the script's defaults:
+# Environment=EIDAN_HEALTHCHECK_URL=http://127.0.0.1:8000/api/healthz
+# Environment=EIDAN_HEALTHCHECK_THRESHOLD=2
+# Environment=EIDAN_HEALTHCHECK_TIMEOUT=10
+# Environment=EIDAN_HEALTHCHECK_SERVICE=eidan-backend

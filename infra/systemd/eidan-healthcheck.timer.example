@@ -1,0 +1,25 @@
+# Example timer that fires eidan-healthcheck.service every minute.
+#
+# Copy once, then enable:
+#
+#   sudo install -m 0644 infra/systemd/eidan-healthcheck.timer.example \
+#       /etc/systemd/system/eidan-healthcheck.timer
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now eidan-healthcheck.timer
+#
+# Cadence rationale: a 1-minute probe with `THRESHOLD=2` in the
+# script means a restart is triggered after roughly two minutes of
+# the backend being unreachable — long enough to ride out a
+# transient blip, short enough that a wedged worker doesn't sit
+# broken for an hour.
+
+[Unit]
+Description=Run eidan-healthcheck every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
