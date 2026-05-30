@@ -538,13 +538,33 @@ From here on, every `fly` command takes `-c ~/ops/eidan-fly.toml`.
 `fly.toml` is no longer authored inline — see §4.1.
 
 
-### 4.3 Create the app + Postgres
+### 4.3 Create the app (+ optional Fly Postgres)
 
-`fly postgres attach` needs the target app to exist, so create it
-first:
+Create the app first — `fly postgres attach` (if you use it
+below) needs the target app to exist:
 
 ```bash
 fly apps create eidan-api --org personal       # match `app =` in your fly.toml
+```
+
+Pick **one** Postgres path:
+
+#### Option A — bring your own Postgres (Supabase / Neon / RDS / …)
+
+Skip the Fly Postgres commands entirely. You'll set `DATABASE_URL`
+by hand in §4.4 using the connection string from your provider.
+Use the `postgresql+asyncpg://` scheme; for managed providers that
+require TLS, append `?ssl=require`:
+
+```
+postgresql+asyncpg://<user>:<password>@<host>:5432/<db>?ssl=require
+```
+
+Then jump to §4.4.
+
+#### Option B — Fly-managed Postgres
+
+```bash
 fly postgres create --name eidan-pg --org personal --region lhr \
   --vm-size shared-cpu-1x --volume-size 1
 fly postgres attach --app eidan-api eidan-pg
@@ -571,9 +591,6 @@ fly secrets set --app eidan-api \
 
 Strip the `?sslmode=disable` query — asyncpg uses different
 TLS knobs. If you need TLS, append `?ssl=require` instead.
-
-(Alternatively use Neon / Supabase / RDS — set `DATABASE_URL` by
-hand in §4.4; you already know the password.)
 
 ### 4.4 Runtime secrets (auth + provider + SMTP)
 
