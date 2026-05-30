@@ -240,10 +240,11 @@ release cycle. See `docs/004_SCHEMAS.md §9`.
    the other. The Fly image builds with `uv sync --frozen`, so a
    missed lock refresh otherwise only fails at deploy time.
 
-`uv` itself is pinned to `0.11.15` in the Dockerfile, in
+`uv` itself is pinned to `0.11.15` in `infra/fly/Dockerfile`,
 `.github/workflows/python-tests.yml`, and in the
-`uv-lock-check.yml` workflow. Bump all three in one PR when
-upgrading.
+`uv-lock-check.yml` workflow. The devcontainer currently copies
+`ghcr.io/astral-sh/uv:0.5`; update `.devcontainer/Dockerfile` as
+well if local container behavior needs to match CI/Fly when upgrading.
 
 ### Add a new plugin
 
