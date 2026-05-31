@@ -78,6 +78,20 @@ Pick where to host them:
 | **Bare metal** | You'd rather install Python / Postgres / Node yourself, or you're targeting a Pi. ~15 minutes. | [→ bare-metal walkthrough](./docs/LOCALHOST.md#0-prerequisites) |
 | **Full-stack deploy** | Hosted backend + web UI exposed to a browser; single-host Fly, Pi cluster, multi-instance. | [→ deployment guide](./docs/DEPLOYMENT.md) |
 
+For deploys to a Pi or Fly, the whole flow is four commands:
+
+```bash
+pipx install eidan-cli                 # install
+eidan init my-deployment && cd $_      # scaffold ops repo
+$EDITOR topology.yml                   # add your nodes + secrets
+eidan deploy                           # reconcile every node
+```
+
+The CLI renders env files, systemd units, `fly.toml`, pushes
+secrets, runs migrations, installs declared plugin bundles, and
+restarts services. You don't edit any of that by hand. Full
+walkthrough in [DEPLOYMENT.md](./docs/DEPLOYMENT.md).
+
 Auth is native — magic-link sign-in against a single-operator
 allow-list (`EIDAN_AUTH_ALLOWED_EMAIL`), an RS256 JWT minted by the
 host, and an encrypted secrets vault in Postgres. No Supabase project,
