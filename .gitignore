@@ -1,6 +1,8 @@
 # Added by code-review-graph
 .code-review-graph/
 .DS_Store
+# Claude Code creates worktrees here for parallel branches.
+.claude/worktrees/
 
 # Python
 __pycache__/
