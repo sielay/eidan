@@ -3,10 +3,11 @@
 Six steps. The `eidan deploy` CLI owns the whole flow.
 
 ```bash
-pipx install eidan-cli                 # install
-eidan init my-deployment && cd $_      # scaffold ops repo
-$EDITOR topology.yml                   # add your nodes + secrets (vault-encrypt)
-eidan deploy                           # reconcile every node
+git clone https://github.com/sielay/eidan.git           # source
+uv tool install --from ./eidan/apps/cli eidan-cli       # install (needs uv)
+eidan init my-deployment && cd $_                       # scaffold ops repo
+$EDITOR topology.yml                                    # add nodes + secrets
+eidan deploy                                            # reconcile every node
 ```
 
 Each node in `topology.yml` declares a `target:` — `pi`, `fly`, or `docker` (the last is a follow-up). The CLI renders the env file / `fly.toml` / systemd unit, pushes secrets, deploys the image, and installs declared bundles. You don't write any of those files by hand.
@@ -20,19 +21,38 @@ bottom.
 
 ## 1. Install eidan-cli
 
+`eidan-cli` isn't on PyPI yet — install from the upstream checkout
+via `uv tool install`. Requires [`uv`](https://astral.sh/uv) on
+your laptop:
+
 ```bash
-pipx install eidan-cli
-# or: pip install --user eidan-cli
+# Once, anywhere — installs uv to ~/.local/bin
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Then clone eidan and install the CLI globally
+git clone https://github.com/sielay/eidan.git
+uv tool install --from ./eidan/apps/cli eidan-cli
+```
+
+The `eidan` binary lands in `~/.local/bin/eidan`. Upgrade with:
+
+```bash
+cd eidan && git pull
+uv tool install --reinstall --from ./apps/cli eidan-cli
 ```
 
 Also needed on the laptop running deploys:
 
-- **`ansible-core`** (for Pi targets) — `pipx install ansible-core`
+- **`ansible-core`** (for Pi targets) — `uv tool install ansible-core`
 - **`flyctl`** (for Fly targets) — `brew install flyctl && fly auth login`
 
 The CLI probes for the right one before any deploy fires; you'll
 see a friendly "install X" message if a target needs a tool that
 isn't on PATH.
+
+> **Future:** when `eidan-cli` ships to PyPI you'll be able to
+> `pipx install eidan-cli` and skip the clone. The git path stays
+> as a supported fallback for air-gapped / no-PyPI environments.
 
 ## 2. Scaffold + topology.yml
 
