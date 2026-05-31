@@ -56,6 +56,7 @@ from ..auth_native.sessions import (
 )
 from ..auth_native.smtp import is_production, send_magic_link_email
 from ..auth_native.users import ensure_user_by_email
+from ..conversation_title import generate_conversation_title
 from ..db import acquire
 from ..escalations import (
     acknowledge_escalation,
@@ -69,12 +70,15 @@ from ..persistence import (
     conversation_belongs_to,
     cost_summary_for_turn,
     cost_summary_since,
+    count_conversation_messages,
     create_conversation,
     decode_jsonb,
     ensure_default_agent_context,
+    first_turn_pair,
     latest_user_message_id,
     list_conversations,
     load_full_conversation_messages,
+    update_conversation_title,
     upsert_user,
 )
 from ..providers.base import AssistantChunk
@@ -1161,6 +1165,171 @@ async def get_conversations(request: Request) -> dict[str, Any]:
     }
 
 
+@router.get("/api/conversations/{conversation_id}")
+async def get_conversation(
+    request: Request, conversation_id: UUID
+) -> dict[str, Any]:
+    """Fetch a single conversation row by id.
+
+    The list endpoint already returns title + timestamps, but the
+    chat-view route needs to render its own header without
+    re-fetching the whole sidebar payload. Returns 404 if the row
+    doesn't exist or isn't owned by the caller — same envelope as the
+    other ownership-guarded conversation routes.
+    """
+    identity = request.state.identity
+    user_uuid = UUID(identity.user_id)
+    pool = request.app.state.pool
+
+    async with acquire(pool, identity) as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, title, created_at, updated_at
+            FROM eidan.conversations
+            WHERE id = $1
+              AND user_id = $2
+              AND deleted_at IS NULL
+            """,
+            conversation_id,
+            user_uuid,
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    return {
+        "id": str(row["id"]),
+        "title": row["title"],
+        "created_at": row["created_at"].isoformat(),
+        "updated_at": row["updated_at"].isoformat(),
+    }
+
+
+class UpdateConversationBody(BaseModel):
+    """PATCH /api/conversations/{id} request body.
+
+    Mirrors ``ConversationUpdate.schema.json`` (the canonical wire
+    shape codegens to ``packages/schemas/eidan_schemas/generated/
+    core/memory/ConversationUpdate_schema.py``). The handler does its
+    own trimming, so an all-whitespace title collapses to null and the
+    row reverts to autogen-eligible state per issue #48.
+    """
+
+    title: str | None = Field(default=None, max_length=200)
+
+
+def _normalise_title(raw: str | None) -> str | None:
+    """Strip whitespace, collapse empty to ``None`` and clamp to 200
+    chars. Keeps the PATCH handler and the regenerate-title write path
+    in sync on the "what does the wire actually persist" question.
+    """
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    if len(text) > 200:
+        text = text[:200].rstrip()
+    return text or None
+
+
+@router.patch("/api/conversations/{conversation_id}")
+async def patch_conversation(
+    request: Request,
+    conversation_id: UUID,
+    body: UpdateConversationBody,
+) -> dict[str, Any]:
+    """Set or clear a conversation's title (issue #48).
+
+    Null or whitespace-only input clears the title and re-arms the
+    auto-title gate so the next regenerate / next-turn-on-untitled
+    flow can produce a fresh label.
+    """
+    identity = request.state.identity
+    user_uuid = UUID(identity.user_id)
+    pool = request.app.state.pool
+
+    normalised = _normalise_title(body.title)
+
+    async with acquire(pool, identity) as conn:
+        owned = await conversation_belongs_to(
+            conn, conversation_id=conversation_id, user_id=user_uuid
+        )
+        if not owned:
+            raise HTTPException(status_code=404, detail="conversation not found")
+        stored = await update_conversation_title(
+            conn,
+            conversation_id=conversation_id,
+            user_id=user_uuid,
+            title=normalised,
+        )
+
+    return {"id": str(conversation_id), "title": stored}
+
+
+@router.post("/api/conversations/{conversation_id}/regenerate_title")
+async def post_regenerate_conversation_title(
+    request: Request, conversation_id: UUID
+) -> dict[str, Any]:
+    """Force-regenerate a conversation's title from its first turn pair.
+
+    Runs the cheap haiku-class summary inline (issue #48 budgets one
+    call per regenerate) and writes the result onto the row. Returns
+    ``{"id", "title"}`` so the UI can replace its local copy without a
+    follow-up GET.
+    """
+    identity = request.state.identity
+    user_uuid = UUID(identity.user_id)
+    pool = request.app.state.pool
+    provider = request.app.state.provider
+
+    async with acquire(pool, identity) as conn:
+        owned = await conversation_belongs_to(
+            conn, conversation_id=conversation_id, user_id=user_uuid
+        )
+        if not owned:
+            raise HTTPException(status_code=404, detail="conversation not found")
+        pair = await first_turn_pair(conn, conversation_id=conversation_id)
+
+    if pair is None:
+        # Nothing to summarise yet — clear any existing title so the
+        # next first-agent-turn lands the auto-title path.
+        async with acquire(pool, identity) as conn:
+            stored = await update_conversation_title(
+                conn,
+                conversation_id=conversation_id,
+                user_id=user_uuid,
+                title=None,
+            )
+        return {"id": str(conversation_id), "title": stored}
+
+    user_text, assistant_text = pair
+    try:
+        generated = await generate_conversation_title(
+            provider=provider,
+            user_text=user_text,
+            assistant_text=assistant_text,
+        )
+    except Exception as exc:
+        logger.exception(
+            "auto_title.regenerate_failed",
+            extra={"conversation_id": str(conversation_id)},
+        )
+        # Surface a typed 502 so the UI can render a retry rather than a
+        # generic 500 swallowing the cause.
+        raise HTTPException(
+            status_code=502, detail="title generation failed"
+        ) from exc
+
+    async with acquire(pool, identity) as conn:
+        stored = await update_conversation_title(
+            conn,
+            conversation_id=conversation_id,
+            user_id=user_uuid,
+            title=generated,
+        )
+
+    return {"id": str(conversation_id), "title": stored}
+
+
 @router.get("/api/conversations/{conversation_id}/messages")
 async def get_conversation_messages(
     request: Request, conversation_id: UUID
@@ -1231,6 +1400,74 @@ class TurnRequestBody(BaseModel):
 def _sse_event(name: str, data: dict[str, Any]) -> str:
     """Format an SSE frame. Trailing blank line terminates the frame."""
     return f"event: {name}\ndata: {json.dumps(data)}\n\n"
+
+
+async def _auto_title_first_turn(
+    *,
+    pool: Any,
+    provider: Any,
+    identity: Any,
+    conversation_id: UUID,
+    user_id: UUID,
+) -> None:
+    """Background hook that runs after every ``/api/turn`` ``complete``.
+
+    Fires the cheap haiku-class summary iff the conversation is still
+    titleless and the just-landed turn is the first one (message count
+    == 2 — one user + one assistant). The persistence-side write is
+    additionally gated on ``title IS NULL`` so two near-simultaneous
+    turns on the same conversation cannot both win.
+
+    The task swallows its own exceptions: an auto-title that fails
+    must never break the turn pipeline. Per ``docs/005 §5.1`` the
+    runner is authoritative — this is a best-effort UI nicety, not a
+    correctness path.
+    """
+    try:
+        async with acquire(pool, identity) as conn:
+            count = await count_conversation_messages(
+                conn, conversation_id=conversation_id
+            )
+            if count != 2:
+                return
+            # Skip the LLM call when a title already exists (operator
+            # set it on conversation create, or a prior auto-title
+            # already won). The SQL guard inside
+            # ``update_conversation_title(..., only_if_null=True)``
+            # would prevent the overwrite anyway, but checking here
+            # avoids paying for a provider call we'd discard.
+            existing_title = await conn.fetchval(
+                "SELECT title FROM eidan.conversations WHERE id = $1",
+                conversation_id,
+            )
+            if existing_title is not None:
+                return
+            pair = await first_turn_pair(
+                conn, conversation_id=conversation_id
+            )
+        if pair is None:
+            return
+        user_text, assistant_text = pair
+        generated = await generate_conversation_title(
+            provider=provider,
+            user_text=user_text,
+            assistant_text=assistant_text,
+        )
+        if generated is None:
+            return
+        async with acquire(pool, identity) as conn:
+            await update_conversation_title(
+                conn,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                title=generated,
+                only_if_null=True,
+            )
+    except Exception:
+        logger.exception(
+            "auto_title.background_failed",
+            extra={"conversation_id": str(conversation_id)},
+        )
 
 
 @router.post("/api/turn")
@@ -1333,6 +1570,21 @@ async def post_turn(
                             ),
                         },
                     ).encode("utf-8")
+                    # Fire-and-forget auto-title hook (issue #48). The
+                    # call is gated on ``title IS NULL`` inside
+                    # ``_auto_title_first_turn`` — a second turn on a
+                    # conversation that already has a title is a no-op
+                    # both at the SQL layer and (when no fresh provider
+                    # call is needed) before it.
+                    asyncio.create_task(
+                        _auto_title_first_turn(
+                            pool=pool,
+                            provider=provider,
+                            identity=identity,
+                            conversation_id=body.conversation_id,
+                            user_id=user_uuid,
+                        )
+                    )
         except asyncio.CancelledError:
             # Client disconnect — propagate so the provider call unwinds.
             raise

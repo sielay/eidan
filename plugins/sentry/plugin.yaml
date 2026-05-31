@@ -27,11 +27,15 @@ host:
 env:
   - name: EIDAN_SENTRY_ENABLED
     required: false
-    default: "1"
+    default: "1 on Pi/k8s/Heroku/local; 0 on Fly"
     description: >
-      Set to "0" to disable the sentry tick. Useful for CI / smoke
-      tests that don't want the loop firing every 5 minutes against a
-      shared test DB.
+      Set to "1" to enable the sentry tick, "0" to disable. When
+      unset the default is node-type-aware: Fly machines default
+      OFF (the tick is intended to call a model — see
+      EIDAN_SENTRY_MODEL — and the operator should opt in
+      explicitly on Fly to avoid silent LLM cost on every node);
+      every other node type (Pi, k8s, Heroku, local) defaults ON.
+      Operators pin explicitly via env to override either default.
   - name: EIDAN_SENTRY_TICK_INTERVAL
     required: false
     default: "PT5M"

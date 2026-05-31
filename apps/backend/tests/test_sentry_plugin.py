@@ -359,6 +359,44 @@ async def test_sentry_disabled_skips_tick(
         await pool.close()
 
 
+def test_is_enabled_defaults_off_on_fly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #53: with EIDAN_SENTRY_ENABLED unset, Fly machines
+    (detected via FLY_MACHINE_ID) default to off so the 5-minute
+    tick doesn't burn LLM cost the operator didn't opt into."""
+    _load_sentry_package()
+    from eidan_sentry.loop import _is_enabled
+
+    monkeypatch.delenv("EIDAN_SENTRY_ENABLED", raising=False)
+    monkeypatch.setenv("FLY_MACHINE_ID", "1234abcd")
+    assert _is_enabled() is False
+
+
+def test_is_enabled_defaults_on_elsewhere(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no env signals, the default is on — matches the
+    pre-#53 behaviour for Pi / k8s / Heroku / local nodes."""
+    _load_sentry_package()
+    from eidan_sentry.loop import _is_enabled
+
+    monkeypatch.delenv("EIDAN_SENTRY_ENABLED", raising=False)
+    monkeypatch.delenv("FLY_MACHINE_ID", raising=False)
+    assert _is_enabled() is True
+
+
+def test_is_enabled_explicit_pin_overrides_fly_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Operator pin wins on Fly — an explicit ``EIDAN_SENTRY_ENABLED=1``
+    opts the machine in even when the auto-default would be off."""
+    _load_sentry_package()
+    from eidan_sentry.loop import _is_enabled
+
+    monkeypatch.setenv("FLY_MACHINE_ID", "1234abcd")
+    monkeypatch.setenv("EIDAN_SENTRY_ENABLED", "1")
+    assert _is_enabled() is True
+
+
 @pytest.mark.asyncio
 async def test_notify_called_for_medium_severity(eidan_db: str) -> None:
     """When a medium- or high-severity pattern fires AND a notify

@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import {
+  fetchConversation,
   fetchConversationMessages,
   type MessageRow,
 } from "@/lib/api/conversations";
@@ -11,6 +12,7 @@ import { streamTurn } from "@/lib/api/turn";
 
 import { buildThread } from "./buildThread";
 import { Composer } from "./Composer";
+import { ConversationTitle } from "./ConversationTitle";
 import { CostCounter } from "./CostCounter";
 import { Thread } from "./Thread";
 
@@ -45,6 +47,7 @@ export function ConversationView({
 
   const [history, setHistory] = React.useState<MessageRow[] | null>(null);
   const [historyError, setHistoryError] = React.useState<string | null>(null);
+  const [title, setTitle] = React.useState<string | null>(null);
   const [pendingUserText, setPendingUserText] = React.useState<string | null>(
     null,
   );
@@ -71,10 +74,21 @@ export function ConversationView({
     }
   }, [config, conversationId]);
 
+  const reloadTitle = React.useCallback(async () => {
+    if (!config) return;
+    try {
+      const row = await fetchConversation(conversationId);
+      setTitle(row.title);
+    } catch {
+      // Title is a nicety — silent failure keeps the header readable.
+    }
+  }, [config, conversationId]);
+
   React.useEffect(() => {
     if (!config || !user) return;
     void reloadHistory();
-  }, [config, user, reloadHistory]);
+    void reloadTitle();
+  }, [config, user, reloadHistory, reloadTitle]);
 
   const onSubmit = React.useCallback(
     async (text: string) => {
@@ -111,6 +125,13 @@ export function ConversationView({
         setStreamingAssistant(null);
         setInFlight(false);
         await reloadHistory();
+        // Auto-title runs as a fire-and-forget task on the backend
+        // (issue #48). Re-fetch a couple of times so the header
+        // updates without the operator having to refresh.
+        void reloadTitle();
+        window.setTimeout(() => {
+          void reloadTitle();
+        }, 1500);
       } else {
         // 500 or stream interruption: keep the partial assistant text
         // visible with the [interrupted] marker per `docs/014 §4.6`.
@@ -120,7 +141,7 @@ export function ConversationView({
         setInFlight(false);
       }
     },
-    [config, conversationId, reloadHistory],
+    [config, conversationId, reloadHistory, reloadTitle],
   );
 
   if (loading) {
@@ -149,13 +170,19 @@ export function ConversationView({
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col px-6 py-6">
-      <header className="mb-4 flex items-baseline justify-between gap-3">
-        <h1 className="text-base font-semibold tracking-tight">
-          Conversation
-        </h1>
-        <span className="font-mono text-xs text-muted-foreground">
-          {conversationId}
-        </span>
+      <header className="mb-4 flex flex-col gap-1">
+        <div className="flex items-baseline justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <ConversationTitle
+              conversationId={conversationId}
+              title={title}
+              onChange={setTitle}
+            />
+          </div>
+          <span className="font-mono text-xs text-muted-foreground">
+            {conversationId.slice(0, 8)}…
+          </span>
+        </div>
       </header>
 
       <div className="mb-3 border-b border-border pb-2">

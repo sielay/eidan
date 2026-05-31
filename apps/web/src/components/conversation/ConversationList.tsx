@@ -1,15 +1,18 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, RefreshCw } from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
   createConversation,
   listConversations,
+  regenerateConversationTitle,
+  updateConversationTitle,
   type ConversationSummary,
 } from "@/lib/api/conversations";
 import { cn } from "@/lib/utils";
@@ -26,6 +29,12 @@ import { cn } from "@/lib/utils";
  * pushes the router to the new conversation's panel as soon as the
  * backend hands back its id, so the next render of
  * ``ConversationView`` is ready to receive the first message.
+ *
+ * Each row carries a kebab affordance that surfaces a small inline
+ * menu with "Rename" and "Regenerate title" actions (issue #48).
+ * Rename swaps the row into an inline input; regenerate fires
+ * ``POST /api/conversations/{id}/regenerate_title`` and refreshes the
+ * row in place.
  */
 export function ConversationList(): React.ReactElement {
   const { config, user, loading } = useAuth();
@@ -74,6 +83,19 @@ export function ConversationList(): React.ReactElement {
     }
   }, [config, creating, router]);
 
+  const onRowTitleChange = React.useCallback(
+    (rowId: string, nextTitle: string | null) => {
+      setConversations((prev) =>
+        prev === null
+          ? prev
+          : prev.map((row) =>
+              row.id === rowId ? { ...row, title: nextTitle } : row,
+            ),
+      );
+    },
+    [],
+  );
+
   if (loading || !user) {
     return (
       <div
@@ -114,7 +136,11 @@ export function ConversationList(): React.ReactElement {
         <ul className="flex flex-col gap-0.5">
           {conversations.map((row) => (
             <li key={row.id}>
-              <ConversationRow row={row} active={row.id === activeId} />
+              <ConversationRow
+                row={row}
+                active={row.id === activeId}
+                onTitleChange={(next) => onRowTitleChange(row.id, next)}
+              />
             </li>
           ))}
         </ul>
@@ -126,23 +152,179 @@ export function ConversationList(): React.ReactElement {
 function ConversationRow({
   row,
   active,
+  onTitleChange,
 }: {
   row: ConversationSummary;
   active: boolean;
+  onTitleChange: (next: string | null) => void;
 }): React.ReactElement {
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [busy, setBusy] = React.useState<"save" | "regen" | null>(null);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Close the kebab menu on outside click — the rows render without
+  // a portaled overlay so a plain document-level listener is enough.
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node)
+      ) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [menuOpen]);
+
+  React.useEffect(() => {
+    if (editing) {
+      setDraft(row.title ?? "");
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    }
+  }, [editing, row.title]);
+
+  const beginRename = React.useCallback(() => {
+    setMenuOpen(false);
+    setEditing(true);
+  }, []);
+
+  const commitRename = React.useCallback(async () => {
+    const next = draft.trim();
+    if ((next || null) === (row.title ?? null)) {
+      setEditing(false);
+      return;
+    }
+    setBusy("save");
+    try {
+      const body = await updateConversationTitle(
+        row.id,
+        next ? next : null,
+      );
+      onTitleChange(body.title);
+      setEditing(false);
+    } catch {
+      // Swallow: leaving editing=true so the operator can retry.
+    } finally {
+      setBusy(null);
+    }
+  }, [draft, onTitleChange, row.id, row.title]);
+
+  const onRegenerate = React.useCallback(async () => {
+    setMenuOpen(false);
+    if (busy !== null) return;
+    setBusy("regen");
+    try {
+      const body = await regenerateConversationTitle(row.id);
+      onTitleChange(body.title);
+    } catch {
+      // Swallow: operator can retry from the menu.
+    } finally {
+      setBusy(null);
+    }
+  }, [busy, onTitleChange, row.id]);
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 rounded-md bg-accent/40 px-2 py-1">
+        <input
+          ref={inputRef}
+          value={draft}
+          maxLength={200}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => void commitRename()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void commitRename();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setEditing(false);
+            }
+          }}
+          disabled={busy === "save"}
+          aria-label="Rename conversation"
+          className="w-full rounded-sm bg-background px-1.5 py-0.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      </div>
+    );
+  }
+
   const label = row.title?.trim() ? row.title : "Untitled";
+
   return (
-    <Link
-      href={`/c/${row.id}`}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "block truncate rounded-md px-2 py-1.5 text-xs text-foreground transition-colors",
-        active
-          ? "bg-accent text-accent-foreground"
-          : "hover:bg-accent/60 hover:text-accent-foreground text-muted-foreground",
-      )}
-    >
-      {label}
-    </Link>
+    <div className="group relative flex items-center gap-1">
+      <Link
+        href={`/c/${row.id}`}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "block flex-1 truncate rounded-md px-2 py-1.5 text-xs text-foreground transition-colors",
+          active
+            ? "bg-accent text-accent-foreground"
+            : "hover:bg-accent/60 hover:text-accent-foreground text-muted-foreground",
+          row.title === null && "italic",
+        )}
+      >
+        {busy === "regen" ? (
+          <span className="inline-flex items-center gap-1">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            {label}
+          </span>
+        ) : (
+          label
+        )}
+      </Link>
+      <div ref={menuRef} className="relative">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            setMenuOpen((open) => !open);
+          }}
+          aria-label="Conversation actions"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          className={cn(
+            "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-opacity",
+            "hover:bg-accent/60 hover:text-accent-foreground",
+            menuOpen || active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+          )}
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+        {menuOpen ? (
+          <div
+            role="menu"
+            className="absolute right-0 top-7 z-10 min-w-40 rounded-md border border-border bg-background shadow-md"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={beginRename}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+            >
+              <Pencil className="h-3 w-3" />
+              Rename
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => void onRegenerate()}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Regenerate title
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
