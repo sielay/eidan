@@ -23,6 +23,11 @@ defaults:
   provider:
     name: anthropic
     default_model: claude-sonnet-4-6
+  # Pin the eidan release image once here so every Fly machine rolls
+  # forward together. Override per node when you want one machine to
+  # lag behind for testing. Bump the tag (or a digest) to roll out a
+  # new release. Skipped for `target: pi` (Ansible installs from git).
+  # image: ghcr.io/sielay/eidan:v0.1.0
 
 # One entry per host you run eidan on. Node names are operator-chosen
 # and used by `eidan deploy --node <name>` and the per-node telemetry
@@ -52,6 +57,9 @@ nodes:
   #   target: fly
   #   app: eidan-api
   #   region: lhr
+  #   # Override the defaults pin if this machine should track a
+  #   # different release. Otherwise inherits defaults.image.
+  #   # image: ghcr.io/sielay/eidan:v0.1.0
   #   database_url: postgresql+asyncpg://...
   #   auth_master_key: REPLACE-ME-WITH-A-48-BYTE-TOKEN-FROM-secrets.token_urlsafe
   #   auth_allowed_email: you@example.com

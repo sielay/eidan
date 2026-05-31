@@ -82,6 +82,76 @@ def test_render_fly_toml_carries_app_region_image(tmp_path: Path) -> None:
     assert 'EIDAN_DISABLED_PLUGINS  = "sentry"' in rendered
 
 
+def test_render_fly_toml_per_node_image_pin(tmp_path: Path) -> None:
+    """A node-level `image:` overrides the bundled default in both
+    fly.toml `[build].image` AND the `fly deploy --image` arg."""
+    body = """
+        schema: 1
+        nodes:
+          fly-prod:
+            target: fly
+            app: eidan-api
+            region: lhr
+            image: ghcr.io/sielay/eidan:v0.1.0
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    node = topology.resolve_node("fly-prod")
+    rendered = fly._render_fly_toml(node)
+
+    assert 'image = "ghcr.io/sielay/eidan:v0.1.0"' in rendered
+    # _resolve_image is what `fly deploy --image` reads, so check it
+    # directly too — the rendered fly.toml is one consumer, the
+    # subprocess arg is the other.
+    assert fly._resolve_image(node) == "ghcr.io/sielay/eidan:v0.1.0"
+
+
+def test_render_fly_toml_defaults_image_inherited(tmp_path: Path) -> None:
+    """`defaults.image:` propagates to every Fly node that doesn't
+    override — this is the typical operator pattern (pin once at
+    the top, override per-node only when one is intentionally
+    lagging behind for testing)."""
+    body = """
+        schema: 1
+        defaults:
+          image: ghcr.io/sielay/eidan:v0.2.0
+        nodes:
+          fly-a:
+            target: fly
+            app: eidan-a
+            region: lhr
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+          fly-b:
+            target: fly
+            app: eidan-b
+            region: iad
+            image: ghcr.io/sielay/eidan:v0.1.9
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    a = topology.resolve_node("fly-a")
+    b = topology.resolve_node("fly-b")
+
+    # fly-a inherits the default.
+    assert fly._resolve_image(a) == "ghcr.io/sielay/eidan:v0.2.0"
+    # fly-b's per-node value wins.
+    assert fly._resolve_image(b) == "ghcr.io/sielay/eidan:v0.1.9"
+
+
+def test_resolve_image_falls_back_to_latest(tmp_path: Path) -> None:
+    """No `image:` anywhere → the published-latest default. Keeps
+    first-time-deploy ergonomics intact for operators who haven't
+    learned to pin yet."""
+    node = _fly_node(tmp_path)
+    assert fly._resolve_image(node) == "ghcr.io/sielay/eidan:latest"
+
+
 def test_render_fly_toml_sentry_default_off(tmp_path: Path) -> None:
     """When the node doesn't override sentry, the Fly reconciler
     pins it OFF in [env] — matches the docs/DEPLOYMENT.md §4.4
