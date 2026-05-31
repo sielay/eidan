@@ -16,7 +16,7 @@ deploy CLI doesn't touch Vercel; this is the standard click-through.
      wherever the recipe's backend lives). The backend host MUST
      share its registrable domain with the frontend host configured
      in step 4 — see
-     [DEPLOY_FLY_BOOTSTRAP §3](./DEPLOY_FLY_BOOTSTRAP.md#3-custom-domain-load-bearing).
+     [DEPLOY_FLY_BOOTSTRAP §4](./DEPLOY_FLY_BOOTSTRAP.md#4-custom-domain-load-bearing).
      Pointing at `eidan-api.fly.dev` while the frontend is on
      `app.yourdomain.com` will silently break the refresh cookie.
 4. Deploy. Set the production domain to `app.yourdomain.com` under

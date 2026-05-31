@@ -26,7 +26,25 @@ fly apps create eidan-api --org personal
 `fly postgres attach` (if you use it below) needs the target app to
 exist first.
 
-## 2. Postgres
+## 2. Create the plugins volume
+
+The rendered `fly.toml` declares a `[[mounts]]` for
+`/var/lib/eidan/plugins` so paid-bundle installs land on a
+persistent disk rather than the image. Create one volume per
+machine (Fly's `auto_start_machines` setting on the rendered toml
+provisions 2 machines by default, so create 2):
+
+```bash
+fly volume create eidan_plugins --app eidan-api -r lhr -n 2
+```
+
+Match `-r` to your `topology.yml`'s `region:` and `-n` to however
+many machines you expect — `fly status --app eidan-api` shows the
+current count after a deploy. Without this volume, `eidan deploy
+--node fly-prod` fails with `needs volumes with name 'eidan_plugins'
+to fulfill mounts defined in fly.toml`.
+
+## 3. Postgres
 
 Pick one.
 
@@ -69,7 +87,7 @@ fly secrets set --app eidan-api \
 (Once your topology is wired up, `eidan deploy --tags secrets`
 takes over this step.)
 
-## 3. Custom domain (load-bearing)
+## 4. Custom domain (load-bearing)
 
 The verify endpoint sets `eidan_refresh` as an `httpOnly;
 SameSite=Lax` cookie scoped to `/api/auth/refresh`. That cookie is
@@ -106,7 +124,7 @@ option: Safari ITP blocks it, Brave blocks it by default, Chrome's
 third-party cookie deprecation kills it on the rest. The
 custom-domain shape is the only path that keeps working.
 
-## 4. Initial migrations
+## 5. Initial migrations
 
 Run once after the first `eidan deploy`. `eidan admin db migrate`
 runs core then iterates each installed plugin's private-schema
@@ -120,7 +138,7 @@ Skip if another node (the Pi, a laptop bootstrap) has already
 migrated this Postgres — alembic is version-tracked, a re-run is a
 no-op.
 
-## 5. Hand off to the CLI
+## 6. Hand off to the CLI
 
 From your laptop, inside the eidan checkout:
 

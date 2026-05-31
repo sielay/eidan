@@ -17,7 +17,6 @@ failure.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from contextlib import contextmanager
@@ -244,12 +243,15 @@ def reconcile(
         if extra_args:
             cmd += extra_args
 
-        # ANSIBLE_CONFIG=/dev/null suppresses any operator-side
-        # ansible.cfg from contaminating the deploy; we want
-        # deterministic behaviour driven only by the bundled
-        # playbook + our rendered inventory.
-        env = {**os.environ, "ANSIBLE_CONFIG": "/dev/null"}
-        completed = subprocess.run(cmd, env=env, check=False)  # noqa: S603
+        # Run with the operator's environment intact. The original
+        # intent here was to suppress any operator-side ansible.cfg
+        # via ``ANSIBLE_CONFIG=/dev/null``, but modern ansible-core
+        # tries to parse that file (it walks the extension first)
+        # and aborts with ``Unsupported configuration file
+        # extension for /dev/null``. If we ever need that isolation
+        # back, ship an empty ``ansible.cfg`` next to the bundled
+        # playbook and point ANSIBLE_CONFIG at it.
+        completed = subprocess.run(cmd, check=False)  # noqa: S603
         return completed.returncode
 
 
