@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 
-from .targets import TargetReconcileError, pi
+from .targets import TargetReconcileError, fly, pi
 from .topology import (
     ResolvedNode,
     TopologyError,
@@ -45,6 +45,7 @@ _console = Console()
 # :mod:`eidan_cli.targets`.
 _TARGET_MODULES: dict[str, object] = {
     "pi": pi,
+    "fly": fly,
 }
 
 
@@ -84,7 +85,7 @@ def _reconcile_one(
     if module is None:
         raise NoReconcilerForTarget(
             f"node {node.name!r}: no reconciler for target {target!r} yet. "
-            "Pi targets work today; Fly + Docker land in follow-up PRs."
+            "Pi and Fly targets work today; Docker lands in a follow-up PR."
         )
 
     _console.print(
@@ -115,7 +116,11 @@ def deploy(
     code otherwise. Continues past per-node failures so a single
     bad node doesn't block reconciliation of healthy peers; the
     operator gets a summary at the end."""
-    pi.ensure_ansible_available()  # surface the missing-dep error early
+    # Surface missing-CLI-dep errors early. Both probes are cheap; the
+    # operator gets the right "install ansible" / "install flyctl"
+    # message regardless of which target their nodes use.
+    pi.ensure_ansible_available()
+    fly.ensure_flyctl_available()
 
     tags_list = list(tags) if tags is not None else None
     extra_args_list = list(extra_args) if extra_args is not None else None

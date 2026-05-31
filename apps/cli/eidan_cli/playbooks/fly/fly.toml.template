@@ -1,0 +1,42 @@
+# Rendered by eidan_cli/targets/fly.py — do NOT edit on disk; edit
+# topology.yml and re-run `eidan deploy --node <name>` instead.
+#
+# The structure mirrors docs/DEPLOYMENT.md §4.5 — non-secret runtime
+# config lives in [env], everything else goes through `fly secrets
+# set` (handled by the reconciler).
+
+app            = "__APP__"
+primary_region = "__REGION__"
+
+[build]
+  image = "__IMAGE__"
+
+[http_service]
+  internal_port        = __HTTP_PORT__
+  force_https          = true
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval     = "15s"
+    timeout      = "5s"
+    grace_period = "10s"
+    method       = "GET"
+    path         = "/api/healthz"
+
+  [http_service.concurrency]
+    type       = "requests"
+    soft_limit = 25
+    hard_limit = 50
+
+[env]
+  EIDAN_HTTP_HOST         = "__HTTP_HOST__"
+  EIDAN_DEPLOYMENT_MODE   = "__DEPLOYMENT_MODE__"
+  EIDAN_HTTP_CORS_ORIGINS = "__CORS_ORIGINS__"
+  EIDAN_PLUGINS_DIR       = "/var/lib/eidan/plugins"
+__SENTRY_ENABLED_LINE____DISABLED_PLUGINS_LINE____NODE_ID_LINE____NODE_TYPE_LINE__
+
+[[mounts]]
+  source      = "eidan_plugins"
+  destination = "/var/lib/eidan/plugins"
