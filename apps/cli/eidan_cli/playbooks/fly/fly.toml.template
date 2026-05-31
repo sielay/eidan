@@ -1,9 +1,8 @@
 # Rendered by eidan_cli/targets/fly.py — do NOT edit on disk; edit
 # topology.yml and re-run `eidan deploy --node <name>` instead.
 #
-# The structure mirrors docs/DEPLOYMENT.md §4.5 — non-secret runtime
-# config lives in [env], everything else goes through `fly secrets
-# set` (handled by the reconciler).
+# Non-secret runtime config lives in [env]; everything else goes
+# through `fly secrets set` (handled by the reconciler).
 
 app            = "__APP__"
 primary_region = "__REGION__"
