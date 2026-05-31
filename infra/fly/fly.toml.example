@@ -75,6 +75,13 @@ primary_region = "lhr"          # change me to your nearest Fly region
   # calls land in the volume and survive image upgrades.
   # EIDAN_PLUGINS_DIR     = "/var/lib/eidan/plugins"
 
+  # Sentry tick: defaults OFF on Fly (the loop is intended to call a
+  # model, so leaving it on burns LLM cost on every Fly machine). Set
+  # to "1" to opt in here — typically only if this Fly app is your
+  # primary long-lived node and there is no Pi or other always-on
+  # host running the tick. See plugins/sentry/plugin.yaml.
+  # EIDAN_SENTRY_ENABLED  = "1"
+
 # Uncomment to mount a persistent plugin volume. Run
 # `fly volumes create eidan_plugins --size 1 -r <region>` first, then
 # `fly deploy`. See docs/DEPLOYMENT.md §4.6 for the runtime-install

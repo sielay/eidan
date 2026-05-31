@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.eidan.dev/core/memory/ConversationUpdate/v1.json",
+  "title": "ConversationUpdate",
+  "description": "Request body for PATCH /api/conversations/{id} — the editable fields on a conversation row. Per issue #48 the only editable field today is the operator-facing title; null clears the title and makes the conversation eligible for auto-title regeneration on the next opportunity.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "type": ["string", "null"],
+      "maxLength": 200,
+      "description": "Human-readable label shown in the sidebar and conversation header. Trimmed of surrounding whitespace by the handler. Null (or empty after trim) clears the title back to autogen-eligible state per issue #48."
+    }
+  }
+}

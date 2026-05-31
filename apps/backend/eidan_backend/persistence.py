@@ -636,6 +636,123 @@ async def conversation_belongs_to(
     return row is not None
 
 
+async def update_conversation_title(
+    conn: asyncpg.Connection,
+    *,
+    conversation_id: UUID,
+    user_id: UUID,
+    title: str | None,
+    only_if_null: bool = False,
+) -> str | None:
+    """Set or clear a conversation's title.
+
+    Returns the stored title after the write (``None`` when cleared or
+    when the row didn't match the optional ``only_if_null`` guard).
+
+    ``only_if_null=True`` is the auto-title idempotency gate per issue
+    #48 — the auto-title behaviour fires at-most-once per conversation
+    by predicating the write on ``title IS NULL`` so a second turn
+    cannot overwrite a title the operator has since edited.
+    """
+    if only_if_null:
+        row = await conn.fetchrow(
+            """
+            UPDATE eidan.conversations
+            SET title = $3
+            WHERE id = $1
+              AND user_id = $2
+              AND deleted_at IS NULL
+              AND title IS NULL
+            RETURNING title
+            """,
+            conversation_id,
+            user_id,
+            title,
+        )
+    else:
+        row = await conn.fetchrow(
+            """
+            UPDATE eidan.conversations
+            SET title = $3
+            WHERE id = $1
+              AND user_id = $2
+              AND deleted_at IS NULL
+            RETURNING title
+            """,
+            conversation_id,
+            user_id,
+            title,
+        )
+    return row["title"] if row is not None else None
+
+
+async def count_conversation_messages(
+    conn: asyncpg.Connection,
+    *,
+    conversation_id: UUID,
+) -> int:
+    """Count non-deleted messages in a conversation.
+
+    Used by the auto-title hook to detect "first agent turn just
+    landed" (count == 2: one user + one assistant).
+    """
+    value = await conn.fetchval(
+        """
+        SELECT COUNT(*)
+        FROM eidan.messages
+        WHERE conversation_id = $1
+          AND deleted_at IS NULL
+        """,
+        conversation_id,
+    )
+    return int(value or 0)
+
+
+async def first_turn_pair(
+    conn: asyncpg.Connection,
+    *,
+    conversation_id: UUID,
+) -> tuple[str, str] | None:
+    """Return ``(first_user_text, first_assistant_text)`` for a
+    conversation, or ``None`` if the pair isn't there yet.
+
+    Skips empty / null content rows so a turn that produced only tool
+    calls doesn't poison the title summary. Used by the auto-title
+    hook and ``POST /api/conversations/{id}/regenerate_title``.
+    """
+    user_row = await conn.fetchrow(
+        """
+        SELECT content
+        FROM eidan.messages
+        WHERE conversation_id = $1
+          AND role = 'user'
+          AND deleted_at IS NULL
+          AND content IS NOT NULL
+          AND content <> ''
+        ORDER BY created_at ASC
+        LIMIT 1
+        """,
+        conversation_id,
+    )
+    assistant_row = await conn.fetchrow(
+        """
+        SELECT content
+        FROM eidan.messages
+        WHERE conversation_id = $1
+          AND role = 'assistant'
+          AND deleted_at IS NULL
+          AND content IS NOT NULL
+          AND content <> ''
+        ORDER BY created_at ASC
+        LIMIT 1
+        """,
+        conversation_id,
+    )
+    if user_row is None or assistant_row is None:
+        return None
+    return user_row["content"], assistant_row["content"]
+
+
 async def latest_user_message_id(
     conn: asyncpg.Connection,
     *,
