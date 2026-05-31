@@ -4,7 +4,13 @@ version = "0.1.0"
 description = "JSON Schema source of truth + Pydantic v2 codegen. Sibling to the @eidan/schemas TS surface."
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic>=2.7.0",
+    # email-validator is required by Pydantic's EmailStr (`format: email`
+    # JSON-Schema-side maps to EmailStr via datamodel-code-generator);
+    # without it, importing any generated model that references an email
+    # field fails at class-build time with an opaque ImportError. Carry
+    # the dep here so consumers of the generated package get it for
+    # free.
+    "pydantic[email]>=2.7.0",
 ]
 
 [project.optional-dependencies]

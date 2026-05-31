@@ -116,6 +116,11 @@ package boundary:
 - MCP tool input/output (`tools[]` schemas).
 - Bus event payloads (`event:<name>` triggers, §5 of `001_PLUGINS.md`).
 - Plugin manifest fragments shared between loader and admin UI.
+- **Deploy topology** (`schemas/core/deploy/Topology.schema.json`) —
+  the operator's source of truth for the `eidan deploy` CLI, parsed
+  by `apps/cli/eidan_cli/topology.py` and consumed by every target
+  reconciler. Lives here so any future web UI ("show my deployment")
+  gets Zod validation for free.
 
 Internal-only shapes (a service-layer dataclass that never leaves
 Python) stay in Python. A pure UI prop that never reaches the

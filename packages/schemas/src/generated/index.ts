@@ -8,6 +8,7 @@ export { KnowledgeUpdate } from "./core/memory/KnowledgeUpdate";
 export { NodeEventList } from "./core/admin/NodeEventList";
 export { NodeList } from "./core/admin/NodeList";
 export { PluginManifest } from "./core/plugin/PluginManifest";
+export { Topology } from "./core/deploy/Topology";
 export { TriggerList } from "./core/admin/TriggerList";
 export { TurnChunk } from "./core/turn/TurnChunk";
 export { TurnComplete } from "./core/turn/TurnComplete";
