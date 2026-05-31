@@ -9,9 +9,12 @@ flyctl pipeline:
 2. `fly secrets set --app <app>` for each secret env var the
    topology declared. Only pushes values we have — never clears a
    secret the operator set out-of-band.
-3. `fly deploy --image <image>` against the rendered fly.toml.
-   Defaults to `ghcr.io/sielay/eidan:latest`; pass `--image` to the
-   CLI to pin a different tag.
+3. `fly deploy` against the rendered fly.toml. Two shapes:
+   - `image:` set in topology → `fly deploy --image <image>`
+     (operator's pinned tag, e.g. their own GHCR build).
+   - `image:` unset → `fly deploy --dockerfile <eidan>/infra/fly/
+     Dockerfile <eidan>` to build locally. The eidan checkout
+     root is `EIDAN_SOURCE_DIR` or cwd.
 4. `fly ssh console -C "eidan admin plugin install <bundle>"` for
    each bundle in the node's `bundles:` list.
 
@@ -22,6 +25,7 @@ ordering is fixed — we don't try to parallelise across steps.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from importlib import resources
@@ -34,7 +38,45 @@ if TYPE_CHECKING:
     from eidan_cli.topology import ResolvedNode
 
 
-_DEFAULT_IMAGE = "ghcr.io/sielay/eidan:latest"
+def _resolve_image(node: ResolvedNode) -> str | None:
+    """Per-node `image:` if set, else ``None`` to signal "build locally".
+
+    Returns the topology value when the operator pinned a published
+    image (their own GHCR tag, for example). Returns ``None`` when
+    nothing's set on either the node or `defaults.image:`, which the
+    reconciler treats as "build from the eidan checkout's
+    `infra/fly/Dockerfile`" (see :func:`_resolve_dockerfile`).
+    """
+    return getattr(node, "image", None)
+
+
+def _resolve_eidan_source_dir() -> Path:
+    """Locate the eidan checkout root so the Dockerfile build path
+    resolves. ``EIDAN_SOURCE_DIR`` wins if set; otherwise cwd. We
+    don't auto-discover via heuristics — explicit is kinder than
+    guessing wrong on a sibling-directory layout."""
+    env_value = os.environ.get("EIDAN_SOURCE_DIR", "").strip()
+    if env_value:
+        return Path(env_value).expanduser()
+    return Path.cwd()
+
+
+def _resolve_dockerfile(source_dir: Path) -> Path:
+    """Path to the bundled ``infra/fly/Dockerfile`` relative to the
+    eidan checkout root. Raises if it doesn't exist so the operator
+    gets a clear "you're in the wrong dir" message instead of a
+    confusing flyctl error."""
+    dockerfile = source_dir / "infra" / "fly" / "Dockerfile"
+    if not dockerfile.is_file():
+        raise TargetReconcileError(
+            "Fly deploy needs `infra/fly/Dockerfile` from the eidan "
+            f"checkout, but didn't find it at {dockerfile}. Either:\n"
+            "  - run `eidan deploy` from your eidan checkout root, or\n"
+            "  - set EIDAN_SOURCE_DIR to the eidan checkout path, or\n"
+            "  - pin `image:` in topology.yml to a published image "
+            "you have access to (skips the build entirely)."
+        )
+    return dockerfile
 
 
 class FlyMissingFieldError(TargetReconcileError):
@@ -95,7 +137,17 @@ def _render_fly_toml(node: ResolvedNode) -> str:
     cors_origins = ",".join(
         str(origin) for origin in (getattr(node, "cors_origins", None) or [])
     )
-    image = _DEFAULT_IMAGE
+    # When `image:` is set the rendered fly.toml carries a [build]
+    # image stanza; flyctl pulls + deploys the image. When unset,
+    # the toml leaves [build] out entirely — the reconciler invokes
+    # `fly deploy --dockerfile <path> <ctx>` which supplies the build
+    # config on the command line instead. See `_fly_deploy`.
+    image = _resolve_image(node)
+    build_block = (
+        f'[build]\n  image = "{image}"\n\n'
+        if image is not None
+        else ""
+    )
 
     extra_env_lines: list[str] = []
     sentry = getattr(node, "sentry", None)
@@ -125,7 +177,7 @@ def _render_fly_toml(node: ResolvedNode) -> str:
     replacements = {
         "__APP__": app,
         "__REGION__": region,
-        "__IMAGE__": image,
+        "__BUILD_BLOCK__": build_block,
         "__HTTP_PORT__": str(http_port),
         "__HTTP_HOST__": http_host,
         "__DEPLOYMENT_MODE__": deployment_mode,
@@ -210,17 +262,29 @@ def _push_secrets(
 def _fly_deploy(
     *,
     fly_toml_path: Path,
-    image: str,
+    image: str | None,
     dry_run: bool,
 ) -> int:
-    cmd = [
-        "fly",
-        "deploy",
-        "-c",
-        str(fly_toml_path),
-        "--image",
-        image,
-    ]
+    """Build the `fly deploy` invocation.
+
+    Two shapes:
+
+    - ``image`` set: ``fly deploy -c <fly.toml> --image <image>``.
+      flyctl pulls the image and rolls the machines. fly.toml carries
+      the same image in its ``[build]`` stanza for consistency.
+    - ``image`` unset: ``fly deploy -c <fly.toml> --dockerfile
+      <eidan>/infra/fly/Dockerfile <eidan>``. flyctl builds from the
+      bundled Dockerfile using the eidan checkout as the build
+      context. fly.toml has no ``[build]`` stanza — the command-line
+      flags supply the build config.
+    """
+    cmd = ["fly", "deploy", "-c", str(fly_toml_path)]
+    if image is not None:
+        cmd += ["--image", image]
+    else:
+        source_dir = _resolve_eidan_source_dir().resolve()
+        dockerfile = _resolve_dockerfile(source_dir)
+        cmd += ["--dockerfile", str(dockerfile), str(source_dir)]
     if dry_run:
         cmd.append("--build-only")
     return _run(cmd, dry_run=dry_run)
@@ -286,12 +350,9 @@ def reconcile(
             return code
 
     if do_all or "deploy" in tags_set:
-        # Image override would come from an env var or future schema
-        # field; default to latest for now. Operator pins via topology
-        # once an `image:` field lands (separate PR).
         code = _fly_deploy(
             fly_toml_path=fly_toml_path,
-            image=_DEFAULT_IMAGE,
+            image=_resolve_image(node),
             dry_run=dry_run,
         )
         if code != 0:
