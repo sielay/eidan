@@ -48,6 +48,15 @@ _TARGET_MODULES: dict[str, object] = {
     "fly": fly,
 }
 
+# Per-target external-CLI dependency probe. Run only for the targets a
+# given topology actually uses — an all-Pi deploy shouldn't trip over a
+# missing flyctl, and vice-versa. The function name is resolved via
+# getattr at call time so tests can patch the attribute on the module.
+_TARGET_DEP_PROBES: dict[str, str] = {
+    "pi": "ensure_ansible_available",
+    "fly": "ensure_flyctl_available",
+}
+
 
 class DeployError(Exception):
     """Base class for orchestrator-level failures (no reconciler
@@ -116,12 +125,6 @@ def deploy(
     code otherwise. Continues past per-node failures so a single
     bad node doesn't block reconciliation of healthy peers; the
     operator gets a summary at the end."""
-    # Surface missing-CLI-dep errors early. Both probes are cheap; the
-    # operator gets the right "install ansible" / "install flyctl"
-    # message regardless of which target their nodes use.
-    pi.ensure_ansible_available()
-    fly.ensure_flyctl_available()
-
     tags_list = list(tags) if tags is not None else None
     extra_args_list = list(extra_args) if extra_args is not None else None
 
@@ -130,6 +133,24 @@ def deploy(
     except (TopologyUnknownNode, TopologyError) as exc:
         _console.print(f"[red]{exc}[/red]")
         return 2
+
+    # Surface missing-CLI-dep errors early, but only for targets we'll
+    # actually invoke. An all-Pi topology mustn't fail with "install
+    # flyctl", which would surprise an operator who doesn't use Fly.
+    targets_in_use = {
+        (n.target.value if hasattr(n.target, "value") else n.target)
+        for n in nodes
+    }
+    for target_name in sorted(targets_in_use):
+        probe_attr = _TARGET_DEP_PROBES.get(target_name)
+        if probe_attr is None:
+            continue
+        module = _TARGET_MODULES[target_name]
+        try:
+            getattr(module, probe_attr)()
+        except TargetReconcileError as exc:
+            _console.print(f"[red]{exc}[/red]")
+            return 5
 
     if not nodes:
         _console.print("[yellow]no nodes to reconcile[/yellow]")
