@@ -14,7 +14,13 @@
 #   2. Edit `app`, `primary_region`, `EIDAN_HTTP_CORS_ORIGINS`.
 #   3. Set secrets (NEVER in this file): `fly secrets set --app <app> ...`.
 #   4. fly deploy                                   # auto-picks ./fly.toml
-#        --build-arg EIDAN_BUNDLES=...              # (optional)
+#
+# Paid bundles install at *runtime* against the live machine — see
+# docs/DEPLOYMENT.md §4.6 and the `EIDAN_PLUGINS_DIR` comment below.
+# Do NOT pass `--build-arg EIDAN_BUNDLES=...` to `fly deploy`: flyctl
+# (as of v0.4.57) drops `--build-secret` on every remote-builder path,
+# so the Dockerfile's bundle-install precondition check aborts the
+# build. The build-time path only works with `fly deploy --local-only`.
 #
 # Only non-secret runtime config belongs in [env]. Secrets live in
 # `fly secrets set` and are surfaced to the process as env vars at
@@ -32,6 +38,19 @@ primary_region = "lhr"          # change me to your nearest Fly region
   auto_stop_machines   = "stop"
   auto_start_machines  = true
   min_machines_running = 0
+
+  # Health check pinned at the core /api/healthz endpoint. Without
+  # this block the Fly proxy routes the first cold-start request to a
+  # machine that's still booting and returns a 502 until uvicorn comes
+  # up — Fly's dashboard misdiagnoses this as "App is not listening to
+  # the expected port". With the check defined, the proxy queues the
+  # request until /api/healthz reports 200.
+  [[http_service.checks]]
+    interval     = "15s"
+    timeout      = "5s"
+    grace_period = "10s"
+    method       = "GET"
+    path         = "/api/healthz"
 
   [http_service.concurrency]
     type       = "requests"
