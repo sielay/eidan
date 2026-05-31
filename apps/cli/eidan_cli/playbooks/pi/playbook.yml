@@ -149,7 +149,13 @@
         EIDAN_PLUGIN_SOURCE: "{{ eidan_plugin_source }}"
         EIDAN_GITHUB_TOKEN: "{{ eidan_github_token }}"
       notify: restart eidan-backend
-      no_log: true   # GitHub PAT is in `environment:` — keep it out of logs.
+      # NOTE on the GitHub PAT: it lives in the `environment:` block
+      # above (not in `cmd:` or `loop:`), so ansible's default output
+      # does NOT print it. `-vvv` verbosity WILL dump the env dict —
+      # don't run the deploy with `-vvv` if anyone might see the
+      # output. (Earlier versions of this task had `no_log: true` as
+      # belt-and-braces, but that censored the actual install error
+      # too, leaving operators blind when a bundle failed to install.)
       tags: [plugins]
 
     # --- restart ------------------------------------------------------
