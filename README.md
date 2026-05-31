@@ -78,10 +78,14 @@ Pick where to host them:
 | **Bare metal** | You'd rather install Python / Postgres / Node yourself, or you're targeting a Pi. ~15 minutes. | [→ bare-metal walkthrough](./docs/LOCALHOST.md#0-prerequisites) |
 | **Full-stack deploy** | Hosted backend + web UI exposed to a browser; single-host Fly, Pi cluster, multi-instance. | [→ deployment guide](./docs/DEPLOYMENT.md) |
 
-For deploys to a Pi or Fly, the whole flow is four commands:
+For deploys to a Pi or Fly, the whole flow is five commands:
 
 ```bash
-pipx install eidan-cli                 # install
+# Install the CLI (needs uv — get it from https://astral.sh/uv)
+git clone https://github.com/sielay/eidan.git
+uv tool install --from ./eidan/apps/cli eidan-cli
+
+# Use it
 eidan init my-deployment && cd $_      # scaffold ops repo
 $EDITOR topology.yml                   # add your nodes + secrets
 eidan deploy                           # reconcile every node
