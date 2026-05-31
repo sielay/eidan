@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.eidan.dev/core/admin/NodeEventList/v1.json",
+  "title": "NodeEventList",
+  "description": "Response shape of GET /api/admin/nodes/{node_id}/events (docs/024 §5.2). Drives the live event tail in the /admin/activity nodes pane. Ordering matches the route: chronological when filtered to a conversation_id, latest-first otherwise.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["node_id", "events"],
+  "properties": {
+    "node_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Echoes the path parameter so the UI can hold one polling tail per node without re-parsing the request."
+    },
+    "events": {
+      "type": "array",
+      "description": "Zero or more events past the supplied after_seq. Empty array is a valid response — the node exists but has not emitted since.",
+      "items": { "$ref": "#/$defs/NodeEvent" }
+    }
+  },
+  "$defs": {
+    "NodeEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "seq", "ts", "type", "payload", "conversation_id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Composite '{node_id}:{seq}'. Stable across the wire — used as a React key without re-deriving."
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-node monotonically increasing sequence from eidan.node_events (docs/024 §2.2)."
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Event timestamp."
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Lowercase dotted event type (docs/024 §4)."
+        },
+        "payload": {
+          "type": "object",
+          "description": "Emitter-supplied context. Shape varies by event type; treated as opaque JSON by the UI tail."
+        },
+        "conversation_id": {
+          "type": ["string", "null"],
+          "format": "uuid",
+          "description": "Soft FK into eidan.conversations.id when the event is turn-bound; null for node-level / scheduler events."
+        }
+      }
+    }
+  }
+}

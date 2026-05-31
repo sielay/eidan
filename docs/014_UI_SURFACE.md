@@ -185,6 +185,7 @@ plugin (Phase 2+).
 | Plugins (install)   | `/plugins/install`     | Core  | Required (local path + git)      | See §7.3. Registry browsing is reserved (§13).                      |
 | Plugins (detail)    | `/plugins/[name]`      | Core  | Required                         | Per-plugin status, env, vault, behaviours.                          |
 | Admin (MCP)         | `/admin/mcp`           | Core  | Required (read-only ok)          | The §9.2 panel from `013`. Inherited verbatim.                      |
+| Admin (activity)    | `/admin/activity/{conversations,nodes,triggers}` | Core  | Required (read-only) | Tabbed "what is running and where" surface. `conversations` is the running/recent unit-of-work list ([024 §intro](./024_NODE_TELEMETRY.md) — conversations replace potem's `job_id` in eidan); `nodes` is the [024 §5.1](./024_NODE_TELEMETRY.md) heartbeat list with a live event tail per [024 §5.2](./024_NODE_TELEMETRY.md); `triggers` is the [006 §1](./006_BEHAVIOURS_TRIGGERS.md) dispatcher state. Desktop-only per §13.1. |
 | Plugin-mounted      | `/p/<name>/...`        | Plugin| Optional                         | Plugin's own routes (`001 §3`).                                     |
 | Signup              | (none)                 | —     | **Not shipped**                  | §8.4.                                                               |
 | Password reset      | (none)                 | —     | **Not shipped**                  | Magic-link sign-in has no password to reset.                        |
@@ -948,6 +949,7 @@ Phase 1 is **desktop-first**, with one explicit exception.
 | `/settings/*`           | Reflow only — no redesign   | Same shape.                                                                            |
 | `/plugins/*`            | **Defer**                   | Plugin install on a phone is not a real use case. The screen renders but is not tuned. |
 | `/admin/mcp`            | **Defer**                   | Operator-only screen; landscape desktop is the working assumption.                     |
+| `/admin/activity/*`     | **Defer**                   | Same posture as `/admin/mcp` — operator triage on desktop only.                        |
 | Plugin-mounted (`/p/`)  | Defer to plugin             | Plugin authors decide; the host's chrome reflows correctly underneath.                 |
 
 The asymmetry is deliberate: the conversation screen is

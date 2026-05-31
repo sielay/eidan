@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.eidan.dev/core/admin/NodeList/v1.json",
+  "title": "NodeList",
+  "description": "Response shape of GET /api/admin/nodes (docs/024 §5.1). One row per registered backend process; ordered by last_seen DESC so live nodes float to the top. The UI uses seconds_since to render the heartbeat-freshness dot (≤90s green / ≤600s amber / else red per docs/024 §1.2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["nodes"],
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "description": "Zero or more registered nodes. Empty array is a valid response on a fresh deployment.",
+      "items": { "$ref": "#/$defs/NodeInfo" }
+    }
+  },
+  "$defs": {
+    "NodeInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "node_type",
+        "status",
+        "last_seen",
+        "seconds_since",
+        "metadata"
+      ],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable per-process identifier from docs/024 §1."
+        },
+        "node_type": {
+          "type": "string",
+          "enum": ["pi", "fly", "heroku", "k8s", "local"],
+          "description": "Platform classification — matches the CHECK on eidan.node_heartbeats.node_type."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["online", "offline", "degraded"],
+          "description": "Stored row state. UI may treat as offline when seconds_since exceeds a freshness threshold regardless of the stored value (docs/024 §3 — stop() does not mark offline)."
+        },
+        "last_seen": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of the last heartbeat UPSERT."
+        },
+        "seconds_since": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Server-computed (now() - last_seen) in seconds so the UI does not need to negotiate clock skew."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Platform fingerprint — always carries hostname / platform / python; per-platform keys (fly_app, fly_region, …) layer on top."
+        }
+      }
+    }
+  }
+}
