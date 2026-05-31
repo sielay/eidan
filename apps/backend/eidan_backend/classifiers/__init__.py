@@ -18,11 +18,12 @@ uses, and returns a parsed result alongside the
 
 from .intent import IntentResult, classify_intent, render_action_list
 from .scope import ScopeResult, classify_scope
-from .sizer import SizerResult, pick_model
+from .sizer import SizerConfig, SizerResult, pick_model
 
 __all__ = [
     "IntentResult",
     "ScopeResult",
+    "SizerConfig",
     "SizerResult",
     "classify_intent",
     "classify_scope",

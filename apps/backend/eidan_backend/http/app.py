@@ -29,6 +29,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..bootstrap import BootstrapResult, bootstrap, shutdown
+from ..classifiers import SizerConfig
 from ..config import (
     BackendSettings,
     load_backend_settings,
@@ -376,6 +377,7 @@ def create_app(
     plugins: list[LoadedPlugin] | None = None,
     auth_public_pem: bytes | None = None,
     auth_private_pem: bytes | None = None,
+    sizer_config: SizerConfig | None = None,
 ) -> FastAPI:
     """Build a FastAPI app with shared deps pinned on ``app.state``.
 
@@ -413,6 +415,7 @@ def create_app(
     app.state.node_identity = None
     app.state.auth_public_pem = auth_public_pem
     app.state.auth_private_pem = auth_private_pem
+    app.state.sizer_config = sizer_config
 
     app.add_middleware(AuthMiddleware)
     # Security headers run as the OUTERMOST middleware so every
@@ -582,6 +585,7 @@ def create_app_from_env() -> FastAPI:
     app.state.backend_settings = backend
     app.state.provider = provider
     app.state.default_model = backend.default_model
+    app.state.sizer_config = backend.sizer_config()
     # `pool`, `tool_registry`, `plugins`, and the auth keypair PEMs
     # are populated by the lifespan handler once the DB pool opens.
     app.state.pool = None  # type: ignore[assignment]

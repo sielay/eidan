@@ -1110,6 +1110,7 @@ async def post_turn(
     provider = request.app.state.provider
     default_model = request.app.state.default_model
     tool_registry = request.app.state.tool_registry
+    sizer_config = getattr(request.app.state, "sizer_config", None)
 
     # Budget caps (`docs/010 §2`). The per-turn cap is threaded into
     # `run_turn` and enforced inside the iteration loop. The per-day
@@ -1176,6 +1177,7 @@ async def post_turn(
                 user_tz=body.user_tz,
                 tool_registry=tool_registry,
                 max_turn_cost_usd=max_turn_cost,
+                sizer_config=sizer_config,
             ):
                 if await request.is_disconnected():
                     break
