@@ -49,6 +49,8 @@
     eidan_service_name: eidan-backend
     eidan_uv_bin: /home/eidan/.local/bin/uv
     eidan_user: eidan
+    eidan_source_repo: https://github.com/sielay/eidan.git
+    eidan_source_ref: main
 
   handlers:
     - name: restart eidan-backend
@@ -60,21 +62,26 @@
   tasks:
 
     # --- bootstrap (stub) ---------------------------------------------
-    # Placeholder for the one-time setup currently documented in
-    # docs/DEPLOY_PI_BOOTSTRAP.md (service user, uv, Ollama, Postgres,
-    # initial git clone + uv sync, migrations, systemd unit install).
-    # Run those by hand for now; this tag fails fast so you don't
-    # accidentally think it ran.
-    - name: Bootstrap not yet automated — follow docs/DEPLOY_PI_BOOTSTRAP.md
+    # Placeholder for the system-level bits still done by hand: apt
+    # packages (git/curl), the `eidan` service user, uv installation,
+    # Ollama install, Postgres setup. Each needs root + may need
+    # extra ansible collections (community.postgresql etc.); they're
+    # a separate PR. The `source` block below covers the clone +
+    # sync + migrate half that the user-mode reconcile actually
+    # needs once those prerequisites are in place.
+    - name: Bootstrap (apt / user / uv / Ollama) not yet automated
       ansible.builtin.fail:
         msg: >-
-          Bootstrap (system user, uv, Ollama, Postgres, systemd unit
-          install, first migration) is not yet automated. Follow
-          docs/DEPLOY_PI_BOOTSTRAP.md by hand, then re-run this
-          playbook without `--tags bootstrap` to take it from there.
+          System bootstrap (apt packages, eidan user, uv, Ollama,
+          Postgres) is not yet automated. Follow
+          docs/DEPLOY_PI_BOOTSTRAP.md §1–§4 by hand, then re-run
+          without `--tags bootstrap` (the `source` block on the
+          default run handles clone + sync + migrate).
       tags: [bootstrap, never]
 
     # --- env file -----------------------------------------------------
+    # Runs first so the migration task in `source` below can read
+    # DATABASE_URL + EIDAN_AUTH_MASTER_KEY from the env file.
     - name: Ensure /etc/eidan exists
       ansible.builtin.file:
         path: "{{ eidan_etc_dir }}"
@@ -103,6 +110,67 @@
         mode: "0644"
       notify: restart eidan-backend
       tags: [env]
+
+    # --- source: clone + sync /opt/eidan + run migrations -----------
+    # Idempotent. Runs on every deploy by default. Operator can
+    # exclude with `--skip-tags source` if they want to avoid the
+    # extra git fetch on every run; the cost is small though (a
+    # single fetch hits no objects when up-to-date).
+    #
+    # What's NOT automated yet (genuinely pre-conditions for this
+    # block): apt-installed `git`, the `eidan` system user, `uv`
+    # under `~eidan/.local/bin/`, and Ollama / Postgres. Those still
+    # follow docs/DEPLOY_PI_BOOTSTRAP.md §1–§4 by hand.
+    - name: Ensure /opt/eidan parent directory exists
+      ansible.builtin.file:
+        path: "{{ eidan_install_dir }}"
+        state: directory
+        owner: "{{ eidan_user }}"
+        group: "{{ eidan_user }}"
+        mode: "0755"
+      tags: [source]
+
+    - name: Clone or fetch the eidan source tree
+      become_user: "{{ eidan_user }}"
+      ansible.builtin.git:
+        repo: "{{ eidan_source_repo }}"
+        dest: "{{ eidan_install_dir }}"
+        version: "{{ eidan_source_ref }}"
+        # `force: false` means the playbook won't blow away local
+        # uncommitted changes inside /opt/eidan — if the operator
+        # has been hand-editing the source there, we surface a
+        # genuine merge conflict instead of silently overwriting.
+        force: false
+      register: eidan_source_clone
+      notify: restart eidan-backend
+      tags: [source]
+
+    - name: Sync the eidan venv (uv sync --no-dev)
+      become_user: "{{ eidan_user }}"
+      ansible.builtin.command:
+        cmd: "{{ eidan_uv_bin }} --directory {{ eidan_install_dir }} sync --no-dev"
+      # Only re-sync when the git checkout actually changed. uv sync
+      # is idempotent but reading the lockfile and computing the
+      # dependency graph isn't free; skipping the no-op saves ~1s
+      # per deploy on the Pi.
+      when: eidan_source_clone.changed
+      notify: restart eidan-backend
+      tags: [source]
+
+    - name: Run database migrations
+      become_user: "{{ eidan_user }}"
+      ansible.builtin.shell:
+        cmd: |
+          set -a
+          . {{ eidan_env_file }}
+          set +a
+          {{ eidan_uv_bin }} --directory {{ eidan_install_dir }} run eidan admin db migrate
+      # The env file has to exist before migrations can run (DATABASE_URL,
+      # EIDAN_AUTH_MASTER_KEY are read from there). The env-tag tasks
+      # above have already rendered it. Alembic is version-tracked so
+      # a re-run on an already-migrated DB is a no-op.
+      changed_when: false   # Alembic doesn't report changes back; treat as always-ok.
+      tags: [source]
 
     # --- plugins ------------------------------------------------------
     - name: Ensure plugin override directory exists
