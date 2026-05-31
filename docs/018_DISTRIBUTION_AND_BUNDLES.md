@@ -5,8 +5,15 @@
 **Core** (this repo, AGPL) is the only host. **Paid bundles** live
 in **standalone private sibling repos** owned by the project
 maintainer and are installed into a core checkout by the eidan
-CLI. There are no forks of this repo, no manual-sync flow, and no
-PRO / commercial fork distinction inside this repo's tree.
+CLI. There is no manual-sync flow, no PRO / commercial fork
+distinction inside this repo's tree, and no paid-bundle code path
+that touches a tracked file here. Operators are free to fork
+this repo for their own reasons (versioning their `.eidan/`
+config in a private remote, tracking custom plugins under
+`/plugins/<own-bundle>/`, hosting CI workflows that talk to
+their accounts) — the gitignored-config layout means a fork
+stays in clean upstream-pull territory and PRs back never carry
+operator-private state.
 
 The licensing posture that makes "AGPL core + proprietary sibling
 bundles" legally clean — and the CLA-on-core-PRs policy that
