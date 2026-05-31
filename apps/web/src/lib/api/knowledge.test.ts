@@ -8,7 +8,13 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { authFetch } from "@/lib/auth";
-import { getKnowledgeRow, listKnowledge } from "./knowledge";
+import {
+  KnowledgeConflictError,
+  deleteKnowledgeRow,
+  getKnowledgeRow,
+  listKnowledge,
+  updateKnowledgeRow,
+} from "./knowledge";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -110,5 +116,72 @@ describe("getKnowledgeRow", () => {
     );
     const out = await getKnowledgeRow("abc");
     expect(out).toEqual(row);
+  });
+});
+
+describe("updateKnowledgeRow", () => {
+  const row = {
+    id: "abc",
+    slug: "x",
+    title: "Title",
+    skill: "coding",
+    body: "body",
+    source: null,
+    updated_at: "2026-05-19T00:00:00Z",
+    created_at: "2026-05-18T00:00:00Z",
+  };
+
+  it("PATCHes the row and returns the new envelope", async () => {
+    vi.mocked(authFetch).mockResolvedValueOnce(jsonResponse({ knowledge: row }));
+    const out = await updateKnowledgeRow("abc", {
+      body: "new",
+      expected_updated_at: "2026-05-18T00:00:00Z",
+    });
+    const [url, init] = vi.mocked(authFetch).mock.calls[0];
+    expect(url).toBe("/api/knowledge/abc");
+    expect(init?.method).toBe("PATCH");
+    expect(init?.body).toBe(
+      JSON.stringify({
+        body: "new",
+        expected_updated_at: "2026-05-18T00:00:00Z",
+      }),
+    );
+    expect(out).toEqual(row);
+  });
+
+  it("raises KnowledgeConflictError on 409", async () => {
+    vi.mocked(authFetch).mockResolvedValueOnce(
+      jsonResponse({ detail: "stale" }, 409),
+    );
+    await expect(
+      updateKnowledgeRow("abc", {
+        body: "new",
+        expected_updated_at: "2026-05-18T00:00:00Z",
+      }),
+    ).rejects.toBeInstanceOf(KnowledgeConflictError);
+  });
+
+  it("throws a generic error on other non-2xx statuses", async () => {
+    vi.mocked(authFetch).mockResolvedValueOnce(jsonResponse({}, 500));
+    await expect(
+      updateKnowledgeRow("abc", {
+        expected_updated_at: "2026-05-18T00:00:00Z",
+      }),
+    ).rejects.toThrow(/returned 500/);
+  });
+});
+
+describe("deleteKnowledgeRow", () => {
+  it("DELETEs and resolves on 204", async () => {
+    vi.mocked(authFetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await deleteKnowledgeRow("abc");
+    const [url, init] = vi.mocked(authFetch).mock.calls[0];
+    expect(url).toBe("/api/knowledge/abc");
+    expect(init?.method).toBe("DELETE");
+  });
+
+  it("throws on a 404", async () => {
+    vi.mocked(authFetch).mockResolvedValueOnce(jsonResponse({}, 404));
+    await expect(deleteKnowledgeRow("abc")).rejects.toThrow(/returned 404/);
   });
 });

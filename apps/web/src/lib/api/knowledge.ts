@@ -62,6 +62,56 @@ export async function getKnowledgeRow(
   return body.knowledge;
 }
 
+export interface KnowledgeUpdatePayload {
+  title?: string;
+  body?: string;
+  skill?: string;
+  expected_updated_at: string;
+}
+
+// Thrown when the server rejects a PATCH because the row's
+// ``updated_at`` has moved since the operator's fetch — the UI
+// shows the conflict, refetches, and lets the operator retry.
+export class KnowledgeConflictError extends Error {
+  constructor() {
+    super(
+      "knowledge row was modified since fetch — refresh and try again",
+    );
+    this.name = "KnowledgeConflictError";
+  }
+}
+
+export async function updateKnowledgeRow(
+  id: string,
+  payload: KnowledgeUpdatePayload,
+): Promise<KnowledgeDetail> {
+  const res = await authFetch(`/api/knowledge/${id}`, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 409) {
+    throw new KnowledgeConflictError();
+  }
+  if (!res.ok) {
+    throw new Error(`PATCH /api/knowledge/${id} returned ${res.status}`);
+  }
+  const body = (await res.json()) as DetailResponse;
+  return body.knowledge;
+}
+
+export async function deleteKnowledgeRow(id: string): Promise<void> {
+  const res = await authFetch(`/api/knowledge/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`DELETE /api/knowledge/${id} returned ${res.status}`);
+  }
+}
+
 /**
  * One node in a BFS traversal frontier around a seed knowledge row
  * (`docs/017 §5`). The `hops` field is the BFS depth — 0 for the
