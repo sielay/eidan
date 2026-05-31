@@ -2,8 +2,8 @@
 
 One-time setup of a Fly app + Postgres so `eidan deploy --node
 <name>` from your laptop has a target. Per Fly app, once;
-subsequent deploys are `eidan deploy` from your ops repo (see
-[DEPLOYMENT.md](./DEPLOYMENT.md) §4).
+subsequent deploys are `eidan deploy` from your eidan checkout
+(see [DEPLOYMENT.md](./DEPLOYMENT.md) §4).
 
 ## Prerequisites
 
@@ -122,7 +122,7 @@ no-op.
 
 ## 5. Hand off to the CLI
 
-From your laptop ops repo:
+From your laptop, inside the eidan checkout:
 
 ```bash
 eidan deploy --node fly-prod
@@ -148,14 +148,17 @@ primary long-lived node and there's no Pi running the tick.
 
 ## Optional: CI deploy
 
-Run CI from your own ops repo (this repo intentionally does not
-ship `.github/workflows/` deploy entries — the public mirror should
-not carry CI that talks to someone else's Fly account):
+Run CI from a fork of eidan (or any private repo where you commit
+the vault-encrypted topology under `.eidan/`). This repo
+intentionally does not ship `.github/workflows/` deploy entries —
+the public mirror should not carry CI that talks to someone else's
+Fly account.
 
 ```yaml
-# .github/workflows/deploy.yml in YOUR ops repo.
+# .github/workflows/deploy.yml in your eidan fork (or wherever).
 # Repo layout assumed:
-#   ./topology.yml    ← vault-encrypted, committed
+#   ./.eidan/topology.yml   ← vault-encrypted, committed
+#   ./apps/cli/             ← upstream eidan tree (this fork)
 name: Deploy
 on: { push: { branches: [main] } }
 jobs:
@@ -164,14 +167,12 @@ jobs:
     concurrency: { group: eidan-deploy, cancel-in-progress: false }
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with: { repository: sielay/eidan, ref: v0.1.0, path: eidan-src }
       - uses: astral-sh/setup-uv@v3
       - uses: superfly/flyctl-actions/setup-flyctl@1.5
-      - run: uv tool install --from ./eidan-src/apps/cli eidan-cli
+      - run: uv tool install --from ./apps/cli eidan-cli
       - run: |
-          echo "$VAULT_PASS" > .vault-pass
-          chmod 0600 .vault-pass
+          echo "$VAULT_PASS" > .eidan/.vault-pass
+          chmod 0600 .eidan/.vault-pass
           eidan deploy --node fly-prod
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

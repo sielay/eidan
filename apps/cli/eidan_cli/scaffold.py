@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""`eidan init` scaffolder — materialises a starter ops repo.
+"""`eidan init` scaffolder — materialises starter deploy config.
 
-The operator runs ``eidan init my-deployment`` once on their laptop;
-the command creates ``./my-deployment/`` populated from
-``eidan_cli/templates/ops-scaffold/`` and prints next-step
-instructions. The created directory is the operator's private ops
-repo: they ``git init`` it themselves, push it to a private remote,
-and edit ``topology.yml`` to describe their nodes.
+Two flavours, same template content:
+
+- ``eidan init <name>`` → ``./<name>/`` (sibling-directory mode).
+  Useful when the operator wants to keep deploy state in a
+  separate private repo from the eidan source.
+- ``eidan init --here`` → ``./.eidan/`` (in-checkout mode).
+  The ``.eidan/`` path is already gitignored at the eidan repo
+  root, so operator-private files (``topology.yml``,
+  ``.vault-pass``) live next to the source they were cloned from
+  without polluting the public history. This is the lighter
+  workflow for solo operators who clone eidan and stay there.
 
 The scaffolder is intentionally **non-interactive** — no Questionary
 wizard, no prompts. The operator edits the YAML by hand. If
@@ -60,20 +65,40 @@ def _template_root() -> Path:
     return Path(str(files / "ops-scaffold"))
 
 
-def scaffold(name: str, *, parent: Path | None = None, force: bool = False) -> Path:
-    """Materialise the ops-repo template into ``<parent>/<name>/``.
+def scaffold(
+    name: str | None = None,
+    *,
+    parent: Path | None = None,
+    force: bool = False,
+    here: bool = False,
+) -> Path:
+    """Materialise the starter template into a target directory.
 
-    Returns the absolute path to the created directory so the
-    caller can print "now ``cd`` into it" next-step text without
-    re-deriving it.
+    Two shapes:
+
+    - sibling: ``scaffold("my-deployment")`` → ``<parent>/my-deployment/``
+    - in-checkout: ``scaffold(here=True)`` → ``<parent>/.eidan/``
+
+    Pass exactly one of ``name`` / ``here=True``. Returns the
+    absolute path to the created directory.
 
     Raises:
-        ScaffoldTargetExists: ``<parent>/<name>`` already exists and
-            ``force=False``.
+        ScaffoldError: ``name`` and ``here`` are both unset or both set.
+        ScaffoldTargetExists: target already exists and ``force=False``.
         ScaffoldError: a template file could not be copied.
     """
+    if here and name is not None:
+        raise ScaffoldError(
+            "scaffold(): pass either `name` or `here=True`, not both"
+        )
+    if not here and name is None:
+        raise ScaffoldError(
+            "scaffold(): pass `name` (sibling dir) or `here=True` "
+            "(in-checkout `.eidan/`)"
+        )
+
     parent = parent or Path.cwd()
-    target = parent / name
+    target = parent / (".eidan" if here else name)
 
     if target.exists():
         if not force:

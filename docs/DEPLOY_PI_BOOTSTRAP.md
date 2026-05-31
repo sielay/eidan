@@ -2,8 +2,8 @@
 
 One-time setup on a fresh Raspberry Pi so `eidan deploy --node <name>`
 from your laptop has a working host to reconcile against. Per Pi,
-once; subsequent deploys are `eidan deploy` from your ops repo (see
-[DEPLOYMENT.md](./DEPLOYMENT.md) §3).
+once; subsequent deploys are `eidan deploy` from your eidan
+checkout (see [DEPLOYMENT.md](./DEPLOYMENT.md) §3).
 
 ## Prerequisites
 
@@ -170,7 +170,7 @@ not a concern at that volume on modern cards.
 
 ## 7. Hand off to the CLI
 
-From your laptop ops repo:
+From your laptop, inside the eidan checkout:
 
 ```bash
 eidan deploy --node <pi-node>

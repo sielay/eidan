@@ -7,10 +7,7 @@
 app            = "__APP__"
 primary_region = "__REGION__"
 
-[build]
-  image = "__IMAGE__"
-
-[http_service]
+__BUILD_BLOCK__[http_service]
   internal_port        = __HTTP_PORT__
   force_https          = true
   auto_stop_machines   = "stop"

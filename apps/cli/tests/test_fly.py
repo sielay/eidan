@@ -70,16 +70,42 @@ def _fly_node(tmp_path: Path):
 # ---------- rendering ----------
 
 
-def test_render_fly_toml_carries_app_region_image(tmp_path: Path) -> None:
+def test_render_fly_toml_carries_app_region(tmp_path: Path) -> None:
+    """With no `image:` set, the rendered fly.toml carries no
+    `[build]` stanza — the reconciler supplies the build config on
+    the `fly deploy` command line instead (--dockerfile)."""
     node = _fly_node(tmp_path)
     rendered = fly._render_fly_toml(node)
 
     assert 'app            = "eidan-api"' in rendered
     assert 'primary_region = "lhr"' in rendered
-    assert 'image = "ghcr.io/sielay/eidan:latest"' in rendered
+    assert "[build]" not in rendered  # local-Dockerfile path
     # AnyUrl normalises to a trailing slash; allow either form.
     assert 'EIDAN_HTTP_CORS_ORIGINS = "https://app.example.com' in rendered
     assert 'EIDAN_DISABLED_PLUGINS  = "sentry"' in rendered
+
+
+def test_render_fly_toml_image_pin_adds_build_block(tmp_path: Path) -> None:
+    """When `image:` is set in the topology (operator pinning their
+    own published image), fly.toml carries `[build] image = ...`
+    and the deploy command uses --image instead of --dockerfile."""
+    body = """
+        schema: 1
+        nodes:
+          fly-pinned:
+            target: fly
+            app: eidan-api
+            region: lhr
+            image: ghcr.io/myorg/eidan:v0.1.0
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    rendered = fly._render_fly_toml(topology.resolve_node("fly-pinned"))
+
+    assert "[build]" in rendered
+    assert 'image = "ghcr.io/myorg/eidan:v0.1.0"' in rendered
 
 
 def test_render_fly_toml_sentry_default_off(tmp_path: Path) -> None:
@@ -187,10 +213,19 @@ def test_secret_values_omits_provider_key_when_unset(tmp_path: Path) -> None:
 # ---------- reconcile() flow ----------
 
 
-def test_reconcile_renders_fly_toml_and_invokes_all_steps(tmp_path: Path) -> None:
+def test_reconcile_renders_fly_toml_and_invokes_all_steps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     topology_path = _write_topology(tmp_path, _FLY_NODE_YAML)
     topology = load_topology(topology_path)
     node = topology.resolve_node("fly-prod")
+
+    # Image is unset on the fixture, so the reconciler builds from
+    # the local Dockerfile. Point EIDAN_SOURCE_DIR at the repo root
+    # so the path-resolve helper finds infra/fly/Dockerfile
+    # regardless of where pytest was invoked.
+    repo_root = Path(__file__).resolve().parents[3]
+    monkeypatch.setenv("EIDAN_SOURCE_DIR", str(repo_root))
 
     invoked: list[list[str]] = []
 
@@ -216,11 +251,12 @@ def test_reconcile_renders_fly_toml_and_invokes_all_steps(tmp_path: Path) -> Non
     assert any(arg.startswith("DATABASE_URL=") for arg in secret_cmds[0])
     assert any(arg.startswith("ANTHROPIC_API_KEY=") for arg in secret_cmds[0])
 
-    # `fly deploy -c .../fly.toml --image ghcr.io/sielay/eidan:latest`
+    # `fly deploy -c .../fly.toml --dockerfile <eidan>/infra/fly/Dockerfile <eidan>`
+    # (no image pinned in the fixture → local Dockerfile build)
     deploy_cmds = [c for c in invoked if c[:2] == ["fly", "deploy"]]
     assert len(deploy_cmds) == 1
-    assert "--image" in deploy_cmds[0]
-    assert "ghcr.io/sielay/eidan:latest" in deploy_cmds[0]
+    assert "--dockerfile" in deploy_cmds[0]
+    assert any(arg.endswith("Dockerfile") for arg in deploy_cmds[0])
     assert any(arg.endswith("fly.toml") for arg in deploy_cmds[0])
 
     # `fly ssh console --app eidan-api -C "... eidan admin plugin install eidan-pro"`
@@ -297,6 +333,71 @@ def test_reconcile_stops_on_first_non_zero(tmp_path: Path) -> None:
 
 
 # ---------- ensure_flyctl_available ----------
+
+
+def test_resolve_eidan_source_dir_env_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EIDAN_SOURCE_DIR", str(tmp_path))
+    assert fly._resolve_eidan_source_dir() == tmp_path
+
+
+def test_resolve_eidan_source_dir_falls_back_to_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("EIDAN_SOURCE_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert fly._resolve_eidan_source_dir() == tmp_path
+
+
+def test_resolve_dockerfile_missing_raises_helpful_error(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(fly.TargetReconcileError) as exc:
+        fly._resolve_dockerfile(tmp_path)
+    msg = str(exc.value)
+    assert "infra/fly/Dockerfile" in msg
+    assert "EIDAN_SOURCE_DIR" in msg
+    assert "image:" in msg  # the third-option hint
+
+
+def test_reconcile_uses_image_flag_when_image_pinned(
+    tmp_path: Path,
+) -> None:
+    """When `image:` is set, the reconciler bypasses the local
+    Dockerfile path entirely and tells flyctl to pull the pinned
+    image. Operator who's deploying without an eidan checkout
+    locally (e.g. CI with a published image) takes this path."""
+    body = """
+        schema: 1
+        nodes:
+          fly-pinned:
+            target: fly
+            app: eidan-api
+            region: lhr
+            image: ghcr.io/myorg/eidan:v0.1.0
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+    """
+    topology_path = _write_topology(tmp_path, body)
+    topology = load_topology(topology_path)
+    node = topology.resolve_node("fly-pinned")
+
+    invoked: list[list[str]] = []
+
+    def _fake_run(cmd, **kwargs):
+        invoked.append(list(cmd))
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
+
+    with patch.object(subprocess, "run", _fake_run):
+        fly.reconcile(node, topology_path=topology_path, tags=["deploy"])
+
+    deploy_cmds = [c for c in invoked if c[:2] == ["fly", "deploy"]]
+    assert len(deploy_cmds) == 1
+    assert "--image" in deploy_cmds[0]
+    assert "ghcr.io/myorg/eidan:v0.1.0" in deploy_cmds[0]
+    assert "--dockerfile" not in deploy_cmds[0]
 
 
 def test_ensure_flyctl_available_raises_when_missing() -> None:
