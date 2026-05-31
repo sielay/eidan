@@ -63,7 +63,7 @@ from ..escalations import (
     list_escalations,
     resolve_escalation,
 )
-from ..knowledge_links import neighbours
+from ..knowledge_links import neighbours, record_links_for
 from ..loop import TurnComplete, TurnContext, run_turn
 from ..mcp import call_inbound_tool, list_inbound_tools
 from ..persistence import (
@@ -667,6 +667,148 @@ async def get_knowledge_row(
             "created_at": row["created_at"].isoformat(),
         }
     }
+
+
+@router.patch("/api/knowledge/{knowledge_id}")
+async def update_knowledge_row(
+    request: Request, knowledge_id: UUID
+) -> dict[str, Any]:
+    """Partial update of one knowledge row from the UI (`docs/014 §5`).
+
+    Body shape is pinned by ``KnowledgeUpdate`` in
+    ``packages/schemas/schemas/core/memory/``. ``expected_updated_at``
+    is the operator's last-known ``updated_at``; the row is updated
+    only when it still matches at write time, otherwise the route
+    returns 409 so the UI can refetch instead of clobbering an
+    agent-side write. Body edits re-run the ``docs/017 §3`` link
+    extractor in the same transaction so ``knowledge_links`` stays
+    consistent.
+    """
+    from eidan_schemas import KnowledgeUpdate
+
+    try:
+        payload = KnowledgeUpdate.model_validate(await request.json())
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+    identity = request.state.identity
+    user_uuid = UUID(identity.user_id)
+    pool = request.app.state.pool
+
+    fields = payload.model_dump(exclude_unset=True)
+    expected_updated_at = fields.pop("expected_updated_at")
+    if not fields:
+        raise HTTPException(
+            status_code=400,
+            detail="at least one of title / body / skill must be supplied",
+        )
+
+    set_clauses: list[str] = []
+    args: list[Any] = [user_uuid, knowledge_id, expected_updated_at]
+    for col, value in fields.items():
+        args.append(value)
+        set_clauses.append(f"{col} = ${len(args)}")
+    set_sql = ", ".join(set_clauses) + ", updated_at = now()"
+
+    async with acquire(pool, identity) as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                f"""
+                UPDATE eidan.knowledge
+                SET {set_sql}
+                WHERE user_id = $1
+                  AND id = $2
+                  AND deleted_at IS NULL
+                  AND updated_at = $3
+                RETURNING id, slug, title, skill, body, source,
+                          updated_at, created_at
+                """,
+                *args,
+            )
+            if row is None:
+                live = await conn.fetchrow(
+                    """
+                    SELECT updated_at, deleted_at
+                    FROM eidan.knowledge
+                    WHERE user_id = $1 AND id = $2
+                    """,
+                    user_uuid,
+                    knowledge_id,
+                )
+                if live is None or live["deleted_at"] is not None:
+                    raise HTTPException(
+                        status_code=404, detail="knowledge row not found"
+                    )
+                raise HTTPException(
+                    status_code=409,
+                    detail="knowledge row was modified since fetch; refetch and retry",
+                )
+            if "body" in fields:
+                await record_links_for(
+                    conn,
+                    user_id=user_uuid,
+                    from_knowledge_id=knowledge_id,
+                    body=row["body"],
+                )
+    return {
+        "knowledge": {
+            "id": str(row["id"]),
+            "slug": row["slug"],
+            "title": row["title"],
+            "skill": row["skill"],
+            "body": row["body"],
+            "source": row["source"],
+            "updated_at": row["updated_at"].isoformat(),
+            "created_at": row["created_at"].isoformat(),
+        }
+    }
+
+
+@router.delete("/api/knowledge/{knowledge_id}", status_code=204)
+async def delete_knowledge_row(
+    request: Request, knowledge_id: UUID
+) -> None:
+    """Soft-delete a knowledge row from the UI (`docs/014 §5`).
+
+    Sets ``deleted_at = now()`` per the soft-delete convention
+    (`docs/003 §1.3`). Idempotent — repeat calls against an
+    already-deleted row return 204 without touching the DB beyond the
+    initial check.
+    """
+    identity = request.state.identity
+    user_uuid = UUID(identity.user_id)
+    pool = request.app.state.pool
+    async with acquire(pool, identity) as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                UPDATE eidan.knowledge
+                SET deleted_at = now(), updated_at = now()
+                WHERE user_id = $1
+                  AND id = $2
+                  AND deleted_at IS NULL
+                RETURNING id
+                """,
+                user_uuid,
+                knowledge_id,
+            )
+            if row is None:
+                # Distinguish "never existed" from "already deleted".
+                exists = await conn.fetchval(
+                    "SELECT 1 FROM eidan.knowledge WHERE user_id = $1 AND id = $2",
+                    user_uuid,
+                    knowledge_id,
+                )
+                if not exists:
+                    raise HTTPException(
+                        status_code=404, detail="knowledge row not found"
+                    )
+                return None
+            # The soft-deleted row's own outbound link rows stay
+            # behind — `docs/017 §5.2` joins backlinks through the
+            # source's `deleted_at IS NULL`, so they naturally vanish
+            # from every read path without a destructive cleanup.
+    return None
 
 
 # -----------------------------------------------------------------------------

@@ -14,6 +14,7 @@
 // debugging or direct JSON-Schema parity checks.
 
 export { CostSummary } from "./generated/core/cost/CostSummary";
+export { KnowledgeUpdate } from "./generated/core/memory/KnowledgeUpdate";
 export { PluginManifest } from "./generated/core/plugin/PluginManifest";
 export { TurnChunk } from "./generated/core/turn/TurnChunk";
 export { TurnComplete } from "./generated/core/turn/TurnComplete";

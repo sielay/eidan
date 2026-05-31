@@ -59,6 +59,14 @@ Estimated monthly cost: ~£0 in software + ~£1–3 in electricity +
 Pi sunk cost. Adding Vercel hobby (free) and a domain (~£10/year)
 keeps the all-in under £5/month.
 
+> **Prefer infrastructure-as-code?** §3.1–3.7 is the explicit
+> hand-by-hand recipe — useful the first time and as a reference
+> for what's actually happening on the box. Once you've bootstrapped
+> a Pi once, the steady-state half (env-file edits, bundle install,
+> service restarts) lives behind a tracked Ansible playbook at
+> [`infra/pi/`](../infra/pi/) — see [§3.13](#313-ansible-reconciliation-optional)
+> for the workflow.
+
 ### 3.0 Prerequisites
 
 - Raspberry Pi 4 or 5 with **4GB+ RAM**, **Debian Bookworm 64-bit**
@@ -588,6 +596,78 @@ you've reviewed the release notes:
 doesn't include it because the right tag-selection policy is
 operator-specific — `latest` tag, manually-pinned tag, or
 follow-main-with-care are all reasonable choices.)
+
+### 3.13 Ansible reconciliation (optional)
+
+`infra/pi/` ships a tracked Ansible playbook for the steady-state
+half of this recipe — env-file edits, bundle install, service
+restarts. The bootstrap half (§3.1–3.7) is still by hand; the
+playbook's `bootstrap` tag is a placeholder for now.
+
+> **Interim, by design.** A first-class deploy CLI (`eidan deploy`)
+> is in flight and will subsume this workflow — operator-private
+> config moves into a separate ops-repo with a `topology.yml`, and
+> the playbook below becomes an implementation detail behind
+> `eidan deploy --node <name>`. Until that ships, the recipe here
+> is the recommended path for repeat Pi operations.
+
+Per-deploy values live in `.eidan/` at the repo root, which is
+gitignored — your hostnames, DATABASE_URL, master key, and GitHub
+PAT never enter this repo's history. The tracked playbook +
+templates stay generic so `git pull` from upstream is always a
+clean fast-forward.
+
+**One-time setup on your laptop:**
+
+```bash
+pip install ansible           # operator-side dep, not a Pi-side dep
+mkdir -p .eidan
+cp infra/pi/inventory.ini.example      .eidan/inventory.ini
+cp infra/pi/group_vars/all.yml.example .eidan/vars.yml
+chmod 0600 .eidan/vars.yml
+$EDITOR .eidan/inventory.ini .eidan/vars.yml
+```
+
+Fill in the host + ssh user in `inventory.ini`; fill in DATABASE_URL,
+`eidan_auth_master_key`, `eidan_github_token`, and the bundle list
+in `vars.yml`. Both are gitignored under `/.eidan/`.
+
+Once you're past the dev-loop phase, encrypt the vars file in place:
+
+```bash
+ansible-vault encrypt .eidan/vars.yml
+```
+
+`ansible-playbook` reads vaulted files transparently when you add
+`--ask-vault-pass` (or `--vault-password-file ~/.eidan-vault-pass`).
+
+**Day-to-day:**
+
+```bash
+# Reconcile env file + bundle set, restart on change:
+ansible-playbook -i .eidan/inventory.ini -e @.eidan/vars.yml \
+  infra/pi/playbook.yml
+
+# Push only an env tweak:
+ansible-playbook ... infra/pi/playbook.yml --tags env
+
+# Just add the bundles listed in eidan_bundles that aren't installed yet:
+ansible-playbook ... infra/pi/playbook.yml --tags plugins
+
+# Bounce the service without changing anything:
+ansible-playbook ... infra/pi/playbook.yml --tags restart
+```
+
+The playbook is idempotent on bundle name: adding to `eidan_bundles`
+installs new ones, removing from the list does **not** uninstall.
+Version bumps and removals still go through the hand-edit-the-lock
++ `eidan admin plugin sync --prune` flow in [§3.12](#312-updating) —
+this is intentional; modelling "the lock file is desired state"
+inside ansible duplicates what the `sync` CLI already does.
+
+The playbook restarts `eidan-backend` via a handler whenever the
+env file or the unit file changes, and whenever a bundle is newly
+installed. No restart fires if nothing changed.
 
 ---
 

@@ -1,10 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { AlertCircle, BookOpen, MessageSquare, Puzzle } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  BookOpen,
+  MessageSquare,
+  Puzzle,
+} from "lucide-react";
 
 import { ConversationList } from "@/components/conversation/ConversationList";
 import { PluginList } from "@/components/shell/PluginList";
+import { ADMIN_NAV_LINKS } from "@/components/shell/admin-nav";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,6 +25,10 @@ import { cn } from "@/lib/utils";
  *   startup, fetched from ``GET /api/plugins``. Phase 4 plugins will
  *   inject their own sidebar entries (`docs/001 §3.1`'s
  *   `frontend.components[].slot`) alongside this list.
+ *
+ * Section ordering is pinned in `docs/014 §2.1`: Conversations,
+ * Knowledge, Inbox, Plugins, then Admin (operator-only, always
+ * rendered under the Phase 1 single-operator pin).
  */
 export function Sidebar(): React.ReactElement {
   return (
@@ -68,6 +79,24 @@ export function Sidebar(): React.ReactElement {
           title="Plugins"
         >
           <PluginList />
+        </SidebarSection>
+
+        <SidebarSection
+          icon={<Activity className="h-3.5 w-3.5" />}
+          title="Admin"
+        >
+          <ul className="flex flex-col gap-1">
+            {ADMIN_NAV_LINKS.map((link) => (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  className="block rounded-md border border-dashed border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  {link.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </SidebarSection>
       </div>
     </aside>

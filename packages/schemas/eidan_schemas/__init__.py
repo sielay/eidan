@@ -17,6 +17,7 @@ from .generated.core.intent.IntendedActions_schema import (
     Unknown,
     UpdateRow,
 )
+from .generated.core.memory.KnowledgeUpdate_schema import KnowledgeUpdate
 from .generated.core.turn.TurnChunk_schema import TurnChunk
 from .generated.core.turn.TurnComplete_schema import TurnComplete
 from .generated.core.turn.TurnInput_schema import TurnInput
@@ -29,6 +30,7 @@ __all__ = [
     "CreateEvent",
     "IntendedAction",
     "IntendedActions",
+    "KnowledgeUpdate",
     "Lookup",
     "SendMessage",
     "TurnChunk",

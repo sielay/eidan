@@ -3,25 +3,31 @@
 import * as React from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { Button } from "@/components/ui/button";
 import {
+  KnowledgeConflictError,
+  deleteKnowledgeRow,
   getKnowledgeNeighbours,
   getKnowledgeRow,
   listKnowledge,
+  updateKnowledgeRow,
   type KnowledgeDetail,
   type KnowledgeNeighbour,
   type KnowledgeSummary,
 } from "@/lib/api/knowledge";
 import { cn } from "@/lib/utils";
 
+import { KnowledgeMarkdown } from "./KnowledgeMarkdown";
+
 /**
- * Read-only knowledge browser — `docs/014 §5`.
+ * Knowledge browser with markdown preview + inline edit (`docs/014
+ * §5`, `docs/017 §8`).
  *
- * Two-pane layout: left list grouped by skill, right detail panel
- * with the full markdown body. No edit affordance yet; that lands
- * alongside the `docs/017` knowledge-linking writer-side hook.
- *
- * Clicking a row in the left pane fetches the full body lazily so
- * the index payload stays compact.
+ * Two-pane: left list grouped by skill, right detail panel toggling
+ * between a markdown preview (with wikilink resolution per `docs/017
+ * §8.2`) and a raw-markdown textarea. Save on Cmd+Enter or via the
+ * Save button; 409 surfaces a conflict banner and the row is
+ * refetched so the operator can retry against the live state.
  */
 export default function KnowledgePage(): React.ReactElement {
   const { config, user, loading } = useAuth();
@@ -30,6 +36,10 @@ export default function KnowledgePage(): React.ReactElement {
   const [selected, setSelected] = React.useState<KnowledgeDetail | null>(null);
   const [neighbours, setNeighbours] = React.useState<KnowledgeNeighbour[]>([]);
   const [error, setError] = React.useState<string | null>(null);
+  const [mode, setMode] = React.useState<"preview" | "edit">("preview");
+  const [draft, setDraft] = React.useState<string>("");
+  const [saving, setSaving] = React.useState(false);
+  const [conflict, setConflict] = React.useState(false);
 
   React.useEffect(() => {
     if (!config || !user) return;
@@ -54,24 +64,145 @@ export default function KnowledgePage(): React.ReactElement {
 
   const grouped = React.useMemo(() => groupBySkill(rows ?? []), [rows]);
 
-  const openRow = async (row: KnowledgeSummary): Promise<void> => {
-    if (!config) return;
+  // slug -> {id, title} index used by the wikilink resolver. Built
+  // off the same list payload the left pane reads from so wikilink
+  // navigation is purely client-side.
+  const slugIndex = React.useMemo(() => {
+    const map = new Map<string, { id: string; title: string | null }>();
+    for (const row of rows ?? []) {
+      if (row.slug) {
+        map.set(row.slug, { id: row.id, title: row.title });
+      }
+    }
+    return map;
+  }, [rows]);
+
+  const resolveSlug = React.useCallback(
+    (slug: string) => slugIndex.get(slug) ?? null,
+    [slugIndex],
+  );
+
+  const openRow = React.useCallback(
+    async (rowId: string): Promise<void> => {
+      if (!config) return;
+      try {
+        const [detail, frontier] = await Promise.all([
+          getKnowledgeRow(rowId),
+          getKnowledgeNeighbours(rowId, { depth: 1, limit: 20 }),
+        ]);
+        setSelected(detail);
+        setDraft(detail.body);
+        setMode("preview");
+        setConflict(false);
+        setNeighbours(frontier.filter((n) => n.hops > 0));
+        setError(null);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "failed to load knowledge row",
+        );
+      }
+    },
+    [config],
+  );
+
+  const saveDraft = React.useCallback(async (): Promise<void> => {
+    if (!selected) return;
+    if (draft === selected.body) {
+      setMode("preview");
+      return;
+    }
+    setSaving(true);
     try {
-      const [detail, frontier] = await Promise.all([
-        getKnowledgeRow(row.id),
-        getKnowledgeNeighbours(row.id, { depth: 1, limit: 20 }),
-      ]);
-      setSelected(detail);
-      // Drop the seed itself from the panel — `hops > 0` is everyone
-      // who links *to* or is linked *from* the selected node.
-      setNeighbours(frontier.filter((n) => n.hops > 0));
+      const updated = await updateKnowledgeRow(selected.id, {
+        body: draft,
+        expected_updated_at: selected.updated_at,
+      });
+      setSelected(updated);
+      setDraft(updated.body);
+      setMode("preview");
+      setConflict(false);
+      setError(null);
+      // Refresh the list row's updated_at + title so the left pane
+      // and the optimistic-concurrency token stay coherent.
+      setRows((current) =>
+        current
+          ? current.map((row) =>
+              row.id === updated.id
+                ? {
+                    ...row,
+                    title: updated.title,
+                    skill: updated.skill,
+                    updated_at: updated.updated_at,
+                  }
+                : row,
+            )
+          : current,
+      );
+    } catch (err) {
+      if (err instanceof KnowledgeConflictError) {
+        setConflict(true);
+        // Refetch so the operator can see the agent-side edit before
+        // re-applying their changes.
+        try {
+          const fresh = await getKnowledgeRow(selected.id);
+          setSelected(fresh);
+        } catch {
+          // Swallow — the banner is the load-bearing signal.
+        }
+      } else {
+        setError(err instanceof Error ? err.message : "failed to save");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, selected]);
+
+  const deleteSelected = React.useCallback(async (): Promise<void> => {
+    if (!selected) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Delete "${selected.title ?? selected.slug ?? "this row"}"? Soft-deleted rows are hidden from the agent and from this browser.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteKnowledgeRow(selected.id);
+      setRows((current) =>
+        current ? current.filter((row) => row.id !== selected.id) : current,
+      );
+      setSelected(null);
+      setNeighbours([]);
+      setMode("preview");
       setError(null);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "failed to load knowledge row",
-      );
+      setError(err instanceof Error ? err.message : "failed to delete");
+    }
+  }, [selected]);
+
+  const onTextareaKeyDown = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+  ): void => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      void saveDraft();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setDraft(selected?.body ?? "");
+      setMode("preview");
     }
   };
+
+  const onOpenSlug = React.useCallback(
+    (target: { id: string }) => {
+      void openRow(target.id);
+    },
+    [openRow],
+  );
 
   if (loading || !user) {
     return (
@@ -119,7 +250,7 @@ export default function KnowledgePage(): React.ReactElement {
                     <li key={row.id}>
                       <button
                         type="button"
-                        onClick={() => void openRow(row)}
+                        onClick={() => void openRow(row.id)}
                         className={cn(
                           "w-full truncate rounded-md px-2 py-1 text-left text-xs hover:bg-muted",
                           selected?.id === row.id
@@ -147,19 +278,90 @@ export default function KnowledgePage(): React.ReactElement {
         <article className="overflow-y-auto rounded-md border border-border bg-background p-4 text-sm">
           {selected ? (
             <>
-              <header className="mb-3 flex flex-col gap-1">
-                <h2 className="text-lg font-semibold">
-                  {selected.title ?? selected.slug ?? "(untitled)"}
-                </h2>
-                <span className="text-[11px] text-muted-foreground">
-                  {selected.skill ?? "uncategorised"}
-                  {selected.slug ? ` · ${selected.slug}` : ""}
-                  {selected.source ? ` · source: ${selected.source}` : ""}
-                </span>
+              <header className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                  <h2 className="text-lg font-semibold">
+                    {selected.title ?? selected.slug ?? "(untitled)"}
+                  </h2>
+                  <span className="text-[11px] text-muted-foreground">
+                    {selected.skill ?? "uncategorised"}
+                    {selected.slug ? ` · ${selected.slug}` : ""}
+                    {selected.source ? ` · source: ${selected.source}` : ""}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {mode === "preview" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMode("edit")}
+                    >
+                      Edit
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setDraft(selected.body);
+                          setMode("preview");
+                          setConflict(false);
+                        }}
+                        disabled={saving}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void saveDraft()}
+                        disabled={saving || draft === selected.body}
+                      >
+                        {saving ? "Saving…" : "Save"}
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void deleteSelected()}
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                  >
+                    Delete
+                  </Button>
+                </div>
               </header>
-              <pre className="whitespace-pre-wrap break-words font-sans text-sm text-foreground">
-                {selected.body}
-              </pre>
+
+              {conflict ? (
+                <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                  This row was edited elsewhere since you opened it. The
+                  panel was refreshed with the live version — re-apply
+                  your changes and save again.
+                </p>
+              ) : null}
+
+              {mode === "edit" ? (
+                <textarea
+                  className="h-[60vh] w-full resize-y rounded-md border border-border bg-background p-3 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onBlur={() => void saveDraft()}
+                  onKeyDown={onTextareaKeyDown}
+                  spellCheck={false}
+                  placeholder="Markdown body. ⌘/Ctrl + Enter to save, Esc to cancel."
+                />
+              ) : (
+                <KnowledgeMarkdown
+                  body={selected.body}
+                  resolveSlug={resolveSlug}
+                  onOpenSlug={onOpenSlug}
+                />
+              )}
+
               {neighbours.length > 0 ? (
                 <section className="mt-6 border-t border-border pt-3">
                   <h3 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -174,9 +376,13 @@ export default function KnowledgePage(): React.ReactElement {
                         <span className="font-mono text-[10px] text-muted-foreground/70">
                           {n.hops === 1 ? "·" : `+${n.hops}`}
                         </span>
-                        <span className="text-foreground">
+                        <button
+                          type="button"
+                          className="text-left text-foreground hover:underline"
+                          onClick={() => void openRow(n.id)}
+                        >
                           {n.title ?? n.slug ?? n.id}
-                        </span>
+                        </button>
                         {n.slug && n.title ? (
                           <span className="font-mono text-[10px] text-muted-foreground/70">
                             {n.slug}

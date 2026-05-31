@@ -4,6 +4,7 @@
 export { ConversationUpdate } from "./core/memory/ConversationUpdate";
 export { CostSummary } from "./core/cost/CostSummary";
 export { IntendedActions } from "./core/intent/IntendedActions";
+export { KnowledgeUpdate } from "./core/memory/KnowledgeUpdate";
 export { NodeEventList } from "./core/admin/NodeEventList";
 export { NodeList } from "./core/admin/NodeList";
 export { PluginManifest } from "./core/plugin/PluginManifest";

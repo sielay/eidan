@@ -13,8 +13,9 @@ Hot-reload during host runtime is explicitly out of scope for Phase 4
 from __future__ import annotations
 
 import importlib
+import logging
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +25,8 @@ from eidan_schemas.generated.core.plugin.PluginManifest_schema import (
 
 from .base import PluginBase
 from .manifest import MalformedManifest, load_manifest
+
+logger = logging.getLogger(__name__)
 
 
 class PluginLoadError(Exception):
@@ -195,7 +198,11 @@ def _topological_sort(plugins: list[LoadedPlugin]) -> list[LoadedPlugin]:
     return ordered
 
 
-def load_plugins(plugins_dir: Path) -> list[LoadedPlugin]:
+def load_plugins(
+    plugins_dir: Path,
+    *,
+    disabled: Iterable[str] | None = None,
+) -> list[LoadedPlugin]:
     """Discover, validate, import, and topologically sort every plugin.
 
     Walks ``plugins_dir/<name>/``, parses each ``plugin.yaml`` via
@@ -203,13 +210,43 @@ def load_plugins(plugins_dir: Path) -> list[LoadedPlugin]:
     :class:`PluginBase` instance, then orders the result by
     ``depends_on``. The lifecycle runner consumes the list directly.
 
+    ``disabled`` is an optional iterable of plugin names to exclude
+    from loading. A disabled plugin is not loaded at all — its
+    manifest is not parsed, its entrypoint is not imported, neither
+    ``on_install`` nor ``on_activate`` fires, no behaviours register,
+    no routers mount, no MCP tools expose. The plugin's directory and
+    migrations on disk are left alone. The convention is to populate
+    this from ``EIDAN_DISABLED_PLUGINS`` (see :func:`bootstrap`); the
+    summary log line uses that env-var name so operators can grep for
+    it. Matching is case-sensitive; whitespace around each entry is
+    trimmed. Names that don't match any discovered plugin emit a
+    warning but don't raise — the same env var typically applies
+    across nodes with different installed bundles, so "unknown" is
+    expected on some of them.
+
     Raises :class:`MalformedManifest` on any manifest problem (missing
     file, YAML parse error, schema violation, directory-name
     mismatch); :class:`PluginLoadError` (or one of its subclasses) on
     import / topology problems.
     """
+    disabled_set: set[str] = (
+        {name.strip() for name in disabled if name and name.strip()}
+        if disabled is not None
+        else set()
+    )
+
     loaded: list[LoadedPlugin] = []
+    seen_names: set[str] = set()
+    skipped: list[str] = []
+
     for plugin_dir in _iter_plugin_dirs(plugins_dir):
+        seen_names.add(plugin_dir.name)
+        # Per `docs/001 §1.2` the directory name equals the manifest
+        # name — load_manifest enforces this — so filtering on the
+        # cheap (no manifest parse, no import) is correct.
+        if plugin_dir.name in disabled_set:
+            skipped.append(plugin_dir.name)
+            continue
         manifest = load_manifest(plugin_dir)  # raises MalformedManifest
         plugin_obj = _import_plugin(plugin_dir, manifest)
         loaded.append(
@@ -218,6 +255,21 @@ def load_plugins(plugins_dir: Path) -> list[LoadedPlugin]:
                 plugin=plugin_obj,
                 plugin_dir=plugin_dir,
             )
+        )
+
+    if skipped:
+        logger.info(
+            "[plugins] disabled by EIDAN_DISABLED_PLUGINS: %s",
+            ", ".join(sorted(skipped)),
+        )
+
+    unknown = disabled_set - seen_names
+    if unknown:
+        logger.warning(
+            "[plugins] EIDAN_DISABLED_PLUGINS references unknown plugin(s): "
+            "%s (no matching directory under %s)",
+            ", ".join(sorted(unknown)),
+            plugins_dir,
         )
 
     duplicates = _find_duplicate_names(loaded)
