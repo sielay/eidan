@@ -6,4 +6,4 @@ plugin install/list/remove). The split is intentional — admin commands
 are env-var driven and never touch the user's stored JWT.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

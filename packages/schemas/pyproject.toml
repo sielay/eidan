@@ -1,6 +1,6 @@
 [project]
 name = "eidan-schemas"
-version = "0.1.0"
+version = "0.2.0"
 description = "JSON Schema source of truth + Pydantic v2 codegen. Sibling to the @eidan/schemas TS surface."
 requires-python = ">=3.11"
 dependencies = [

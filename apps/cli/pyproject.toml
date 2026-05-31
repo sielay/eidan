@@ -1,6 +1,6 @@
 [project]
 name = "eidan-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Eidan CLI — `eidan` (user mode: login/repl) and `eidan admin` (operator mode: migrations, plugins)"
 requires-python = ">=3.11"
 dependencies = [
