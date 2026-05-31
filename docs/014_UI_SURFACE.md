@@ -150,8 +150,8 @@ Three load-bearing properties:
 - **Two route groups, two layouts.** `(auth)` carries no nav
   chrome, no day counter, no header — by design, the user
   cannot navigate elsewhere without an authenticated session.
-  `(main)` carries the global header and side-nav and is
-  gated by the middleware in §11.1.
+  `(main)` carries the global header and side-nav (§2.1) and
+  is gated by the middleware in §11.1.
 - **The plugin-mounted route prefix is `/p/<name>/...`**, per
   `001 §3`. This document pins the slug; plugins do not
   collide with the host's reserved roots (`c`, `memory`,
@@ -163,6 +163,28 @@ Three load-bearing properties:
   rule in `001 §3.3` (where the host gives ground to plugin
   routes by namespace) — for core screens, the host always
   owns the page shell.
+
+### 2.1 Sidebar layout
+
+The `(main)` side-nav lives in
+`apps/web/src/components/shell/sidebar.tsx` and ships five
+sections in a fixed top-to-bottom order:
+
+| #  | Section          | Icon (`lucide-react`) | Body                                                      | Visibility                                                       |
+|----|------------------|-----------------------|-----------------------------------------------------------|------------------------------------------------------------------|
+| 1  | Conversations    | `MessageSquare`       | Recent-conversation list + new-conversation affordance.   | Always.                                                          |
+| 2  | Knowledge        | `BookOpen`            | Link to `/knowledge` (browse the knowledge base).         | Always.                                                          |
+| 3  | Inbox            | `AlertCircle`         | Link to `/escalations`.                                   | Always.                                                          |
+| 4  | Plugins          | `Puzzle`              | Read-only list of loaded plugins (`/plugins/[name]`).     | Always.                                                          |
+| 5  | Admin            | `Activity`            | Links to admin routes (§3 admin rows) that have a built page — sourced from `apps/web/src/components/shell/admin-nav.ts`. | Phase 1 / single-operator: always. Multi-user: per-user admin flag (§3). |
+
+The section list is pinned; new top-level sections are a spec
+change, not an ad-hoc PR. New admin routes go into the
+`ADMIN_NAV_LINKS` constant in
+`apps/web/src/components/shell/admin-nav.ts` (or under an
+existing entry's prefix); a sidebar test fails the build if a
+`page.tsx` under `apps/web/src/app/(main)/admin/**` is not
+reachable through one of those links.
 
 ---
 
