@@ -1,6 +1,7 @@
 // AUTO-GENERATED — do not edit by hand.
 // Source: packages/schemas/schemas/**/*.schema.json
 // Run `pnpm --filter @eidan/schemas gen:ts` to refresh.
+export { ConversationUpdate } from "./core/memory/ConversationUpdate";
 export { CostSummary } from "./core/cost/CostSummary";
 export { IntendedActions } from "./core/intent/IntendedActions";
 export { KnowledgeUpdate } from "./core/memory/KnowledgeUpdate";
