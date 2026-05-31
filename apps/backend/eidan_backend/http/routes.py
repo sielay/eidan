@@ -1461,3 +1461,62 @@ async def list_node_events_endpoint(
             for r in rows
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Behaviour triggers — read-only snapshot of the in-process dispatcher.
+#
+# Pinned shape in packages/schemas/schemas/core/admin/TriggerList.schema.json
+# (docs/006 §4). Consumed by the /admin/activity triggers tab in apps/web.
+# Same auth posture as the node telemetry routes above: middleware checks
+# the Bearer, no RLS — the registry is host-global and the DLQ has no
+# user_id column.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/admin/triggers")
+async def list_triggers_endpoint(request: Request) -> dict[str, Any]:
+    """List every behaviour currently registered with the dispatcher.
+
+    The registry is in-process so a request hitting one backend instance
+    sees that instance's behaviours, not the cluster's. For
+    Phase 1 single-operator deployments that's the whole catalogue.
+    Multi-instance fleet aggregation is a follow-up.
+
+    Returns an empty list (and ``dlq_count: 0``) when the registry isn't
+    populated yet — happens in tests that build a bare app without
+    running ``bootstrap``, and during the brief boot window before
+    plugins activate.
+    """
+    registry = getattr(request.app.state, "behaviour_registry", None)
+    dispatcher = getattr(request.app.state, "behaviour_dispatcher", None)
+    pool = request.app.state.pool
+
+    triggers: list[dict[str, Any]] = []
+    if registry is not None:
+        scheduler = dispatcher.scheduler if dispatcher is not None else None
+        for beh in registry.all():
+            plugin, _, _ = beh.id.partition(":")
+            next_run_ts: str | None = None
+            if scheduler is not None and beh.trigger.kind in ("cron", "schedule"):
+                job = scheduler.get_job(f"behaviour:{beh.id}")
+                # APScheduler exposes next_run_time on a scheduled job; it's
+                # None when the scheduler is stopped or the job was paused.
+                if job is not None and job.next_run_time is not None:
+                    next_run_ts = job.next_run_time.isoformat()
+            triggers.append(
+                {
+                    "behaviour_id": beh.id,
+                    "plugin": plugin,
+                    "kind": beh.trigger.kind,
+                    "spec": beh.trigger.spec,
+                    "next_run_ts": next_run_ts,
+                }
+            )
+
+    async with pool.acquire() as conn:
+        dlq_count = await conn.fetchval(
+            "SELECT count(*) FROM eidan.behaviour_dlq WHERE status = 'pending'"
+        )
+
+    return {"triggers": triggers, "dlq_count": int(dlq_count or 0)}
