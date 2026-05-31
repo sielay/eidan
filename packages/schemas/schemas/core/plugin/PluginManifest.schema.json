@@ -270,6 +270,37 @@
         }
       },
       "description": "Optional MCP server stanza (docs/001 §7)."
+    },
+    "notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapters"],
+      "properties": {
+        "adapters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["channel", "factory"],
+            "properties": {
+              "channel": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                "minLength": 1,
+                "maxLength": 32,
+                "description": "Channel slug consumed by ctx.notify(channel=...). MUST be unique across all loaded plugins; the host registers each channel exactly once."
+              },
+              "factory": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
+                "description": "Python entrypoint (module:function) of the adapter factory. The factory takes a SecretAccessor coroutine and returns a NotificationAdapter; the host calls it once at activation and registers the result on the process-local NotificationRouter."
+              }
+            }
+          }
+        }
+      },
+      "description": "Outbound notification adapters this plugin contributes (docs/001 §6, docs/024)."
     }
   }
 }

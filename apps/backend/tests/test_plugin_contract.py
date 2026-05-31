@@ -25,11 +25,13 @@ from typing import Any
 
 import pytest
 from eidan_backend.plugins import (
+    IncompatibleManifest,
     MalformedManifest,
     PluginBase,
     PluginContext,
     load_manifest,
 )
+from eidan_backend.plugins import manifest as _manifest_module
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _EXAMPLE_CORE_DIR = _REPO_ROOT / "plugins" / "example-core"
@@ -196,6 +198,188 @@ def test_unknown_tier_is_rejected(tmp_path: Path) -> None:
         load_manifest(plugin_dir)
 
     assert "tier" in str(excinfo.value)
+
+
+# ---------- host.eidan pre-gate ------------------------------------------------
+
+
+def _write_minimum_manifest(
+    plugin_dir: Path, name: str, *, host_eidan: str | None = None, extra: str = ""
+) -> None:
+    """Write a minimal valid manifest for the gate / notifications tests.
+
+    ``extra`` is appended verbatim before validation, so callers can
+    add a ``notifications:`` block (or an intentionally-bad field)
+    without re-stating the boilerplate."""
+    host_block = f"host:\n  eidan: '{host_eidan}'\n" if host_eidan else ""
+    (plugin_dir / "plugin.yaml").write_text(
+        textwrap.dedent(
+            f"""\
+            schema: 1
+            name: {name}
+            version: 0.1.0
+            tier: pro
+            license: Proprietary
+            """
+        )
+        + host_block
+        + extra,
+        encoding="utf-8",
+    )
+
+
+def test_host_eidan_gate_rejects_when_core_too_old(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plugin pinning a constraint our core can't satisfy raises
+    :class:`IncompatibleManifest` BEFORE strict schema validation,
+    so the operator sees the version mismatch rather than a confusing
+    `extra_forbidden` error from an unrelated schema-drift field."""
+    monkeypatch.setattr(_manifest_module, "_current_core_version", lambda: "0.1.0")
+
+    plugin_dir = tmp_path / "future-plugin"
+    plugin_dir.mkdir()
+    _write_minimum_manifest(
+        plugin_dir,
+        "future-plugin",
+        host_eidan=">=0.99.0",
+        # Intentionally-bogus field that would also trigger schema rejection.
+        # The host gate must fire FIRST so this never surfaces.
+        extra="madeup_field: 42\n",
+    )
+
+    with pytest.raises(IncompatibleManifest) as excinfo:
+        load_manifest(plugin_dir)
+
+    assert excinfo.value.plugin_name == "future-plugin"
+    assert excinfo.value.required == ">=0.99.0"
+    assert excinfo.value.current == "0.1.0"
+
+
+def test_host_eidan_gate_passes_when_constraint_satisfied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A satisfiable ``host.eidan`` constraint is a no-op — manifest
+    continues through strict validation and loads normally."""
+    monkeypatch.setattr(_manifest_module, "_current_core_version", lambda: "0.2.0")
+
+    plugin_dir = tmp_path / "happy-plugin"
+    plugin_dir.mkdir()
+    _write_minimum_manifest(plugin_dir, "happy-plugin", host_eidan=">=0.1.0")
+
+    manifest = load_manifest(plugin_dir)
+    assert manifest.name == "happy-plugin"
+
+
+def test_host_eidan_gate_skipped_when_absent(tmp_path: Path) -> None:
+    """Plugins without a ``host`` block (or without ``host.eidan``)
+    are not gated — the manifest goes straight to schema validation."""
+    plugin_dir = tmp_path / "ungated"
+    plugin_dir.mkdir()
+    _write_minimum_manifest(plugin_dir, "ungated")  # no host block
+
+    manifest = load_manifest(plugin_dir)
+    assert manifest.name == "ungated"
+
+
+def test_unparseable_host_eidan_specifier_does_not_raise_incompatible(
+    tmp_path: Path,
+) -> None:
+    """A specifier the gate can't parse (e.g. ``"^0.2.0"`` — npm-style,
+    not PEP 440) is a no-op for the host gate. The manifest schema
+    types ``host.eidan`` as a free string, so this loads cleanly
+    today; tightening that string into a PEP 440 specifier pattern
+    is a separate follow-up. The point of this test is that an
+    unparseable spec does NOT raise :class:`IncompatibleManifest` —
+    the gate refuses to guess."""
+    plugin_dir = tmp_path / "bad-spec"
+    plugin_dir.mkdir()
+    _write_minimum_manifest(plugin_dir, "bad-spec", host_eidan="^0.2.0")
+
+    manifest = load_manifest(plugin_dir)
+    assert manifest.name == "bad-spec"
+
+
+# ---------- notifications.adapters[] schema acceptance -------------------------
+
+
+def test_notifications_adapters_block_is_accepted(tmp_path: Path) -> None:
+    """The manifest schema accepts a ``notifications.adapters[]`` block
+    with ``channel`` + ``factory`` per entry — the seam paid bundles
+    use to declare outbound notification adapters (docs/001 §6)."""
+    plugin_dir = tmp_path / "notifier"
+    plugin_dir.mkdir()
+    _write_minimum_manifest(
+        plugin_dir,
+        "notifier",
+        extra=textwrap.dedent(
+            """\
+            notifications:
+              adapters:
+                - channel: slack
+                  factory: example.module:build_adapter
+            """
+        ),
+    )
+
+    manifest = load_manifest(plugin_dir)
+    assert manifest.notifications is not None
+    assert len(manifest.notifications.adapters) == 1
+    entry = manifest.notifications.adapters[0]
+    assert entry.channel == "slack"
+    assert entry.factory == "example.module:build_adapter"
+
+
+def test_notifications_adapter_invalid_channel_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """Channel slugs must match the kebab-style pattern. A leading
+    digit followed by a colon (looks like an entrypoint) is rejected."""
+    plugin_dir = tmp_path / "badchan"
+    plugin_dir.mkdir()
+    _write_minimum_manifest(
+        plugin_dir,
+        "badchan",
+        extra=textwrap.dedent(
+            """\
+            notifications:
+              adapters:
+                - channel: "Slack!"
+                  factory: example.module:build_adapter
+            """
+        ),
+    )
+
+    with pytest.raises(MalformedManifest) as excinfo:
+        load_manifest(plugin_dir)
+
+    assert "channel" in str(excinfo.value)
+
+
+def test_notifications_adapter_invalid_factory_entrypoint_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """``factory`` must be a ``module:func`` entrypoint — a bare name
+    or missing colon is rejected."""
+    plugin_dir = tmp_path / "badfactory"
+    plugin_dir.mkdir()
+    _write_minimum_manifest(
+        plugin_dir,
+        "badfactory",
+        extra=textwrap.dedent(
+            """\
+            notifications:
+              adapters:
+                - channel: slack
+                  factory: build_adapter
+            """
+        ),
+    )
+
+    with pytest.raises(MalformedManifest) as excinfo:
+        load_manifest(plugin_dir)
+
+    assert "factory" in str(excinfo.value)
 
 
 # ---------- helpers ------------------------------------------------------------

@@ -21,6 +21,7 @@ dispatcher cleanly at shutdown.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 from collections.abc import AsyncIterator, Iterable
@@ -34,7 +35,7 @@ from .behaviours import Behaviour, BehaviourDispatcher, BehaviourRegistry
 from .memory_tools import register_memory_tools
 from .node_identity import NodeIdentity
 from .node_identity import detect as detect_node_identity
-from .notifications import build_default_router
+from .notifications import NotificationRouter, build_default_router
 from .persistence import flag_orphaned_assistant_messages
 from .plugins import (
     AsyncpgPluginStateStore,
@@ -290,6 +291,77 @@ def _make_notify_callable(
     return _notify
 
 
+def _register_declared_notification_adapters(
+    plugins: list[LoadedPlugin],
+    router: NotificationRouter,
+    secret: Any,
+) -> None:
+    """Walk each plugin's ``manifest.notifications.adapters[]`` and
+    register the resolved :class:`NotificationAdapter` on the host
+    router (`docs/001 §6`).
+
+    Factory contract: a ``module:func`` entrypoint resolving to a
+    callable ``factory(secret) -> NotificationAdapter``. The factory
+    is called once at bootstrap; the resulting coroutine is what
+    ``router.notify(channel, ...)`` dispatches to.
+
+    Bootstrap-fatal on any failure (bad import, bad factory shape,
+    duplicate channel). A notification path that silently doesn't
+    register is exactly the failure mode :class:`NotificationError`
+    is designed to prevent — operators learn at boot, not when the
+    first nudge silently disappears.
+    """
+    for loaded in plugins:
+        notifications = getattr(loaded.manifest, "notifications", None)
+        if notifications is None:
+            continue
+        for entry in notifications.adapters:
+            module_path, _, func_name = entry.factory.partition(":")
+            if not module_path or not func_name:
+                raise RuntimeError(
+                    f"plugin {loaded.manifest.name!r}: notifications "
+                    f"adapter factory {entry.factory!r} is not a valid "
+                    "'module:func' entrypoint"
+                )
+            try:
+                module = importlib.import_module(module_path)
+            except ImportError as exc:
+                raise RuntimeError(
+                    f"plugin {loaded.manifest.name!r}: cannot import "
+                    f"notifications adapter factory {entry.factory!r}: {exc}"
+                ) from exc
+            factory = getattr(module, func_name, None)
+            if factory is None:
+                raise RuntimeError(
+                    f"plugin {loaded.manifest.name!r}: notifications "
+                    f"adapter factory {func_name!r} not found in "
+                    f"{module_path!r}"
+                )
+            try:
+                adapter = factory(secret)
+            except Exception as exc:  # noqa: BLE001 — narrow & rewrap
+                raise RuntimeError(
+                    f"plugin {loaded.manifest.name!r}: notifications "
+                    f"adapter factory {entry.factory!r} raised at "
+                    f"construction: {exc}"
+                ) from exc
+            try:
+                router.register(entry.channel, adapter)
+            except ValueError as exc:
+                # NotificationRouter raises ValueError on duplicate; rewrap so
+                # the operator sees which plugin tried to double-register.
+                raise RuntimeError(
+                    f"plugin {loaded.manifest.name!r}: channel "
+                    f"{entry.channel!r} already registered (host default "
+                    "or another plugin claimed it first)"
+                ) from exc
+            logger.info(
+                "[notifications] registered %r adapter from plugin %r",
+                entry.channel,
+                loaded.manifest.name,
+            )
+
+
 class BootstrapNotMigratedError(RuntimeError):
     """Raised when bootstrap can't reach ``eidan.plugin_state``.
 
@@ -447,6 +519,16 @@ async def bootstrap(
             plugin_name=loaded.manifest.name,
             declared=list(declared),
         )
+
+    # Register plugin-declared notification adapters BEFORE on_activate
+    # runs (`docs/001 §6`). on_activate hooks may call ctx.notify, so
+    # the router must be fully populated by the time the lifecycle
+    # hooks fire. notification_router and the factory closure both
+    # hold the same router reference; this is the population step
+    # the factory's _make_notify_callable captures.
+    _register_declared_notification_adapters(
+        plugins, notification_router, secret_accessor
+    )
 
     await install_and_activate(
         plugins,
