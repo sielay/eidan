@@ -170,6 +170,85 @@ def test_node_to_ansible_vars_emits_sentry_defaults_when_unset(
     assert vars_dict["eidan_sentry_model"] == "phi3"
 
 
+def test_node_to_ansible_vars_maps_log_forward_token_shape(
+    tmp_path: Path,
+) -> None:
+    """BetterStack / Axiom / Honeycomb shape — URL + bearer token."""
+    body = """
+        schema: 1
+        nodes:
+          kasha:
+            target: pi
+            host: 192.168.1.100
+            ssh_user: pi
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+            log_forward:
+              url: https://in.logs.betterstack.com
+              token: bs-source-token-XXXX
+              level: INFO
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    vars_dict = pi._node_to_ansible_vars(topology.resolve_node("kasha"))
+
+    # AnyUrl can normalise to a trailing slash; allow either form.
+    assert (
+        vars_dict["eidan_log_forward_url"].rstrip("/")
+        == "https://in.logs.betterstack.com"
+    )
+    assert vars_dict["eidan_log_forward_token"] == "bs-source-token-XXXX"
+    assert vars_dict["eidan_log_forward_level"] == "INFO"
+    # Headers is mutex with token — should be absent.
+    assert "eidan_log_forward_headers" not in vars_dict
+
+
+def test_node_to_ansible_vars_maps_log_forward_headers_shape(
+    tmp_path: Path,
+) -> None:
+    """Datadog / non-Bearer shape — URL + headers dict. Headers
+    serialise as compact JSON (no spaces) so the systemd
+    EnvironmentFile= round-trip doesn't split on whitespace."""
+    body = """
+        schema: 1
+        nodes:
+          kasha:
+            target: pi
+            host: 192.168.1.100
+            ssh_user: pi
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+            log_forward:
+              url: https://http-intake.logs.datadoghq.com/api/v2/logs
+              headers:
+                DD-API-KEY: dd-key-XXXX
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    vars_dict = pi._node_to_ansible_vars(topology.resolve_node("kasha"))
+
+    assert (
+        vars_dict["eidan_log_forward_url"]
+        == "https://http-intake.logs.datadoghq.com/api/v2/logs"
+    )
+    # Compact JSON — no spaces, so systemd doesn't split on them.
+    assert vars_dict["eidan_log_forward_headers"] == '{"DD-API-KEY":"dd-key-XXXX"}'
+    assert "eidan_log_forward_token" not in vars_dict
+
+
+def test_node_to_ansible_vars_omits_log_forward_when_unset(
+    tmp_path: Path,
+) -> None:
+    """No `log_forward:` on the node → no env vars emitted. Backend's
+    forwarder stays off."""
+    node = _kasha_node(tmp_path)
+    vars_dict = pi._node_to_ansible_vars(node)
+
+    assert "eidan_log_forward_url" not in vars_dict
+    assert "eidan_log_forward_token" not in vars_dict
+    assert "eidan_log_forward_headers" not in vars_dict
+
+
 # ---------- reconcile() ----------
 
 

@@ -16,6 +16,7 @@ failure.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -147,6 +148,30 @@ def _node_to_ansible_vars(node: ResolvedNode) -> dict[str, Any]:
         vars_dict["eidan_smtp_user"] = smtp.user or ""
         vars_dict["eidan_smtp_password"] = smtp.password or ""
         vars_dict["eidan_smtp_from"] = str(smtp.from_)
+
+    log_forward = getattr(node, "log_forward", None)
+    if log_forward is not None:
+        vars_dict["eidan_log_forward_url"] = str(log_forward.url)
+        if log_forward.token:
+            vars_dict["eidan_log_forward_token"] = log_forward.token
+        if log_forward.headers:
+            # systemd EnvironmentFile= splits unquoted values on whitespace,
+            # and the operator-template puts these values into eidan.env
+            # without further escaping. Serialise the dict as compact JSON
+            # (no spaces) so it survives the env-file round-trip cleanly.
+            vars_dict["eidan_log_forward_headers"] = json.dumps(
+                dict(log_forward.headers), separators=(",", ":")
+            )
+        if log_forward.level:
+            vars_dict["eidan_log_forward_level"] = (
+                log_forward.level.value
+                if hasattr(log_forward.level, "value")
+                else str(log_forward.level)
+            )
+        if log_forward.timeout is not None:
+            vars_dict["eidan_log_forward_timeout"] = log_forward.timeout
+        if log_forward.queue_size is not None:
+            vars_dict["eidan_log_forward_queue_size"] = log_forward.queue_size
 
     return vars_dict
 

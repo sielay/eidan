@@ -110,6 +110,48 @@ class Smtp(BaseModel):
     """
 
 
+class Level(StrEnum):
+    """
+    `EIDAN_LOG_FORWARD_LEVEL`. Minimum level the forwarder accepts; default `INFO`. Effective threshold is `max(root_logger_level, this)`. Set `WARNING` to keep the intake quieter.
+    """
+
+    debug = "DEBUG"
+    info = "INFO"
+    warning = "WARNING"
+    error = "ERROR"
+    critical = "CRITICAL"
+
+
+class LogForward(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    url: AnyUrl
+    """
+    `EIDAN_LOG_FORWARD_URL`. Intake endpoint (BetterStack: `https://in.logs.betterstack.com`; Datadog: `https://http-intake.logs.datadoghq.com/api/v2/logs`; Axiom: `https://api.axiom.co/v1/datasets/<name>/ingest`; Loki: through a Vector/Fluent Bit relay). Forwarder is off when this is unset on every node + defaults.
+    """
+    token: str | None = Field(None, min_length=1)
+    """
+    `EIDAN_LOG_FORWARD_TOKEN`. Sent as `Authorization: Bearer <token>` — BetterStack source token, Axiom API key, Honeycomb write key. Vault-encrypt. Mutually exclusive with `headers:` (the operator picks one auth shape); both unset means no auth header (rare — only for self-hosted unauthed intakes).
+    """
+    headers: dict[str, str] | None = None
+    """
+    `EIDAN_LOG_FORWARD_HEADERS`. JSON-encoded map of extra headers. Escape hatch for non-Bearer auth (Datadog's `DD-API-KEY`, custom routing headers). Vault-encrypt values that carry credentials.
+    """
+    level: Level | None = None
+    """
+    `EIDAN_LOG_FORWARD_LEVEL`. Minimum level the forwarder accepts; default `INFO`. Effective threshold is `max(root_logger_level, this)`. Set `WARNING` to keep the intake quieter.
+    """
+    timeout: float | None = Field(None, ge=0.1)
+    """
+    `EIDAN_LOG_FORWARD_TIMEOUT`. HTTP POST timeout in seconds; default `5.0`. Failures are swallowed; the next log line retries.
+    """
+    queue_size: int | None = Field(None, ge=1)
+    """
+    `EIDAN_LOG_FORWARD_QUEUE_SIZE`. Max in-process buffer size; default `10000`. When the intake stalls, records past this cap are dropped (with a stderr warning).
+    """
+
+
 class Defaults(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -133,6 +175,10 @@ class Defaults(BaseModel):
     smtp: Smtp | None = None
     """
     Default SMTP config for magic-link delivery. Per-node `smtp:` wins. Often identical across nodes since all share one Postgres + one operator email.
+    """
+    log_forward: LogForward | None = None
+    """
+    Default log-forwarding config (BetterStack / Datadog / Axiom / Loki). Per-node `log_forward:` wins. Typical pattern: all nodes ship to one intake.
     """
     image: str | None = Field(None, max_length=256, min_length=1)
     """
@@ -211,6 +257,10 @@ class Node(BaseModel):
     smtp: Smtp | None = None
     """
     Per-node SMTP override. Wins over `defaults.smtp`.
+    """
+    log_forward: LogForward | None = None
+    """
+    Per-node log-forwarding override (BetterStack / Datadog / Axiom / Loki). Wins over `defaults.log_forward`.
     """
     ollama_base_url: AnyUrl | None = None
     """
