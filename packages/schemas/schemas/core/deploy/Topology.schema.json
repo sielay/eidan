@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.eidan.dev/core/deploy/Topology/v1.json",
+  "title": "Topology",
+  "description": "Operator-private deployment topology consumed by the `eidan deploy` CLI. One node per host the operator runs an eidan backend on (Pi, Fly machine, Docker container, …). Reconcilers walk this document and bring each node into the declared state — render env files, install bundles, restart services. Lives at `.eidan/topology.yml` by default; overridable via `--topology=<path>` so a private ops repo can hold it. Secrets carried as plain strings (post-decryption); the CLI accepts ansible-vault per-value tags transparently in a follow-up.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "nodes"],
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "const": 1,
+      "description": "Topology schema version. Always 1 for this shape; bumped on breaking changes per `docs/004 §9`."
+    },
+    "defaults": {
+      "$ref": "#/$defs/Defaults",
+      "description": "Repo-wide defaults applied per-node via deep-merge. Per-node values override. Lets the operator declare `plugin_source: gh:sielay` and the GitHub PAT once for every node instead of repeating them."
+    },
+    "nodes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/Node"},
+      "description": "Map of node-name → node config. Node names are operator-chosen and used by `eidan deploy --node <name>`, log lines, and the per-node telemetry view in the admin UI (`docs/024`). Each node reconciles independently; failure on one does not block the others."
+    }
+  },
+  "$defs": {
+    "Defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plugin_source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Default `EIDAN_PLUGIN_SOURCE` for plugin install on each node. Typically `gh:<org>` so the CLI clones private bundle repos from GitHub. Per-node `plugin_source` wins."
+        },
+        "github_token": {
+          "type": "string",
+          "minLength": 1,
+          "description": "GitHub PAT with `repo:read` on the private bundle repos. Vault-encrypt in the YAML; the CLI exports it to target nodes only during install and never persists it on the target filesystem (see `docs/DEPLOYMENT.md §3.11`). Per-node override possible if different nodes pull from different orgs."
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider",
+          "description": "Default LLM provider config. Per-node `provider:` wins. Lets the operator say `everywhere uses anthropic` while a single Pi node overrides to `ollama` for local inference."
+        },
+        "sentry": {
+          "$ref": "#/$defs/Sentry",
+          "description": "Default Sentry plugin config. Per-node `sentry:` wins. Typical pattern: enabled on the Pi, disabled on Fly (cf. DEPLOYMENT.md §4.4)."
+        },
+        "smtp": {
+          "$ref": "#/$defs/Smtp",
+          "description": "Default SMTP config for magic-link delivery. Per-node `smtp:` wins. Often identical across nodes since all share one Postgres + one operator email."
+        }
+      }
+    },
+    "Node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "database_url", "auth_master_key", "auth_allowed_email"],
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": ["pi", "fly", "docker"],
+          "description": "Reconciler that owns this node. `pi` drives the Ansible playbook under `infra/pi/`; `fly` drives flyctl; `docker` drives docker compose (recipe TBD)."
+        },
+        "database_url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "asyncpg-style URL the backend connects to. `postgresql+asyncpg://...`. Vault-encrypt in the YAML."
+        },
+        "auth_master_key": {
+          "type": "string",
+          "minLength": 32,
+          "description": "Byte-identical value of `EIDAN_AUTH_MASTER_KEY` for every node that joins this Postgres (DEPLOYMENT.md §3.6). Vault-encrypt in the YAML. Generate once with `python -c 'import secrets; print(secrets.token_urlsafe(48))'`."
+        },
+        "auth_allowed_email": {
+          "type": "string",
+          "format": "email",
+          "description": "Single email the magic-link endpoint mints links for. Unset means refuse-all."
+        },
+        "deployment_mode": {
+          "type": "string",
+          "enum": ["development", "production"],
+          "default": "production",
+          "description": "Switches the refresh cookie to `Secure` + suppresses the dev link echo. Default `production` matches what every real deploy wants."
+        },
+        "http_host": {
+          "type": "string",
+          "default": "0.0.0.0",
+          "description": "`EIDAN_HTTP_HOST`. `0.0.0.0` for nodes that serve the frontend directly; `127.0.0.1` for nodes behind a reverse proxy on the same box; the loopback default is rarely right on a Pi."
+        },
+        "http_port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8000,
+          "description": "`EIDAN_HTTP_PORT`."
+        },
+        "cors_origins": {
+          "type": "array",
+          "items": {"type": "string", "format": "uri"},
+          "description": "`EIDAN_HTTP_CORS_ORIGINS` as a list — the reconciler joins on commas. The frontend host(s) that talk to this backend. Empty list / unset = no cross-origin allowance."
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider",
+          "description": "Per-node LLM provider override. Wins over `defaults.provider`."
+        },
+        "bundles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "default": [],
+          "description": "Bundles to install on this node. Idempotent on bundle name — adding installs, removing does NOT uninstall (use `eidan admin plugin sync --prune` on the box). Each bundle slug matches a GitHub repo under `plugin_source`."
+        },
+        "disable": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "default": [],
+          "description": "Plugin names to disable on this node via `EIDAN_DISABLED_PLUGINS`. The plugin is installed but the loader skips it — no on_install, on_activate, behaviours, routers, or MCP tools. See `docs/001 §8.2`."
+        },
+        "plugin_source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Per-node `EIDAN_PLUGIN_SOURCE` override. Rare — most operators set this in `defaults`."
+        },
+        "github_token": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Per-node GitHub PAT override. Rare — most operators set this in `defaults`. Vault-encrypt."
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Optional pinned `EIDAN_NODE_ID` for telemetry. Auto-detected from `FLY_MACHINE_ID` / `DYNO` / hostname when unset. Pin when one host runs multiple eidan processes so their heartbeats don't trample each other (`docs/024 §3`)."
+        },
+        "node_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "description": "Optional `EIDAN_NODE_TYPE` for the admin UI dashboard grouping. Typical values: `pi`, `fly`, `docker`, `laptop`."
+        },
+        "sentry": {
+          "$ref": "#/$defs/Sentry",
+          "description": "Per-node Sentry config override. Wins over `defaults.sentry`. Typical: disable on Fly auto-stop machines, enable on the Pi."
+        },
+        "smtp": {
+          "$ref": "#/$defs/Smtp",
+          "description": "Per-node SMTP override. Wins over `defaults.smtp`."
+        },
+        "ollama_base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Override the Ollama base URL when `provider.name = ollama`. Defaults to `http://127.0.0.1:11434/v1` — pin only when Ollama runs on a different host or non-default port."
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "PI ONLY — hostname or IP for ssh. Required when `target: pi`. Ignored for other targets."
+        },
+        "ssh_user": {
+          "type": "string",
+          "minLength": 1,
+          "description": "PI ONLY — SSH login on the Pi (typically your admin user, not the `eidan` service user). Required when `target: pi`. Ignored for other targets."
+        },
+        "ssh_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "PI ONLY — path to the SSH private key. Tilde-expanded by the reconciler. Optional; defaults to ssh-agent / default identity discovery if unset."
+        },
+        "app": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "FLY ONLY — `fly.toml` `app` name. Required when `target: fly`. Ignored for other targets."
+        },
+        "region": {
+          "type": "string",
+          "pattern": "^[a-z]{3}$",
+          "description": "FLY ONLY — Fly primary region (3-letter code like `lhr`, `iad`). Required when `target: fly`. Ignored for other targets."
+        },
+        "compose_project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "DOCKER ONLY — `docker compose -p <name>` project label. Required when `target: docker`. Ignored for other targets."
+        }
+      }
+    },
+    "Provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "default_model"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": ["anthropic", "openai", "gemini", "mistral", "ollama"],
+          "description": "Provider slug. Matches `EIDAN_PROVIDER`."
+        },
+        "default_model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "`EIDAN_DEFAULT_MODEL`. Provider-specific (e.g. `claude-sonnet-4-6` for anthropic, `phi3` for ollama)."
+        },
+        "api_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "API key for the chosen provider. Vault-encrypt. Ignored for `ollama` (which has no API key). Maps to the provider-specific env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / etc.) on the target node."
+        }
+      }
+    },
+    "Sentry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "`EIDAN_SENTRY_ENABLED`. Default `true`; pin to `false` on nodes that auto-stop (the 5-minute tick would prevent idle scale-down)."
+        },
+        "tick_interval": {
+          "type": "string",
+          "pattern": "^PT[0-9]+[MHS]$",
+          "default": "PT5M",
+          "description": "ISO 8601 duration for the Sentry tick (`EIDAN_SENTRY_TICK_INTERVAL`). Default 5 minutes."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "default": "phi3",
+          "description": "`EIDAN_SENTRY_MODEL`. Currently a configured-but-unused slot until the local-model adapter ships (DEPLOYMENT.md §3.10)."
+        }
+      }
+    },
+    "Smtp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "port", "from"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "`EIDAN_SMTP_HOST`."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "`EIDAN_SMTP_PORT`. Typically 465 (SMTPS) or 587 (STARTTLS)."
+        },
+        "user": {
+          "type": "string",
+          "description": "`EIDAN_SMTP_USER`."
+        },
+        "password": {
+          "type": "string",
+          "description": "`EIDAN_SMTP_PASSWORD`. Vault-encrypt."
+        },
+        "from": {
+          "type": "string",
+          "format": "email",
+          "description": "`EIDAN_SMTP_FROM` — the From: header on outbound mail."
+        }
+      }
+    }
+  }
+}
