@@ -23,6 +23,7 @@ __pycache__/
 .env.local
 ~/.eidan/
 .eidan/
+.eidan-runtime/
 
 # Fly.io — the operator's copy of fly.toml lives at the repo root
 # (see docs/DEPLOYMENT.md §4). Stays out of upstream history.
