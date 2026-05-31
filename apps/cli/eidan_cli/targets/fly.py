@@ -104,7 +104,7 @@ def _render_fly_toml(node: ResolvedNode) -> str:
             f'  EIDAN_SENTRY_ENABLED    = "{1 if sentry.enabled else 0}"'
         )
     else:
-        # Fly default: sentry off (cf. DEPLOYMENT.md §4.4).
+        # Fly default: sentry off (cf. docs/DEPLOY_FLY_BOOTSTRAP.md).
         extra_env_lines.append('  EIDAN_SENTRY_ENABLED    = "0"')
 
     disable = getattr(node, "disable", None) or []

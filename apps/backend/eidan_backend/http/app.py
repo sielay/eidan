@@ -58,7 +58,9 @@ def _read_plugin_tier(plugin_dir: Path) -> str | None:
     """Return the ``tier:`` stanza from ``plugin_dir/plugin.yaml``.
 
     Used by the volume seeder to filter the image-baked source set
-    down to ``tier: core`` plugins (`docs/DEPLOYMENT.md §4.6`):
+    down to ``tier: core`` plugins (cf. the bundle-install flow in
+    `docs/DEPLOYMENT.md` §6 and the Fly-side details in
+    `docs/DEPLOY_FLY_BOOTSTRAP.md`):
     paid-tier plugins must never be seeded onto an operator volume
     automatically because the operator licences and installs them
     explicitly. A manifest that is unreadable / malformed / missing
@@ -104,8 +106,9 @@ def _seed_plugins_volume_if_needed(resolved: Path) -> None:
     "is the volume empty?" framing only describes the first-boot
     case; this name covers the steady-state behaviour too.
 
-    Operators running the published image plus a mounted volume (see
-    ``docs/DEPLOYMENT.md §4.6`` — runtime plugin install) point
+    Operators running the published image plus a mounted volume
+    (the Fly path — `eidan deploy --tags plugins` puts bundles
+    there; see ``docs/DEPLOY_FLY_BOOTSTRAP.md``) point
     ``EIDAN_PLUGINS_DIR`` at e.g. ``/var/lib/eidan/plugins``. The
     volume is empty on first boot; without seeding, the host would
     activate zero plugins and the operator would have to run

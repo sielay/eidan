@@ -84,9 +84,9 @@ def test_render_fly_toml_carries_app_region_image(tmp_path: Path) -> None:
 
 def test_render_fly_toml_sentry_default_off(tmp_path: Path) -> None:
     """When the node doesn't override sentry, the Fly reconciler
-    pins it OFF in [env] — matches the docs/DEPLOYMENT.md §4.4
-    pattern (auto-stop machines shouldn't burn cost on the 5-min
-    tick)."""
+    pins it OFF in [env] — matches the Fly default in
+    docs/DEPLOY_FLY_BOOTSTRAP.md (auto-stop machines shouldn't
+    burn cost on the 5-min tick)."""
     body = """
         schema: 1
         nodes:
