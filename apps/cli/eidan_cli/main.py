@@ -169,9 +169,16 @@ def logout() -> None:
 
 @app.command(name="init")
 def init_cmd(
-    name: str = typer.Argument(
-        ...,
-        help="Directory name for the new ops repo (created in cwd).",
+    name: str | None = typer.Argument(
+        None,
+        help="Directory name for the new deploy config (created in cwd). "
+        "Omit when passing --here.",
+    ),
+    here: bool = typer.Option(
+        False,
+        "--here",
+        help="Scaffold into ./.eidan/ in the current directory (gitignored "
+        "if you're inside the eidan checkout). Lighter than a sibling repo.",
     ),
     force: bool = typer.Option(
         False,
@@ -179,17 +186,37 @@ def init_cmd(
         help="Overwrite an existing directory at the target path.",
     ),
 ) -> None:
-    """Scaffold a private ops repo for an eidan deployment.
+    """Scaffold a starter deploy config (topology.yml + helpers).
 
-    Creates ``./<name>/`` populated from the bundled template
-    (``topology.yml`` starter, ``.gitignore``, ``.vault-pass.example``,
-    ``README.md``). Non-interactive — the operator edits
-    ``topology.yml`` by hand. ``git init`` and pushing to a private
-    remote are the operator's responsibility (so we don't dictate
-    where the ops repo lives).
+    Two flavours:
+
+    - ``eidan init <name>`` — sibling directory ``./<name>/``. Useful
+      if you want to keep deploy state in a private repo of its
+      own. You ``git init`` it yourself.
+    - ``eidan init --here`` — drops into ``./.eidan/`` of cwd.
+      ``.eidan/`` is already gitignored at the eidan repo root, so
+      operator-private files live alongside the source you cloned
+      without polluting public history. Lighter workflow for solo
+      operators.
+
+    Either way the dir gets the same starter contents (``topology.yml``,
+    ``.gitignore``, ``.vault-pass.example``, ``README.md``).
+    Non-interactive — edit ``topology.yml`` by hand.
     """
+    if here and name is not None:
+        _console.print(
+            "[red]Pass either <name> or --here, not both.[/red]"
+        )
+        raise typer.Exit(2)
+    if not here and name is None:
+        _console.print(
+            "[red]Pass a <name> (e.g. `eidan init my-deployment`) or "
+            "--here to scaffold into ./.eidan/.[/red]"
+        )
+        raise typer.Exit(2)
+
     try:
-        target = scaffold.scaffold(name, force=force)
+        target = scaffold.scaffold(name, force=force, here=here)
     except scaffold.ScaffoldTargetExists as exc:
         _console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -198,21 +225,37 @@ def init_cmd(
         raise typer.Exit(1) from exc
 
     _console.print(
-        f"[green]scaffolded[/green] ops repo at [cyan]{target}[/cyan]"
+        f"[green]scaffolded[/green] at [cyan]{target}[/cyan]"
     )
     _console.print()
     _console.print("[bold]Next steps:[/bold]")
-    _console.print(f"  cd {name}")
-    _console.print("  $EDITOR topology.yml          # fill in your nodes")
-    _console.print("  cp .vault-pass.example .vault-pass && chmod 0600 .vault-pass")
-    _console.print(
-        "  ansible-vault encrypt_string --vault-id default@.vault-pass \\"
-    )
-    _console.print(
-        "    'your-secret' --name 'auth_master_key'    # paste into topology.yml"
-    )
-    _console.print("  git init && git add . && git commit -m 'initial topology'")
-    _console.print("  eidan deploy                  # reconcile every node")
+    if here:
+        _console.print("  $EDITOR .eidan/topology.yml   # fill in your nodes")
+        _console.print(
+            "  cp .eidan/.vault-pass.example .eidan/.vault-pass && "
+            "chmod 0600 .eidan/.vault-pass"
+        )
+        _console.print(
+            "  ansible-vault encrypt_string --vault-id default@.eidan/.vault-pass \\"
+        )
+        _console.print(
+            "    'your-secret' --name 'auth_master_key'    # paste into .eidan/topology.yml"
+        )
+        _console.print(
+            "  eidan deploy --topology .eidan/topology.yml   # reconcile every node"
+        )
+    else:
+        _console.print(f"  cd {name}")
+        _console.print("  $EDITOR topology.yml          # fill in your nodes")
+        _console.print("  cp .vault-pass.example .vault-pass && chmod 0600 .vault-pass")
+        _console.print(
+            "  ansible-vault encrypt_string --vault-id default@.vault-pass \\"
+        )
+        _console.print(
+            "    'your-secret' --name 'auth_master_key'    # paste into topology.yml"
+        )
+        _console.print("  git init && git add . && git commit -m 'initial topology'")
+        _console.print("  eidan deploy                  # reconcile every node")
 
 
 @app.command(name="deploy")
@@ -223,11 +266,12 @@ def deploy_cmd(
         "-n",
         help="Reconcile just this node. Default: reconcile every node in the topology.",
     ),
-    topology: Path = typer.Option(  # noqa: B008
-        Path("topology.yml"),
+    topology: Path | None = typer.Option(  # noqa: B008
+        None,
         "--topology",
         "-t",
-        help="Path to the topology file (default: ./topology.yml).",
+        help="Path to the topology file. Default: auto-discover "
+        "./.eidan/topology.yml then ./topology.yml.",
     ),
     tags: list[str] = typer.Option(  # noqa: B008
         [],
@@ -248,10 +292,30 @@ def deploy_cmd(
     """Reconcile every node (or one) in the topology to its declared state.
 
     Reads ``topology.yml`` (or the path passed via ``--topology``),
-    dispatches each node to the right per-target reconciler. Today
-    only ``target: pi`` is wired up; ``fly`` and ``docker`` land in
-    follow-up PRs.
+    dispatches each node to the right per-target reconciler.
+    Pi and Fly targets are wired up; Docker is a follow-up.
+
+    Topology auto-discovery: when ``--topology`` is not passed, the
+    CLI looks for ``./.eidan/topology.yml`` first (the in-checkout
+    workflow shipped by ``eidan init --here``), then falls back to
+    ``./topology.yml`` (sibling-directory workflow shipped by
+    ``eidan init <name>``). Pass ``--topology`` explicitly to point
+    at any other path.
     """
+    if topology is None:
+        in_checkout = Path(".eidan/topology.yml")
+        sibling = Path("topology.yml")
+        if in_checkout.is_file():
+            topology = in_checkout
+        elif sibling.is_file():
+            topology = sibling
+        else:
+            _console.print(
+                "[red]no topology.yml found.[/red] Looked at "
+                f"{in_checkout} and {sibling}. Run `eidan init --here` "
+                "to scaffold one, or pass --topology <path>."
+            )
+            raise typer.Exit(2)
     raise typer.Exit(
         _deploy.deploy(
             topology,

@@ -78,23 +78,29 @@ Pick where to host them:
 | **Bare metal** | You'd rather install Python / Postgres / Node yourself, or you're targeting a Pi. ~15 minutes. | [→ bare-metal walkthrough](./docs/LOCALHOST.md#0-prerequisites) |
 | **Full-stack deploy** | Hosted backend + web UI exposed to a browser; single-host Fly, Pi cluster, multi-instance. | [→ deployment guide](./docs/DEPLOYMENT.md) |
 
-For deploys to a Pi or Fly, the whole flow is five commands:
+For deploys to a Pi or Fly, the whole flow is six commands from
+your eidan checkout:
 
 ```bash
-# Install the CLI (needs uv — get it from https://astral.sh/uv)
-git clone https://github.com/sielay/eidan.git
-uv tool install --from ./eidan/apps/cli eidan-cli
+# Install (needs uv — get it from https://astral.sh/uv)
+git clone https://github.com/sielay/eidan.git && cd eidan
+uv tool install --from ./apps/cli eidan-cli
 
-# Use it
-eidan init my-deployment && cd $_      # scaffold ops repo
-$EDITOR topology.yml                   # add your nodes + secrets
-eidan deploy                           # reconcile every node
+# Scaffold + edit + deploy
+eidan init --here                       # writes .eidan/topology.yml (gitignored)
+$EDITOR .eidan/topology.yml             # add your nodes + secrets
+eidan deploy                            # reconcile every node
 ```
 
+Operator-private state (topology, vault password, runtime files)
+lives in the gitignored `.eidan/` of your eidan checkout. No
+separate ops repo to maintain.
+
 The CLI renders env files, systemd units, `fly.toml`, pushes
-secrets, runs migrations, installs declared plugin bundles, and
-restarts services. You don't edit any of that by hand. Full
-walkthrough in [DEPLOYMENT.md](./docs/DEPLOYMENT.md).
+secrets, builds the image (or pulls a pinned one), installs
+declared plugin bundles, and restarts services. You don't edit any
+of that by hand. Full walkthrough in
+[DEPLOYMENT.md](./docs/DEPLOYMENT.md).
 
 Auth is native — magic-link sign-in against a single-operator
 allow-list (`EIDAN_AUTH_ALLOWED_EMAIL`), an RS256 JWT minted by the
