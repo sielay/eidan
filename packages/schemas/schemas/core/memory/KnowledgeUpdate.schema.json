@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.eidan.dev/core/memory/KnowledgeUpdate/v1.json",
+  "title": "KnowledgeUpdate",
+  "description": "Request body for PATCH /api/knowledge/{id} (docs/014 §5, docs/017 §3-§4). Partial update of an editable knowledge row from the UI; any of title / body / skill may be supplied and unsupplied fields are left untouched. The ``expected_updated_at`` field is the row's last-known ``updated_at`` from the operator's fetch and the route returns 409 when the server-side row has moved since.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expected_updated_at"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Display title. The underlying column is NOT NULL (`docs/003 §7`), so the empty string is rejected."
+    },
+    "body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536,
+      "description": "Markdown body. Re-runs the `docs/017 §3` link extractor so ``knowledge_links`` stays consistent on every body change."
+    },
+    "skill": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Skill tag. Free-text per `docs/003 §7` (e.g. `coding`, `gardening`)."
+    },
+    "expected_updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The ``updated_at`` returned by the operator's last GET. The route compares it against the live row and returns 409 if they disagree, so concurrent agent / operator writes do not silently clobber."
+    }
+  }
+}
