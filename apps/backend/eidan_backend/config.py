@@ -14,10 +14,13 @@ environment at the point of use.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from .classifiers import SizerConfig
 
 
 class HttpSettings(BaseSettings):
@@ -126,6 +129,51 @@ class BackendSettings(BaseSettings):
         ),
     )
 
+    # Sizer (step ④ of the agentic loop) — per-node model vocabulary.
+    # The slot map (cheap / deep / opus) is what the sizer chooses
+    # between for the *primary* call; ``sizer_runtime_model`` is what
+    # drives the sizer call itself. A Pi-with-ollama node points all
+    # four at local ids so the loop never reaches for an Anthropic
+    # endpoint it doesn't have credentials for; a cloud node leaves
+    # the defaults (issue #59).
+    sizer_runtime_model: str = Field(
+        "claude-haiku-4-5-20251001",
+        validation_alias="EIDAN_SIZER_MODEL",
+        description=(
+            "Model that runs the sizer call itself. Must be a model "
+            "the configured provider can serve — on a Pi-with-ollama "
+            "node set this to e.g. `phi3` so the sizer never reaches "
+            "for an Anthropic endpoint."
+        ),
+    )
+    sizer_cheap_model: str = Field(
+        "claude-haiku-4-5-20251001",
+        validation_alias="EIDAN_SIZER_CHEAP_MODEL",
+        description=(
+            "Model id the sizer routes ordinary turns to (the "
+            "default-deny case in the prompt). Pi: `phi3`. Fly: "
+            "leave as the Anthropic haiku default."
+        ),
+    )
+    sizer_deep_model: str = Field(
+        "claude-sonnet-4-6",
+        validation_alias="EIDAN_SIZER_DEEP_MODEL",
+        description=(
+            "Model id the sizer escalates to when the criteria fire "
+            "(multi-step plan, multi-entity synthesis, explicit ask "
+            "for depth, high-stakes wording)."
+        ),
+    )
+    sizer_opus_model: str = Field(
+        "claude-opus-4-7",
+        validation_alias="EIDAN_SIZER_OPUS_MODEL",
+        description=(
+            "Model id reached by the user-phrase opus override path. "
+            "Point at `sizer_deep_model` to disable the override on "
+            "nodes where opus isn't available."
+        ),
+    )
+
     # Budget caps (`docs/010 §2`). Per-turn is a hard stop *during* a
     # turn: the loop short-circuits before the next provider call when
     # the running `llm_calls` total for the anchor user_message_id
@@ -147,6 +195,21 @@ class BackendSettings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    def sizer_config(self) -> SizerConfig:
+        """Build the sizer's per-node slot map from the env vars above.
+
+        Imported lazily so :mod:`eidan_backend.config` stays free of
+        ``classifiers`` deps at module import time.
+        """
+        from .classifiers import SizerConfig
+
+        return SizerConfig(
+            runtime_model=self.sizer_runtime_model,
+            cheap_model=self.sizer_cheap_model,
+            deep_model=self.sizer_deep_model,
+            opus_model=self.sizer_opus_model,
+        )
 
 
 def load_backend_settings() -> BackendSettings:

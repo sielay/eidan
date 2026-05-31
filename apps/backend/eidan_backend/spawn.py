@@ -38,6 +38,7 @@ from uuid import UUID
 
 import asyncpg
 
+from .classifiers import SizerConfig
 from .db import acquire
 from .loop import TurnComplete, TurnContext, run_turn
 from .persistence import cost_summary_for_turn
@@ -122,6 +123,7 @@ async def spawn_turn(
     user_tz: str = "UTC",
     tool_registry: ToolRegistry | None = None,
     max_turn_cost_usd: float | None = None,
+    sizer_config: SizerConfig | None = None,
 ) -> SpawnResult:
     """Run one subagent turn end-to-end against the same primary loop.
 
@@ -168,6 +170,7 @@ async def spawn_turn(
             user_tz=user_tz,
             tool_registry=tool_registry,
             max_turn_cost_usd=max_turn_cost_usd,
+            sizer_config=sizer_config,
         ):
             if isinstance(event, AssistantChunk):
                 text_chunks.append(event.text)
@@ -235,6 +238,7 @@ async def stream_spawn_turn(
     user_tz: str = "UTC",
     tool_registry: ToolRegistry | None = None,
     max_turn_cost_usd: float | None = None,
+    sizer_config: SizerConfig | None = None,
 ) -> AsyncIterator[AssistantChunk | SpawnResult]:
     """Streaming variant — yields each ``AssistantChunk`` as it
     arrives, then a final :class:`SpawnResult` once the child turn
@@ -274,6 +278,7 @@ async def stream_spawn_turn(
             user_tz=user_tz,
             tool_registry=tool_registry,
             max_turn_cost_usd=max_turn_cost_usd,
+            sizer_config=sizer_config,
         ):
             if isinstance(event, AssistantChunk):
                 text_chunks.append(event.text)

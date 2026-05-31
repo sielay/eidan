@@ -39,6 +39,7 @@ from uuid import UUID
 import asyncpg
 
 from .classifiers import (
+    SizerConfig,
     classify_intent,
     classify_scope,
     pick_model,
@@ -192,6 +193,7 @@ async def run_turn(
     user_tz: str,
     tool_registry: ToolRegistry | None = None,
     max_turn_cost_usd: float | None = None,
+    sizer_config: SizerConfig | None = None,
 ) -> AsyncIterator[AssistantChunk | TurnComplete]:
     """Drive one turn end-to-end. Yields chunks, then a TurnComplete.
 
@@ -424,6 +426,7 @@ async def run_turn(
         user_text=user_text,
         scope=scope_result,
         system_prefix=turn_header,
+        config=sizer_config,
     )
     async with acquire(pool, ctx.identity) as conn:
         await insert_llm_call(
@@ -914,6 +917,7 @@ async def run_agent_initiated_turn(
     tool_registry: ToolRegistry | None = None,
     max_turn_cost_usd: float | None = None,
     user_email: str | None = None,
+    sizer_config: SizerConfig | None = None,
 ) -> AsyncIterator[AssistantChunk | TurnComplete]:
     """Drive a turn that an agent (cron behaviour, Sentry tick, plugin) initiates
     without an inbound user JWT.
@@ -973,5 +977,6 @@ async def run_agent_initiated_turn(
         user_tz=user_tz,
         tool_registry=tool_registry,
         max_turn_cost_usd=max_turn_cost_usd,
+        sizer_config=sizer_config,
     ):
         yield event
