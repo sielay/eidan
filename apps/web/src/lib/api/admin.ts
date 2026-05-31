@@ -11,6 +11,12 @@ import { authFetch } from "@/lib/auth";
  * codegen emits — see the schemas commit for the rationale.
  */
 
+export interface NodePluginInfo {
+  name: string;
+  version: string;
+  tier: "core" | "pro" | "commercial" | string;
+}
+
 export interface NodeInfo {
   node_id: string;
   node_type: "pi" | "fly" | "heroku" | "k8s" | "local" | string;
@@ -18,6 +24,7 @@ export interface NodeInfo {
   last_seen: string;
   seconds_since: number;
   metadata: Record<string, unknown>;
+  plugins: NodePluginInfo[];
 }
 
 interface NodeListResponse {

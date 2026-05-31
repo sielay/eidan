@@ -23,7 +23,8 @@
         "status",
         "last_seen",
         "seconds_since",
-        "metadata"
+        "metadata",
+        "plugins"
       ],
       "properties": {
         "node_id": {
@@ -54,6 +55,33 @@
         "metadata": {
           "type": "object",
           "description": "Platform fingerprint — always carries hostname / platform / python; per-platform keys (fly_app, fly_region, …) layer on top."
+        },
+        "plugins": {
+          "type": "array",
+          "description": "Plugins active on this node when the heartbeat was last written (issue #52). Per-process — the Pi and a Fly machine can carry different sets after a runtime install. Empty array on nodes whose process predates the schema bump.",
+          "items": { "$ref": "#/$defs/NodePluginInfo" }
+        }
+      }
+    },
+    "NodePluginInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "tier"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Plugin manifest name — the on-disk directory name under plugins/."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Plugin manifest version string (semver-ish; the host does not validate the shape here)."
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["core", "pro", "commercial"],
+          "description": "Which bundle the plugin ships in. Mirrors plugin.yaml's tier field."
         }
       }
     }

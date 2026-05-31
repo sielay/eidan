@@ -49,13 +49,22 @@ async def telemetry_client(eidan_db: str) -> AsyncIterator:
     await pool.close()
 
 
-async def _seed(pool, node_id: str, node_type: str = "pi", emit_count: int = 0):
+async def _seed(
+    pool,
+    node_id: str,
+    node_type: str = "pi",
+    emit_count: int = 0,
+    plugins: list[dict[str, str]] | None = None,
+):
     """Seed a heartbeat + N events for the given node."""
     identity = NodeIdentity(
         node_id=node_id, node_type=node_type, metadata={"hostname": "test"}
     )
     emitter = TelemetryEmitter(
-        pool=pool, identity=identity, heartbeat_interval_seconds=3600
+        pool=pool,
+        identity=identity,
+        heartbeat_interval_seconds=3600,
+        plugins=plugins,
     )
     await emitter.start()
     for i in range(emit_count):
@@ -79,6 +88,39 @@ async def test_list_nodes_returns_heartbeats(telemetry_client) -> None:
     assert by_id["pi-kasha"]["status"] == "online"
     assert by_id["pi-kasha"]["metadata"]["hostname"] == "test"
     assert isinstance(by_id["pi-kasha"]["seconds_since"], int)
+
+
+@pytest.mark.asyncio
+async def test_list_nodes_exposes_plugins(telemetry_client) -> None:
+    """`/api/admin/nodes` surfaces each heartbeat's plugin snapshot
+    so the admin pane can confirm what landed on a given node
+    (issue #52). Different nodes are allowed to report different
+    sets — the Pi and a Fly machine carry their own per-process
+    discovery results."""
+    client, pool = telemetry_client
+    await _seed(
+        pool,
+        "pi-with-plugins",
+        "pi",
+        plugins=[
+            {"name": "calendar", "version": "1.2.3", "tier": "pro"},
+            {"name": "telegram", "version": "0.4.0", "tier": "core"},
+        ],
+    )
+    await _seed(pool, "fly-bare", "fly", plugins=[])
+
+    resp = await client.get("/api/admin/nodes", headers=_auth_header())
+    assert resp.status_code == 200
+    body = resp.json()
+    by_id = {n["node_id"]: n for n in body["nodes"]}
+    pi_plugins = by_id["pi-with-plugins"]["plugins"]
+    assert {p["name"] for p in pi_plugins} == {"calendar", "telegram"}
+    calendar = next(p for p in pi_plugins if p["name"] == "calendar")
+    assert calendar["version"] == "1.2.3"
+    assert calendar["tier"] == "pro"
+    # A node with no plugins surfaces an explicit empty array so
+    # the UI doesn't have to guard for missing keys.
+    assert by_id["fly-bare"]["plugins"] == []
 
 
 @pytest.mark.asyncio

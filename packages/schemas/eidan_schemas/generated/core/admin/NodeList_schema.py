@@ -31,6 +31,34 @@ class Status(StrEnum):
     degraded = "degraded"
 
 
+class Tier(StrEnum):
+    """
+    Which bundle the plugin ships in. Mirrors plugin.yaml's tier field.
+    """
+
+    core = "core"
+    pro = "pro"
+    commercial = "commercial"
+
+
+class NodePluginInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str = Field(..., min_length=1)
+    """
+    Plugin manifest name — the on-disk directory name under plugins/.
+    """
+    version: str = Field(..., min_length=1)
+    """
+    Plugin manifest version string (semver-ish; the host does not validate the shape here).
+    """
+    tier: Tier
+    """
+    Which bundle the plugin ships in. Mirrors plugin.yaml's tier field.
+    """
+
+
 class NodeInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -58,6 +86,10 @@ class NodeInfo(BaseModel):
     metadata: dict[str, Any]
     """
     Platform fingerprint — always carries hostname / platform / python; per-platform keys (fly_app, fly_region, …) layer on top.
+    """
+    plugins: list[NodePluginInfo]
+    """
+    Plugins active on this node when the heartbeat was last written (issue #52). Per-process — the Pi and a Fly machine can carry different sets after a runtime install. Empty array on nodes whose process predates the schema bump.
     """
 
 
