@@ -1,0 +1,165 @@
+# Ansible playbook for a self-hosted eidan backend on a Raspberry Pi
+# (or any always-on Debian/Ubuntu host you can ssh into as a sudoer).
+#
+# This file is shipped as a generic, tracked artefact — copy nothing,
+# edit nothing here. Per-deploy values (host IP, DB URL, master key,
+# bundle list, …) live in your gitignored `.eidan/` directory:
+#
+#   cp infra/pi/inventory.ini.example     .eidan/inventory.ini
+#   cp infra/pi/group_vars/all.yml.example .eidan/vars.yml
+#   $EDITOR .eidan/inventory.ini .eidan/vars.yml
+#
+# Day-to-day from your laptop:
+#
+#   # Reconcile env file + plugin set, restart if anything changed:
+#   ansible-playbook -i .eidan/inventory.ini -e @.eidan/vars.yml \
+#     infra/pi/playbook.yml
+#
+#   # Just push an env tweak and restart:
+#   ansible-playbook ... infra/pi/playbook.yml --tags env,restart
+#
+#   # Just add/refresh paid bundles:
+#   ansible-playbook ... infra/pi/playbook.yml --tags plugins
+#
+# Scope today: STEADY-STATE only — render `/etc/eidan/eidan.env`,
+# install bundles listed in `eidan_bundles`, restart on change. The
+# one-time bootstrap (system user, uv, Ollama, Postgres, systemd unit
+# install, first migration) still follows docs/DEPLOYMENT.md §3.1–3.7
+# by hand. A `bootstrap` tag is left in as a stub for when we
+# automate that half too.
+#
+# Secrets: `.eidan/vars.yml` carries DATABASE_URL, the auth master
+# key, and your GitHub PAT. Treat the file accordingly — `chmod 0600`
+# at minimum, and encrypt with `ansible-vault encrypt .eidan/vars.yml`
+# once you're past the dev-loop phase. `ansible-playbook` reads
+# vaulted files transparently when you pass `--ask-vault-pass` or
+# `--vault-password-file`.
+
+- name: Reconcile eidan backend on a Pi
+  hosts: eidan_pi
+  become: true
+  gather_facts: false
+
+  vars:
+    # All overridable from .eidan/vars.yml. Defaults match the §3 recipe.
+    eidan_install_dir: /opt/eidan
+    eidan_etc_dir: /etc/eidan
+    eidan_env_file: /etc/eidan/eidan.env
+    eidan_plugins_dir: /var/lib/eidan/plugins
+    eidan_service_name: eidan-backend
+    eidan_uv_bin: /home/eidan/.local/bin/uv
+    eidan_user: eidan
+
+  handlers:
+    - name: restart eidan-backend
+      ansible.builtin.systemd:
+        name: "{{ eidan_service_name }}"
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+
+    # --- bootstrap (stub) ---------------------------------------------
+    # Placeholder for the one-time setup currently documented in
+    # docs/DEPLOYMENT.md §3.1–3.7 (service user, uv, Ollama, Postgres,
+    # initial git clone + uv sync, migrations, systemd unit install).
+    # Run those by hand for now; this tag fails fast so you don't
+    # accidentally think it ran.
+    - name: Bootstrap not yet automated — follow DEPLOYMENT.md §3.1–3.7
+      ansible.builtin.fail:
+        msg: >-
+          Bootstrap (system user, uv, Ollama, Postgres, systemd unit
+          install, first migration) is not yet automated. Follow
+          docs/DEPLOYMENT.md §3.1–3.7 by hand, then re-run this
+          playbook without `--tags bootstrap` to take it from there.
+      tags: [bootstrap, never]
+
+    # --- env file -----------------------------------------------------
+    - name: Ensure /etc/eidan exists
+      ansible.builtin.file:
+        path: "{{ eidan_etc_dir }}"
+        state: directory
+        owner: root
+        group: "{{ eidan_user }}"
+        mode: "0750"
+      tags: [env]
+
+    - name: Render /etc/eidan/eidan.env
+      ansible.builtin.template:
+        src: templates/eidan.env.j2
+        dest: "{{ eidan_env_file }}"
+        owner: root
+        group: "{{ eidan_user }}"
+        mode: "0640"
+      notify: restart eidan-backend
+      tags: [env]
+
+    - name: Render /etc/systemd/system/{{ eidan_service_name }}.service
+      ansible.builtin.template:
+        src: templates/eidan-backend.service.j2
+        dest: "/etc/systemd/system/{{ eidan_service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart eidan-backend
+      tags: [env]
+
+    # --- plugins ------------------------------------------------------
+    - name: Ensure plugin override directory exists
+      ansible.builtin.file:
+        path: "{{ eidan_plugins_dir }}"
+        state: directory
+        owner: "{{ eidan_user }}"
+        group: "{{ eidan_user }}"
+        mode: "0755"
+      tags: [plugins]
+
+    - name: Read current plugin lock (may not exist yet)
+      ansible.builtin.slurp:
+        src: "{{ eidan_plugins_dir }}/.lock"
+      register: plugin_lock_raw
+      failed_when: false
+      changed_when: false
+      tags: [plugins]
+
+    - name: Decode plugin lock contents
+      ansible.builtin.set_fact:
+        plugin_lock_content: >-
+          {{ (plugin_lock_raw.content | b64decode)
+             if (plugin_lock_raw.content is defined)
+             else '' }}
+      tags: [plugins]
+
+    - name: Install paid bundles
+      # Idempotent on the bundle name: skip if any plugin row in
+      # /var/lib/eidan/plugins/.lock already carries `bundle: <name>`.
+      # For version bumps and removals, hand-edit the lock then run
+      # `eidan admin plugin sync --prune` (see DEPLOYMENT.md §3.12);
+      # we don't try to model that as ansible state yet.
+      ansible.builtin.command:
+        cmd: >-
+          {{ eidan_uv_bin }} --directory {{ eidan_install_dir }}
+          run eidan admin plugin install {{ item }}
+      loop: "{{ eidan_bundles | default([]) }}"
+      when: "('bundle: ' + item) not in plugin_lock_content"
+      become_user: "{{ eidan_user }}"
+      environment:
+        EIDAN_PLUGINS_DIR: "{{ eidan_plugins_dir }}"
+        DATABASE_URL: "{{ eidan_database_url }}"
+        EIDAN_PLUGIN_SOURCE: "{{ eidan_plugin_source }}"
+        EIDAN_GITHUB_TOKEN: "{{ eidan_github_token }}"
+      notify: restart eidan-backend
+      no_log: true   # GitHub PAT is in `environment:` — keep it out of logs.
+      tags: [plugins]
+
+    # --- restart ------------------------------------------------------
+    # Explicit restart tag for when you want to bounce the service
+    # without changing anything else (e.g. after editing the lock
+    # file by hand). The handlers above already restart on env /
+    # plugin changes, so this is the "force restart" knob.
+    - name: Force restart eidan-backend
+      ansible.builtin.systemd:
+        name: "{{ eidan_service_name }}"
+        state: restarted
+        daemon_reload: true
+      tags: [restart, never]
