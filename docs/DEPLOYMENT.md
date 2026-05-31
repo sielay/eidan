@@ -758,29 +758,27 @@ its registrable domain with the frontend or the refresh-token cookie
 goes third-party and `SameSite=Lax` drops it. See [§6.1](#61-backend-custom-domain-is-load-bearing)
 before picking a name.
 
-To install paid bundles **at image-build time** (no fork, no source
-checkout of the bundle on this machine), pass `EIDAN_BUNDLES` +
-`EIDAN_PLUGIN_SOURCE` as build args and the GitHub token as a
-build secret. The CLI's `eidan admin plugin install` path inside
-the Dockerfile then clones the bundle repos using
-[`docs/018 §3`](./018_DISTRIBUTION_AND_BUNDLES.md)'s
-private-org flow. The token is mounted via
-`--build-secret` so it never lands in an image layer:
+To add paid bundles to a Fly deploy, use the **runtime install
+path** in [§4.6](#46-runtime-plugin-install-fly-volume). That path
+mounts a writable volume at `/var/lib/eidan/plugins`, deploys
+core-only, and runs `eidan admin plugin install` over
+`fly ssh console` against the live machine — no build args, no
+build secret, and bundle swaps don't require a rebuild.
 
-```bash
-mkdir -p ~/.eidan
-install -m 0600 /dev/null ~/.eidan/github-token       # 0600 before any byte lands
-printf '%s' "$YOUR_GITHUB_PAT" > ~/.eidan/github-token
-fly deploy \
-  --build-arg EIDAN_BUNDLES=eidan-pro,eidan-lifestyle \
-  --build-arg EIDAN_PLUGIN_SOURCE=gh:sielay \
-  --build-secret id=github_token,src=$HOME/.eidan/github-token
-```
-
-(`install -m 0600 /dev/null ...` creates the file with mode `0600`
-*before* the PAT is written, so the token never exists on disk in a
-world-readable state — a plain `echo > file` honours the shell's
-umask and may leave the file readable to other local users.)
+> **Why not build-time install?** The Dockerfile still accepts
+> `EIDAN_BUNDLES` + `EIDAN_PLUGIN_SOURCE` build args and a
+> `github_token` build secret (see the
+> [Dockerfile header](../infra/fly/Dockerfile)), and the path
+> works with `fly deploy --local-only` (Docker Desktop required).
+> It does **not** work with flyctl's remote builders as of
+> `fly v0.4.57`: `--build-secret` is silently dropped on the
+> default Depot path, on the `--depot=false` legacy-Docker
+> fallback, and on the `--buildkit` remote-BuildKit path, so the
+> Dockerfile's precondition check aborts the build with
+> `EIDAN_PLUGIN_SOURCE=... requires a github_token build secret`
+> even when the secret is correctly passed. Use §4.6 unless you
+> have a specific reason to keep bundle install in the image and
+> are happy to build locally.
 
 **Alternative: deploy a published image.** Tagged releases land at
 `ghcr.io/sielay/eidan:vX.Y.Z`; an operator who doesn't want to build
