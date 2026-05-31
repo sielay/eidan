@@ -474,7 +474,24 @@ async def bootstrap(
     # transient blip later doesn't kill the heartbeat task.
     telemetry: TelemetryEmitter | None = None
     if start_telemetry:
-        telemetry = TelemetryEmitter(pool=pool, identity=node_identity)
+        # Pass the loaded-plugin set so each heartbeat UPSERT records
+        # what landed on this node (issue #52). Plugin discovery has
+        # already run; the set is stable for this process's lifetime.
+        plugin_snapshot = [
+            {
+                "name": p.manifest.name,
+                "version": p.manifest.version,
+                "tier": (
+                    p.manifest.tier.value
+                    if hasattr(p.manifest.tier, "value")
+                    else str(p.manifest.tier)
+                ),
+            }
+            for p in plugins
+        ]
+        telemetry = TelemetryEmitter(
+            pool=pool, identity=node_identity, plugins=plugin_snapshot
+        )
         try:
             await telemetry.start()
         except Exception:  # noqa: BLE001 — telemetry failure must not block boot

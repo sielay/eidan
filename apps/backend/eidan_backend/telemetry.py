@@ -107,10 +107,19 @@ class TelemetryEmitter:
         identity: NodeIdentity,
         *,
         heartbeat_interval_seconds: int = HEARTBEAT_INTERVAL_SECONDS,
+        plugins: list[dict[str, str]] | None = None,
     ) -> None:
         self._pool = pool
         self._identity = identity
         self._interval = heartbeat_interval_seconds
+        # Plugins loaded into this process. Written verbatim into
+        # ``eidan.node_heartbeats.plugins`` on every UPSERT so the
+        # admin dashboard can confirm what landed on which node
+        # (issue #52). Entries are ``{name, version, tier}``; the
+        # set is set-at-construction (plugin discovery is a boot-time
+        # step today, no runtime install path). Default ``[]`` keeps
+        # tests and pre-issue-52 call sites compiling.
+        self._plugins: list[dict[str, str]] = list(plugins or [])
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
 
@@ -207,17 +216,19 @@ class TelemetryEmitter:
             await conn.execute(
                 """
                 INSERT INTO eidan.node_heartbeats
-                  (node_id, node_type, status, last_seen, metadata)
-                VALUES ($1, $2, 'online', NOW(), $3::jsonb)
+                  (node_id, node_type, status, last_seen, metadata, plugins)
+                VALUES ($1, $2, 'online', NOW(), $3::jsonb, $4::jsonb)
                 ON CONFLICT (node_id) DO UPDATE
                   SET status    = 'online',
                       last_seen = NOW(),
                       metadata  = EXCLUDED.metadata,
-                      node_type = EXCLUDED.node_type
+                      node_type = EXCLUDED.node_type,
+                      plugins   = EXCLUDED.plugins
                 """,
                 self._identity.node_id,
                 self._identity.node_type,
                 json.dumps(self._identity.metadata),
+                json.dumps(self._plugins),
             )
 
     async def _upsert_heartbeat(self) -> None:

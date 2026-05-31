@@ -291,6 +291,76 @@ async def test_emit_event_invalid_conversation_id_does_not_raise(
         await pool.close()
 
 
+async def test_heartbeat_persists_plugin_list(eidan_db: str) -> None:
+    """The plugin snapshot passed at construction lands in
+    ``eidan.node_heartbeats.plugins`` on every UPSERT (issue #52).
+    Drives the admin nodes pane's "what's loaded on this node"
+    display so operators can confirm a runtime install actually
+    landed on the node they expect.
+    """
+    pool = await create_pool(eidan_db)
+    snapshot = [
+        {"name": "calendar", "version": "1.2.3", "tier": "pro"},
+        {"name": "telegram", "version": "0.4.0", "tier": "core"},
+    ]
+    try:
+        emitter = TelemetryEmitter(
+            pool=pool,
+            identity=_identity("plugin-node"),
+            heartbeat_interval_seconds=3600,
+            plugins=snapshot,
+        )
+        await emitter.start()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT plugins FROM eidan.node_heartbeats "
+                    "WHERE node_id = 'plugin-node'"
+                )
+            assert row is not None
+            stored = (
+                row["plugins"]
+                if isinstance(row["plugins"], list)
+                else json.loads(row["plugins"])
+            )
+            assert stored == snapshot
+        finally:
+            await emitter.stop()
+    finally:
+        await pool.close()
+
+
+async def test_heartbeat_plugins_default_empty(eidan_db: str) -> None:
+    """A TelemetryEmitter constructed without a plugin list writes
+    an empty array — keeps the wire shape consistent so the UI
+    doesn't need to guard against ``undefined``."""
+    pool = await create_pool(eidan_db)
+    try:
+        emitter = TelemetryEmitter(
+            pool=pool,
+            identity=_identity("no-plugin-node"),
+            heartbeat_interval_seconds=3600,
+        )
+        await emitter.start()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT plugins FROM eidan.node_heartbeats "
+                    "WHERE node_id = 'no-plugin-node'"
+                )
+            assert row is not None
+            stored = (
+                row["plugins"]
+                if isinstance(row["plugins"], list)
+                else json.loads(row["plugins"])
+            )
+            assert stored == []
+        finally:
+            await emitter.stop()
+    finally:
+        await pool.close()
+
+
 def test_node_id_hash_is_stable() -> None:
     """The advisory-lock key for seq allocation must be stable across
     process restarts; we encode the same node_id consistently."""

@@ -116,20 +116,85 @@ export function NodesPane(): React.ReactElement {
       </ul>
 
       {selected ? (
-        <section className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
-          <header className="flex items-baseline justify-between gap-3">
-            <h2 className="font-mono text-xs font-medium text-foreground">
-              {selected.node_id} · live tail
-            </h2>
-            <span className="font-mono text-[10px] text-muted-foreground">
-              refreshes every 5s
-            </span>
-          </header>
-          <NodeTail nodeId={selected.node_id} />
-        </section>
+        <>
+          <NodePlugins plugins={selected.plugins} />
+          <section className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
+            <header className="flex items-baseline justify-between gap-3">
+              <h2 className="font-mono text-xs font-medium text-foreground">
+                {selected.node_id} · live tail
+              </h2>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                refreshes every 5s
+              </span>
+            </header>
+            <NodeTail nodeId={selected.node_id} />
+          </section>
+        </>
       ) : null}
     </div>
   );
+}
+
+/**
+ * Plugins loaded on the selected node, sourced from
+ * `eidan.node_heartbeats.plugins` (issue #52). Per-process: the Pi
+ * and a Fly machine can carry different sets after a runtime
+ * install, so the operator needs to confirm a deploy actually
+ * landed on the node they expect.
+ */
+function NodePlugins({
+  plugins,
+}: {
+  plugins: NodeInfo["plugins"];
+}): React.ReactElement {
+  return (
+    <section className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
+      <header className="flex items-baseline justify-between gap-3">
+        <h2 className="font-mono text-xs font-medium text-foreground">
+          plugins · {plugins.length}
+        </h2>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          as of last heartbeat
+        </span>
+      </header>
+      {plugins.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No plugins reported. Either none are installed on this node,
+          or its process predates the schema bump that added the
+          plugin column — restart the backend to refresh.
+        </p>
+      ) : (
+        <ul className="flex flex-col">
+          {plugins.map((p) => (
+            <li
+              key={p.name}
+              className="flex items-center gap-3 border-b border-border py-1 text-xs last:border-b-0"
+            >
+              <span className="font-mono text-foreground">{p.name}</span>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                v{p.version}
+              </span>
+              <span
+                className={cn(
+                  "ml-auto rounded px-1.5 py-0.5 font-mono text-[10px]",
+                  tierBadgeClass(p.tier),
+                )}
+              >
+                {p.tier}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function tierBadgeClass(tier: string): string {
+  if (tier === "core") return "bg-slate-100 text-slate-700";
+  if (tier === "pro") return "bg-emerald-100 text-emerald-800";
+  if (tier === "commercial") return "bg-amber-100 text-amber-800";
+  return "bg-muted text-muted-foreground";
 }
 
 function dotClass(secondsSince: number): string {
