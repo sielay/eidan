@@ -25,6 +25,7 @@ ordering is fixed — we don't try to parallelise across steps.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -233,6 +234,31 @@ def _secret_values(node: ResolvedNode) -> dict[str, str]:
         if smtp.password:
             out["EIDAN_SMTP_PASSWORD"] = smtp.password
         out["EIDAN_SMTP_FROM"] = str(smtp.from_)
+
+    log_forward = getattr(node, "log_forward", None)
+    if log_forward is not None:
+        # All log_forward values go through `fly secrets set` — they
+        # often carry tokens (BetterStack source token, Datadog API
+        # key) and grouping them keeps the deploy path consistent.
+        # The non-secret bits (URL, level, timeout) cost nothing to
+        # carry as secrets.
+        out["EIDAN_LOG_FORWARD_URL"] = str(log_forward.url)
+        if log_forward.token:
+            out["EIDAN_LOG_FORWARD_TOKEN"] = log_forward.token
+        if log_forward.headers:
+            out["EIDAN_LOG_FORWARD_HEADERS"] = json.dumps(
+                dict(log_forward.headers), separators=(",", ":")
+            )
+        if log_forward.level:
+            out["EIDAN_LOG_FORWARD_LEVEL"] = (
+                log_forward.level.value
+                if hasattr(log_forward.level, "value")
+                else str(log_forward.level)
+            )
+        if log_forward.timeout is not None:
+            out["EIDAN_LOG_FORWARD_TIMEOUT"] = str(log_forward.timeout)
+        if log_forward.queue_size is not None:
+            out["EIDAN_LOG_FORWARD_QUEUE_SIZE"] = str(log_forward.queue_size)
     return out
 
 

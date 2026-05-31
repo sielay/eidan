@@ -49,6 +49,10 @@
           "$ref": "#/$defs/Smtp",
           "description": "Default SMTP config for magic-link delivery. Per-node `smtp:` wins. Often identical across nodes since all share one Postgres + one operator email."
         },
+        "log_forward": {
+          "$ref": "#/$defs/LogForward",
+          "description": "Default log-forwarding config (BetterStack / Datadog / Axiom / Loki). Per-node `log_forward:` wins. Typical pattern: all nodes ship to one intake."
+        },
         "image": {
           "type": "string",
           "minLength": 1,
@@ -160,6 +164,10 @@
         "smtp": {
           "$ref": "#/$defs/Smtp",
           "description": "Per-node SMTP override. Wins over `defaults.smtp`."
+        },
+        "log_forward": {
+          "$ref": "#/$defs/LogForward",
+          "description": "Per-node log-forwarding override (BetterStack / Datadog / Axiom / Loki). Wins over `defaults.log_forward`."
         },
         "ollama_base_url": {
           "type": "string",
@@ -279,6 +287,43 @@
           "type": "string",
           "format": "email",
           "description": "`EIDAN_SMTP_FROM` — the From: header on outbound mail."
+        }
+      }
+    },
+    "LogForward": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "`EIDAN_LOG_FORWARD_URL`. Intake endpoint (BetterStack: `https://in.logs.betterstack.com`; Datadog: `https://http-intake.logs.datadoghq.com/api/v2/logs`; Axiom: `https://api.axiom.co/v1/datasets/<name>/ingest`; Loki: through a Vector/Fluent Bit relay). Forwarder is off when this is unset on every node + defaults."
+        },
+        "token": {
+          "type": "string",
+          "minLength": 1,
+          "description": "`EIDAN_LOG_FORWARD_TOKEN`. Sent as `Authorization: Bearer <token>` — BetterStack source token, Axiom API key, Honeycomb write key. Vault-encrypt. Mutually exclusive with `headers:` (the operator picks one auth shape); both unset means no auth header (rare — only for self-hosted unauthed intakes)."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {"type": "string"},
+          "description": "`EIDAN_LOG_FORWARD_HEADERS`. JSON-encoded map of extra headers. Escape hatch for non-Bearer auth (Datadog's `DD-API-KEY`, custom routing headers). Vault-encrypt values that carry credentials."
+        },
+        "level": {
+          "type": "string",
+          "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+          "description": "`EIDAN_LOG_FORWARD_LEVEL`. Minimum level the forwarder accepts; default `INFO`. Effective threshold is `max(root_logger_level, this)`. Set `WARNING` to keep the intake quieter."
+        },
+        "timeout": {
+          "type": "number",
+          "minimum": 0.1,
+          "description": "`EIDAN_LOG_FORWARD_TIMEOUT`. HTTP POST timeout in seconds; default `5.0`. Failures are swallowed; the next log line retries."
+        },
+        "queue_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "`EIDAN_LOG_FORWARD_QUEUE_SIZE`. Max in-process buffer size; default `10000`. When the intake stalls, records past this cap are dropped (with a stderr warning)."
         }
       }
     }

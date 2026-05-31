@@ -24,6 +24,35 @@ defaults:
     name: anthropic
     default_model: claude-sonnet-4-6
 
+  # ---- SMTP for magic-link delivery (optional) ----------------------
+  # If unset, the magic-link is still printed to journald / fly logs;
+  # operator can copy it from there. Uncomment + vault-encrypt the
+  # password for outbound email.
+  #
+  # smtp:
+  #   host: smtp.fastmail.com
+  #   port: 465
+  #   user: you@example.com
+  #   password: REPLACE-ME-VAULT-ENCRYPT
+  #   from: eidan@yourdomain.com
+
+  # ---- Log forwarding (optional) -----------------------------------
+  # Backend ships every log line + telemetry event to an HTTP intake.
+  # Pick ONE auth shape — token (BetterStack / Axiom / Honeycomb) OR
+  # headers (Datadog's DD-API-KEY, custom routing). Both unset means
+  # no auth header (rare; only for self-hosted unauthed intakes).
+  #
+  # log_forward:
+  #   url: https://in.logs.betterstack.com
+  #   token: REPLACE-ME-VAULT-ENCRYPT
+  #   # OR for Datadog / non-Bearer:
+  #   # headers:
+  #   #   DD-API-KEY: REPLACE-ME-VAULT-ENCRYPT
+  #   # Optional tuning:
+  #   # level: INFO                  # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  #   # timeout: 5.0                 # HTTP POST timeout in seconds
+  #   # queue_size: 10000            # max in-process buffer
+
 # One entry per host you run eidan on. Node names are operator-chosen
 # and used by `eidan deploy --node <name>` and the per-node telemetry
 # view in the admin UI.

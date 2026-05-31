@@ -210,6 +210,66 @@ def test_secret_values_omits_provider_key_when_unset(tmp_path: Path) -> None:
     assert "OPENAI_API_KEY" not in secrets
 
 
+def test_secret_values_pushes_log_forward_bundle(tmp_path: Path) -> None:
+    """log_forward fields go through `fly secrets set` — URL and
+    level alongside the auth (token or headers). Keeps the deploy
+    path consistent + makes vault encryption of the auth bits
+    natural."""
+    body = """
+        schema: 1
+        nodes:
+          fly-prod:
+            target: fly
+            app: eidan-api
+            region: lhr
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+            log_forward:
+              url: https://in.logs.betterstack.com
+              token: bs-token-XXXX
+              level: INFO
+              timeout: 5.0
+              queue_size: 5000
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    secrets = fly._secret_values(topology.resolve_node("fly-prod"))
+
+    # AnyUrl can normalise to a trailing slash; allow either form.
+    assert secrets["EIDAN_LOG_FORWARD_URL"].rstrip("/") == "https://in.logs.betterstack.com"
+    assert secrets["EIDAN_LOG_FORWARD_TOKEN"] == "bs-token-XXXX"
+    assert secrets["EIDAN_LOG_FORWARD_LEVEL"] == "INFO"
+    assert secrets["EIDAN_LOG_FORWARD_TIMEOUT"] == "5.0"
+    assert secrets["EIDAN_LOG_FORWARD_QUEUE_SIZE"] == "5000"
+
+
+def test_secret_values_log_forward_headers_compact_json(
+    tmp_path: Path,
+) -> None:
+    """Datadog shape. Headers serialise as compact JSON (no spaces)
+    so the value survives any shell / env-file round-trip cleanly."""
+    body = """
+        schema: 1
+        nodes:
+          fly-prod:
+            target: fly
+            app: eidan-api
+            region: lhr
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+            log_forward:
+              url: https://http-intake.logs.datadoghq.com/api/v2/logs
+              headers:
+                DD-API-KEY: dd-key-XXXX
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    secrets = fly._secret_values(topology.resolve_node("fly-prod"))
+
+    assert secrets["EIDAN_LOG_FORWARD_HEADERS"] == '{"DD-API-KEY":"dd-key-XXXX"}'
+    assert "EIDAN_LOG_FORWARD_TOKEN" not in secrets
+
+
 # ---------- reconcile() flow ----------
 
 
