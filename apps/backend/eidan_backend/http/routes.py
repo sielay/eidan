@@ -1216,6 +1216,28 @@ def _maybe_json(value: Any) -> Any:
     return value
 
 
+def _decode_plugins_jsonb(value: Any) -> list[dict[str, Any]]:
+    """Decode the ``eidan.node_heartbeats.plugins`` JSONB array.
+
+    ``persistence.decode_jsonb`` assumes the column holds an object
+    and collapses anything else to ``{}``; this column is a JSON
+    array, so we do the string/list dance inline and default to
+    ``[]`` for any unexpected shape (legacy rows, NULLs, codec
+    surprises).
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError):
+            return []
+        return decoded if isinstance(decoded, list) else []
+    if isinstance(value, list):
+        return value
+    return []
+
+
 # -----------------------------------------------------------------------------
 # /api/turn — SSE streaming
 # -----------------------------------------------------------------------------
@@ -1482,6 +1504,7 @@ async def list_nodes_endpoint(request: Request) -> dict[str, Any]:
                    EXTRACT(EPOCH FROM (now() - last_seen))::int
                                               AS seconds_since,
                    metadata,
+                   plugins,
                    created_at,
                    updated_at
               FROM eidan.node_heartbeats
@@ -1497,6 +1520,12 @@ async def list_nodes_endpoint(request: Request) -> dict[str, Any]:
                 "last_seen": r["last_seen"].isoformat(),
                 "seconds_since": r["seconds_since"],
                 "metadata": decode_jsonb(r["metadata"]),
+                # Plugins active on this node, written on every
+                # heartbeat UPSERT (issue #52). decode_jsonb()
+                # collapses non-dict JSONB to ``{}``; this column
+                # is a JSON array, so decode the raw value directly
+                # and fall through to ``[]`` for legacy rows.
+                "plugins": _decode_plugins_jsonb(r["plugins"]),
                 "created_at": r["created_at"].isoformat(),
                 "updated_at": r["updated_at"].isoformat(),
             }
