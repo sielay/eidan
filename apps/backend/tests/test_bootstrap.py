@@ -33,7 +33,13 @@ from eidan_backend.behaviours import (
 from eidan_backend.bootstrap import (
     _disabled_plugins_from_env,
     _make_context_factory,
+    _register_declared_notification_adapters,
     bootstrap,
+)
+from eidan_backend.notifications import (
+    NotificationAdapter,
+    NotificationResult,
+    NotificationRouter,
 )
 from eidan_backend.plugins import LoadedPlugin, PluginBase, load_manifest
 from eidan_backend.tools import ToolRegistry
@@ -293,3 +299,148 @@ def test_disabled_plugins_from_env_multiple_with_whitespace(
     normalised to a clean set."""
     monkeypatch.setenv("EIDAN_DISABLED_PLUGINS", "  imap, sentry ,,calendar,  ")
     assert _disabled_plugins_from_env() == {"imap", "sentry", "calendar"}
+
+
+# ---------- notifications.adapters[] registration ------------------------------
+
+
+async def _stub_secret(key: str) -> str | None:
+    return None
+
+
+async def _stub_adapter(payload: dict[str, Any]) -> NotificationResult:
+    return NotificationResult(
+        channel="stub", message_id="m1", delivered_at="1970-01-01T00:00:00+00:00"
+    )
+
+
+def _make_loaded_plugin(
+    *,
+    name: str,
+    notifications: Any,
+    plugin_dir: Path,
+) -> LoadedPlugin:
+    """Hand-build a :class:`LoadedPlugin` carrying just enough manifest
+    surface for the adapter-registration tests. Real manifests in the
+    full suite cover the loader path end-to-end; this fixture lets us
+    test the registration helper in isolation."""
+
+    class _ManifestStub:
+        def __init__(self, name: str, notifications: Any) -> None:
+            self.name = name
+            self.version = "0.1.0"
+            self.tier = "pro"
+            self.notifications = notifications
+
+    return LoadedPlugin(
+        manifest=_ManifestStub(name, notifications),  # type: ignore[arg-type]
+        plugin=_StubPluginBase(),
+        plugin_dir=plugin_dir,
+    )
+
+
+def test_register_declared_adapters_imports_factory_and_registers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Happy path: a plugin declaring ``notifications.adapters[]`` has
+    its factory imported, called with the secret accessor, and the
+    returned adapter registered on the router under the declared
+    channel."""
+    captured: dict[str, Any] = {}
+
+    def _factory(secret: Any) -> NotificationAdapter:
+        captured["secret"] = secret
+        return _stub_adapter
+
+    # Stash on the helper module so we can resolve it via "module:func".
+    module_name = "eidan_backend.bootstrap"
+    monkeypatch.setattr(
+        f"{module_name}._test_factory", _factory, raising=False
+    )
+
+    class _Adapter:
+        channel = "stub"
+        factory = f"{module_name}:_test_factory"
+
+    class _Notifications:
+        adapters = [_Adapter()]
+
+    loaded = _make_loaded_plugin(
+        name="stub-plugin", notifications=_Notifications(), plugin_dir=tmp_path
+    )
+    router = NotificationRouter()
+    _register_declared_notification_adapters(
+        [loaded], router, _stub_secret
+    )
+
+    assert router.channels() == ["stub"]
+    assert captured["secret"] is _stub_secret
+
+
+def test_register_declared_adapters_skips_plugins_without_notifications(
+    tmp_path: Path,
+) -> None:
+    """A plugin with no ``notifications`` field is a no-op — no
+    registration, no error. Mirrors the optional-field contract."""
+    loaded = _make_loaded_plugin(
+        name="silent", notifications=None, plugin_dir=tmp_path
+    )
+    router = NotificationRouter()
+    _register_declared_notification_adapters([loaded], router, _stub_secret)
+    assert router.channels() == []
+
+
+def test_register_declared_adapters_duplicate_channel_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two plugins (or a plugin + the host default) claiming the same
+    channel is fatal: the operator sees which plugin tried to
+    double-register, not a silent overwrite."""
+    module_name = "eidan_backend.bootstrap"
+    monkeypatch.setattr(
+        f"{module_name}._dup_factory",
+        lambda _secret: _stub_adapter,
+        raising=False,
+    )
+
+    class _Adapter:
+        channel = "dup"
+        factory = f"{module_name}:_dup_factory"
+
+    class _Notifications:
+        adapters = [_Adapter()]
+
+    loaded_a = _make_loaded_plugin(
+        name="a", notifications=_Notifications(), plugin_dir=tmp_path
+    )
+    loaded_b = _make_loaded_plugin(
+        name="b", notifications=_Notifications(), plugin_dir=tmp_path
+    )
+    router = NotificationRouter()
+    with pytest.raises(RuntimeError, match="dup"):
+        _register_declared_notification_adapters(
+            [loaded_a, loaded_b], router, _stub_secret
+        )
+
+
+def test_register_declared_adapters_missing_factory_raises(
+    tmp_path: Path,
+) -> None:
+    """Factory entrypoint that imports cleanly but doesn't resolve to
+    a real attribute fails fast at boot, not silently at first emit."""
+
+    class _Adapter:
+        channel = "ghost"
+        factory = "eidan_backend.bootstrap:_does_not_exist"
+
+    class _Notifications:
+        adapters = [_Adapter()]
+
+    loaded = _make_loaded_plugin(
+        name="ghost", notifications=_Notifications(), plugin_dir=tmp_path
+    )
+    router = NotificationRouter()
+    with pytest.raises(RuntimeError, match="_does_not_exist"):
+        _register_declared_notification_adapters(
+            [loaded], router, _stub_secret
+        )

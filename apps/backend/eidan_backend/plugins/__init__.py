@@ -42,7 +42,7 @@ from .loader import (
     PluginMissingDependencyError,
     load_plugins,
 )
-from .manifest import MalformedManifest, load_manifest
+from .manifest import IncompatibleManifest, MalformedManifest, load_manifest
 from .migrations import (
     apply_plugin_migrations,
     downgrade_plugin_migrations,
@@ -55,6 +55,7 @@ __all__ = [
     "BehaviourRegistrar",
     "ContextFactory",
     "DbAccessor",
+    "IncompatibleManifest",
     "LoadedPlugin",
     "MalformedManifest",
     "PluginBase",

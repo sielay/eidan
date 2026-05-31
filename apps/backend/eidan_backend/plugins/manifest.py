@@ -15,10 +15,19 @@ readable message that points at the failing field. The loader
 (separate issue) treats this as a fatal load error per `docs/001
 §1` ("plugins that fail validation are rejected, not partially
 loaded").
+
+A plugin's ``host.eidan`` PEP 440 specifier is checked BEFORE the
+strict pydantic validation runs. A plugin written against a newer
+core (whose manifest uses fields that haven't shipped here yet)
+surfaces as :class:`IncompatibleManifest` — "needs eidan >=0.2.0,
+have 0.1.0" — rather than the confusing ``extra_forbidden`` schema
+error the strict validator would emit.
 """
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +35,46 @@ import yaml
 from eidan_schemas.generated.core.plugin.PluginManifest_schema import (
     PluginManifest as PluginManifestModel,
 )
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
 from pydantic import ValidationError
+
+
+def _current_core_version() -> str:
+    """Return the running ``eidan-backend`` package version.
+
+    Falls back to ``"0.0.0"`` when the package isn't installed
+    (editable-from-source check while running tests against an
+    uninstalled tree). The fallback makes the host gate fail-open
+    in dev — a plugin pinning ``>=0.2.0`` won't be wrongly rejected
+    by a "version unknown" environment.
+    """
+    try:
+        return _pkg_version("eidan-backend")
+    except PackageNotFoundError:
+        return "0.0.0"
+
+
+class IncompatibleManifest(Exception):
+    """A plugin's ``host.eidan`` constraint excludes the running core.
+
+    Carries the plugin name, the declared specifier, and the
+    detected core version so the loader's error message points at a
+    concrete fix ("upgrade eidan to >=X" or "downgrade the plugin").
+    Separate from :class:`MalformedManifest` so callers (admin UI,
+    tests) can distinguish a typo'd manifest from a version mismatch.
+    """
+
+    def __init__(
+        self, *, plugin_name: str, required: str, current: str
+    ) -> None:
+        super().__init__(
+            f"plugin {plugin_name!r} requires eidan {required!r}, "
+            f"have {current!r}. Upgrade eidan or pin an older plugin release."
+        )
+        self.plugin_name = plugin_name
+        self.required = required
+        self.current = current
 
 
 class MalformedManifest(Exception):
@@ -55,13 +103,62 @@ def _format_loc(loc: tuple[Any, ...]) -> str:
     return "".join(parts) or "<root>"
 
 
+def _check_host_eidan_gate(raw: dict[str, Any], plugin_dir_name: str) -> None:
+    """Pre-validate ``host.eidan`` against the running core version.
+
+    Runs against the untyped YAML dict BEFORE strict pydantic
+    validation, so a plugin written against a newer manifest schema
+    raises the polite :class:`IncompatibleManifest` instead of an
+    ``extra_forbidden`` :class:`MalformedManifest`. Plugins that
+    omit ``host.eidan`` (or that pin a satisfiable range) fall
+    through to the strict validator.
+
+    The plugin name reported in the error prefers ``raw['name']``
+    when it parses as a string; otherwise the directory name. Strict
+    validation later catches a missing / malformed ``name``.
+    """
+    host = raw.get("host")
+    if not isinstance(host, dict):
+        return
+    spec_str = host.get("eidan")
+    if not isinstance(spec_str, str) or not spec_str.strip():
+        return
+    try:
+        specifier = SpecifierSet(spec_str.strip())
+    except InvalidSpecifier:
+        # Let the strict validator emit the precise schema error.
+        # An invalid specifier here is a manifest typo, not a
+        # version mismatch.
+        return
+    current = _current_core_version()
+    try:
+        current_version = Version(current)
+    except InvalidVersion:
+        return
+    if current_version in specifier:
+        return
+    name_raw = raw.get("name")
+    plugin_name = (
+        name_raw
+        if isinstance(name_raw, str) and name_raw
+        else plugin_dir_name
+    )
+    raise IncompatibleManifest(
+        plugin_name=plugin_name,
+        required=spec_str.strip(),
+        current=current,
+    )
+
+
 def load_manifest(plugin_dir: Path) -> PluginManifestModel:
     """Load and validate ``plugin_dir / "plugin.yaml"``.
 
-    Returns the parsed :class:`PluginManifestModel` on success. Raises
-    :class:`MalformedManifest` with a clear field path on any
-    failure — missing file, YAML parse error, schema violation, or
-    the directory-name / ``name`` mismatch from `docs/001 §1.2`.
+    Returns the parsed :class:`PluginManifestModel` on success.
+    Raises :class:`IncompatibleManifest` when ``host.eidan`` excludes
+    the running core version; :class:`MalformedManifest` with a
+    clear field path on any other failure — missing file, YAML
+    parse error, schema violation, or the directory-name /
+    ``name`` mismatch from `docs/001 §1.2`.
     """
     manifest_path = plugin_dir / "plugin.yaml"
     if not manifest_path.is_file():
@@ -92,6 +189,11 @@ def load_manifest(plugin_dir: Path) -> PluginManifestModel:
             path=("plugin.yaml",),
         )
 
+    # Host-version pre-gate: a manifest written against a newer core
+    # may use fields this version's schema doesn't know. Surface that
+    # as "needs eidan >=X" instead of "extra_forbidden on field Y".
+    _check_host_eidan_gate(raw, plugin_dir.name)
+
     try:
         manifest = PluginManifestModel.model_validate(raw)
     except ValidationError as exc:
@@ -116,4 +218,4 @@ def load_manifest(plugin_dir: Path) -> PluginManifestModel:
     return manifest
 
 
-__all__ = ["MalformedManifest", "load_manifest"]
+__all__ = ["IncompatibleManifest", "MalformedManifest", "load_manifest"]

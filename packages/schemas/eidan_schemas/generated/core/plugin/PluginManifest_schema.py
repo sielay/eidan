@@ -225,6 +225,35 @@ class Mcp(BaseModel):
     """
 
 
+class Adapter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    channel: str = Field(
+        ..., max_length=32, min_length=1, pattern="^[a-z0-9][a-z0-9_-]*$"
+    )
+    """
+    Channel slug consumed by ctx.notify(channel=...). MUST be unique across all loaded plugins; the host registers each channel exactly once.
+    """
+    factory: str = Field(
+        ..., pattern="^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$"
+    )
+    """
+    Python entrypoint (module:function) of the adapter factory. The factory takes a SecretAccessor coroutine and returns a NotificationAdapter; the host calls it once at activation and registers the result on the process-local NotificationRouter.
+    """
+
+
+class Notifications(BaseModel):
+    """
+    Outbound notification adapters this plugin contributes (docs/001 §6, docs/024).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    adapters: list[Adapter] = Field(..., min_length=1)
+
+
 class PluginManifest(BaseModel):
     """
     Shape of plugins/<name>/plugin.yaml — the single source of truth for a plugin's identity, dependencies, declared access, and extension points (docs/001 §1).
@@ -304,4 +333,8 @@ class PluginManifest(BaseModel):
     mcp: Mcp | None = None
     """
     Optional MCP server stanza (docs/001 §7).
+    """
+    notifications: Notifications | None = None
+    """
+    Outbound notification adapters this plugin contributes (docs/001 §6, docs/024).
     """
