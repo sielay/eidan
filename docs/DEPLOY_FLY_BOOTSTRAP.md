@@ -164,8 +164,11 @@ jobs:
     concurrency: { group: eidan-deploy, cancel-in-progress: false }
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: sielay/eidan, ref: v0.1.0, path: eidan-src }
+      - uses: astral-sh/setup-uv@v3
       - uses: superfly/flyctl-actions/setup-flyctl@1.5
-      - run: pipx install eidan-cli
+      - run: uv tool install --from ./eidan-src/apps/cli eidan-cli
       - run: |
           echo "$VAULT_PASS" > .vault-pass
           chmod 0600 .vault-pass
