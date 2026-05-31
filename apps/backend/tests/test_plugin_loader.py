@@ -213,6 +213,109 @@ def test_non_pluginbase_class_is_rejected(tmp_path: Path) -> None:
         load_plugins(tmp_path)
 
 
+# ---------- disabled plugins --------------------------------------------------
+
+
+def test_disabled_excludes_named_plugins(tmp_path: Path) -> None:
+    """A plugin listed in ``disabled`` is not loaded; the others are."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_simple_plugin(plugins_dir, "alpha")
+    _write_simple_plugin(plugins_dir, "beta")
+    _write_simple_plugin(plugins_dir, "gamma")
+
+    loaded = load_plugins(plugins_dir, disabled=["beta"])
+    names = [p.manifest.name for p in loaded]
+    assert names == ["alpha", "gamma"]
+
+
+def test_disabled_empty_iterable_is_a_no_op(tmp_path: Path) -> None:
+    """``disabled=[]`` matches ``disabled=None`` — nothing is filtered."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_simple_plugin(plugins_dir, "alpha")
+    _write_simple_plugin(plugins_dir, "beta")
+
+    none_pass = load_plugins(plugins_dir, disabled=None)
+    empty_pass = load_plugins(plugins_dir, disabled=[])
+
+    assert {p.manifest.name for p in none_pass} == {"alpha", "beta"}
+    assert {p.manifest.name for p in empty_pass} == {"alpha", "beta"}
+
+
+def test_disabled_trims_whitespace_and_drops_empty_entries(tmp_path: Path) -> None:
+    """Whitespace is stripped per entry; empty / whitespace-only entries
+    are skipped so an operator can pad the env-var value cosmetically
+    without breaking matching."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_simple_plugin(plugins_dir, "alpha")
+    _write_simple_plugin(plugins_dir, "beta")
+
+    loaded = load_plugins(plugins_dir, disabled=[" alpha ", "", "  ", "\tbeta"])
+    assert loaded == []
+
+
+def test_disabled_unknown_name_emits_warning_but_does_not_raise(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An operator's env var typically applies across nodes with
+    different installed bundles. Unknown names are a soft warning so
+    "imap not installed on this Pi" doesn't crash the boot."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_simple_plugin(plugins_dir, "alpha")
+
+    caplog.set_level("WARNING", logger="eidan_backend.plugins.loader")
+    loaded = load_plugins(plugins_dir, disabled=["nope", "alpha"])
+
+    assert [p.manifest.name for p in loaded] == []
+    assert any(
+        "EIDAN_DISABLED_PLUGINS references unknown plugin(s): nope" in r.message
+        for r in caplog.records
+    )
+
+
+def test_disabled_logs_summary_at_info(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """One ``[plugins] disabled by EIDAN_DISABLED_PLUGINS: ...`` line at
+    info level so operators can grep for it in journald / Fly logs."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_simple_plugin(plugins_dir, "alpha")
+    _write_simple_plugin(plugins_dir, "beta")
+
+    caplog.set_level("INFO", logger="eidan_backend.plugins.loader")
+    load_plugins(plugins_dir, disabled=["alpha"])
+
+    summary = [
+        r for r in caplog.records if "disabled by EIDAN_DISABLED_PLUGINS" in r.message
+    ]
+    assert len(summary) == 1
+    assert summary[0].levelname == "INFO"
+    assert "alpha" in summary[0].message
+
+
+def test_disabled_dependency_surfaces_existing_missing_dep_error(
+    tmp_path: Path,
+) -> None:
+    """If the operator disables a plugin that's a dependency of another
+    plugin, the existing :class:`PluginMissingDependencyError` fires.
+    We don't add disable-awareness to the topological sort — the error
+    is informative enough on its own."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _write_simple_plugin(plugins_dir, "alpha")
+    _write_simple_plugin(plugins_dir, "beta", depends_on=["alpha"])
+
+    with pytest.raises(PluginMissingDependencyError) as exc:
+        load_plugins(plugins_dir, disabled=["alpha"])
+    assert exc.value.plugin_name == "beta"
+
+
 # ---------- lifecycle runner --------------------------------------------------
 
 
