@@ -1,29 +1,46 @@
 # Deployment
 
-Six steps. The `eidan deploy` CLI owns the whole flow.
+Six steps. Everything happens from your eidan clone.
 
 ```bash
-git clone https://github.com/sielay/eidan.git           # source
-uv tool install --from ./eidan/apps/cli eidan-cli       # install (needs uv)
-eidan init my-deployment && cd $_                       # scaffold ops repo
-$EDITOR topology.yml                                    # add nodes + secrets
-eidan deploy                                            # reconcile every node
+# 1. Install uv (if you don't have it)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. Clone eidan and install the CLI
+git clone https://github.com/sielay/eidan.git
+cd eidan
+uv tool install --from ./apps/cli eidan-cli
+
+# 3. Scaffold deploy config into .eidan/ (gitignored)
+eidan init --here
+
+# 4. Edit topology.yml + vault-encrypt secrets
+$EDITOR .eidan/topology.yml
+cp .eidan/.vault-pass.example .eidan/.vault-pass && chmod 0600 .eidan/.vault-pass
+
+# 5. Per-Pi bootstrap (once per Pi) — see DEPLOY_PI_BOOTSTRAP.md
+#    Per-Fly bootstrap (once per Fly app) — see DEPLOY_FLY_BOOTSTRAP.md
+
+# 6. Deploy
+eidan deploy
 ```
 
-Each node in `topology.yml` declares a `target:` — `pi`, `fly`, or `docker` (the last is a follow-up). The CLI renders the env file / `fly.toml` / systemd unit, pushes secrets, deploys the image, and installs declared bundles. You don't write any of those files by hand.
+Everything operator-private lives in `.eidan/` inside your eidan
+checkout. `.eidan/` is gitignored at the repo root, so a `git pull`
+of upstream eidan never touches your topology, your secrets, or
+your runtime state. You don't need a separate ops repo.
 
-This document is **only** the happy path. Bootstrap (one-time setup
-per Pi / Fly app), reference material (auth, observability), and
-the distributed-topology recipe live in the supporting docs at the
-bottom.
+This document is **only** the happy path. Bootstrap (one-time
+setup per Pi / Fly app), reference material (auth, observability),
+and the distributed-topology recipe live in the supporting docs at
+the bottom.
 
 ---
 
 ## 1. Install eidan-cli
 
-`eidan-cli` isn't on PyPI yet — install from the upstream checkout
-via `uv tool install`. Requires [`uv`](https://astral.sh/uv) on
-your laptop:
+`eidan-cli` isn't on PyPI yet — install from your eidan checkout
+via `uv tool install`. Requires [`uv`](https://astral.sh/uv):
 
 ```bash
 # Once, anywhere — installs uv to ~/.local/bin
@@ -31,7 +48,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Then clone eidan and install the CLI globally
 git clone https://github.com/sielay/eidan.git
-uv tool install --from ./eidan/apps/cli eidan-cli
+cd eidan
+uv tool install --from ./apps/cli eidan-cli
 ```
 
 The `eidan` binary lands in `~/.local/bin/eidan`. Upgrade with:
@@ -45,6 +63,10 @@ Also needed on the laptop running deploys:
 
 - **`ansible-core`** (for Pi targets) — `uv tool install ansible-core`
 - **`flyctl`** (for Fly targets) — `brew install flyctl && fly auth login`
+- **Docker** (for Fly targets without a pinned `image:`) — Docker
+  Desktop / colima / Rancher / whatever. The reconciler builds
+  the image locally from `infra/fly/Dockerfile`. Skip if you pin
+  `image:` in topology to a tag you've already published yourself.
 
 The CLI probes for the right one before any deploy fires; you'll
 see a friendly "install X" message if a target needs a tool that
@@ -56,21 +78,22 @@ isn't on PATH.
 
 ## 2. Scaffold + topology.yml
 
+From inside your eidan checkout:
+
 ```bash
-eidan init my-deployment
-cd my-deployment
+eidan init --here
 ```
 
-You get a private ops repo with:
+You get a starter set under `.eidan/`:
 
 | File | Purpose |
 |---|---|
-| `topology.yml` | Source of truth — every node, every env knob. |
-| `.gitignore` | Excludes `.vault-pass` + ephemeral runtime files. |
-| `.vault-pass.example` | Copy to `.vault-pass`, edit, `chmod 0600`. |
-| `README.md` | Operator notes template. |
+| `.eidan/topology.yml` | Source of truth — every node, every env knob. |
+| `.eidan/.gitignore` | Belt-and-braces; the parent `.eidan/` is already gitignored at the eidan repo root. |
+| `.eidan/.vault-pass.example` | Copy to `.eidan/.vault-pass`, edit, `chmod 0600`. |
+| `.eidan/README.md` | Operator notes template. |
 
-Edit `topology.yml`. Minimum shape:
+Edit `.eidan/topology.yml`. Minimum shape:
 
 ```yaml
 schema: 1
@@ -78,7 +101,9 @@ schema: 1
 defaults:
   plugin_source: gh:sielay
   github_token: REPLACE-OR-VAULT-ENCRYPT
-  image: ghcr.io/sielay/eidan:v0.1.0          # pin once, roll forward deliberately
+  # `image:` unset → reconciler builds from infra/fly/Dockerfile.
+  # Pin it (e.g. ghcr.io/myorg/eidan:v0.1.0) if you've published
+  # your own image and want to skip the local build.
   provider:
     name: anthropic
     default_model: claude-sonnet-4-6
@@ -113,22 +138,19 @@ Vault-encrypt the sensitive scalars (`auth_master_key`,
 `database_url`, `github_token`, provider `api_key`):
 
 ```bash
-cp .vault-pass.example .vault-pass && chmod 0600 .vault-pass
-ansible-vault encrypt_string --vault-id default@.vault-pass \
+cp .eidan/.vault-pass.example .eidan/.vault-pass && chmod 0600 .eidan/.vault-pass
+ansible-vault encrypt_string --vault-id default@.eidan/.vault-pass \
   'sk-ant-...' --name 'api_key'
-# paste the !vault |... block under provider.api_key in topology.yml
-```
-
-Commit (with vault layer in place) and push to a private remote:
-
-```bash
-git init && git add . && git commit -m "initial topology"
-git remote add origin git@github.com:<you>/<my-deployment>.git
-git push -u origin main
+# paste the !vault |... block under provider.api_key in .eidan/topology.yml
 ```
 
 The full schema with every field is at
 [packages/schemas/schemas/core/deploy/Topology.schema.json](../packages/schemas/schemas/core/deploy/Topology.schema.json).
+
+> **Prefer a separate ops repo?** Pass a name instead of `--here`:
+> `eidan init my-deployment` creates a sibling directory you can
+> manage as its own private git repo. Same template, different
+> location.
 
 ## 3. Deploy to a Pi
 
@@ -137,15 +159,15 @@ to create the service user, install `uv`, install Ollama, install
 Postgres (or point at Supabase), clone the repo, and run the
 initial migration.
 
-Then, from your ops repo on the laptop:
+Then, from your eidan checkout:
 
 ```bash
 eidan deploy --node kasha
 ```
 
-The CLI ssh's in, renders `/etc/eidan/eidan.env` and the systemd
-unit from `topology.yml`, installs declared bundles, restarts the
-service.
+The CLI auto-discovers `.eidan/topology.yml`, ssh's into the Pi,
+renders `/etc/eidan/eidan.env` and the systemd unit, installs
+declared bundles, restarts the service.
 
 ## 4. Deploy to Fly
 
@@ -160,8 +182,15 @@ eidan deploy --node fly-prod
 ```
 
 The CLI renders a per-deploy `fly.toml`, pushes secrets via `fly
-secrets set`, runs `fly deploy --image <topology.image>`, and ssh's
-in to install declared bundles.
+secrets set`, and either:
+
+- builds from `infra/fly/Dockerfile` in your checkout (default — no
+  `image:` set), via `fly deploy --dockerfile … <eidan>`. Needs
+  Docker on your laptop or Fly's remote builder.
+- pulls a pinned image (`image: ghcr.io/myorg/eidan:v0.1.0` set on
+  the node), via `fly deploy --image …`. No build needed.
+
+Then ssh's in to install declared bundles.
 
 ## 5. Update
 
@@ -176,11 +205,12 @@ eidan deploy --node kasha --tags plugins  # just plugin install
 eidan deploy --node kasha --dry-run       # show planned changes
 ```
 
-To bump a release: edit `defaults.image:` (or the per-node `image:`)
-in `topology.yml`, commit, `eidan deploy`. Migrations run via
-`eidan admin db migrate` on the target host once; the release
-notes flag any destructive migrations that need a stop-the-service
-window.
+To bump a release: `git pull` your eidan checkout to a new tag,
+re-deploy. The Fly reconciler picks up the new Dockerfile / image
+automatically; the Pi reconciler still needs you to update
+`/opt/eidan/` on the Pi itself (see
+[DEPLOY_PI_BOOTSTRAP §7](./DEPLOY_PI_BOOTSTRAP.md) — the codebase
+update flow there).
 
 ## 6. Plugins
 

@@ -108,3 +108,54 @@ def test_scaffold_error_subclass_caught_by_base(tmp_path: Path) -> None:
     target.mkdir()
     with pytest.raises(ScaffoldError):
         scaffold("my-deploy", parent=tmp_path)
+
+
+# ---------- in-checkout (`--here`) mode ----------------------------------------
+
+
+def test_scaffold_here_writes_into_dot_eidan(tmp_path: Path) -> None:
+    """`scaffold(here=True)` drops the template into `.eidan/` of the
+    parent (i.e. the cwd when invoked via CLI)."""
+    target = scaffold(here=True, parent=tmp_path)
+
+    assert target == tmp_path / ".eidan"
+    assert target.is_dir()
+    on_disk = {p.name for p in target.iterdir()}
+    assert _EXPECTED_FILES.issubset(on_disk)
+
+
+def test_scaffold_here_refuses_to_overwrite(tmp_path: Path) -> None:
+    """An existing `.eidan/` (e.g. from a previous deploy) isn't blown
+    away without `--force` — same protection as the sibling-dir mode."""
+    (tmp_path / ".eidan").mkdir()
+    (tmp_path / ".eidan" / "topology.yml").write_text(
+        "existing", encoding="utf-8"
+    )
+
+    with pytest.raises(ScaffoldTargetExists):
+        scaffold(here=True, parent=tmp_path)
+
+    assert (tmp_path / ".eidan" / "topology.yml").read_text(encoding="utf-8") == (
+        "existing"
+    )
+
+
+def test_scaffold_here_force_overwrites(tmp_path: Path) -> None:
+    (tmp_path / ".eidan").mkdir()
+    (tmp_path / ".eidan" / "stale.txt").write_text("old", encoding="utf-8")
+
+    target = scaffold(here=True, parent=tmp_path, force=True)
+
+    assert not (target / "stale.txt").exists()
+    assert (target / "topology.yml").is_file()
+
+
+def test_scaffold_rejects_name_and_here_together(tmp_path: Path) -> None:
+    """Mutually exclusive — caller picks one."""
+    with pytest.raises(ScaffoldError, match="not both"):
+        scaffold("my-deploy", here=True, parent=tmp_path)
+
+
+def test_scaffold_rejects_neither_name_nor_here(tmp_path: Path) -> None:
+    with pytest.raises(ScaffoldError, match="pass `name`"):
+        scaffold(parent=tmp_path)
