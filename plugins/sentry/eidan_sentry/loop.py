@@ -39,7 +39,26 @@ logger = logging.getLogger(__name__)
 
 
 def _is_enabled() -> bool:
-    return os.environ.get("EIDAN_SENTRY_ENABLED", "1") not in ("0", "false", "no")
+    """Whether this node should run the sentry tick.
+
+    The operator can always pin via ``EIDAN_SENTRY_ENABLED``. When
+    unset, the default is node-type-aware:
+
+    - Fly machines default to **off** — the tick is intended to call a
+      model (``EIDAN_SENTRY_MODEL``) and the operator opts in
+      explicitly there to avoid silent LLM cost on every Fly node.
+      Detected via ``FLY_MACHINE_ID``, the same fingerprint the node
+      identity detector uses (``eidan_backend.node_identity``).
+    - Everywhere else (Pi, k8s, Heroku, local) defaults to **on**,
+      matching the pre-#53 behaviour for long-lived nodes.
+    """
+    raw = os.environ.get("EIDAN_SENTRY_ENABLED")
+    if raw is not None:
+        return raw not in ("0", "false", "no", "")
+    # Default: off on Fly, on elsewhere.
+    if os.environ.get("FLY_MACHINE_ID"):
+        return False
+    return True
 
 
 def _int_env(name: str, default: int) -> int:
@@ -82,7 +101,10 @@ async def run_sentry_tick(
     escalation is still written first as the durable audit trail.
     """
     if not _is_enabled():
-        logger.info("[sentry] disabled (EIDAN_SENTRY_ENABLED!=1) — skipping tick")
+        logger.info(
+            "[sentry] disabled (EIDAN_SENTRY_ENABLED unset on Fly, or "
+            "explicitly set to 0) — skipping tick"
+        )
         return {}
 
     tick_id = tick_id or f"sentry-{datetime.now(tz=UTC).isoformat()}"
