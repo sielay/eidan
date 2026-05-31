@@ -335,7 +335,14 @@ def _install_bundles(
 ) -> int:
     """Install each declared bundle via `fly ssh console -C ...`.
 
-    The remote command is a bare ``eidan admin plugin install <bundle>``.
+    The remote command routes through ``uv --directory /app run`` —
+    same shape as the Pi target's ``uv --directory /opt/eidan run``
+    and the Dockerfile's own CMD. ``eidan`` lives in the in-image
+    venv at ``/app/.venv/bin/eidan``, which isn't on the default
+    PATH ``fly ssh -C`` exposes (no shell, no activate-script);
+    ``uv`` IS on PATH (installed via ``pip`` at image build,
+    /usr/local/bin/uv) so we go through it.
+
     Both env vars the installer reads — ``EIDAN_PLUGIN_SOURCE`` and
     ``EIDAN_GITHUB_TOKEN`` — live on the machine already:
     ``EIDAN_GITHUB_TOKEN`` via ``fly secrets set`` (see
@@ -355,7 +362,9 @@ def _install_bundles(
         return 0
     bundle_names = [b.root if hasattr(b, "root") else str(b) for b in bundles]
     for bundle in bundle_names:
-        remote_cmd = f"eidan admin plugin install {bundle}"
+        remote_cmd = (
+            f"uv --directory /app run eidan admin plugin install {bundle}"
+        )
         cmd = [
             "fly",
             "ssh",

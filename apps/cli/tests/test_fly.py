@@ -366,16 +366,20 @@ def test_reconcile_renders_fly_toml_and_invokes_all_steps(
     assert any(arg.endswith("Dockerfile") for arg in deploy_cmds[0])
     assert any(arg.endswith("fly.toml") for arg in deploy_cmds[0])
 
-    # `fly ssh console --app eidan-api -C "eidan admin plugin install eidan-pro"`
-    # The PAT and EIDAN_PLUGIN_SOURCE MUST NOT appear in the ssh command line:
-    # fly-ssh uses exec, not a shell, and anything passed on the command line
-    # ends up in the spawned process's argv (visible to `ps`) plus fly's
-    # connection log. Both env vars are already on the machine — PAT via
-    # `fly secrets set`, plugin source via the fly.toml [env] block.
+    # `fly ssh console --app eidan-api -C "uv --directory /app run eidan admin plugin install eidan-pro"`
+    # The eidan script lives in the in-image venv /app/.venv/bin/eidan, not on
+    # the default PATH fly-ssh exposes; uv is at /usr/local/bin/uv (installed via
+    # pip at image build) so we route through `uv --directory /app run`. The PAT
+    # and EIDAN_PLUGIN_SOURCE MUST NOT appear on the ssh command line: fly-ssh
+    # execs the command (no shell), anything passed shows up in the spawned
+    # argv (visible to `ps`) and fly's connection log. Both env vars live on
+    # the machine — PAT via `fly secrets set`, plugin source via the fly.toml
+    # [env] block.
     ssh_cmds = [c for c in invoked if c[:3] == ["fly", "ssh", "console"]]
     assert len(ssh_cmds) == 1
     assert any(
-        "eidan admin plugin install eidan-pro" in arg for arg in ssh_cmds[0]
+        "uv --directory /app run eidan admin plugin install eidan-pro" in arg
+        for arg in ssh_cmds[0]
     )
     flat_ssh = " ".join(ssh_cmds[0])
     assert "PAT-XXXX" not in flat_ssh
