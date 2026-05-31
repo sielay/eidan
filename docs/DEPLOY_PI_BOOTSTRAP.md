@@ -19,9 +19,12 @@ checkout (see [DEPLOYMENT.md](./DEPLOYMENT.md) §3).
 
 ```bash
 sudo useradd -r -s /bin/bash -d /home/eidan -m eidan
-sudo mkdir -p /opt/eidan /etc/eidan
-sudo chown eidan:eidan /opt/eidan
+sudo mkdir -p /etc/eidan
 ```
+
+`/opt/eidan` is created on first `eidan deploy` (the playbook
+clones into it as the `eidan` user); only `/etc/eidan` and the
+`eidan` user need to exist before then.
 
 ## 2. Install system deps + uv
 
@@ -99,46 +102,37 @@ You can swap to a dedicated `eidan_app` role later via
 `EIDAN_CREATE_APP_ROLE=true` on the first migration run (see §5
 below).
 
-## 5. Clone + sync the repo, run initial migrations
+## 5. Auth master key
 
-From the Pi (so the venv is built as `eidan` with `eidan`'s `uv`):
-
-```bash
-sudo -u eidan git clone https://github.com/sielay/eidan.git /opt/eidan
-sudo -u eidan git -C /opt/eidan checkout v0.1.0   # pin to a tag, not main
-sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan sync --no-dev
-```
-
-Generate the auth master key — **record it offline**, you'll set the
-same value on every backend host that joins this deployment:
+Generate it once and **record it offline** — you'll set the same
+value on every backend host that joins this deployment, so the JWT
+keypair stored in `eidan.auth_keypair` is decipherable from every
+node:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-> **Joining an existing deployment?** If another node has already
-> migrated this Postgres, **skip the migration step below.**
-> Alembic is version-tracked; a re-run is a no-op, but skipping
-> avoids the `EIDAN_CREATE_APP_ROLE` handling.
+Put it in your laptop-side `topology.yml` as `auth_master_key:` on
+this node.
 
-Run migrations. `eidan admin db migrate` runs core then iterates
-each installed plugin's private-schema migrations:
+> **Joining an existing deployment?** The migration runs on every
+> `eidan deploy`, but Alembic is version-tracked — a re-run on an
+> already-migrated DB is a no-op.
 
-```bash
-sudo -u eidan bash -lc '
-  DATABASE_URL="postgresql+asyncpg://eidan_app:CHANGE-ME@127.0.0.1:5432/eidan" \
-  EIDAN_AUTH_MASTER_KEY="<the-key-you-just-generated>" \
-  /home/eidan/.local/bin/uv --directory /opt/eidan run \
-    eidan admin db migrate
-'
-```
+The clone, `uv sync`, and `eidan admin db migrate` are all run by
+the Ansible playbook on every `eidan deploy --node <name>` (see §7).
+You don't run them by hand.
 
-For Supabase + a dedicated app role, prepend
-`EIDAN_CREATE_APP_ROLE=true EIDAN_APP_DB_PASSWORD="<strong>"`.
+For Supabase + a dedicated app role, set
+`EIDAN_CREATE_APP_ROLE=true` and `EIDAN_APP_DB_PASSWORD=<strong>`
+in `/etc/eidan/eidan.env` before the first deploy (or pass them via
+`-e` to the playbook). Subsequent deploys can drop those keys.
 
-Verify `eidan.conversations`, `eidan.messages`, and
-`eidan.auth_keypair` exist via `psql` or Supabase Studio. The
-`auth_keypair` row is minted lazily on first backend boot.
+After the first deploy, verify `eidan.conversations`,
+`eidan.messages`, and `eidan.auth_keypair` exist via `psql` or
+Supabase Studio. The `auth_keypair` row is minted lazily on first
+backend boot.
 
 ## 6. Persistent journald (Pi-specific)
 
@@ -224,20 +218,16 @@ Pause via `disable: [sentry]` on the node in `topology.yml` +
 
 ## Updating the Pi codebase
 
-`eidan deploy` reconciles env / unit / plugins, but the upstream
-`/opt/eidan` checkout is bumped manually (the playbook doesn't `git
-pull` for you — that's release-policy territory):
+`eidan deploy` reconciles **everything** — including the
+`/opt/eidan` checkout. On every run the playbook git-fetches,
+re-syncs the venv when the checkout moved, runs `eidan admin db
+migrate`, and restarts the service if any of those changed. The
+default tracked ref is `main`; once we have release tags, pinning
+to one will be a topology-level field.
 
-```bash
-sudo -u eidan git -C /opt/eidan fetch --tags
-sudo -u eidan git -C /opt/eidan checkout v0.1.1
-sudo -u eidan /home/eidan/.local/bin/uv --directory /opt/eidan sync --no-dev
-sudo -u eidan bash -lc '
-  set -a; source /etc/eidan/eidan.env; set +a
-  /home/eidan/.local/bin/uv --directory /opt/eidan run eidan admin db migrate
-'
-sudo systemctl restart eidan-backend
-```
+The `force: false` flag on the git task means the playbook will
+refuse to overwrite uncommitted edits inside `/opt/eidan` — you'll
+see a genuine merge conflict rather than silent loss.
 
 Most eidan migrations are *additive* (new tables / columns /
 indexes) — the running service ignores them. For *destructive*
