@@ -10,6 +10,10 @@ dependencies = [
     "httpx>=0.27.0",
     "keyring>=25.0.0",
     "PyYAML>=6.0",
+    # Round-trip YAML editing (comments + formatting preserved) for
+    # `eidan plugin enable/disable` topology mutations. PyYAML strips
+    # comments on dump, ruamel.yaml round-trips them.
+    "ruamel.yaml>=0.18",
     "tzlocal>=5.2",
     "python-dotenv>=1.0",
 ]

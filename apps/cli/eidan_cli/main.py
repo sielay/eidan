@@ -41,6 +41,9 @@ from rich.console import Console  # noqa: E402
 
 from . import admin, auth_flow, doctor, lint, repl, scaffold, storage  # noqa: E402
 from . import deploy as _deploy  # noqa: E402
+from . import topology as _topology  # noqa: E402
+from . import topology_editor as _topology_editor  # noqa: E402
+from . import topology_view as _topology_view  # noqa: E402
 
 app = typer.Typer(
     name="eidan",
@@ -258,6 +261,150 @@ def deploy_cmd(
             ask_vault_pass=ask_vault_pass,
         )
     )
+
+
+# -----------------------------------------------------------------------------
+# Topology mutation + inspection (`eidan plugin`, `eidan node`)
+# -----------------------------------------------------------------------------
+# NOTE: distinct from `eidan admin plugin install/list/remove`, which
+# operates on a running install's plugin tree. The commands here mutate
+# the operator's topology.yml file in their ops repo.
+
+plugin_topology_app = typer.Typer(
+    name="plugin",
+    help="Topology-side plugin commands (enable/disable per node).",
+    no_args_is_help=True,
+    add_completion=False,
+)
+node_app = typer.Typer(
+    name="node",
+    help="Topology inspection (`eidan node list`, `eidan node show <name>`).",
+    no_args_is_help=True,
+    add_completion=False,
+)
+app.add_typer(plugin_topology_app, name="plugin")
+app.add_typer(node_app, name="node")
+
+
+_DEFAULT_TOPOLOGY_PATH = Path("topology.yml")
+
+
+@plugin_topology_app.command("disable")
+def plugin_disable_cmd(
+    plugin: str = typer.Argument(..., help="Plugin slug to disable."),
+    node: str = typer.Option(..., "--node", "-n", help="Node name."),
+    topology: Path = typer.Option(  # noqa: B008
+        _DEFAULT_TOPOLOGY_PATH,
+        "--topology",
+        "-t",
+        help="Path to topology.yml (default: ./topology.yml).",
+    ),
+) -> None:
+    """Add ``plugin`` to ``nodes.<node>.disable`` in topology.yml.
+
+    Mutates the file in place; comments and formatting are preserved.
+    The next ``eidan deploy --node <node>`` renders the updated
+    ``EIDAN_DISABLED_PLUGINS`` env var on the target host.
+    """
+    try:
+        changed = _topology_editor.disable_plugin(
+            topology, node_name=node, plugin=plugin
+        )
+    except _topology_editor.TopologyEditUnknownNode as exc:
+        _console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from exc
+    except _topology_editor.TopologyEditError as exc:
+        _console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    if changed:
+        _console.print(
+            f"[green]disabled[/green] {plugin!r} on node [cyan]{node}[/cyan]"
+        )
+        _console.print(
+            f"[dim]run `eidan deploy --node {node}` to apply on the host.[/dim]"
+        )
+    else:
+        _console.print(
+            f"[yellow]{plugin!r} already disabled on node {node!r}; no change[/yellow]"
+        )
+
+
+@plugin_topology_app.command("enable")
+def plugin_enable_cmd(
+    plugin: str = typer.Argument(..., help="Plugin slug to enable."),
+    node: str = typer.Option(..., "--node", "-n", help="Node name."),
+    topology: Path = typer.Option(  # noqa: B008
+        _DEFAULT_TOPOLOGY_PATH,
+        "--topology",
+        "-t",
+        help="Path to topology.yml (default: ./topology.yml).",
+    ),
+) -> None:
+    """Remove ``plugin`` from ``nodes.<node>.disable`` in topology.yml.
+
+    No-op if the plugin wasn't disabled. Mutation is local to the
+    topology file — actual host state is updated on the next
+    ``eidan deploy --node <node>``.
+    """
+    try:
+        changed = _topology_editor.enable_plugin(
+            topology, node_name=node, plugin=plugin
+        )
+    except _topology_editor.TopologyEditUnknownNode as exc:
+        _console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from exc
+    except _topology_editor.TopologyEditError as exc:
+        _console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    if changed:
+        _console.print(
+            f"[green]enabled[/green] {plugin!r} on node [cyan]{node}[/cyan]"
+        )
+        _console.print(
+            f"[dim]run `eidan deploy --node {node}` to apply on the host.[/dim]"
+        )
+    else:
+        _console.print(
+            f"[yellow]{plugin!r} not in disable list on node {node!r}; no change[/yellow]"
+        )
+
+
+@node_app.command("list")
+def node_list_cmd(
+    topology: Path = typer.Option(  # noqa: B008
+        _DEFAULT_TOPOLOGY_PATH,
+        "--topology",
+        "-t",
+        help="Path to topology.yml (default: ./topology.yml).",
+    ),
+) -> None:
+    """Print a table of every node — name, target, bundles, disabled plugins."""
+    try:
+        loaded = _topology.load_topology(topology)
+    except _topology.TopologyError as exc:
+        _console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from exc
+    _topology_view.render_node_list(loaded, console=_console)
+
+
+@node_app.command("show")
+def node_show_cmd(
+    name: str = typer.Argument(..., help="Node name to show."),
+    topology: Path = typer.Option(  # noqa: B008
+        _DEFAULT_TOPOLOGY_PATH,
+        "--topology",
+        "-t",
+        help="Path to topology.yml (default: ./topology.yml).",
+    ),
+) -> None:
+    """Print one node's fully-resolved view (defaults merged in)."""
+    try:
+        loaded = _topology.load_topology(topology)
+        node = loaded.resolve_node(name)
+    except _topology.TopologyError as exc:
+        _console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from exc
+    _topology_view.render_node_show(node, console=_console)
 
 
 @app.command(name="debug-auth")
