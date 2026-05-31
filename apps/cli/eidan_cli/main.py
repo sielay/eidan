@@ -40,6 +40,7 @@ import typer  # noqa: E402
 from rich.console import Console  # noqa: E402
 
 from . import admin, auth_flow, doctor, lint, repl, scaffold, storage  # noqa: E402
+from . import deploy as _deploy  # noqa: E402
 
 app = typer.Typer(
     name="eidan",
@@ -209,6 +210,54 @@ def init_cmd(
     )
     _console.print("  git init && git add . && git commit -m 'initial topology'")
     _console.print("  eidan deploy                  # reconcile every node")
+
+
+@app.command(name="deploy")
+def deploy_cmd(
+    node: str | None = typer.Option(
+        None,
+        "--node",
+        "-n",
+        help="Reconcile just this node. Default: reconcile every node in the topology.",
+    ),
+    topology: Path = typer.Option(  # noqa: B008
+        Path("topology.yml"),
+        "--topology",
+        "-t",
+        help="Path to the topology file (default: ./topology.yml).",
+    ),
+    tags: list[str] = typer.Option(  # noqa: B008
+        [],
+        "--tags",
+        help="Pass-through to ansible-playbook --tags. Repeat for multiple.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="ansible-playbook --check --diff: show what would change.",
+    ),
+    ask_vault_pass: bool = typer.Option(
+        False,
+        "--ask-vault-pass",
+        help="Prompt for the ansible-vault password to decrypt topology secrets.",
+    ),
+) -> None:
+    """Reconcile every node (or one) in the topology to its declared state.
+
+    Reads ``topology.yml`` (or the path passed via ``--topology``),
+    dispatches each node to the right per-target reconciler. Today
+    only ``target: pi`` is wired up; ``fly`` and ``docker`` land in
+    follow-up PRs.
+    """
+    raise typer.Exit(
+        _deploy.deploy(
+            topology,
+            node=node,
+            tags=tags or None,
+            dry_run=dry_run,
+            ask_vault_pass=ask_vault_pass,
+        )
+    )
 
 
 @app.command(name="debug-auth")
