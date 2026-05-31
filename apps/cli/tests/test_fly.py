@@ -130,6 +130,53 @@ def test_render_fly_toml_sentry_default_off(tmp_path: Path) -> None:
     assert 'EIDAN_SENTRY_ENABLED    = "0"' in rendered
 
 
+def test_render_fly_toml_pins_plugin_source_in_env_block(tmp_path: Path) -> None:
+    """``EIDAN_PLUGIN_SOURCE`` is a config value (repo path), not a
+    secret. Pinning it in fly.toml ``[env]`` puts it on the machine
+    before ``fly ssh -C "eidan admin plugin install ..."`` runs —
+    so the command line carries neither the source nor the PAT, and
+    fly-ssh's exec-style invocation (no shell) doesn't choke on
+    what would otherwise look like a binary called
+    ``EIDAN_PLUGIN_SOURCE=...``."""
+    body = """
+        schema: 1
+        nodes:
+          fly-prod:
+            target: fly
+            app: eidan-api
+            region: lhr
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+            plugin_source: gh:myorg
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    rendered = fly._render_fly_toml(topology.resolve_node("fly-prod"))
+
+    assert 'EIDAN_PLUGIN_SOURCE     = "gh:myorg"' in rendered
+
+
+def test_render_fly_toml_plugin_source_default(tmp_path: Path) -> None:
+    """``plugin_source:`` defaults to ``gh:sielay`` when unset — same
+    default the install command uses for the upstream eidan-pro
+    repository."""
+    body = """
+        schema: 1
+        nodes:
+          fly-prod:
+            target: fly
+            app: eidan-api
+            region: lhr
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    rendered = fly._render_fly_toml(topology.resolve_node("fly-prod"))
+
+    assert 'EIDAN_PLUGIN_SOURCE     = "gh:sielay"' in rendered
+
+
 # ---------- required-field errors ----------
 
 
@@ -319,12 +366,21 @@ def test_reconcile_renders_fly_toml_and_invokes_all_steps(
     assert any(arg.endswith("Dockerfile") for arg in deploy_cmds[0])
     assert any(arg.endswith("fly.toml") for arg in deploy_cmds[0])
 
-    # `fly ssh console --app eidan-api -C "... eidan admin plugin install eidan-pro"`
+    # `fly ssh console --app eidan-api -C "eidan admin plugin install eidan-pro"`
+    # The PAT and EIDAN_PLUGIN_SOURCE MUST NOT appear in the ssh command line:
+    # fly-ssh uses exec, not a shell, and anything passed on the command line
+    # ends up in the spawned process's argv (visible to `ps`) plus fly's
+    # connection log. Both env vars are already on the machine — PAT via
+    # `fly secrets set`, plugin source via the fly.toml [env] block.
     ssh_cmds = [c for c in invoked if c[:3] == ["fly", "ssh", "console"]]
     assert len(ssh_cmds) == 1
     assert any(
         "eidan admin plugin install eidan-pro" in arg for arg in ssh_cmds[0]
     )
+    flat_ssh = " ".join(ssh_cmds[0])
+    assert "PAT-XXXX" not in flat_ssh
+    assert "EIDAN_GITHUB_TOKEN" not in flat_ssh
+    assert "EIDAN_PLUGIN_SOURCE" not in flat_ssh
 
 
 def test_reconcile_tag_secrets_only_runs_secrets(tmp_path: Path) -> None:

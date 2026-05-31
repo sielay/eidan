@@ -172,6 +172,20 @@ def _render_fly_toml(node: ResolvedNode) -> str:
     if getattr(node, "node_type", None):
         extra_env_lines.append(f'  EIDAN_NODE_TYPE         = "{node.node_type}"')
 
+    # EIDAN_PLUGIN_SOURCE is a config value (a repo path like
+    # 'gh:sielay'), not a secret — but it has to be on the machine
+    # env for `eidan admin plugin install` to pick it up over SSH.
+    # Pinning it in the fly.toml [env] block (rather than threading
+    # it through `fly ssh -C` as a `VAR=val cmd` prefix) means the
+    # ssh command line carries neither the source nor the PAT, and
+    # fly-ssh's exec-style invocation (no shell) doesn't choke on
+    # what would otherwise look like a binary called
+    # "EIDAN_PLUGIN_SOURCE=gh:sielay".
+    plugin_source = getattr(node, "plugin_source", None) or "gh:sielay"
+    extra_env_lines.append(
+        f'  EIDAN_PLUGIN_SOURCE     = "{plugin_source}"'
+    )
+
     template_path = resources.files("eidan_cli.playbooks.fly") / "fly.toml.template"
     template = template_path.read_text(encoding="utf-8")
 
@@ -319,19 +333,29 @@ def _fly_deploy(
 def _install_bundles(
     node: ResolvedNode, *, dry_run: bool, app: str
 ) -> int:
+    """Install each declared bundle via `fly ssh console -C ...`.
+
+    The remote command is a bare ``eidan admin plugin install <bundle>``.
+    Both env vars the installer reads — ``EIDAN_PLUGIN_SOURCE`` and
+    ``EIDAN_GITHUB_TOKEN`` — live on the machine already:
+    ``EIDAN_GITHUB_TOKEN`` via ``fly secrets set`` (see
+    :func:`_secret_values`), ``EIDAN_PLUGIN_SOURCE`` via the
+    rendered fly.toml ``[env]`` block (see :func:`_render_fly_toml`).
+
+    Why not pass them on the SSH command line? Two reasons:
+    1. ``fly ssh console -C "<cmd>"`` runs ``<cmd>`` via ``exec``,
+       not a shell, so a ``VAR=val cmd`` prefix is parsed as the
+       executable name — operators see ``executable file not found``.
+    2. Anything on the command line is printed by the CLI's
+       command-echo, visible in fly's audit log, and present in
+       the spawned process's argv. The PAT in particular must not
+       go there."""
     bundles = getattr(node, "bundles", None) or []
     if not bundles:
         return 0
     bundle_names = [b.root if hasattr(b, "root") else str(b) for b in bundles]
-    plugin_source = getattr(node, "plugin_source", None) or "gh:sielay"
-    gh_token = getattr(node, "github_token", None) or ""
-    # One ssh invocation per bundle. The remote command exports the
-    # PAT only for the duration of the install, never persists it.
     for bundle in bundle_names:
-        env_prefix = f"EIDAN_PLUGIN_SOURCE={plugin_source}"
-        if gh_token:
-            env_prefix += f" EIDAN_GITHUB_TOKEN={gh_token}"
-        remote_cmd = f"{env_prefix} eidan admin plugin install {bundle}"
+        remote_cmd = f"eidan admin plugin install {bundle}"
         cmd = [
             "fly",
             "ssh",
