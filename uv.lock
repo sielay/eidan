@@ -463,7 +463,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "eidan-backend"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/backend" }
 dependencies = [
     { name = "aiosmtplib" },
@@ -525,7 +525,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "eidan-cli"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/cli" }
 dependencies = [
     { name = "eidan-backend" },
@@ -565,7 +565,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "eidan-schemas"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/schemas" }
 dependencies = [
     { name = "pydantic", extra = ["email"] },

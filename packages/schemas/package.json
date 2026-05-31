@@ -1,6 +1,6 @@
 {
   "name": "@eidan/schemas",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Eidan JSON Schema source of truth — generates Zod + Pydantic. See docs/004_SCHEMAS.md.",
   "type": "module",
