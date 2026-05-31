@@ -314,10 +314,10 @@ Core ships a built-in HTTP/JSON forwarder in
 [`apps/backend/eidan_backend/log_forwarding.py`](../apps/backend/eidan_backend/log_forwarding.py).
 The operator's surface is pure env-config in `/etc/eidan/eidan.env`
 — no Python file to drop, no `PYTHONPATH`, no `sitecustomize.py`,
-nothing to write under `/opt/eidan/`. This respects the no-fork
-distribution model ([018](./018_DISTRIBUTION_AND_BUNDLES.md)):
-operators only ever touch their env file; core code is read-only
-on the host.
+nothing to write under `/opt/eidan/`. This respects the
+gitignored-config distribution model
+([018](./018_DISTRIBUTION_AND_BUNDLES.md)): operators only ever
+touch their env file; core code is read-only on the host.
 
 ### 6.1 Env vars
 
@@ -349,7 +349,7 @@ plugin activate, telemetry `node.boot`) land in the intake too.
 > The HTTP entry point's log-config builder lifts the root logger
 > to that level when it constructs uvicorn's `dictConfig` (see
 > [`http/server.py:_build_log_config`](../apps/backend/eidan_backend/http/server.py)),
-> so the no-fork / env-only operator model is intact — there's no
+> so the env-only operator model is intact — there's no
 > need to edit unit files, pass uvicorn CLI flags, or write a
 > `logging.basicConfig` shim. One edge: if `EIDAN_HTTP_LOG_FILE`
 > is set to the empty string (file logging disabled), the custom
@@ -470,7 +470,9 @@ transformation, but the cost is:
   generic HTTPS endpoint.
 - **Operator-edits-core** if we ask operators to install the SDK
   themselves and wire it via `sitecustomize.py` — explicitly
-  forbidden by the no-fork distribution model.
+  forbidden by the gitignored-config policy (operator config
+  must live in gitignored paths, not as edits to tracked
+  source).
 
 The built-in forwarder accepts the trade — flat JSON + stdlib
 sockets, no batching beyond Python's internal queue, retries are
