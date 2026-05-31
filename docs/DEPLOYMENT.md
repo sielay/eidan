@@ -16,6 +16,17 @@ database options, the Vercel frontend setup) lives in §6–§8 and is
 linked from every recipe so the recipe stays focused on platform
 specifics.
 
+> **Just want to set up a new deployment?** Start with `eidan init
+> <name>`, which scaffolds a private ops repo with a starter
+> `topology.yml`, a `.gitignore` that excludes the vault password
+> file, and a README walking through first-time setup. From there
+> `eidan deploy --node <name>` reconciles each node against the
+> topology, so the per-target recipes below (§3 Pi, §4 Fly) become
+> implementation detail behind the CLI rather than steps an
+> operator types by hand. Reconcilers are still landing — until
+> the target you want is wired up, follow the matching recipe
+> below directly.
+
 ## 1. The pieces
 
 | Component                | What it is                                           | State                        |
