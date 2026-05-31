@@ -39,7 +39,7 @@ if _repo_root_env.is_file():
 import typer  # noqa: E402
 from rich.console import Console  # noqa: E402
 
-from . import admin, auth_flow, doctor, lint, repl, storage  # noqa: E402
+from . import admin, auth_flow, doctor, lint, repl, scaffold, storage  # noqa: E402
 
 app = typer.Typer(
     name="eidan",
@@ -161,6 +161,54 @@ def logout() -> None:
     """Discard the stored JWT."""
     storage.clear()
     _console.print("[green]signed out.[/green]")
+
+
+@app.command(name="init")
+def init_cmd(
+    name: str = typer.Argument(
+        ...,
+        help="Directory name for the new ops repo (created in cwd).",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite an existing directory at the target path.",
+    ),
+) -> None:
+    """Scaffold a private ops repo for an eidan deployment.
+
+    Creates ``./<name>/`` populated from the bundled template
+    (``topology.yml`` starter, ``.gitignore``, ``.vault-pass.example``,
+    ``README.md``). Non-interactive — the operator edits
+    ``topology.yml`` by hand. ``git init`` and pushing to a private
+    remote are the operator's responsibility (so we don't dictate
+    where the ops repo lives).
+    """
+    try:
+        target = scaffold.scaffold(name, force=force)
+    except scaffold.ScaffoldTargetExists as exc:
+        _console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    except scaffold.ScaffoldError as exc:
+        _console.print(f"[red]scaffold failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    _console.print(
+        f"[green]scaffolded[/green] ops repo at [cyan]{target}[/cyan]"
+    )
+    _console.print()
+    _console.print("[bold]Next steps:[/bold]")
+    _console.print(f"  cd {name}")
+    _console.print("  $EDITOR topology.yml          # fill in your nodes")
+    _console.print("  cp .vault-pass.example .vault-pass && chmod 0600 .vault-pass")
+    _console.print(
+        "  ansible-vault encrypt_string --vault-id default@.vault-pass \\"
+    )
+    _console.print(
+        "    'your-secret' --name 'auth_master_key'    # paste into topology.yml"
+    )
+    _console.print("  git init && git add . && git commit -m 'initial topology'")
+    _console.print("  eidan deploy                  # reconcile every node")
 
 
 @app.command(name="debug-auth")
