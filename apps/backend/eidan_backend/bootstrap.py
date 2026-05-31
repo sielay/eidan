@@ -22,6 +22,7 @@ dispatcher cleanly at shutdown.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -298,6 +299,19 @@ class BootstrapNotMigratedError(RuntimeError):
     """
 
 
+def _disabled_plugins_from_env() -> set[str]:
+    """Parse ``EIDAN_DISABLED_PLUGINS`` into a set of plugin names.
+
+    Comma-separated, case-sensitive, whitespace around each entry is
+    trimmed, empty entries dropped. Unset or empty → empty set (no
+    filtering). The loader treats unknown names as a soft warning, so
+    operators can safely ship the same value across nodes with
+    different installed bundles.
+    """
+    raw = os.environ.get("EIDAN_DISABLED_PLUGINS", "")
+    return {name.strip() for name in raw.split(",") if name.strip()}
+
+
 async def _plugin_state_exists(pool: asyncpg.Pool) -> bool:
     """Probe ``eidan.plugin_state`` existence without touching the table."""
     async with pool.acquire() as conn:
@@ -379,7 +393,7 @@ async def bootstrap(
                 flagged,
             )
 
-    plugins = load_plugins(plugins_dir)
+    plugins = load_plugins(plugins_dir, disabled=_disabled_plugins_from_env())
     if not plugins:
         logger.info("[bootstrap] no plugins discovered under %s", plugins_dir)
         tool_registry = _make_tool_registry_with_core_tools(pool)

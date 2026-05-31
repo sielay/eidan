@@ -561,6 +561,23 @@ For each `installed && enabled` plugin, in topological order:
 3. Mount routers, behaviour handlers, MCP server, frontend routes.
 4. Mark `active`.
 
+**Operator override — `EIDAN_DISABLED_PLUGINS`.** A comma-separated
+list of plugin names to *exclude* from the activate pass entirely.
+A disabled plugin's directory and migrations are left alone on
+disk; the loader simply does not parse its manifest, instantiate
+its `Plugin` class, or fire any lifecycle hook. Matching is
+case-sensitive; whitespace around each entry is trimmed; unknown
+names emit a soft warning rather than failing the boot (the same
+env-var value typically applies across nodes with different
+installed bundles). Operators reach for this to silence noisy
+plugins during testing, or to express "installed in this bundle
+but not loaded on this node" from a deploy CLI without
+uninstalling. Restart-required like every other loader env var.
+If a disabled plugin is depended on by another plugin that is
+*not* disabled, the existing `depends_on` check raises
+`PluginMissingDependencyError` at boot — disable the dependent
+too, or leave the dependency loaded.
+
 ### 8.3 Deactivate
 
 Inverse topological order:

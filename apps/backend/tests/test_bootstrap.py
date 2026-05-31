@@ -30,7 +30,11 @@ from eidan_backend.behaviours import (
     TriggerEvent,
     parse_trigger,
 )
-from eidan_backend.bootstrap import _make_context_factory, bootstrap
+from eidan_backend.bootstrap import (
+    _disabled_plugins_from_env,
+    _make_context_factory,
+    bootstrap,
+)
 from eidan_backend.plugins import LoadedPlugin, PluginBase, load_manifest
 from eidan_backend.tools import ToolRegistry
 
@@ -262,3 +266,30 @@ async def test_context_factory_publish_event_is_none_without_dispatcher(
     ctx = factory(loaded)
 
     assert ctx.publish_event is None
+
+
+# ---------- EIDAN_DISABLED_PLUGINS env parsing --------------------------------
+
+
+def test_disabled_plugins_from_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EIDAN_DISABLED_PLUGINS", raising=False)
+    assert _disabled_plugins_from_env() == set()
+
+
+def test_disabled_plugins_from_env_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EIDAN_DISABLED_PLUGINS", "")
+    assert _disabled_plugins_from_env() == set()
+
+
+def test_disabled_plugins_from_env_single(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EIDAN_DISABLED_PLUGINS", "imap")
+    assert _disabled_plugins_from_env() == {"imap"}
+
+
+def test_disabled_plugins_from_env_multiple_with_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Operator-friendly: pad commas with spaces, mix empties — all
+    normalised to a clean set."""
+    monkeypatch.setenv("EIDAN_DISABLED_PLUGINS", "  imap, sentry ,,calendar,  ")
+    assert _disabled_plugins_from_env() == {"imap", "sentry", "calendar"}
