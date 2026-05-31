@@ -258,5 +258,5 @@ class Topology(BaseModel):
     """
     nodes: dict[str, Node]
     """
-    Map of node-name → node config. Node names are operator-chosen and used by `eidan deploy --node <name>`, log lines, and the per-node telemetry view in the admin UI (`docs/024`). Each node reconciles independently; failure on one does not block the others.
+    Map of node-name → node config. Node names are operator-chosen and used by `eidan deploy --node <name>`, log lines, and the per-node telemetry view in the admin UI (`docs/024`). Each node reconciles independently; failure on one does not block the others. A zero-node topology is rejected at the parser level (`load_topology`) rather than in this schema — `minProperties: 1` codegens inconsistently across `datamodel-code-generator` versions, so the constraint lives in `apps/cli/eidan_cli/topology.py` for portability.
     """
