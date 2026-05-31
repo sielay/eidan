@@ -76,7 +76,7 @@ Pick where to host them:
 |------|--------------|-------|
 | **Dev container** *(recommended for local)* | You have Docker + VS Code. Python, Postgres, and a Caddy reverse proxy come prewired. ~5 minutes. | [→ devcontainer quickstart](./docs/LOCALHOST.md#quickstart-via-devcontainer-recommended) |
 | **Bare metal** | You'd rather install Python / Postgres / Node yourself, or you're targeting a Pi. ~15 minutes. | [→ bare-metal walkthrough](./docs/LOCALHOST.md#0-prerequisites) |
-| **Full-stack deploy** | Hosted backend + web UI exposed to a browser; single-host Fly, Pi cluster, multi-instance. | [→ deployment guide](./docs/DEPLOYMENT.md) |
+| **Full-stack deploy** | Hosted backend + web UI exposed to a browser; single-host Fly, Pi cluster, multi-instance. Run `eidan init <name>` once to scaffold your private ops repo; `eidan deploy` reconciles every node from `topology.yml`. | [→ deployment guide](./docs/DEPLOYMENT.md) |
 
 Auth is native — magic-link sign-in against a single-operator
 allow-list (`EIDAN_AUTH_ALLOWED_EMAIL`), an RS256 JWT minted by the
