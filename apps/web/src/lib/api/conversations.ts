@@ -97,6 +97,26 @@ export async function listConversations(
   return body.conversations;
 }
 
+/**
+ * Fetch a single conversation row by id. Used by the chat-view
+ * header so the title can render without pulling the whole sidebar
+ * payload.
+ */
+export async function fetchConversation(
+  conversationId: string,
+): Promise<ConversationSummary> {
+  const res = await authFetch(`/api/conversations/${conversationId}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(
+      `GET /api/conversations/${conversationId} returned ${res.status}`,
+    );
+  }
+  return (await res.json()) as ConversationSummary;
+}
+
 interface CreateConversationResponse {
   id: string;
   title: string | null;
@@ -114,4 +134,57 @@ export async function createConversation(
     throw new Error(`POST /api/conversations returned ${res.status}`);
   }
   return (await res.json()) as CreateConversationResponse;
+}
+
+interface UpdateConversationResponse {
+  id: string;
+  title: string | null;
+}
+
+/**
+ * PATCH a conversation's title (issue #48). Pass ``null`` (or omit) to
+ * clear the title back to autogen-eligible state; the backend trims
+ * whitespace and collapses empty strings to ``null``.
+ */
+export async function updateConversationTitle(
+  conversationId: string,
+  title: string | null,
+): Promise<UpdateConversationResponse> {
+  const res = await authFetch(
+    `/api/conversations/${conversationId}`,
+    {
+      method: "PATCH",
+      headers: { Accept: "application/json" },
+      body: JSON.stringify({ title }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `PATCH /api/conversations/${conversationId} returned ${res.status}`,
+    );
+  }
+  return (await res.json()) as UpdateConversationResponse;
+}
+
+/**
+ * Force-regenerate a conversation's title from its first user +
+ * assistant exchange. The backend runs a one-shot haiku-class summary
+ * inline and returns the new title.
+ */
+export async function regenerateConversationTitle(
+  conversationId: string,
+): Promise<UpdateConversationResponse> {
+  const res = await authFetch(
+    `/api/conversations/${conversationId}/regenerate_title`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `POST /api/conversations/${conversationId}/regenerate_title returned ${res.status}`,
+    );
+  }
+  return (await res.json()) as UpdateConversationResponse;
 }
