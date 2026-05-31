@@ -134,6 +134,10 @@ class Defaults(BaseModel):
     """
     Default SMTP config for magic-link delivery. Per-node `smtp:` wins. Often identical across nodes since all share one Postgres + one operator email.
     """
+    image: str | None = Field(None, max_length=256, min_length=1)
+    """
+    Default container image for image-based targets (`fly`, future `docker`). Per-node `image:` wins. Typical pattern: pin a specific tag here so all Fly machines roll forward together; override per node when one needs to lag behind for testing.
+    """
 
 
 class Node(BaseModel):
@@ -211,6 +215,10 @@ class Node(BaseModel):
     ollama_base_url: AnyUrl | None = None
     """
     Override the Ollama base URL when `provider.name = ollama`. Defaults to `http://127.0.0.1:11434/v1` — pin only when Ollama runs on a different host or non-default port.
+    """
+    image: str | None = Field(None, max_length=256, min_length=1)
+    """
+    Container image reference for image-based targets (`fly`, future `docker`). Pin a specific tag — e.g. `ghcr.io/sielay/eidan:v0.1.0` — so deploys are reproducible. Ignored for `target: pi` (Ansible installs from git). When unset, the Fly reconciler defaults to `ghcr.io/sielay/eidan:latest`. Digests (`...@sha256:...`) are accepted; the reconciler passes the value through to `fly deploy --image` verbatim.
     """
     host: str | None = Field(None, min_length=1)
     """

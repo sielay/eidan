@@ -37,6 +37,19 @@ if TYPE_CHECKING:
 _DEFAULT_IMAGE = "ghcr.io/sielay/eidan:latest"
 
 
+def _resolve_image(node: ResolvedNode) -> str:
+    """Per-node `image:` if set, else the published-latest default.
+
+    Reads the schema field added in #76 — when unset (including the
+    case where a node inherits the default via the topology's
+    ``defaults:`` block but the default is itself unset), falls back
+    to ``ghcr.io/sielay/eidan:latest``. Digests
+    (``...@sha256:...``) pass through verbatim because the schema's
+    pattern accepts them.
+    """
+    return getattr(node, "image", None) or _DEFAULT_IMAGE
+
+
 class FlyMissingFieldError(TargetReconcileError):
     """Raised when a Fly node lacks a required Fly-specific field
     (``app`` or ``region``)."""
@@ -95,7 +108,10 @@ def _render_fly_toml(node: ResolvedNode) -> str:
     cors_origins = ",".join(
         str(origin) for origin in (getattr(node, "cors_origins", None) or [])
     )
-    image = _DEFAULT_IMAGE
+    # Per-node `image:` wins over the bundled default. Operators
+    # almost always want a pinned tag in production; the default is
+    # `latest` for first-time-deploy ergonomics only.
+    image = _resolve_image(node)
 
     extra_env_lines: list[str] = []
     sentry = getattr(node, "sentry", None)
@@ -286,12 +302,9 @@ def reconcile(
             return code
 
     if do_all or "deploy" in tags_set:
-        # Image override would come from an env var or future schema
-        # field; default to latest for now. Operator pins via topology
-        # once an `image:` field lands (separate PR).
         code = _fly_deploy(
             fly_toml_path=fly_toml_path,
-            image=_DEFAULT_IMAGE,
+            image=_resolve_image(node),
             dry_run=dry_run,
         )
         if code != 0:
