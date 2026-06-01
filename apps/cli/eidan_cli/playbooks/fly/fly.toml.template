@@ -30,9 +30,4 @@ __BUILD_BLOCK__[http_service]
   EIDAN_HTTP_HOST         = "__HTTP_HOST__"
   EIDAN_DEPLOYMENT_MODE   = "__DEPLOYMENT_MODE__"
   EIDAN_HTTP_CORS_ORIGINS = "__CORS_ORIGINS__"
-  EIDAN_PLUGINS_DIR       = "/var/lib/eidan/plugins"
 __SENTRY_ENABLED_LINE____DISABLED_PLUGINS_LINE____NODE_ID_LINE____NODE_TYPE_LINE__
-
-[[mounts]]
-  source      = "eidan_plugins"
-  destination = "/var/lib/eidan/plugins"
