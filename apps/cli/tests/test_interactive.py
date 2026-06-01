@@ -120,7 +120,14 @@ def test_init_wizard_fly_path_collects_app_and_region(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Fly target collects `app` + `region` instead of Pi's SSH fields.
-    Also exercises a non-ollama provider (API key prompted)."""
+    Also exercises a non-ollama provider (API key prompted).
+
+    We stub the Fly app-existence probe to "exists" so the test
+    doesn't try to shell out to a real fly binary. The
+    auto-create branch has its own focused tests below."""
+    monkeypatch.setattr(
+        interactive, "_ensure_fly_app", lambda app: None
+    )
     _stub_questionary(
         monkeypatch,
         [
@@ -149,6 +156,158 @@ def test_init_wizard_fly_path_collects_app_and_region(
     assert "api_key:" in topology
     # No bundles selected → no `bundles:` line written. Core-only deploy.
     assert "bundles:" not in topology
+
+
+# ---------- _ensure_fly_app branches ------------------------------------------
+
+
+class _SubprocessResult:
+    """Lightweight stand-in for ``subprocess.CompletedProcess`` so
+    tests can return canned shell-output without touching the real
+    subprocess module's constructor (which validates args we don't
+    care about)."""
+
+    def __init__(self, *, returncode: int, stdout: str = "", stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _patch_fly_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fly_on_path: bool = True,
+    apps_list_returncode: int = 0,
+    apps_list_stdout: str = "[]",
+    apps_list_stderr: str = "",
+    create_returncode: int = 0,
+) -> dict[str, list[Any]]:
+    """Patch ``shutil.which`` + ``subprocess.run`` to simulate the
+    Fly subprocess world. Returns a dict the test can inspect to
+    confirm which commands were invoked."""
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    calls: dict[str, list[Any]] = {"run": []}
+
+    def _fake_which(name: str) -> str | None:
+        if name == "fly" and fly_on_path:
+            return "/usr/local/bin/fly"
+        return None
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> _SubprocessResult:
+        calls["run"].append(list(cmd))
+        if cmd[:3] == ["fly", "apps", "list"]:
+            return _SubprocessResult(
+                returncode=apps_list_returncode,
+                stdout=apps_list_stdout,
+                stderr=apps_list_stderr,
+            )
+        if cmd[:3] == ["fly", "apps", "create"]:
+            return _SubprocessResult(returncode=create_returncode)
+        return _SubprocessResult(returncode=0)
+
+    monkeypatch.setattr(_shutil, "which", _fake_which)
+    monkeypatch.setattr(_subprocess, "run", _fake_run)
+    return calls
+
+
+def test_ensure_fly_app_no_action_when_app_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If `fly apps list --json` already returns the named app, the
+    helper does nothing — no prompt, no create call."""
+    calls = _patch_fly_subprocess(
+        monkeypatch,
+        apps_list_stdout='[{"Name": "eidan-api"}]',
+    )
+    _stub_questionary(monkeypatch, [])  # no answers needed; nothing prompts
+
+    interactive._ensure_fly_app("eidan-api")
+
+    list_calls = [c for c in calls["run"] if c[:3] == ["fly", "apps", "list"]]
+    create_calls = [c for c in calls["run"] if c[:3] == ["fly", "apps", "create"]]
+    assert len(list_calls) == 1
+    assert create_calls == []
+
+
+def test_ensure_fly_app_creates_when_operator_accepts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Happy path: app missing, operator confirms, `fly apps create`
+    runs with the chosen org."""
+    calls = _patch_fly_subprocess(
+        monkeypatch,
+        apps_list_stdout='[{"Name": "some-other-app"}]',
+        create_returncode=0,
+    )
+    _stub_questionary(
+        monkeypatch,
+        [
+            True,         # confirm "Create it now?" → yes
+            "personal",   # org slug
+        ],
+    )
+
+    interactive._ensure_fly_app("eidan-api")
+
+    create_calls = [c for c in calls["run"] if c[:3] == ["fly", "apps", "create"]]
+    assert len(create_calls) == 1
+    assert create_calls[0] == [
+        "fly", "apps", "create", "eidan-api", "--org", "personal",
+    ]
+
+
+def test_ensure_fly_app_skips_when_operator_declines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """App missing, operator declines — no create call, no error.
+    Operator gets a hint that they need to create it before deploy."""
+    calls = _patch_fly_subprocess(
+        monkeypatch,
+        apps_list_stdout="[]",
+    )
+    _stub_questionary(monkeypatch, [False])  # decline
+
+    interactive._ensure_fly_app("eidan-api")
+
+    create_calls = [c for c in calls["run"] if c[:3] == ["fly", "apps", "create"]]
+    assert create_calls == []
+
+
+def test_ensure_fly_app_no_op_when_fly_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`fly` not on PATH → helper does nothing (no prompt). The
+    deploy step will probe again and the operator gets the
+    "install flyctl" message at the right moment."""
+    calls = _patch_fly_subprocess(monkeypatch, fly_on_path=False)
+    _stub_questionary(monkeypatch, [])  # no answers needed
+
+    interactive._ensure_fly_app("eidan-api")
+
+    # No `fly apps list` should fire at all when fly is missing.
+    assert calls["run"] == []
+
+
+def test_ensure_fly_app_no_op_when_not_authed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`fly apps list` returns non-zero (most often: `fly auth
+    login` not done). We surface the stderr inline (mocked
+    questionary.print no-ops it here) and skip the create prompt.
+    The deploy step's own probe handles the user-facing error."""
+    calls = _patch_fly_subprocess(
+        monkeypatch,
+        apps_list_returncode=1,
+        apps_list_stderr="Error: not authenticated",
+    )
+    _stub_questionary(monkeypatch, [])  # no prompts
+
+    interactive._ensure_fly_app("eidan-api")
+
+    create_calls = [c for c in calls["run"] if c[:3] == ["fly", "apps", "create"]]
+    assert create_calls == []
 
 
 def test_init_wizard_cancelled_at_first_prompt_raises_cancelled(

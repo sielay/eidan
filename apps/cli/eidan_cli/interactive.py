@@ -204,16 +204,124 @@ def _ask_pi_fields() -> dict[str, Any]:
     return out
 
 
+def _fly_app_exists(app: str) -> bool | None:
+    """Return ``True`` if ``app`` is in the operator's ``fly apps list``,
+    ``False`` if Fly says it doesn't exist, ``None`` if we can't tell
+    (``fly`` missing on PATH, auth not configured, network blip).
+
+    The ``None`` case is deliberately distinct from ``False`` — when
+    we can't probe, we shouldn't offer to create either. Falling
+    back to the manual instruction is honest.
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("fly") is None:
+        return None
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["fly", "apps", "list", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        # Most common cause: `fly auth login` not done. Surface the
+        # stderr so the operator sees the actual reason; return None
+        # so the caller falls back to manual instructions.
+        if result.stderr.strip():
+            questionary.print(
+                f"  (could not check Fly: {result.stderr.strip().splitlines()[0]})",
+                style="fg:#888888",
+            )
+        return None
+    try:
+        import json as _json
+
+        apps = _json.loads(result.stdout or "[]")
+    except _json.JSONDecodeError:
+        return None
+    return any(
+        isinstance(entry, dict) and entry.get("Name") == app
+        for entry in apps
+    )
+
+
+def _create_fly_app(app: str, org: str) -> bool:
+    """Run ``fly apps create <app> --org <org>``. Returns ``True`` on
+    success, ``False`` if Fly refused (e.g. name already taken by
+    another account in Fly's global namespace). stdout/stderr stream
+    through so the operator sees the create progress + any error
+    inline."""
+    import subprocess
+
+    result = subprocess.run(  # noqa: S603
+        ["fly", "apps", "create", app, "--org", org],
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _ensure_fly_app(app: str) -> None:
+    """If ``app`` doesn't exist on Fly, offer to create it. Best-
+    effort: if we can't probe (``fly`` missing, not logged in), fall
+    back to the manual instruction with the exact command. We never
+    create silently — every ``fly apps create`` is gated on an
+    explicit operator yes."""
+    exists = _fly_app_exists(app)
+    if exists is True:
+        return
+    if exists is None:
+        questionary.print(
+            f"  (couldn't probe Fly; ensure the app exists before deploy: "
+            f"fly apps create {app})",
+            style="fg:#888888",
+        )
+        return
+    create = _ask(
+        questionary.confirm(
+            f"Fly app {app!r} doesn't exist. Create it now?",
+            default=True,
+        )
+    )
+    if not create:
+        questionary.print(
+            f"  (skipped; create manually before deploy: fly apps create {app})",
+            style="fg:#888888",
+        )
+        return
+    org = _ask(
+        questionary.text(
+            "Fly org slug (press enter for 'personal'):",
+            default="personal",
+        )
+    ).strip() or "personal"
+    if not _create_fly_app(app, org):
+        questionary.print(
+            "  (`fly apps create` failed; check the output above and "
+            "either pick a different name or create manually)",
+            style="fg:#ff8800",
+        )
+
+
 def _ask_fly_fields() -> dict[str, Any]:
     """Fly-specific topology fields. ``app`` + ``region`` are required;
     everything else (image, build args, scaling) takes per-target
-    defaults the reconciler fills in."""
+    defaults the reconciler fills in.
+
+    If the named app doesn't exist on Fly yet, we offer to create
+    it inline rather than send the operator off to run
+    ``fly apps create`` themselves."""
     app = _ask(
         questionary.text(
-            "Fly app name (must already exist — `fly apps create <name>`):",
+            "Fly app name:",
             validate=lambda s: bool(s.strip()) or "app name is required",
         )
-    )
+    ).strip()
+    _ensure_fly_app(app)
     region = _ask(
         questionary.text(
             "Fly region code (e.g. lhr, fra, ord — see `fly platform regions`):",
@@ -221,7 +329,7 @@ def _ask_fly_fields() -> dict[str, Any]:
             validate=lambda s: bool(s.strip()) or "region is required",
         )
     )
-    return {"app": app.strip(), "region": region.strip()}
+    return {"app": app, "region": region.strip()}
 
 
 def _ask_provider() -> dict[str, Any]:
