@@ -398,6 +398,60 @@ def test_ensure_ansible_available_quiet_when_present() -> None:
         pi.ensure_ansible_available()  # should not raise
 
 
+# ---------- ensure_ansible_posix_collection ----------
+
+
+def test_ensure_ansible_posix_runs_install_command() -> None:
+    """When ansible-galaxy is on PATH, the helper runs
+    ``ansible-galaxy collection install ansible.posix --upgrade``.
+    The command is idempotent (a no-op when the collection is
+    already at latest), so we don't gate it on a prior probe."""
+    invoked: list[list[str]] = []
+
+    def _fake_run(cmd, **kwargs):
+        invoked.append(list(cmd))
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
+
+    with patch.object(pi.shutil, "which", return_value="/usr/bin/ansible-galaxy"), \
+         patch.object(pi.subprocess, "run", _fake_run):
+        pi.ensure_ansible_posix_collection()
+
+    assert any(
+        c[:4] == ["ansible-galaxy", "collection", "install", "ansible.posix"]
+        for c in invoked
+    )
+
+
+def test_ensure_ansible_posix_swallows_failure() -> None:
+    """A network blip during the install must not fail the deploy.
+    The reconciler will surface a clearer error if the missing
+    collection actually matters at playbook-run time."""
+    def _boom(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=60)
+
+    with patch.object(pi.shutil, "which", return_value="/usr/bin/ansible-galaxy"), \
+         patch.object(pi.subprocess, "run", _boom):
+        # No exception escapes — best-effort.
+        pi.ensure_ansible_posix_collection()
+
+
+def test_ensure_ansible_posix_no_op_when_galaxy_missing() -> None:
+    """A `ansible-core` install without `ansible-galaxy` on PATH
+    (rare but possible) skips the collection install silently —
+    no error, no subprocess call."""
+    invoked: list[list[str]] = []
+
+    def _record(cmd, **kwargs):
+        invoked.append(list(cmd))
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
+
+    with patch.object(pi.shutil, "which", return_value=None), \
+         patch.object(pi.subprocess, "run", _record):
+        pi.ensure_ansible_posix_collection()
+
+    assert invoked == []
+
+
 # ---------- orchestrator ----------
 
 

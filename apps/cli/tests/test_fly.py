@@ -561,6 +561,12 @@ def test_reconcile_renders_fly_toml_and_invokes_all_steps(
     assert str(ctx) in deploy_cmds[0]
     assert str(ctx / "infra" / "fly" / "Dockerfile") in deploy_cmds[0]
     assert any(arg.endswith("fly.toml") for arg in deploy_cmds[0])
+    # `--app <name>` passed explicitly to flyctl so its internal
+    # resolution doesn't get confused between -c and context-walk
+    # and surface "missing an app name" against a fly.toml that
+    # plainly carries the field. Belt-and-braces.
+    assert "--app" in deploy_cmds[0]
+    assert "eidan-api" in deploy_cmds[0]
 
     # No more `fly ssh console -C "eidan admin plugin install ..."`
     # — plugins ride the image. Bake-at-build (#104 slice A).

@@ -57,6 +57,17 @@ _TARGET_DEP_PROBES: dict[str, str] = {
     "fly": "ensure_flyctl_available",
 }
 
+# Per-target side-effecting preflight (idempotent setup we run BEFORE
+# the reconcile fires). Distinct from ``_TARGET_DEP_PROBES`` because
+# these aren't allowed to fail — they're best-effort. Currently just
+# the ``ansible.posix`` collection install for Pi; collections aren't
+# pip packages so they can't ride along with `uv tool install` and the
+# manual `ansible-galaxy collection install` step is exactly the kind
+# of friction the bootstrap was supposed to remove.
+_TARGET_PREFLIGHT: dict[str, str] = {
+    "pi": "ensure_ansible_posix_collection",
+}
+
 
 class DeployError(Exception):
     """Base class for orchestrator-level failures (no reconciler
@@ -151,6 +162,20 @@ def deploy(
         except TargetReconcileError as exc:
             _console.print(f"[red]{exc}[/red]")
             return 5
+
+    # Idempotent preflight setup (collection installs etc.). Best-
+    # effort; we don't fail the deploy on a hiccup here — the
+    # reconciler itself will surface a clearer error if the missing
+    # piece really matters.
+    for target_name in sorted(targets_in_use):
+        preflight_attr = _TARGET_PREFLIGHT.get(target_name)
+        if preflight_attr is None:
+            continue
+        module = _TARGET_MODULES[target_name]
+        try:
+            getattr(module, preflight_attr)()
+        except Exception:  # noqa: BLE001 — preflight is best-effort
+            pass
 
     if not nodes:
         _console.print("[yellow]no nodes to reconcile[/yellow]")
