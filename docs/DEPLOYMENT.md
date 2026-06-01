@@ -225,12 +225,13 @@ eidan deploy --node kasha --tags source   # just code re-sync
 eidan deploy --node kasha --dry-run       # show planned changes
 ```
 
-To bump a release: `git pull` your eidan checkout — the
-post-merge hook auto-reinstalls the CLI if `apps/cli/` changed
-(see slice F of #104). Then `eidan deploy` — the Fly reconciler
-rebuilds the image with the new code, the Pi reconciler rsyncs
-the new tree from your laptop. No manual updates on the remote
-machine.
+To bump a release: `git pull` your eidan checkout — the tracked
+post-merge hook (wired by `./scripts/bootstrap.sh`) auto-runs
+`uv tool install --reinstall` if `apps/cli/` changed, so your
+`eidan` command stays in sync. Then `eidan deploy` — the Fly
+reconciler rebuilds the image with the new code, the Pi
+reconciler rsyncs the new tree from your laptop. No manual
+updates on the remote machine.
 
 ## 6. Plugins
 

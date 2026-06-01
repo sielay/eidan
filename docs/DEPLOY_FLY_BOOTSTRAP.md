@@ -192,31 +192,7 @@ Generate the Fly token with `fly tokens create deploy`. Pin actions
 to a commit SHA for production; the `@1.5` tag above is shown for
 brevity.
 
-## Migrating from an older deploy
-
-If you bootstrapped against an earlier eidan that pinned a
-`/var/lib/eidan/plugins` Fly volume (the previous "remote install
-at runtime" model), the volume is now deadweight — plugins ride
-the image. Clean it up once per machine, then redeploy:
-
-```bash
-fly volumes list --app eidan-api
-fly volume destroy <volume-id> --app eidan-api    # per machine
-eidan deploy --node fly-prod
-```
-
-The `EIDAN_GITHUB_TOKEN` Fly secret is also a leftover from that
-old path. With bake-at-build the running machine never clones a
-private repo, so the PAT no longer belongs in Fly secrets:
-
-```bash
-fly secrets unset EIDAN_GITHUB_TOKEN --app eidan-api
-```
-
-If your PAT ever leaked via the earlier install path, rotate it
-at <https://github.com/settings/tokens> as well.
-
-## Legacy `infra/fly/` artefacts
+## `infra/fly/` artefacts
 
 `infra/fly/Dockerfile` is the canonical image build path — the
 CLI uses it as the Dockerfile for every `fly deploy`. The CLI

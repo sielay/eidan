@@ -138,10 +138,10 @@ You don't run them by hand.
 
 **Paid bundles**: clone the bundle repos as siblings of your
 eidan checkout (e.g. `~/Documents/GitHub/eidan-pro/` next to
-`~/Documents/GitHub/eidan/`). The CLI's bake-at-build resolver
-finds them via the conventional sibling layout — no PAT lives on
-the Pi. Override with `EIDAN_BUNDLE_ROOT=<path>` if your bundles
-are elsewhere.
+`~/Documents/GitHub/eidan/`). The CLI finds them via the
+sibling layout and ships them to the Pi alongside the eidan
+tree — no PAT lives on the Pi. Override with
+`EIDAN_BUNDLE_ROOT=<path>` if your bundles are elsewhere.
 
 For Supabase + a dedicated app role, set
 `EIDAN_CREATE_APP_ROLE=true` and `EIDAN_APP_DB_PASSWORD=<strong>`
