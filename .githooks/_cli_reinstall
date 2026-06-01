@@ -1,0 +1,53 @@
+#!/bin/bash
+# Shared logic for post-merge / post-checkout: if files under
+# apps/cli/ changed in the range we're transitioning through,
+# re-run `uv tool install --reinstall` so the operator's `eidan`
+# command picks up the new code without them having to remember.
+#
+# Issue #112 / slice F of #104. The hook is opt-in: the operator
+# runs `./scripts/bootstrap.sh` after clone, which configures
+# `core.hooksPath` to .githooks/.
+#
+# Args:
+#   $1  range-spec to diff against (e.g. HEAD@{1}..HEAD for merge,
+#                                    "$old_head" "$new_head" for checkout)
+#
+# We don't fail the surrounding git command on errors here — if
+# `uv` is missing or the install hiccups, we warn but let the pull
+# / checkout succeed. The cost-of-failure is "operator runs eidan
+# and notices the version's stale", not corrupted state.
+
+set -u  # don't `set -e` — see comment above
+
+# Resolve the repo root so the hook works whether the operator
+# invoked git from a subdir.
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$repo_root" ]; then
+    exit 0  # not a git repo (shouldn't happen, but bail quietly)
+fi
+
+# `$1` is the diff range — already shaped by the caller hook.
+changed_files="$(git diff --name-only "$@" 2>/dev/null || true)"
+if [ -z "$changed_files" ]; then
+    exit 0
+fi
+
+# Only reinstall if something under apps/cli/ actually moved.
+# The CLI sources at apps/backend / packages/schemas don't affect
+# the `eidan` binary; only apps/cli does.
+if ! echo "$changed_files" | grep -q '^apps/cli/'; then
+    exit 0
+fi
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "[eidan-hook] apps/cli/ changed but \`uv\` is not on PATH;" >&2
+    echo "[eidan-hook] reinstall manually: uv tool install --reinstall --from $repo_root/apps/cli eidan-cli" >&2
+    exit 0
+fi
+
+echo "[eidan-hook] apps/cli/ changed → reinstalling eidan-cli..." >&2
+if ! uv tool install --reinstall --from "$repo_root/apps/cli" eidan-cli >&2; then
+    echo "[eidan-hook] reinstall failed; run it manually when ready" >&2
+    exit 0
+fi
+echo "[eidan-hook] done." >&2
