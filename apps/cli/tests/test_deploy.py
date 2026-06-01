@@ -64,6 +64,40 @@ def _kasha_node(tmp_path: Path):
     return topology.resolve_node("kasha")
 
 
+def _stub_eidan_checkout(root: Path) -> None:
+    """Stand up a minimum-shaped fake eidan checkout for tests that
+    exercise the full reconcile() flow (which now assembles a build
+    context via :func:`eidan_cli.build_context.assemble_build_context`).
+
+    Mirrors the stub in test_fly.py — we keep them parallel rather
+    than DRYing into a shared conftest helper for now; both files
+    will collapse into a shared fixture once we have ~5+ users."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pyproject.toml").write_text("[project]\nname='eidan'\n")
+    (root / "uv.lock").write_text("# lock\n")
+    for sub in ("apps", "packages", "migrations", "infra"):
+        (root / sub).mkdir()
+        (root / sub / ".keep").write_text("")
+    (root / "infra" / "fly").mkdir()
+    (root / "infra" / "fly" / "Dockerfile").write_text("FROM python:3.12-slim\n")
+    core = root / "plugins" / "example-core"
+    core.mkdir(parents=True)
+    (core / "plugin.yaml").write_text("schema: 1\nname: example-core\n")
+
+
+def _stub_bundle_repo(bundle_dir: Path, *, plugins: list[str]) -> None:
+    """Lay out `<bundle_dir>/<plugin>/plugin.yaml` for each name in
+    ``plugins`` — operator-local bundle-repo shape the bake-at-build
+    path resolves."""
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    for plugin_name in plugins:
+        plug = bundle_dir / plugin_name
+        plug.mkdir()
+        (plug / "plugin.yaml").write_text(
+            f"schema: 1\nname: {plugin_name}\n"
+        )
+
+
 # ---------- inventory rendering ----------
 
 
@@ -146,14 +180,20 @@ def test_node_to_ansible_vars_maps_provider_and_bundles(tmp_path: Path) -> None:
     assert vars_dict["eidan_disabled_plugins"] == "imap"
 
 
-def test_node_to_ansible_vars_inherits_defaults(tmp_path: Path) -> None:
-    """`defaults.plugin_source` lands on the kasha node via the
-    deep-merge in Topology.resolve_node()."""
+def test_node_to_ansible_vars_does_not_leak_pat_or_plugin_source(
+    tmp_path: Path,
+) -> None:
+    """`plugin_source` / `github_token` live in the topology for the
+    laptop-side build-context assembly (the operator may need them
+    for non-bake-at-build flows like local plugin dev), but they
+    MUST NOT be plumbed into the ansible vars file rendered to
+    .eidan-runtime/<node>/vars.yml — the Pi never clones a private
+    repo and so never needs a PAT (slice C of #104)."""
     node = _kasha_node(tmp_path)
     vars_dict = pi._node_to_ansible_vars(node)
 
-    assert vars_dict["eidan_plugin_source"] == "gh:sielay"
-    assert vars_dict["eidan_github_token"] == "PAT-XXXX"
+    assert "eidan_plugin_source" not in vars_dict
+    assert "eidan_github_token" not in vars_dict
 
 
 def test_node_to_ansible_vars_emits_sentry_defaults_when_unset(
@@ -252,10 +292,18 @@ def test_node_to_ansible_vars_omits_log_forward_when_unset(
 # ---------- reconcile() ----------
 
 
-def test_reconcile_writes_runtime_files_and_invokes_ansible(tmp_path: Path) -> None:
+def test_reconcile_writes_runtime_files_and_invokes_ansible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """reconcile() should materialise inventory.ini + vars.yml under
     .eidan-runtime/<node>/ and then run ansible-playbook against
-    them."""
+    them. Post-#104-slice-C the reconcile path also assembles a
+    local build context, so we stub eidan + bundle dirs."""
+    fake_eidan = tmp_path / "fake-eidan"
+    _stub_eidan_checkout(fake_eidan)
+    _stub_bundle_repo(tmp_path / "eidan-pro", plugins=["slack"])
+    monkeypatch.setenv("EIDAN_SOURCE_DIR", str(fake_eidan))
+
     topology_path = _write_topology(tmp_path, _PI_NODE_YAML)
     topology = load_topology(topology_path)
     node = topology.resolve_node("kasha")
@@ -276,7 +324,14 @@ def test_reconcile_writes_runtime_files_and_invokes_ansible(tmp_path: Path) -> N
     assert "ansible-playbook" in captured_cmd[0]
     assert "-i" in captured_cmd
     assert "-e" in captured_cmd
-    assert any(arg.endswith("vars.yml") or arg.endswith("vars.yml") for arg in captured_cmd)
+    assert any(arg.endswith("vars.yml") for arg in captured_cmd)
+    # Build context assembled with slack bundle baked in.
+    ctx = runtime_dir / "build-context"
+    assert (ctx / "plugins" / "slack" / "plugin.yaml").is_file()
+    # vars.yml carries the path the playbook rsyncs from.
+    vars_yml = (runtime_dir / "vars.yml").read_text(encoding="utf-8")
+    assert "eidan_local_tree" in vars_yml
+    assert str(ctx) in vars_yml
 
 
 def test_reconcile_propagates_tags_and_dry_run(tmp_path: Path) -> None:
@@ -306,9 +361,16 @@ def test_reconcile_propagates_tags_and_dry_run(tmp_path: Path) -> None:
     assert "--ask-vault-pass" in captured_cmd
 
 
-def test_reconcile_returns_subprocess_exit_code(tmp_path: Path) -> None:
+def test_reconcile_returns_subprocess_exit_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Non-zero return from ansible-playbook should propagate so the
     orchestrator can surface it."""
+    fake_eidan = tmp_path / "fake-eidan"
+    _stub_eidan_checkout(fake_eidan)
+    _stub_bundle_repo(tmp_path / "eidan-pro", plugins=["slack"])
+    monkeypatch.setenv("EIDAN_SOURCE_DIR", str(fake_eidan))
+
     topology_path = _write_topology(tmp_path, _PI_NODE_YAML)
     topology = load_topology(topology_path)
     node = topology.resolve_node("kasha")
