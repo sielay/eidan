@@ -16,6 +16,12 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "tzlocal>=5.2",
     "python-dotenv>=1.0",
+    # questionary powers the interactive `eidan` menu + `eidan init`
+    # wizard. Pure-Python, ~50KB, actively maintained. We deliberately
+    # avoid bigger TUI frameworks (textual, urwid) — the operator-
+    # facing interaction surface is selects + text prompts, nothing
+    # that needs a full screen-buffer event loop.
+    "questionary>=2.0",
 ]
 
 [project.optional-dependencies]

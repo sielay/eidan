@@ -48,13 +48,18 @@ from . import topology_view as _topology_view  # noqa: E402
 app = typer.Typer(
     name="eidan",
     help="Eidan — self-hosted personal agent OS.",
-    no_args_is_help=True,
+    # `no_args_is_help` switched off so bare `eidan` runs the
+    # interactive menu (issue #110). Scripts that want the help
+    # blurb can pass `--help` explicitly; flag-driven invocations
+    # are unchanged.
+    no_args_is_help=False,
     add_completion=False,
 )
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def _root(
+    ctx: typer.Context,
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -70,6 +75,65 @@ def _root(
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         )
         os.environ["EIDAN_LOG_LEVEL"] = "DEBUG"
+
+    # Bare `eidan` (no subcommand, no --help) launches the menu.
+    # Flag-driven invocations skip this — `ctx.invoked_subcommand`
+    # is the subcommand name typer routed to.
+    if ctx.invoked_subcommand is None:
+        from .interactive import InteractiveCancelled, run_menu
+
+        try:
+            run_menu(
+                on_init=lambda: _init_wizard_from_menu(),
+                on_deploy=lambda: _menu_route(ctx, "deploy"),
+                on_plugin=lambda: _menu_route_subgroup(ctx, "plugin"),
+                on_node=lambda: _menu_route_subgroup(ctx, "node"),
+            )
+        except InteractiveCancelled:
+            _console.print("[dim]cancelled[/dim]")
+            raise typer.Exit(0) from None
+
+
+def _menu_route(ctx: typer.Context, command_name: str) -> None:
+    """Run the named subcommand with no extra flags so it picks up
+    its own defaults (e.g. `eidan deploy` reconciles every node).
+    Operators who need flags can run the flag-driven form directly."""
+    # typer's invoke API picks the registered Command off the app's
+    # internal registry and dispatches it through Click. We let any
+    # validation error propagate so the operator sees the same
+    # message they'd see from a direct invocation.
+    import click
+
+    cmd = ctx.find_root().command.get_command(ctx, command_name)
+    if cmd is None:
+        _console.print(f"[red]menu: unknown subcommand {command_name!r}[/red]")
+        return
+    sub_ctx = click.Context(cmd, info_name=command_name, parent=ctx)
+    cmd.invoke(sub_ctx)
+
+
+def _menu_route_subgroup(ctx: typer.Context, group_name: str) -> None:
+    """Subgroups (plugin, node) don't have a default behaviour — show
+    their `--help` so the operator sees the options. A follow-up
+    issue from #104 adds per-subgroup interactive flows."""
+    import click
+
+    cmd = ctx.find_root().command.get_command(ctx, group_name)
+    if cmd is None:
+        _console.print(f"[red]menu: unknown group {group_name!r}[/red]")
+        return
+    _console.print(
+        f"[dim]interactive {group_name} flow not yet wired — showing help[/dim]"
+    )
+    click.echo(cmd.get_help(click.Context(cmd, info_name=group_name)))
+
+
+def _init_wizard_from_menu() -> None:
+    """Menu route into the init wizard. We call ``init_cmd(...)``
+    with no args, which itself routes into the wizard when called
+    bare (issue #110). Keeps the wizard's entry-shape consistent
+    between `eidan` and `eidan init`."""
+    init_cmd(name=None, here=False, force=False)
 
 
 admin_app = typer.Typer(
@@ -208,12 +272,49 @@ def init_cmd(
             "[red]Pass either <name> or --here, not both.[/red]"
         )
         raise typer.Exit(2)
+
+    # Bare `eidan init` (no name, no --here) launches the
+    # interactive wizard (issue #110). Operators who want the
+    # old "non-interactive scaffold into ./.eidan/" behaviour can
+    # still pass `--here` explicitly.
     if not here and name is None:
-        _console.print(
-            "[red]Pass a <name> (e.g. `eidan init my-deployment`) or "
-            "--here to scaffold into ./.eidan/.[/red]"
+        from .interactive import (
+            InteractiveCancelled,
+            run_init_wizard,
         )
-        raise typer.Exit(2)
+
+        try:
+            target, master_key = run_init_wizard(
+                target_dir=Path.cwd() / ".eidan",
+                force=force,
+            )
+        except InteractiveCancelled:
+            _console.print("[dim]init cancelled[/dim]")
+            raise typer.Exit(0) from None
+        except scaffold.ScaffoldTargetExists as exc:
+            _console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1) from exc
+        except scaffold.ScaffoldError as exc:
+            _console.print(f"[red]scaffold failed:[/red] {exc}")
+            raise typer.Exit(1) from exc
+
+        _console.print()
+        _console.print(
+            f"[green]wrote[/green] [cyan]{target}/topology.yml[/cyan]"
+        )
+        _console.print()
+        _console.print(
+            "[bold yellow]Record this master key offline:[/bold yellow]"
+        )
+        _console.print(f"  [cyan]{master_key}[/cyan]")
+        _console.print(
+            "[dim]It's now in your topology.yml; if you lose the file you "
+            "lose access to existing sessions.[/dim]"
+        )
+        _console.print()
+        _console.print("[bold]Next:[/bold]")
+        _console.print("  eidan deploy   # reconcile your new node")
+        return
 
     try:
         target = scaffold.scaffold(name, force=force, here=here)
