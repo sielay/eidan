@@ -17,12 +17,15 @@ playbook invocation, so for now the per-node loop here is fine).
 
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.console import Console
 
+from . import build_context as _build_context
 from .targets import TargetReconcileError, fly, pi
 from .topology import (
     ResolvedNode,
@@ -89,6 +92,95 @@ def _resolve_nodes(
     if node is None:
         return list(topology.iter_nodes())
     return [topology.resolve_node(node)]
+
+
+def _audit_bundles_or_abort(nodes: list[ResolvedNode]) -> int:
+    """Run the bundle freshness audit across every unique bundle
+    referenced by the nodes about to be reconciled. Returns:
+
+    - ``0`` — every bundle is on a release branch, working tree
+      clean, in sync with origin. Proceed to reconcile.
+    - ``0`` — issues found but operator confirmed (interactive) or
+      ``EIDAN_ALLOW_DIRTY_BUNDLES=1`` is set in env (non-interactive
+      escape hatch for CI / scripted re-deploys).
+    - ``6`` — issues found, operator declined / non-interactive
+      without the escape hatch. Caller surfaces and exits.
+
+    Audit logic is in :mod:`build_context`; this function owns
+    only the UX choices (when to prompt, when to fail, what to
+    print). Dedupes bundles across nodes so a Fly + Pi pair both
+    declaring ``eidan-pro`` doesn't audit the same dir twice.
+    """
+    # No bundles anywhere on the deploy → nothing to audit.
+    if not any(getattr(n, "bundles", None) or [] for n in nodes):
+        return 0
+
+    eidan_dir = _resolve_eidan_dir_for_audit()
+    seen: dict[Path, _build_context.BundleHealth] = {}
+    for node in nodes:
+        for health in _build_context.audit_bundles(
+            node, eidan_dir=eidan_dir
+        ):
+            seen.setdefault(health.bundle_dir, health)
+    problems = [h for h in seen.values() if not h.is_clean]
+    if not problems:
+        return 0
+
+    _console.print()
+    _console.print(
+        "[bold yellow]Bundle freshness audit found issues:[/bold yellow]"
+    )
+    for h in problems:
+        _console.print(
+            f"  [cyan]{h.name}[/cyan]  [dim]({h.bundle_dir})[/dim]"
+        )
+        for line in h.problems:
+            _console.print(f"    • {line}")
+    _console.print()
+
+    # Operator override via env var (intended for CI). Trumps the
+    # TTY prompt so scripted re-deploys never block on a question.
+    if os.environ.get("EIDAN_ALLOW_DIRTY_BUNDLES", "").strip():
+        _console.print(
+            "[dim]EIDAN_ALLOW_DIRTY_BUNDLES set; proceeding anyway.[/dim]"
+        )
+        return 0
+
+    # Non-interactive (CI / piped) → fail. The escape hatch above
+    # is documented so scripts can opt in explicitly.
+    if not sys.stdin.isatty():
+        _console.print(
+            "[red]Refusing to bake stale / off-main bundle code into the "
+            "image.[/red]\n"
+            "Fix the repos above, OR set "
+            "[cyan]EIDAN_ALLOW_DIRTY_BUNDLES=1[/cyan] to override."
+        )
+        return 6
+
+    # Interactive: prompt once. We import questionary lazily so the
+    # non-TTY path stays fast and doesn't drag in the dep at module
+    # import time (it loads prompt_toolkit which scans terminfo).
+    import questionary
+
+    proceed = questionary.confirm(
+        "Bake these bundles anyway?", default=False
+    ).ask()
+    if not proceed:
+        _console.print("[dim]aborted; nothing was deployed.[/dim]")
+        return 6
+    return 0
+
+
+def _resolve_eidan_dir_for_audit() -> Path:
+    """Mirror of the per-target ``_resolve_eidan_source_dir``
+    helpers. The audit needs the eidan checkout to find the
+    sibling bundle parent dir; we don't import the target-side
+    helpers because they'd pull a bigger graph than necessary.
+    Falls back to cwd, same as the targets do."""
+    env_value = os.environ.get("EIDAN_SOURCE_DIR", "").strip()
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return Path.cwd().resolve()
 
 
 def _reconcile_one(
@@ -176,6 +268,14 @@ def deploy(
             getattr(module, preflight_attr)()
         except Exception:  # noqa: BLE001 — preflight is best-effort
             pass
+
+    # Bundle freshness audit (#125). Bake-at-build copies operator-
+    # local bundle repos into the image; if those repos are on a
+    # feature branch / have uncommitted changes / are behind
+    # origin, the wrong code silently ships. Audit + gate.
+    audit_code = _audit_bundles_or_abort(nodes)
+    if audit_code != 0:
+        return audit_code
 
     if not nodes:
         _console.print("[yellow]no nodes to reconcile[/yellow]")
