@@ -26,25 +26,7 @@ fly apps create eidan-api --org personal
 `fly postgres attach` (if you use it below) needs the target app to
 exist first.
 
-## 2. Create the plugins volume
-
-The rendered `fly.toml` declares a `[[mounts]]` for
-`/var/lib/eidan/plugins` so paid-bundle installs land on a
-persistent disk rather than the image. Create one volume per
-machine (Fly's `auto_start_machines` setting on the rendered toml
-provisions 2 machines by default, so create 2):
-
-```bash
-fly volume create eidan_plugins --app eidan-api -r lhr -n 2
-```
-
-Match `-r` to your `topology.yml`'s `region:` and `-n` to however
-many machines you expect — `fly status --app eidan-api` shows the
-current count after a deploy. Without this volume, `eidan deploy
---node fly-prod` fails with `needs volumes with name 'eidan_plugins'
-to fulfill mounts defined in fly.toml`.
-
-## 3. Postgres
+## 2. Postgres
 
 Pick one.
 
@@ -87,7 +69,7 @@ fly secrets set --app eidan-api \
 (Once your topology is wired up, `eidan deploy --tags secrets`
 takes over this step.)
 
-## 4. Custom domain (load-bearing)
+## 3. Custom domain (load-bearing)
 
 The verify endpoint sets `eidan_refresh` as an `httpOnly;
 SameSite=Lax` cookie scoped to `/api/auth/refresh`. That cookie is
@@ -124,7 +106,7 @@ option: Safari ITP blocks it, Brave blocks it by default, Chrome's
 third-party cookie deprecation kills it on the rest. The
 custom-domain shape is the only path that keeps working.
 
-## 5. Initial migrations
+## 4. Initial migrations
 
 Run once after the first `eidan deploy`. `eidan admin db migrate`
 runs core then iterates each installed plugin's private-schema
@@ -138,7 +120,7 @@ Skip if another node (the Pi, a laptop bootstrap) has already
 migrated this Postgres — alembic is version-tracked, a re-run is a
 no-op.
 
-## 6. Hand off to the CLI
+## 5. Hand off to the CLI
 
 From your laptop, inside the eidan checkout:
 
@@ -146,9 +128,18 @@ From your laptop, inside the eidan checkout:
 eidan deploy --node fly-prod
 ```
 
-This is the line that pushes secrets, renders fly.toml, runs `fly
-deploy`, and installs declared bundles. From here forward, every
+This is the line that pushes secrets, renders fly.toml, assembles
+a local build context (eidan core + the bundle plugins resolved
+from operator-local sibling repos), runs `fly deploy` against
+that context, and rolls the machines. Plugins ride the image; no
+SSH install step, no PAT on the machine. From here forward, every
 change is a `topology.yml` edit + `eidan deploy`.
+
+**Paid bundles**: clone the bundle repos as siblings of your
+eidan checkout (e.g. `~/Documents/GitHub/eidan-pro/` next to
+`~/Documents/GitHub/eidan/`). The CLI finds them via the
+conventional sibling layout. Override with `EIDAN_BUNDLE_ROOT=<path>`
+if your bundles are elsewhere (CI, separate drive).
 
 ## Smoke-check
 
@@ -201,9 +192,15 @@ Generate the Fly token with `fly tokens create deploy`. Pin actions
 to a commit SHA for production; the `@1.5` tag above is shown for
 brevity.
 
-## Legacy `infra/fly/` artefacts
+## `infra/fly/` artefacts
 
-`infra/fly/Dockerfile` and `infra/fly/fly.toml.example` are still
-in the tree for operators who build images locally rather than
-pulling the published `ghcr.io/sielay/eidan:<tag>`. The CLI doesn't
-use them — they stay only as a manual fallback.
+`infra/fly/Dockerfile` is the canonical image build path — the
+CLI uses it as the Dockerfile for every `fly deploy`. The CLI
+assembles its build context next to your eidan checkout in
+`.eidan-runtime/<node>/build-context/`, then runs `fly deploy
+--dockerfile <ctx>/infra/fly/Dockerfile <ctx>`.
+
+`infra/fly/fly.toml.example` stays as a reference for operators
+who want to inspect the rendered shape without running the CLI.
+The CLI doesn't read it — the live render comes from
+`apps/cli/eidan_cli/playbooks/fly/fly.toml.template`.

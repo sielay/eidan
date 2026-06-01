@@ -1,0 +1,31 @@
+#!/bin/bash
+# Fires after `git checkout` (branch switch, commit checkout). Git
+# passes three args: previous HEAD, new HEAD, and a flag (1 if it's
+# a branch checkout, 0 if it's a file checkout). We only care about
+# branch checkouts — file-level checkouts don't transition the
+# working tree's worldview.
+
+old_head="$1"
+new_head="$2"
+branch_flag="$3"
+
+# Skip file-level checkouts; we're only interested in HEAD-moving ones.
+if [ "$branch_flag" != "1" ]; then
+    exit 0
+fi
+
+# First-time clone passes a zero hash as the previous HEAD; nothing
+# to diff against (everything is "new"). Bootstrap.sh handles the
+# initial install, so skip here.
+if [ "$old_head" = "0000000000000000000000000000000000000000" ]; then
+    exit 0
+fi
+
+# Identical HEADs (e.g. `git checkout <branch>` where you're
+# already on it): nothing changed, bail.
+if [ "$old_head" = "$new_head" ]; then
+    exit 0
+fi
+
+dir="$(dirname "$0")"
+exec "$dir/_cli_reinstall" "$old_head..$new_head"

@@ -190,6 +190,22 @@ def test_render_fly_toml_no_longer_pins_plugin_source(tmp_path: Path) -> None:
     assert "EIDAN_PLUGIN_SOURCE" not in rendered
 
 
+def test_render_fly_toml_no_mount_block_and_no_plugins_dir_override(
+    tmp_path: Path,
+) -> None:
+    """Bake-at-build (#104 slice B) drops the plugins volume + the
+    ``EIDAN_PLUGINS_DIR`` env override. The image-baked
+    ``/app/plugins/`` is authoritative; nothing on the machine writes
+    to a volume anymore. Operators no longer hit the ``fly volume
+    create`` cliff on first deploy."""
+    node = _fly_node(tmp_path)
+    rendered = fly._render_fly_toml(node)
+
+    assert "[[mounts]]" not in rendered
+    assert "eidan_plugins" not in rendered
+    assert "EIDAN_PLUGINS_DIR" not in rendered
+
+
 # ---------- build context assembly ----------
 
 
@@ -394,7 +410,10 @@ def test_secret_values_maps_required_env_plus_provider(tmp_path: Path) -> None:
     assert secrets["ANTHROPIC_API_KEY"] == "sk-ant-XXXX"
     assert secrets["EIDAN_PROVIDER"] == "anthropic"
     assert secrets["EIDAN_DEFAULT_MODEL"] == "claude-sonnet-4-6"
-    assert secrets["EIDAN_GITHUB_TOKEN"] == "PAT-XXXX"
+    # github_token must NOT be pushed to Fly secrets after slice C
+    # of #104: the running machine never clones a private bundle
+    # repo, so the PAT has no business living there.
+    assert "EIDAN_GITHUB_TOKEN" not in secrets
 
 
 def test_secret_values_omits_provider_key_when_unset(tmp_path: Path) -> None:
