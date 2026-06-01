@@ -16,13 +16,58 @@ You can write plugins by yourself, or purchase [pre-packaged sets](https://eidan
 
 Built for 🌻 neurodivergent builders, 🤖 indie hackers, and solo founders who want cognitive continuity without SaaS lock-in.
 
-## Quick start
+## Quick start — deploy to your own node
 
-The shortest path to a running agent. Assumes Docker + VS Code on your host
-machine. Full walkthrough with vendor screens and troubleshooting lives in
-[LOCALHOST](./docs/LOCALHOST.md).
+Four commands from a fresh clone to a running agent on a Raspberry Pi
+or a Fly.io app:
 
-**On your host machine** (not in the dev container yet):
+```bash
+git clone https://github.com/sielay/eidan.git && cd eidan
+./scripts/bootstrap.sh   # wires git hooks + installs the CLI
+eidan init               # interactive wizard collects fields, writes .eidan/topology.yml
+eidan deploy             # reconcile every node
+```
+
+<p align="center">
+<video src="https://github.com/sielay/eidan/raw/main/images/eidan-deploy.mp4" controls muted playsinline width="800">
+  Your browser doesn't render inline video — see <a href="./images/eidan-deploy.mp4">images/eidan-deploy.mp4</a>.
+</video>
+</p>
+
+`bootstrap.sh` configures git's `core.hooksPath` so a tracked
+`.githooks/post-merge` hook auto-runs `uv tool install --reinstall`
+whenever `apps/cli/` changes on a `git pull`, and does the initial
+install so `eidan` lands on your `PATH` immediately. After that, every
+upstream pull keeps your CLI in sync without you having to remember.
+
+`eidan init` walks you through node setup (target, SSH details for
+Pi or app + region for Fly, Postgres connection, provider + API key,
+which paid bundles to install). It generates an `auth_master_key` on
+the spot or accepts a pasted one if you're adding a node to an existing
+deployment. The wizard fetches the bundle list from your GitHub auth
+so you see exactly the bundles your account can install — no false
+promises about closed-source repos you don't have access to.
+
+`eidan deploy` then audits each declared bundle's local checkout (on
+`main`, clean working tree, in sync with origin), assembles a build
+context that includes your local eidan source plus the resolved
+bundle plugins, runs `fly deploy` (Fly) or rsyncs the tree (Pi),
+applies migrations, and restarts services. **Plugins are baked at
+build time on your laptop** — no PATs live on remote machines, no
+SSH install step, no writable plugin volumes, no multi-machine
+drift. Operator-private state (topology, vault password, runtime
+files) lives in the gitignored `.eidan/` of your eidan checkout —
+no separate ops repo to maintain.
+
+Full walkthrough in [DEPLOYMENT.md](./docs/DEPLOYMENT.md). One-time
+host setup recipes for Pi and Fly live in
+[DEPLOY_PI_BOOTSTRAP.md](./docs/DEPLOY_PI_BOOTSTRAP.md) and
+[DEPLOY_FLY_BOOTSTRAP.md](./docs/DEPLOY_FLY_BOOTSTRAP.md).
+
+## Local development
+
+Prefer to iterate on eidan locally before deploying anywhere? The
+dev-container path needs Docker + VS Code on your host:
 
 ```bash
 git clone https://github.com/sielay/eidan.git && cd eidan
@@ -58,11 +103,10 @@ Now pick a surface:
   Open [http://localhost:3000](http://localhost:3000) — single origin, no
   CORS dance.
 
-That's it. For bare metal, standalone Postgres, deployment, or
-troubleshooting see [Other easy ways to start](#other-easy-ways-to-start)
-below.
+For bare metal, standalone Postgres, or troubleshooting see the
+[LOCALHOST guide](./docs/LOCALHOST.md).
 
-## Other easy ways to start
+## Other surfaces
 
 Three surfaces talk to the same agent loop, all backed by the same Postgres memory:
 
@@ -70,46 +114,11 @@ Three surfaces talk to the same agent loop, all backed by the same Postgres memo
 - **FastAPI HTTP server** — `make server` runs the backend; the CLI speaks to it remotely when `EIDAN_BACKEND_URL` is set. Same shape production uses.
 - **Web UI** — `apps/web` (Next.js, App Router) for the browser. See the [Phase 1 UI surface →](./docs/014_UI_SURFACE.md) for what's shipped.
 
-Pick where to host them:
-
 | Path | When to pick | Where |
 |------|--------------|-------|
-| **Dev container** *(recommended for local)* | You have Docker + VS Code. Python, Postgres, and a Caddy reverse proxy come prewired. ~5 minutes. | [→ devcontainer quickstart](./docs/LOCALHOST.md#quickstart-via-devcontainer-recommended) |
+| **Dev container** *(recommended for local iteration)* | You have Docker + VS Code. Python, Postgres, and a Caddy reverse proxy come prewired. ~5 minutes. | [→ devcontainer quickstart](./docs/LOCALHOST.md#quickstart-via-devcontainer-recommended) |
 | **Bare metal** | You'd rather install Python / Postgres / Node yourself, or you're targeting a Pi. ~15 minutes. | [→ bare-metal walkthrough](./docs/LOCALHOST.md#0-prerequisites) |
 | **Full-stack deploy** | Hosted backend + web UI exposed to a browser; single-host Fly, Pi cluster, multi-instance. | [→ deployment guide](./docs/DEPLOYMENT.md) |
-
-For deploys to a Pi or Fly, the whole flow is four commands from
-your eidan checkout:
-
-```bash
-# Install (needs uv — get it from https://astral.sh/uv)
-git clone https://github.com/sielay/eidan.git && cd eidan
-./scripts/bootstrap.sh                  # wires git hooks + installs the CLI
-
-# Interactive setup + deploy
-eidan init                              # wizard walks you through .eidan/topology.yml
-eidan deploy                            # reconcile every node
-```
-
-`bootstrap.sh` does two things: configures `core.hooksPath` so a
-tracked `.githooks/post-merge` hook auto-runs
-`uv tool install --reinstall` whenever `apps/cli/` changes on a
-`git pull`, and does the initial `uv tool install` so `eidan` is
-on your PATH immediately. You don't have to remember to reinstall
-the CLI after every upstream pull.
-
-Operator-private state (topology, vault password, runtime files)
-lives in the gitignored `.eidan/` of your eidan checkout. No
-separate ops repo to maintain.
-
-The CLI renders env files, systemd units, `fly.toml`, pushes
-secrets, assembles a local build context with your declared
-bundle plugins baked in, builds the image, rsyncs to the Pi (or
-ships the image to Fly), and restarts services. **Plugins are
-baked at build time on your laptop** — no PATs live on the
-remote machines, no SSH install step, no writable plugin volume.
-You don't edit any of that by hand. Full walkthrough in
-[DEPLOYMENT.md](./docs/DEPLOYMENT.md).
 
 Auth is native — magic-link sign-in against a single-operator
 allow-list (`EIDAN_AUTH_ALLOWED_EMAIL`), an RS256 JWT minted by the
