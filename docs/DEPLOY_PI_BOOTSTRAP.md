@@ -23,21 +23,32 @@ sudo mkdir -p /etc/eidan
 ```
 
 `/opt/eidan` is created on first `eidan deploy` (the playbook
-clones into it as the `eidan` user); only `/etc/eidan` and the
-`eidan` user need to exist before then.
+rsyncs your laptop's eidan tree into it); only `/etc/eidan` and
+the `eidan` user need to exist before then.
 
 ## 2. Install system deps + uv
 
 ```bash
-sudo apt update && sudo apt install -y git curl
+sudo apt update && sudo apt install -y rsync curl
 sudo -u eidan bash -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'
 sudo -u eidan /home/eidan/.local/bin/uv python install 3.12
 ```
 
-Raspberry Pi OS / Debian Bookworm ships Python 3.11 and does **not**
-carry `python3.12` in its default apt repos. eidan only requires
-`>=3.11`, but letting `uv` manage the interpreter avoids version
-drift across Pi vs. Fly.
+`rsync` is what the deploy uses to push the eidan tree from your
+laptop. Raspberry Pi OS / Debian Bookworm ships Python 3.11 and
+does **not** carry `python3.12` in its default apt repos. eidan
+only requires `>=3.11`, but letting `uv` manage the interpreter
+avoids version drift across Pi vs. Fly.
+
+### Laptop-side prerequisite: `ansible.posix` collection
+
+The playbook uses `ansible.posix.synchronize` (rsync over SSH).
+The `ansible` (full distribution) package ships it by default;
+operators on `ansible-core` install it once:
+
+```bash
+ansible-galaxy collection install ansible.posix
+```
 
 ## 3. Install Ollama + pull the sentry model
 
@@ -120,9 +131,17 @@ this node.
 > `eidan deploy`, but Alembic is version-tracked — a re-run on an
 > already-migrated DB is a no-op.
 
-The clone, `uv sync`, and `eidan admin db migrate` are all run by
-the Ansible playbook on every `eidan deploy --node <name>` (see §7).
+The rsync of your laptop's eidan tree onto `/opt/eidan`, the
+`uv sync`, and `eidan admin db migrate` are all run by the
+Ansible playbook on every `eidan deploy --node <name>` (see §7).
 You don't run them by hand.
+
+**Paid bundles**: clone the bundle repos as siblings of your
+eidan checkout (e.g. `~/Documents/GitHub/eidan-pro/` next to
+`~/Documents/GitHub/eidan/`). The CLI's bake-at-build resolver
+finds them via the conventional sibling layout — no PAT lives on
+the Pi. Override with `EIDAN_BUNDLE_ROOT=<path>` if your bundles
+are elsewhere.
 
 For Supabase + a dedicated app role, set
 `EIDAN_CREATE_APP_ROLE=true` and `EIDAN_APP_DB_PASSWORD=<strong>`
@@ -219,15 +238,17 @@ Pause via `disable: [sentry]` on the node in `topology.yml` +
 ## Updating the Pi codebase
 
 `eidan deploy` reconciles **everything** — including the
-`/opt/eidan` checkout. On every run the playbook git-fetches,
-re-syncs the venv when the checkout moved, runs `eidan admin db
-migrate`, and restarts the service if any of those changed. The
-default tracked ref is `main`; once we have release tags, pinning
-to one will be a topology-level field.
+`/opt/eidan` tree. On every run the CLI assembles a build context
+on your laptop (eidan core + the bundle plugins resolved from
+operator-local sibling repos), rsyncs it to `/opt/eidan` (with
+`--delete`, excluding `.venv` so the Pi-side venv survives),
+re-runs `uv sync` when the tree moved, runs `eidan admin db
+migrate`, and restarts the service if any of those changed.
 
-The `force: false` flag on the git task means the playbook will
-refuse to overwrite uncommitted edits inside `/opt/eidan` — you'll
-see a genuine merge conflict rather than silent loss.
+The rsync uses `--delete` semantics: files removed from your
+laptop's eidan tree get removed from `/opt/eidan` on the next
+deploy. Hand-edits inside `/opt/eidan` will be wiped — make
+changes on your laptop and re-deploy.
 
 Most eidan migrations are *additive* (new tables / columns /
 indexes) — the running service ignores them. For *destructive*

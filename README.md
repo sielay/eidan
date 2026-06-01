@@ -103,9 +103,12 @@ lives in the gitignored `.eidan/` of your eidan checkout. No
 separate ops repo to maintain.
 
 The CLI renders env files, systemd units, `fly.toml`, pushes
-secrets, builds the image (or pulls a pinned one), installs
-declared plugin bundles, and restarts services. You don't edit any
-of that by hand. Full walkthrough in
+secrets, assembles a local build context with your declared
+bundle plugins baked in, builds the image, rsyncs to the Pi (or
+ships the image to Fly), and restarts services. **Plugins are
+baked at build time on your laptop** — no PATs live on the
+remote machines, no SSH install step, no writable plugin volume.
+You don't edit any of that by hand. Full walkthrough in
 [DEPLOYMENT.md](./docs/DEPLOYMENT.md).
 
 Auth is native — magic-link sign-in against a single-operator

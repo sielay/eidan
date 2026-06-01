@@ -39,34 +39,43 @@ the bottom.
 
 ## 1. Install eidan-cli
 
-`eidan-cli` isn't on PyPI yet — install from your eidan checkout
-via `uv tool install`. Requires [`uv`](https://astral.sh/uv):
+`eidan-cli` isn't on PyPI yet — install via the bootstrap script
+in your eidan checkout. Requires [`uv`](https://astral.sh/uv):
 
 ```bash
 # Once, anywhere — installs uv to ~/.local/bin
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Then clone eidan and install the CLI globally
-git clone https://github.com/sielay/eidan.git
-cd eidan
-uv tool install --from ./apps/cli eidan-cli
+# Clone eidan and run the bootstrap script
+git clone https://github.com/sielay/eidan.git && cd eidan
+./scripts/bootstrap.sh
 ```
 
-The `eidan` binary lands in `~/.local/bin/eidan`. Upgrade with:
+`bootstrap.sh` does two things:
 
-```bash
-cd eidan && git pull
-uv tool install --reinstall --from ./apps/cli eidan-cli
-```
+1. **Configures git's `core.hooksPath`** to the tracked
+   `.githooks/` directory. After every `git pull` that touches
+   `apps/cli/`, the post-merge hook auto-runs
+   `uv tool install --reinstall` so your `eidan` command stays
+   in sync with upstream. You don't have to remember.
+2. **Runs the initial `uv tool install`** so `eidan` lands at
+   `~/.local/bin/eidan` immediately.
 
 Also needed on the laptop running deploys:
 
-- **`ansible-core`** (for Pi targets) — `uv tool install ansible-core`
+- **`ansible-core` + `ansible.posix` collection** (for Pi targets):
+  `uv tool install ansible-core` then `ansible-galaxy collection
+  install ansible.posix`. The Pi reconcile rsyncs the eidan tree
+  from your laptop via `ansible.posix.synchronize`.
+- **`rsync`** (for Pi targets) — universal on macOS / Linux, but
+  worth verifying with `which rsync`.
 - **`flyctl`** (for Fly targets) — `brew install flyctl && fly auth login`
 - **Docker** (for Fly targets without a pinned `image:`) — Docker
   Desktop / colima / Rancher / whatever. The reconciler builds
-  the image locally from `infra/fly/Dockerfile`. Skip if you pin
-  `image:` in topology to a tag you've already published yourself.
+  the image locally from a pre-assembled context (your eidan
+  checkout + bundle plugins resolved from operator-local sibling
+  repos). Skip if you pin `image:` in topology to a tag you've
+  already published yourself.
 
 The CLI probes for the right one before any deploy fires; you'll
 see a friendly "install X" message if a target needs a tool that
@@ -81,8 +90,13 @@ isn't on PATH.
 From inside your eidan checkout:
 
 ```bash
-eidan init --here
+eidan init        # interactive wizard (recommended)
 ```
+
+The wizard walks you through node setup field-by-field (target,
+SSH details for Pi or app+region for Fly, database URL, provider,
+bundles) and writes `.eidan/topology.yml` with a freshly minted
+`auth_master_key` (displayed once at the end — record it offline).
 
 You get a starter set under `.eidan/`:
 
@@ -93,15 +107,14 @@ You get a starter set under `.eidan/`:
 | `.eidan/.vault-pass.example` | Copy to `.eidan/.vault-pass`, edit, `chmod 0600`. |
 | `.eidan/README.md` | Operator notes template. |
 
-Edit `.eidan/topology.yml`. Minimum shape:
+Hand-edited starting shape (if you skip the wizard with `eidan init --here`):
 
 ```yaml
 schema: 1
 
 defaults:
-  plugin_source: gh:sielay
-  github_token: REPLACE-OR-VAULT-ENCRYPT
-  # `image:` unset → reconciler builds from infra/fly/Dockerfile.
+  # `image:` unset → reconciler builds from infra/fly/Dockerfile
+  # against an assembled context (eidan tree + bundle plugins).
   # Pin it (e.g. ghcr.io/myorg/eidan:v0.1.0) if you've published
   # your own image and want to skip the local build.
   provider:
@@ -129,13 +142,20 @@ nodes:
     bundles: [eidan-pro]
 ```
 
-Generate the master key once with
-`python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`. The
-**same value** must appear on every node sharing one Postgres — back
-it up out-of-band (1Password / paper).
+`bundles:` resolves against operator-local sibling repos: each
+entry expects `<eidan-parent>/<bundle-name>/` to be a clone of
+the bundle repo with the plugin subdirs you want to bake in.
+Override the parent with `EIDAN_BUNDLE_ROOT=<path>` if your
+checkouts live elsewhere. No GitHub PAT on remote machines — the
+trust boundary is your laptop.
+
+The master key the wizard mints (or that you generate by hand with
+`python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`)
+must appear on every node sharing one Postgres — back it up
+out-of-band (1Password / paper).
 
 Vault-encrypt the sensitive scalars (`auth_master_key`,
-`database_url`, `github_token`, provider `api_key`):
+`database_url`, provider `api_key`):
 
 ```bash
 cp .eidan/.vault-pass.example .eidan/.vault-pass && chmod 0600 .eidan/.vault-pass
@@ -184,13 +204,13 @@ eidan deploy --node fly-prod
 The CLI renders a per-deploy `fly.toml`, pushes secrets via `fly
 secrets set`, and either:
 
-- builds from `infra/fly/Dockerfile` in your checkout (default — no
-  `image:` set), via `fly deploy --dockerfile … <eidan>`. Needs
-  Docker on your laptop or Fly's remote builder.
+- assembles a build context in `.eidan-runtime/<node>/build-context/`
+  (eidan tree + bundle plugins resolved from operator-local sibling
+  repos), then `fly deploy --dockerfile <ctx>/infra/fly/Dockerfile
+  <ctx>`. Default. Needs Docker on your laptop or Fly's remote
+  builder. **Plugins ride the image** — no SSH install step.
 - pulls a pinned image (`image: ghcr.io/myorg/eidan:v0.1.0` set on
   the node), via `fly deploy --image …`. No build needed.
-
-Then ssh's in to install declared bundles.
 
 ## 5. Update
 
@@ -201,26 +221,27 @@ is idempotent, so re-running reconciles whatever drifted:
 eidan deploy                              # everything
 eidan deploy --node kasha                 # one node
 eidan deploy --node kasha --tags env      # just env / unit
-eidan deploy --node kasha --tags plugins  # just plugin install
+eidan deploy --node kasha --tags source   # just code re-sync
 eidan deploy --node kasha --dry-run       # show planned changes
 ```
 
-To bump a release: `git pull` your eidan checkout to a new tag,
-re-deploy. The Fly reconciler picks up the new Dockerfile / image
-automatically; the Pi reconciler still needs you to update
-`/opt/eidan/` on the Pi itself (see
-[DEPLOY_PI_BOOTSTRAP §7](./DEPLOY_PI_BOOTSTRAP.md) — the codebase
-update flow there).
+To bump a release: `git pull` your eidan checkout — the
+post-merge hook auto-reinstalls the CLI if `apps/cli/` changed
+(see slice F of #104). Then `eidan deploy` — the Fly reconciler
+rebuilds the image with the new code, the Pi reconciler rsyncs
+the new tree from your laptop. No manual updates on the remote
+machine.
 
 ## 6. Plugins
 
-Bundles are declared in the topology and installed via reconcile:
+Bundles are declared in the topology and baked into the image (Fly)
+or rsynced onto the Pi (Pi) on every deploy:
 
 ```yaml
 nodes:
   kasha:
     bundles: [eidan-pro, eidan-sage]
-    disable: [imap]          # installed but loader skips it on this node
+    disable: [imap]          # baked but loader skips it on this node
 ```
 
 Or via the CLI mutators (which round-trip the YAML preserving
@@ -229,8 +250,12 @@ comments):
 ```bash
 eidan plugin disable imap --node kasha
 eidan plugin enable  imap --node kasha
-eidan deploy --node kasha --tags plugins,restart
+eidan deploy --node kasha
 ```
+
+Changing the bundle set is a rebuild + redeploy. No in-place
+plugin install at runtime — the trade-off for keeping PATs off
+remote machines and avoiding multi-machine drift.
 
 Inspect the topology any time:
 
