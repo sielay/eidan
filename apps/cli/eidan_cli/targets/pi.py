@@ -34,9 +34,6 @@ if TYPE_CHECKING:
     from eidan_cli.topology import ResolvedNode
 
 
-_DEFAULT_PLUGINS_DIR = "/var/lib/eidan/plugins"
-
-
 class PiMissingFieldError(TargetReconcileError):
     """Raised when a Pi node lacks a required Pi-specific field
     (``host`` or ``ssh_user``). The schema marks these optional at
@@ -93,7 +90,6 @@ def _node_to_ansible_vars(node: ResolvedNode) -> dict[str, Any]:
         else node.deployment_mode,
         "eidan_http_host": node.http_host,
         "eidan_http_port": node.http_port,
-        "eidan_plugins_dir": _DEFAULT_PLUGINS_DIR,
     }
 
     if node.provider is not None:
@@ -122,10 +118,11 @@ def _node_to_ansible_vars(node: ResolvedNode) -> dict[str, Any]:
             d.root if hasattr(d, "root") else str(d) for d in disable
         )
 
-    if getattr(node, "plugin_source", None):
-        vars_dict["eidan_plugin_source"] = node.plugin_source
-    if getattr(node, "github_token", None):
-        vars_dict["eidan_github_token"] = node.github_token
+    # `plugin_source` / `github_token` are intentionally NOT plumbed
+    # into the ansible vars anymore (slice C of #104). Bundle plugins
+    # arrive on the Pi via the rsync of the operator-local build
+    # context — the playbook never clones a private repo from
+    # GitHub, so the Pi never needs a PAT.
 
     sentry = getattr(node, "sentry", None)
     if sentry is not None:
@@ -197,6 +194,19 @@ def _bundled_playbook_root() -> Iterator[Path]:
         yield Path(path)
 
 
+def _resolve_eidan_source_dir() -> Path:
+    """Where to find the operator's eidan checkout. Same convention
+    as the Fly target: ``EIDAN_SOURCE_DIR`` wins, otherwise cwd.
+    The build-context assembly will materialise the rsync source
+    under this directory's parent (see :func:`build_context.resolve_bundle_root`).
+    """
+    import os
+    env_value = os.environ.get("EIDAN_SOURCE_DIR", "").strip()
+    if env_value:
+        return Path(env_value).expanduser()
+    return Path.cwd()
+
+
 def reconcile(
     node: ResolvedNode,
     *,
@@ -209,7 +219,14 @@ def reconcile(
     """Render runtime files, invoke ansible-playbook, return its
     exit code. Does NOT clean up the runtime tree — the operator
     inspects it after a failed deploy, and the next deploy
-    overwrites the files in place."""
+    overwrites the files in place.
+
+    Slice C of #104 bakes plugins at the laptop and rsyncs the
+    assembled tree onto the Pi. Build context is materialised at
+    ``<runtime>/build-context/`` and the path is handed to the
+    playbook as ``eidan_local_tree``; the playbook's ``source``
+    tasks then rsync from there to ``/opt/eidan``.
+    """
     runtime_dir = _runtime_dir(topology_path, node.name)
     runtime_dir.mkdir(parents=True, exist_ok=True)
 
@@ -217,9 +234,30 @@ def reconcile(
     vars_path = runtime_dir / "vars.yml"
 
     inventory_path.write_text(_render_inventory(node), encoding="utf-8")
+
+    # Assemble the local build context whenever the source tag
+    # would run (default + explicit). Skipping when the operator
+    # passes a tag-set that explicitly excludes `source` keeps the
+    # env-only / restart-only paths fast and avoids forcing them to
+    # have an EIDAN_SOURCE_DIR set.
+    tags_set = set(tags or [])
+    needs_source = not tags_set or "source" in tags_set
+    ansible_vars = _node_to_ansible_vars(node)
+    if needs_source:
+        from .. import build_context as _build_context
+
+        eidan_dir = _resolve_eidan_source_dir().resolve()
+        local_tree = _build_context.assemble_build_context(
+            node, eidan_dir=eidan_dir, runtime_dir=runtime_dir
+        )
+        # Trailing slash on rsync source means "contents of this
+        # dir", not the dir itself. Pin it here so the playbook
+        # doesn't have to.
+        ansible_vars["eidan_local_tree"] = f"{local_tree}/"
+
     vars_path.write_text(
         yaml.safe_dump(
-            _node_to_ansible_vars(node), default_flow_style=False, sort_keys=True
+            ansible_vars, default_flow_style=False, sort_keys=True
         ),
         encoding="utf-8",
     )

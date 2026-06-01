@@ -1,39 +1,33 @@
 # Ansible playbook for a self-hosted eidan backend on a Raspberry Pi
 # (or any always-on Debian/Ubuntu host you can ssh into as a sudoer).
 #
-# This file is shipped as a generic, tracked artefact — copy nothing,
-# edit nothing here. Per-deploy values (host IP, DB URL, master key,
-# bundle list, …) live in your gitignored `.eidan/` directory:
-#
-#   cp infra/pi/inventory.ini.example     .eidan/inventory.ini
-#   cp infra/pi/group_vars/all.yml.example .eidan/vars.yml
-#   $EDITOR .eidan/inventory.ini .eidan/vars.yml
+# Invoked by `eidan deploy --node <name>` from the operator's laptop.
+# Slice C of #104 (bake-at-build for Pi): the operator-local eidan
+# checkout PLUS resolved bundle plugin dirs are pre-assembled into
+# `<runtime>/build-context/` by the CLI, and this playbook rsyncs
+# that tree onto the Pi. The Pi never needs git, never clones from
+# GitHub, never sees a PAT.
 #
 # Day-to-day from your laptop:
 #
-#   # Reconcile env file + plugin set, restart if anything changed:
-#   ansible-playbook -i .eidan/inventory.ini -e @.eidan/vars.yml \
-#     infra/pi/playbook.yml
-#
-#   # Just push an env tweak and restart:
-#   ansible-playbook ... infra/pi/playbook.yml --tags env,restart
-#
-#   # Just add/refresh paid bundles:
-#   ansible-playbook ... infra/pi/playbook.yml --tags plugins
+#   eidan deploy --node <name>                  # full reconcile
+#   eidan deploy --node <name> --tags env,restart  # env tweak only
+#   eidan deploy --node <name> --tags source    # re-sync code only
 #
 # Scope today: STEADY-STATE only — render `/etc/eidan/eidan.env`,
-# install bundles listed in `eidan_bundles`, restart on change. The
-# one-time bootstrap (system user, uv, Ollama, Postgres, systemd unit
-# install, first migration) still follows docs/DEPLOY_PI_BOOTSTRAP.md
-# by hand. A `bootstrap` tag is left in as a stub for when we
-# automate that half too.
+# rsync the assembled tree, run migrations, restart on change. The
+# one-time bootstrap (system user, uv, Ollama, Postgres) still
+# follows docs/DEPLOY_PI_BOOTSTRAP.md by hand. A `bootstrap` tag is
+# left in as a stub for when we automate that half too.
 #
-# Secrets: `.eidan/vars.yml` carries DATABASE_URL, the auth master
-# key, and your GitHub PAT. Treat the file accordingly — `chmod 0600`
-# at minimum, and encrypt with `ansible-vault encrypt .eidan/vars.yml`
-# once you're past the dev-loop phase. `ansible-playbook` reads
-# vaulted files transparently when you pass `--ask-vault-pass` or
-# `--vault-password-file`.
+# Secrets: `.eidan/vars.yml` carries DATABASE_URL and the auth
+# master key. Treat the file accordingly — `chmod 0600` at minimum,
+# encrypt with `ansible-vault encrypt .eidan/vars.yml` once you're
+# past the dev-loop phase. `ansible-playbook` reads vaulted files
+# transparently when you pass `--ask-vault-pass` or
+# `--vault-password-file`. No GitHub PAT lives in here anymore
+# (slice C of #104 — bundle plugins arrive via the laptop, not via
+# remote clone).
 
 - name: Reconcile eidan backend on a Pi
   hosts: eidan_pi
@@ -45,12 +39,12 @@
     eidan_install_dir: /opt/eidan
     eidan_etc_dir: /etc/eidan
     eidan_env_file: /etc/eidan/eidan.env
-    eidan_plugins_dir: /var/lib/eidan/plugins
     eidan_service_name: eidan-backend
     eidan_uv_bin: /home/eidan/.local/bin/uv
     eidan_user: eidan
-    eidan_source_repo: https://github.com/sielay/eidan.git
-    eidan_source_ref: main
+    # eidan_local_tree is rendered by the CLI's pi.py reconciler:
+    # it points at <runtime>/build-context/, the pre-assembled tree
+    # of eidan core + bundle plugins ready to rsync.
 
   handlers:
     - name: restart eidan-backend
@@ -111,14 +105,15 @@
       notify: restart eidan-backend
       tags: [env]
 
-    # --- source: clone + sync /opt/eidan + run migrations -----------
-    # Idempotent. Runs on every deploy by default. Operator can
-    # exclude with `--skip-tags source` if they want to avoid the
-    # extra git fetch on every run; the cost is small though (a
-    # single fetch hits no objects when up-to-date).
+    # --- source: rsync laptop tree → /opt/eidan, sync venv, migrate
+    # The CLI assembles a build context on the laptop containing
+    # eidan core + the bundle plugins resolved from operator-local
+    # repos (see eidan_cli.build_context). This block rsyncs that
+    # tree onto the Pi. No git clone happens Pi-side; no PAT lives
+    # on the Pi.
     #
     # What's NOT automated yet (genuinely pre-conditions for this
-    # block): apt-installed `git`, the `eidan` system user, `uv`
+    # block): apt-installed `rsync`, the `eidan` system user, `uv`
     # under `~eidan/.local/bin/`, and Ollama / Postgres. Those still
     # follow docs/DEPLOY_PI_BOOTSTRAP.md §1–§4 by hand.
     - name: Ensure /opt/eidan parent directory exists
@@ -130,30 +125,48 @@
         mode: "0755"
       tags: [source]
 
-    - name: Clone or fetch the eidan source tree
-      become_user: "{{ eidan_user }}"
-      ansible.builtin.git:
-        repo: "{{ eidan_source_repo }}"
-        dest: "{{ eidan_install_dir }}"
-        version: "{{ eidan_source_ref }}"
-        # `force: false` means the playbook won't blow away local
-        # uncommitted changes inside /opt/eidan — if the operator
-        # has been hand-editing the source there, we surface a
-        # genuine merge conflict instead of silently overwriting.
-        force: false
-      register: eidan_source_clone
+    - name: rsync local eidan tree to /opt/eidan
+      # ``ansible.posix.synchronize`` runs rsync from the laptop
+      # (control node) over SSH to the Pi. ``rsync_path: "sudo
+      # rsync"`` lets it write under /opt/eidan even though the SSH
+      # user (operator's account) doesn't own that directory. We
+      # exclude ``.venv`` so the Pi-side venv (built by `uv sync`
+      # below) survives across deploys — re-creating it every time
+      # would burn 30-60s per deploy.
+      ansible.posix.synchronize:
+        src: "{{ eidan_local_tree }}"
+        dest: "{{ eidan_install_dir }}/"
+        delete: true
+        rsync_path: "sudo rsync"
+        rsync_opts:
+          - "--exclude=.venv"
+          - "--exclude=.git"
+          - "--exclude=__pycache__"
+          - "--exclude=*.pyc"
+      register: eidan_source_sync
       notify: restart eidan-backend
+      tags: [source]
+
+    - name: Chown /opt/eidan to the eidan user
+      # `sudo rsync` writes as root; restore ownership so the eidan
+      # user can run `uv sync` and the systemd service can read.
+      ansible.builtin.file:
+        path: "{{ eidan_install_dir }}"
+        owner: "{{ eidan_user }}"
+        group: "{{ eidan_user }}"
+        recurse: true
+      when: eidan_source_sync.changed
       tags: [source]
 
     - name: Sync the eidan venv (uv sync --no-dev)
       become_user: "{{ eidan_user }}"
       ansible.builtin.command:
         cmd: "{{ eidan_uv_bin }} --directory {{ eidan_install_dir }} sync --no-dev"
-      # Only re-sync when the git checkout actually changed. uv sync
+      # Only re-sync when the source tree actually changed. uv sync
       # is idempotent but reading the lockfile and computing the
       # dependency graph isn't free; skipping the no-op saves ~1s
       # per deploy on the Pi.
-      when: eidan_source_clone.changed
+      when: eidan_source_sync.changed
       notify: restart eidan-backend
       tags: [source]
 
@@ -172,59 +185,12 @@
       changed_when: false   # Alembic doesn't report changes back; treat as always-ok.
       tags: [source]
 
-    # --- plugins ------------------------------------------------------
-    - name: Ensure plugin override directory exists
-      ansible.builtin.file:
-        path: "{{ eidan_plugins_dir }}"
-        state: directory
-        owner: "{{ eidan_user }}"
-        group: "{{ eidan_user }}"
-        mode: "0755"
-      tags: [plugins]
-
-    - name: Read current plugin lock (may not exist yet)
-      ansible.builtin.slurp:
-        src: "{{ eidan_plugins_dir }}/.lock"
-      register: plugin_lock_raw
-      failed_when: false
-      changed_when: false
-      tags: [plugins]
-
-    - name: Decode plugin lock contents
-      ansible.builtin.set_fact:
-        plugin_lock_content: >-
-          {{ (plugin_lock_raw.content | b64decode)
-             if (plugin_lock_raw.content is defined)
-             else '' }}
-      tags: [plugins]
-
-    - name: Install paid bundles
-      # Idempotent on the bundle name: skip if any plugin row in
-      # /var/lib/eidan/plugins/.lock already carries `bundle: <name>`.
-      # For version bumps and removals, hand-edit the lock then run
-      # `eidan admin plugin sync --prune` (see docs/DEPLOY_PI_BOOTSTRAP.md);
-      # we don't try to model that as ansible state yet.
-      ansible.builtin.command:
-        cmd: >-
-          {{ eidan_uv_bin }} --directory {{ eidan_install_dir }}
-          run eidan admin plugin install {{ item }}
-      loop: "{{ eidan_bundles | default([]) }}"
-      when: "('bundle: ' + item) not in plugin_lock_content"
-      become_user: "{{ eidan_user }}"
-      environment:
-        EIDAN_PLUGINS_DIR: "{{ eidan_plugins_dir }}"
-        DATABASE_URL: "{{ eidan_database_url }}"
-        EIDAN_PLUGIN_SOURCE: "{{ eidan_plugin_source }}"
-        EIDAN_GITHUB_TOKEN: "{{ eidan_github_token }}"
-      notify: restart eidan-backend
-      # NOTE on the GitHub PAT: it lives in the `environment:` block
-      # above (not in `cmd:` or `loop:`), so ansible's default output
-      # does NOT print it. `-vvv` verbosity WILL dump the env dict —
-      # don't run the deploy with `-vvv` if anyone might see the
-      # output. (Earlier versions of this task had `no_log: true` as
-      # belt-and-braces, but that censored the actual install error
-      # too, leaving operators blind when a bundle failed to install.)
-      tags: [plugins]
+    # The previous `plugins` block (install paid bundles via `eidan
+    # admin plugin install`) is gone in slice C of #104. Bundle
+    # plugins arrive baked into the laptop's build context, get
+    # rsynced into /opt/eidan/plugins/ alongside core plugins, and
+    # are loaded directly from there. No remote install step, no PAT
+    # on the Pi.
 
     # --- restart ------------------------------------------------------
     # Explicit restart tag for when you want to bounce the service
