@@ -284,7 +284,7 @@ def init_cmd(
         )
 
         try:
-            target, master_key = run_init_wizard(
+            target, master_key, key_is_new = run_init_wizard(
                 target_dir=Path.cwd() / ".eidan",
                 force=force,
             )
@@ -303,15 +303,19 @@ def init_cmd(
             f"[green]wrote[/green] [cyan]{target}/topology.yml[/cyan]"
         )
         _console.print()
-        _console.print(
-            "[bold yellow]Record this master key offline:[/bold yellow]"
-        )
-        _console.print(f"  [cyan]{master_key}[/cyan]")
-        _console.print(
-            "[dim]It's now in your topology.yml; if you lose the file you "
-            "lose access to existing sessions.[/dim]"
-        )
-        _console.print()
+        # Only show the "record this offline" reminder when the key
+        # is brand-new — i.e. the wizard generated it. Reused or
+        # operator-pasted keys are already in their possession.
+        if key_is_new:
+            _console.print(
+                "[bold yellow]Record this master key offline:[/bold yellow]"
+            )
+            _console.print(f"  [cyan]{master_key}[/cyan]")
+            _console.print(
+                "[dim]It's now in your topology.yml; if you lose the file "
+                "you lose access to existing sessions.[/dim]"
+            )
+            _console.print()
         _console.print("[bold]Next:[/bold]")
         _console.print("  eidan deploy   # reconcile your new node")
         return
