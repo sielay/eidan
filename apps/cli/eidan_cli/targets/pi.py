@@ -306,8 +306,53 @@ def ensure_ansible_available() -> None:
         )
 
 
+def ensure_ansible_posix_collection() -> None:
+    """Make sure ``ansible.posix`` is installed.
+
+    The Pi playbook uses ``ansible.posix.synchronize`` for the
+    laptop→Pi rsync. Operators on ``ansible-core`` (lighter than
+    the full ``ansible`` distribution) don't get the collection by
+    default and the playbook fails late with::
+
+        couldn't resolve module/action 'ansible.posix.synchronize'
+
+    Probing here would mean parsing ``ansible-galaxy collection
+    list`` output, which is brittle. Easier: just run
+    ``ansible-galaxy collection install ansible.posix``. The
+    command is idempotent — already-installed collections are a
+    no-op other than a few hundred milliseconds of network probe.
+    Failures are non-fatal (the playbook will surface the real
+    error if the install was actually needed) so a transient
+    network blip doesn't block a deploy that was otherwise going
+    to succeed.
+    """
+    if shutil.which("ansible-galaxy") is None:
+        # Some `ansible-core` installs ship `ansible-playbook` but
+        # not `ansible-galaxy` (very rare; just bail quietly).
+        return
+    try:
+        subprocess.run(  # noqa: S603
+            [
+                "ansible-galaxy",
+                "collection",
+                "install",
+                "ansible.posix",
+                "--upgrade",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        # Non-fatal — the playbook will explain better if it
+        # really needs the collection.
+        return
+
+
 __all__ = [
     "PiMissingFieldError",
     "ensure_ansible_available",
+    "ensure_ansible_posix_collection",
     "reconcile",
 ]

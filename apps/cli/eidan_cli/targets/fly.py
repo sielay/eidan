@@ -316,6 +316,7 @@ def _push_secrets(
 
 def _fly_deploy(
     *,
+    app: str,
     fly_toml_path: Path,
     image: str | None,
     build_context: Path | None,
@@ -325,20 +326,24 @@ def _fly_deploy(
 
     Two shapes:
 
-    - ``image`` set: ``fly deploy -c <fly.toml> --image <image>``.
-      flyctl pulls the image and rolls the machines. fly.toml carries
-      the same image in its ``[build]`` stanza for consistency.
-    - ``image`` unset: ``fly deploy -c <fly.toml> --dockerfile
+    - ``image`` set: ``fly deploy --app <app> -c <fly.toml> --image <image>``.
+      flyctl pulls the image and rolls the machines.
+    - ``image`` unset: ``fly deploy --app <app> -c <fly.toml> --dockerfile
       <ctx>/infra/fly/Dockerfile <ctx>`` where ``<ctx>`` is the
-      pre-assembled build context (eidan tree + baked bundles). fly.toml
-      has no ``[build]`` stanza — the command-line flags supply the
-      build config.
+      pre-assembled build context (eidan tree + baked bundles).
+
+    We pass ``--app`` explicitly even though the rendered fly.toml
+    carries the same value. flyctl's resolution otherwise depends
+    on which sequence of ``-c`` / context-walk it tries first, and
+    we've seen it surface ``the config for your app is missing an
+    app name`` errors when those internal steps disagree. Passing
+    the app explicitly makes the deploy unambiguous.
 
     ``build_context`` is required when ``image`` is unset; the caller
     (``reconcile``) materialises it via :func:`_assemble_build_context`
     before calling here.
     """
-    cmd = ["fly", "deploy", "-c", str(fly_toml_path)]
+    cmd = ["fly", "deploy", "--app", app, "-c", str(fly_toml_path)]
     if image is not None:
         cmd += ["--image", image]
     else:
@@ -403,6 +408,7 @@ def reconcile(
                 node, eidan_dir=eidan_dir, runtime_dir=runtime_dir
             )
         code = _fly_deploy(
+            app=app,
             fly_toml_path=fly_toml_path,
             image=image,
             build_context=build_context,
