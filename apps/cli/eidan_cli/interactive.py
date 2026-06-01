@@ -32,7 +32,9 @@ terminals operators actually use.
 
 from __future__ import annotations
 
+import re
 import secrets
+import urllib.parse as _urlparse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -44,17 +46,21 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-# Bundle slugs the wizard offers as multi-select. Kept short so the
-# operator doesn't have to scroll; the conventional sibling-repo
-# layout maps each to ``<eidan-parent>/<slug>/``. Operators with
-# unconventional layouts override via ``EIDAN_BUNDLE_ROOT``.
-_KNOWN_BUNDLES = (
+# Fallback bundle slugs when we can't reach GitHub via `gh`. The
+# wizard prefers a live `gh repo list` so the operator sees the
+# bundles their auth can actually see; this list is the last resort
+# for offline / un-authed laptops.
+_FALLBACK_BUNDLES = (
     "eidan-pro",
     "eidan-lifestyle",
     "eidan-business",
     "eidan-coding",
     "eidan-canary",
 )
+
+# Default GitHub org to query for `eidan-*` bundle repos. Operators
+# forking to their own org can edit topology.yml afterward.
+_DEFAULT_BUNDLE_ORG = "sielay"
 
 # Provider names + the env-var key each one's api_key lands in for
 # the rendered topology. Ollama is the no-key case — local model
@@ -172,6 +178,25 @@ def _ask_target(default: str | None = None) -> str:
     )
 
 
+def _default_ssh_key_path() -> str:
+    """Pick the operator's most likely SSH private-key path.
+
+    Walks ``~/.ssh/`` looking for canonical key names. Prefers
+    ``id_ed25519`` (modern + recommended), then ``id_rsa`` (still
+    widely used), then ECDSA / DSA. Returns the FIRST existing key
+    as ``~/.ssh/<name>`` so questionary can display it tilde-style.
+
+    If none of the canonical files exist yet, returns the
+    ``id_ed25519`` placeholder so the prompt at least suggests the
+    modern shape.
+    """
+    home = Path.home()
+    for name in ("id_ed25519", "id_rsa", "id_ecdsa", "id_dsa"):
+        if (home / ".ssh" / name).is_file():
+            return f"~/.ssh/{name}"
+    return "~/.ssh/id_ed25519"
+
+
 def _ask_pi_fields() -> dict[str, Any]:
     """Pi-specific topology fields. Keys map 1:1 to the topology
     schema so the caller can splat the dict into the node dict."""
@@ -192,7 +217,7 @@ def _ask_pi_fields() -> dict[str, Any]:
     ssh_key = _ask(
         questionary.text(
             "SSH private key path (leave blank to use your default agent):",
-            default="~/.ssh/id_ed25519",
+            default=_default_ssh_key_path(),
         )
     )
     out: dict[str, Any] = {
@@ -367,15 +392,81 @@ def _ask_provider() -> dict[str, Any]:
     return provider
 
 
+def _list_eidan_bundles(org: str) -> list[str] | None:
+    """Query GitHub via ``gh repo list <org> --json name`` for
+    ``eidan-*`` repos the operator's auth can see.
+
+    Returns the filtered + sorted list, or ``None`` when we can't
+    reach GitHub (``gh`` missing on PATH, ``gh auth login`` not
+    done, network blip). The caller falls back to a static list in
+    those cases.
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("gh") is None:
+        return None
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["gh", "repo", "list", org, "--limit", "100", "--json", "name"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        import json as _json
+
+        repos = _json.loads(result.stdout or "[]")
+    except _json.JSONDecodeError:
+        return None
+    names = [
+        r["name"]
+        for r in repos
+        if isinstance(r, dict) and isinstance(r.get("name"), str)
+    ]
+    # Filter: `eidan-*` slugs, excluding the landing site (not a
+    # bundle) and `eidan` itself (the core repo). Stable sort so
+    # the operator sees the same order across runs.
+    return sorted(
+        n for n in names
+        if n.startswith("eidan-") and n != "eidan-landing"
+    )
+
+
 def _ask_bundles() -> list[str]:
-    """Multi-select bundles. Empty list is fine — core-only deploy."""
+    """Multi-select bundles. The list comes from ``gh repo list``
+    so we offer exactly the bundle repos the operator's GitHub
+    auth can see — no false promises about closed-source bundles
+    they don't have access to. Falls back to a static list when
+    ``gh`` is unavailable. Empty list is fine — core-only deploy."""
+    bundles = _list_eidan_bundles(_DEFAULT_BUNDLE_ORG)
+    if bundles is None:
+        bundles = list(_FALLBACK_BUNDLES)
+        questionary.print(
+            f"  (gh CLI unavailable; offering the default "
+            f"{_DEFAULT_BUNDLE_ORG}/* list. Run `gh auth login` to "
+            "see your account's actual access.)",
+            style="fg:#888888",
+        )
+    if not bundles:
+        questionary.print(
+            f"  (no eidan-* repos found on {_DEFAULT_BUNDLE_ORG}; "
+            "pick none for a core-only deploy)",
+            style="fg:#888888",
+        )
+        return []
     selected = _ask(
         questionary.checkbox(
             "Which paid bundles do you want to install? "
             "(space to toggle, enter to confirm; pick none for a "
             "core-only deploy)",
             choices=[
-                questionary.Choice(name, name) for name in _KNOWN_BUNDLES
+                questionary.Choice(name, name) for name in bundles
             ],
         )
     )
@@ -383,28 +474,100 @@ def _ask_bundles() -> list[str]:
 
 
 def _ask_database_url() -> str:
-    """Postgres URL with the right scheme. We don't probe the
-    connection here (see module docstring); just nudge towards the
-    asyncpg scheme so `eidan deploy` doesn't fail later with a
-    confusing driver-not-found error."""
-    return _ask(
+    """Collect Postgres connection parameters as separate fields and
+    assemble the asyncpg URL.
+
+    Hides the password so the operator can dictate it into a
+    password manager without it appearing in their terminal
+    scrollback. URL-encodes the password so chars like ``@`` /
+    ``:`` / ``#`` don't break the URL parser downstream.
+    """
+    host = _ask(
         questionary.text(
-            "Postgres DATABASE_URL (postgresql+asyncpg:// scheme):",
-            default="postgresql+asyncpg://eidan_app:CHANGE-ME@127.0.0.1:5432/eidan",
-            validate=lambda s: s.startswith("postgresql+asyncpg://")
-            or "must start with 'postgresql+asyncpg://' "
-            "(the backend uses asyncpg, not psycopg2)",
+            "Postgres host:",
+            default="127.0.0.1",
+            validate=lambda s: bool(s.strip()) or "host is required",
+        )
+    ).strip()
+    port = _ask(
+        questionary.text(
+            "Postgres port:",
+            default="5432",
+            validate=lambda s: s.strip().isdigit() or "port must be numeric",
+        )
+    ).strip()
+    database = _ask(
+        questionary.text(
+            "Postgres database name:",
+            default="eidan",
+            validate=lambda s: bool(s.strip()) or "database is required",
+        )
+    ).strip()
+    user = _ask(
+        questionary.text(
+            "Postgres user:",
+            default="eidan_app",
+            validate=lambda s: bool(s.strip()) or "user is required",
+        )
+    ).strip()
+    password = _ask(
+        questionary.password(
+            "Postgres password (hidden — record it in a password manager now):",
+            validate=lambda s: bool(s) or "password is required",
         )
     )
+    pw_quoted = _urlparse.quote_plus(password)
+    return f"postgresql+asyncpg://{user}:{pw_quoted}@{host}:{port}/{database}"
 
 
-def _ask_auth() -> tuple[str, str]:
-    """Returns (auth_master_key, auth_allowed_email).
+def _read_existing_master_key(topology_path: Path) -> str | None:
+    """If ``topology.yml`` exists and carries an ``auth_master_key:``
+    line, return its value so the wizard can offer to reuse it.
 
-    The master key is GENERATED here, not asked — we want strong
-    entropy and we want the operator to record it offline rather
-    than reuse a memorable string. The wizard prints the value
-    once at the end of the run with a reminder to save it.
+    Naive regex parse — the wizard always writes the key as a
+    plain or double-quoted scalar on its own line. Operators who
+    hand-edited the file to a ``!vault`` encrypted form get
+    ``None`` back (we can't decrypt mid-wizard); they're prompted
+    to paste the plaintext key, and the operator can re-vault it
+    afterward. Placeholder values from a stub-only scaffold also
+    return ``None``.
+    """
+    if not topology_path.is_file():
+        return None
+    try:
+        body = topology_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(
+        r'^\s*auth_master_key:\s*(?:"([^"]+)"|(\S+))',
+        body,
+        re.MULTILINE,
+    )
+    if not match:
+        return None
+    value = (match.group(1) or match.group(2) or "").strip()
+    if value in ("", "REPLACE-WITH-secrets.token_urlsafe-48"):
+        return None
+    if value.startswith("!"):
+        # ansible-vault encrypted scalar; can't reuse from here.
+        return None
+    return value
+
+
+def _ask_auth(existing_key: str | None) -> tuple[str, str, bool]:
+    """Returns ``(master_key, email, key_is_freshly_generated)``.
+
+    The ``key_is_freshly_generated`` flag tells the caller whether
+    to display the "record this offline" reminder — only true for
+    a brand-new key the operator hasn't seen before.
+
+    Behaviour:
+    - If ``existing_key`` is set (re-running the wizard on an
+      existing topology, OR the operator preserved a prior init's
+      output), default to reusing it.
+    - Otherwise the operator picks between generating a new key
+      (single-node deploy or first-of-many) and pasting an
+      existing key (the node joins an existing deployment).
     """
     email = _ask(
         questionary.text(
@@ -412,8 +575,44 @@ def _ask_auth() -> tuple[str, str]:
             validate=lambda s: "@" in s.strip()
             or "looks like an email is required here",
         )
+    ).strip()
+
+    if existing_key:
+        reuse = _ask(
+            questionary.confirm(
+                "Existing master key found in topology.yml — reuse it? "
+                "(say no to enter a different key or generate a new one)",
+                default=True,
+            )
+        )
+        if reuse:
+            return existing_key, email, False
+
+    source = _ask(
+        questionary.select(
+            "Master key for this deployment:",
+            choices=[
+                questionary.Choice(
+                    "Generate a new key (single-node deploy or first of many)",
+                    "generate",
+                ),
+                questionary.Choice(
+                    "Paste an existing key (this node joins an existing deployment)",
+                    "paste",
+                ),
+            ],
+            default="generate",
+        )
     )
-    return _generate_master_key(), email.strip()
+    if source == "generate":
+        return _generate_master_key(), email, True
+    pasted = _ask(
+        questionary.password(
+            "Paste the existing master key (input hidden):",
+            validate=lambda s: bool(s.strip()) or "master key is required",
+        )
+    ).strip()
+    return pasted, email, False
 
 
 def _format_yaml_value(value: Any) -> str:
@@ -482,13 +681,19 @@ def run_init_wizard(
     *,
     target_dir: Path,
     force: bool = False,
-) -> tuple[Path, str]:
+) -> tuple[Path, str, bool]:
     """Walk the operator through a single-node topology setup, then
     materialise the scaffold + write the resolved topology.yml.
 
-    Returns ``(target_dir, auth_master_key)`` so the caller can
-    print the master key once with a "record this offline" reminder
-    after the rest of the success output.
+    Returns ``(target_dir, auth_master_key, key_is_freshly_generated)``.
+    The caller uses the third element to decide whether to print
+    the "record this offline" reminder — only meaningful for a
+    brand-new key the operator hasn't seen before.
+
+    Re-running the wizard with an existing ``.eidan/topology.yml``
+    in place reads the prior ``auth_master_key`` before scaffold
+    wipes the dir, so the operator gets a "reuse existing?" prompt
+    rather than an unrecoverable key swap.
 
     Raises:
         :class:`InteractiveCancelled` — operator hit Ctrl-C mid-flow.
@@ -500,6 +705,13 @@ def run_init_wizard(
         "Let's set up a new eidan deployment.\n"
         "(Ctrl-C at any prompt cancels without writing anything.)\n",
         style="bold",
+    )
+
+    # Read existing master key BEFORE scaffold wipes the dir, so we
+    # can offer to reuse it in _ask_auth. A re-init that regenerates
+    # the key would break decryption of anything already stored.
+    existing_master_key = _read_existing_master_key(
+        target_dir / "topology.yml"
     )
 
     node_name = _ask(
@@ -521,7 +733,9 @@ def run_init_wizard(
         _ask_pi_fields() if target == "pi" else _ask_fly_fields()
     )
     database_url = _ask_database_url()
-    auth_master_key, auth_allowed_email = _ask_auth()
+    auth_master_key, auth_allowed_email, key_is_new = _ask_auth(
+        existing_master_key
+    )
     provider = _ask_provider()
     bundles = _ask_bundles()
 
@@ -545,7 +759,7 @@ def run_init_wizard(
         ),
         encoding="utf-8",
     )
-    return scaffolded, auth_master_key
+    return scaffolded, auth_master_key, key_is_new
 
 
 __all__ = [

@@ -66,53 +66,69 @@ def _stub_questionary(monkeypatch: pytest.MonkeyPatch, answers: list[Any]) -> de
 # ---------- run_init_wizard ---------------------------------------------------
 
 
+def _stub_bundle_fetch(
+    monkeypatch: pytest.MonkeyPatch, bundles: list[str] | None
+) -> None:
+    """Replace the gh-CLI bundle fetcher with a canned list so wizard
+    tests don't shell out to a real `gh repo list`."""
+    monkeypatch.setattr(
+        interactive, "_list_eidan_bundles", lambda _org: bundles
+    )
+
+
 def test_init_wizard_pi_path_writes_topology(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Happy path: Pi target, ollama provider (no API key), one
-    bundle. Wizard collects + writes the topology under .eidan/."""
+    bundle. Wizard collects + writes the topology under .eidan/.
+
+    The DB URL is now collected as five separate prompts
+    (host / port / db / user / password) and assembled to the
+    asyncpg URL before write. Password is URL-encoded so chars
+    like `@` don't break the URL parser."""
+    _stub_bundle_fetch(monkeypatch, ["eidan-pro", "eidan-coding"])
     _stub_questionary(
         monkeypatch,
         [
-            "kasha",                              # node name
-            "pi",                                  # target
-            "192.168.1.100",                       # pi host
-            "pi",                                  # pi ssh_user
-            "~/.ssh/id_ed25519",                   # pi ssh_key
-            "postgresql+asyncpg://e:e@127.0.0.1:5432/eidan",  # database_url
-            "ops@example.com",                     # auth email
-            "ollama",                              # provider name
-            "phi3",                                # default model
-            ["eidan-pro"],                         # bundles
+            "kasha",                # node name
+            "pi",                    # target
+            "192.168.1.100",         # pi host
+            "pi",                    # pi ssh_user
+            "~/.ssh/id_ed25519",     # pi ssh_key
+            "127.0.0.1",             # db host
+            "5432",                  # db port
+            "eidan",                 # db name
+            "eidan_app",             # db user
+            "secret-pw",             # db password
+            "ops@example.com",       # auth email
+            "generate",              # auth: generate new key (no existing)
+            "ollama",                # provider name
+            "phi3",                  # default model
+            ["eidan-pro"],           # bundles
         ],
     )
 
-    target, master_key = interactive.run_init_wizard(
+    target, master_key, key_is_new = interactive.run_init_wizard(
         target_dir=tmp_path / ".eidan",
     )
 
     assert target == tmp_path / ".eidan"
+    assert key_is_new is True  # generated path
     topology = (target / "topology.yml").read_text(encoding="utf-8")
     assert "kasha:" in topology
     assert "target: pi" in topology
     assert "host: 192.168.1.100" in topology
     assert "ssh_user: pi" in topology
     assert "ssh_key: ~/.ssh/id_ed25519" in topology
-    assert "database_url:" in topology
-    # `@` in the email triggers YAML quoting (so the line stays a
-    # single scalar in case the operator's domain ever has special
-    # chars). Either form is valid YAML; we just assert the email
-    # lands in the file.
+    # DB fields assembled into the asyncpg URL.
+    assert "postgresql+asyncpg://eidan_app:secret-pw@127.0.0.1:5432/eidan" in topology
     assert "ops@example.com" in topology
     assert "auth_allowed_email" in topology
     assert "name: ollama" in topology
     assert "default_model: phi3" in topology
     assert "bundles: [eidan-pro]" in topology
-    # Master key is generated, ~64 chars (urlsafe encoding of 48 bytes
-    # yields 64 chars). Stronger entropy than anything an operator
-    # would invent on the spot.
+    # Master key is generated, ~64 chars (urlsafe encoding of 48 bytes).
     assert len(master_key) >= 60
-    # Topology carries the same key so the running backend reads it.
     assert master_key in topology
 
 
@@ -128,34 +144,148 @@ def test_init_wizard_fly_path_collects_app_and_region(
     monkeypatch.setattr(
         interactive, "_ensure_fly_app", lambda app: None
     )
+    _stub_bundle_fetch(monkeypatch, ["eidan-pro"])
     _stub_questionary(
         monkeypatch,
         [
-            "prod",                                # node name
-            "fly",                                  # target
-            "eidan-api",                            # fly app
-            "lhr",                                  # fly region
-            "postgresql+asyncpg://e:e@db.example.com:5432/eidan",  # db url
-            "ops@example.com",                      # auth email
-            "anthropic",                            # provider
-            "sk-ant-XXXX",                          # api key
-            "claude-sonnet-4-6",                    # default model
-            [],                                     # no bundles
+            "prod",                # node name
+            "fly",                  # target
+            "eidan-api",            # fly app
+            "lhr",                  # fly region
+            "db.example.com",       # db host
+            "5432",                 # db port
+            "eidan",                # db name
+            "eidan_app",            # db user
+            "fly-secret",           # db password
+            "ops@example.com",      # auth email
+            "generate",             # auth: generate new key
+            "anthropic",            # provider
+            "sk-ant-XXXX",          # api key
+            "claude-sonnet-4-6",    # default model
+            [],                     # no bundles
         ],
     )
 
-    target, _master_key = interactive.run_init_wizard(
+    target, _master_key, key_is_new = interactive.run_init_wizard(
         target_dir=tmp_path / ".eidan",
     )
 
+    assert key_is_new is True
     topology = (target / "topology.yml").read_text(encoding="utf-8")
     assert "target: fly" in topology
     assert "app: eidan-api" in topology
     assert "region: lhr" in topology
+    assert "postgresql+asyncpg://eidan_app:fly-secret@db.example.com:5432/eidan" in topology
     assert "name: anthropic" in topology
     assert "api_key:" in topology
-    # No bundles selected → no `bundles:` line written. Core-only deploy.
     assert "bundles:" not in topology
+
+
+def test_init_wizard_url_encodes_password(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Passwords with URL-reserved chars (`@`, `:`, `#`, `/`) MUST
+    be percent-encoded before assembly, otherwise the URL parser
+    downstream treats them as delimiters and the connection
+    silently targets the wrong host."""
+    _stub_bundle_fetch(monkeypatch, [])
+    _stub_questionary(
+        monkeypatch,
+        [
+            "kasha", "pi",
+            "192.168.1.100", "pi", "~/.ssh/id_ed25519",
+            "127.0.0.1", "5432", "eidan", "eidan_app",
+            "p@ss:word#1",          # password with three reserved chars
+            "ops@example.com", "generate",
+            "ollama", "phi3",
+            [],
+        ],
+    )
+
+    target, _, _ = interactive.run_init_wizard(
+        target_dir=tmp_path / ".eidan",
+    )
+
+    topology = (target / "topology.yml").read_text(encoding="utf-8")
+    # `@` → %40, `:` → %3A, `#` → %23. quote_plus also encodes `+`
+    # but we don't use that here.
+    assert "p%40ss%3Aword%231" in topology
+    # The raw password MUST NOT appear in the URL — that would mean
+    # we didn't encode it.
+    assert "p@ss:word#1" not in topology
+
+
+def test_init_wizard_reuses_existing_master_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-running the wizard against an existing topology.yml reads
+    the prior auth_master_key and offers to reuse it. Operator
+    confirms → wizard preserves the key, key_is_new flag is False."""
+    # Plant a topology with an existing key. Mimics a prior init.
+    eidan_dir = tmp_path / ".eidan"
+    eidan_dir.mkdir()
+    existing_key = "OLD-KEY-FROM-A-PREVIOUS-INIT-RUN-PRESERVE-ME-PLEASE-1234567890"
+    (eidan_dir / "topology.yml").write_text(
+        "schema: 1\nnodes:\n  kasha:\n"
+        f'    auth_master_key: "{existing_key}"\n',
+        encoding="utf-8",
+    )
+
+    _stub_bundle_fetch(monkeypatch, [])
+    _stub_questionary(
+        monkeypatch,
+        [
+            "kasha", "pi",
+            "192.168.1.100", "pi", "~/.ssh/id_ed25519",
+            "127.0.0.1", "5432", "eidan", "eidan_app", "secret",
+            "ops@example.com",
+            True,                   # reuse existing? → yes
+            "ollama", "phi3",
+            [],
+        ],
+    )
+
+    target, master_key, key_is_new = interactive.run_init_wizard(
+        target_dir=eidan_dir,
+        force=True,                  # scaffold over the existing .eidan/
+    )
+
+    assert master_key == existing_key
+    assert key_is_new is False
+    topology = (target / "topology.yml").read_text(encoding="utf-8")
+    assert existing_key in topology
+
+
+def test_init_wizard_accepts_pasted_master_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the operator declines reuse (or when there's no existing
+    key), they can pick 'paste' and provide the key from another
+    node. Wizard treats it like the reused case — no fresh-key
+    reminder, since the operator already has it."""
+    _stub_bundle_fetch(monkeypatch, [])
+    pasted = "PASTED-KEY-FROM-ANOTHER-NODE-OF-THIS-DEPLOYMENT-XYZ"
+    _stub_questionary(
+        monkeypatch,
+        [
+            "kasha", "pi",
+            "192.168.1.100", "pi", "~/.ssh/id_ed25519",
+            "127.0.0.1", "5432", "eidan", "eidan_app", "secret",
+            "ops@example.com",
+            "paste",                 # auth: paste existing (no existing-key prompt
+                                     #        because no topology.yml exists yet)
+            pasted,                  # the pasted value
+            "ollama", "phi3",
+            [],
+        ],
+    )
+
+    target, master_key, key_is_new = interactive.run_init_wizard(
+        target_dir=tmp_path / ".eidan",
+    )
+
+    assert master_key == pasted
+    assert key_is_new is False  # pasted, not generated → no reminder
 
 
 # ---------- _ensure_fly_app branches ------------------------------------------
@@ -330,13 +460,16 @@ def test_init_wizard_cancelled_mid_flow_writes_nothing(
 ) -> None:
     """Ctrl-C partway through (after some answers collected) still
     leaves no topology — the scaffold step runs last."""
+    monkeypatch.setattr(
+        interactive, "_ensure_fly_app", lambda app: None
+    )
     _stub_questionary(
         monkeypatch,
         [
-            "prod",                                 # node name
-            "fly",                                   # target
-            "eidan-api",                             # fly app
-            None,                                    # Ctrl-C on fly region
+            "prod",                  # node name
+            "fly",                    # target
+            "eidan-api",              # fly app
+            None,                     # Ctrl-C on fly region
         ],
     )
 
