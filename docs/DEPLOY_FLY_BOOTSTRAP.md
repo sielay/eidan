@@ -128,9 +128,18 @@ From your laptop, inside the eidan checkout:
 eidan deploy --node fly-prod
 ```
 
-This is the line that pushes secrets, renders fly.toml, runs `fly
-deploy`, and installs declared bundles. From here forward, every
+This is the line that pushes secrets, renders fly.toml, assembles
+a local build context (eidan core + the bundle plugins resolved
+from operator-local sibling repos), runs `fly deploy` against
+that context, and rolls the machines. Plugins ride the image; no
+SSH install step, no PAT on the machine. From here forward, every
 change is a `topology.yml` edit + `eidan deploy`.
+
+**Paid bundles**: clone the bundle repos as siblings of your
+eidan checkout (e.g. `~/Documents/GitHub/eidan-pro/` next to
+`~/Documents/GitHub/eidan/`). The CLI finds them via the
+conventional sibling layout. Override with `EIDAN_BUNDLE_ROOT=<path>`
+if your bundles are elsewhere (CI, separate drive).
 
 ## Smoke-check
 
@@ -183,27 +192,15 @@ Generate the Fly token with `fly tokens create deploy`. Pin actions
 to a commit SHA for production; the `@1.5` tag above is shown for
 brevity.
 
-## Migrating from an older deploy
+## `infra/fly/` artefacts
 
-If you bootstrapped against an earlier eidan that pinned a
-`/var/lib/eidan/plugins` Fly volume (the previous "remote install
-at runtime" model), the volume is now deadweight — plugins ride
-the image. Clean it up once per machine, then redeploy:
+`infra/fly/Dockerfile` is the canonical image build path — the
+CLI uses it as the Dockerfile for every `fly deploy`. The CLI
+assembles its build context next to your eidan checkout in
+`.eidan-runtime/<node>/build-context/`, then runs `fly deploy
+--dockerfile <ctx>/infra/fly/Dockerfile <ctx>`.
 
-```bash
-fly volumes list --app eidan-api
-fly volume destroy <volume-id> --app eidan-api    # per machine
-eidan deploy --node fly-prod
-```
-
-The remaining `EIDAN_GITHUB_TOKEN` Fly secret is also a leftover
-from the old install path; it does no harm at runtime but you can
-remove it via `fly secrets unset EIDAN_GITHUB_TOKEN --app eidan-api`
-once slice C of #104 lands.
-
-## Legacy `infra/fly/` artefacts
-
-`infra/fly/Dockerfile` and `infra/fly/fly.toml.example` are still
-in the tree for operators who build images locally rather than
-pulling the published `ghcr.io/sielay/eidan:<tag>`. The CLI doesn't
-use them — they stay only as a manual fallback.
+`infra/fly/fly.toml.example` stays as a reference for operators
+who want to inspect the rendered shape without running the CLI.
+The CLI doesn't read it — the live render comes from
+`apps/cli/eidan_cli/playbooks/fly/fly.toml.template`.
