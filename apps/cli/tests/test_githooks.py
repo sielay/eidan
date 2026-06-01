@@ -333,6 +333,88 @@ def test_bootstrap_fails_clearly_when_uv_missing(tmp_path: Path) -> None:
     assert "astral.sh" in result.stderr  # installer URL
 
 
+def test_bootstrap_exits_when_successful(
+    tmp_path: Path,
+) -> None:
+    """The script must terminate after the final 'Done' message —
+    not block waiting for input. Regression for an earlier bug
+    where the help text wrapped `eidan` in backticks inside a
+    double-quoted echo, so bash treated it as command substitution
+    and executed the just-installed `eidan` binary. After issue
+    #110 shipped, `eidan` with no args launches the interactive
+    menu, which reads stdin and deadlocks the bootstrap.
+
+    We don't pass an stdin handle (the subprocess default closes
+    stdin), and we cap the run with a short timeout so a
+    regression surfaces as a TimeoutExpired rather than hanging
+    pytest forever."""
+    repo = _setup_fake_repo(tmp_path)
+    bootstrap_dest = repo / "scripts" / "bootstrap.sh"
+    bootstrap_dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_BOOTSTRAP, bootstrap_dest)
+    bootstrap_dest.chmod(0o755)
+
+    # Install a fake `eidan` binary on PATH too — so if the bug
+    # ever resurfaces (backticks around `eidan` get re-introduced),
+    # the substitution would actually execute *something* and the
+    # test would catch the resulting block.
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir(parents=True, exist_ok=True)
+    fake_eidan = fake_bin / "eidan"
+    fake_eidan.write_text("#!/bin/bash\ncat\n")  # `cat` blocks on stdin
+    fake_eidan.chmod(0o755)
+
+    record = tmp_path / "uv-calls.txt"
+    env = _install_fake_uv(fake_bin, record_to=record)
+
+    result = subprocess.run(
+        ["./scripts/bootstrap.sh"],
+        cwd=repo,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,  # script should finish in <2s; 10s is generous
+        stdin=subprocess.DEVNULL,
+    )
+
+    assert result.returncode == 0, (
+        f"bootstrap failed:\nstdout={result.stdout}\nstderr={result.stderr}"
+    )
+
+
+def test_bootstrap_does_not_command_substitute_eidan(tmp_path: Path) -> None:
+    r"""Belt-and-braces sibling of the test above: static-grep the
+    script for ``echo "...\`eidan\`..."`` patterns. A textual check
+    so a regression is caught at the smallest possible cost.
+
+    The general lint rule is "no command-substitution backticks
+    inside double-quoted strings that mention installed binaries"
+    — we encode it narrowly here because the bug had bite."""
+    body = _BOOTSTRAP.read_text(encoding="utf-8")
+    # We allow backticks inside SINGLE-quoted heredocs (where bash
+    # does NOT expand them) and inside comments. The dangerous form
+    # is backticks inside a double-quoted echo argument.
+    for lineno, line in enumerate(body.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        # `echo "..." | echo "..."` — look at echo'd content.
+        if "echo " not in stripped:
+            continue
+        # Strip out content inside single quotes (safe).
+        # Crude but effective for our short script.
+        if '`' in line and '"' in line:
+            # If a backtick appears anywhere on an echo line that
+            # also has a double-quote, flag it — too risky.
+            raise AssertionError(
+                f"bootstrap.sh:{lineno}: backtick inside an echo line "
+                f"with a double-quote — bash will command-substitute. "
+                f"Use single quotes or a single-quoted heredoc instead. "
+                f"Line: {line!r}"
+            )
+
+
 @pytest.fixture(autouse=True)
 def _skip_if_no_git() -> None:
     """Skip the whole file on systems without git on PATH (rare,
