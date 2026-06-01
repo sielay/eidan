@@ -111,17 +111,23 @@ async def test_healthz_is_public(http_client) -> None:
 async def test_auth_config_is_public(http_client) -> None:
     """``/api/auth/config`` is public and surfaces the native auth
     envelope. The ``provider`` is always ``native``; the providers
-    list carries every auth surface enabled (today: magic_link)."""
+    list carries every auth surface enabled (today: magic_link).
+
+    Critically, the response MUST NOT include ``allowed_email`` or
+    any other PII — the endpoint is unauthenticated and any value
+    here is broadcast to every caller. The verify endpoint
+    re-checks ``EIDAN_AUTH_ALLOWED_EMAIL`` server-side."""
     client, _, _, _ = http_client
     resp = await client.get("/api/auth/config")
     assert resp.status_code == 200
     body = resp.json()
     assert body["provider"] == "native"
     assert body["providers"] == ["magic_link"]
-    # The allow-list email is sourced from the env (unset in tests).
-    assert "allowed_email" in body
     assert "tos_url" in body
     assert "privacy_url" in body
+    # Regression guard: no PII on a public endpoint.
+    assert "allowed_email" not in body
+    assert "email" not in body
 
 
 @pytest.mark.asyncio
