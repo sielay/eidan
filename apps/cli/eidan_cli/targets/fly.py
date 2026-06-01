@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Fly.io target reconciler.
 
-Wires `target: fly` nodes from `topology.yml` into a four-step
+Wires `target: fly` nodes from `topology.yml` into a three-step
 flyctl pipeline:
 
 1. Render `fly.toml` from the resolved node into
@@ -12,15 +12,25 @@ flyctl pipeline:
 3. `fly deploy` against the rendered fly.toml. Two shapes:
    - `image:` set in topology → `fly deploy --image <image>`
      (operator's pinned tag, e.g. their own GHCR build).
-   - `image:` unset → `fly deploy --dockerfile <eidan>/infra/fly/
-     Dockerfile <eidan>` to build locally. The eidan checkout
-     root is `EIDAN_SOURCE_DIR` or cwd.
-4. `fly ssh console -C "eidan admin plugin install <bundle>"` for
-   each bundle in the node's `bundles:` list.
+   - `image:` unset → assemble a build context at
+     `<runtime>/build-context/` (eidan tree + operator-local
+     bundle plugin dirs merged into `plugins/`), then
+     `fly deploy --dockerfile <ctx>/infra/fly/Dockerfile <ctx>`.
 
-Each step is gated by a tag: pass `--tags secrets,deploy,plugins`
-(or just one) to invoke a subset; default runs all four. Step
-ordering is fixed — we don't try to parallelise across steps.
+Plugins are baked into the image at build time (issue #105 /
+#104 slice A). The previous runtime `fly ssh console -C "eidan
+admin plugin install <bundle>"` step is gone: it required a PAT
+on every machine, didn't fan out across multi-machine pools, and
+left the persistent-volume state out of sync with the image. The
+laptop is the trust boundary now — operator-local bundle repos
+are copied into the build context, no GitHub clone happens
+remote-side.
+
+Each step is gated by a tag: pass `--tags secrets,deploy` (or
+just one) to invoke a subset; default runs all. Step ordering is
+fixed — we don't try to parallelise across steps. `--tags
+plugins` is accepted as a legacy alias for `deploy` so existing
+scripts keep working post-refactor.
 """
 
 from __future__ import annotations
@@ -172,19 +182,12 @@ def _render_fly_toml(node: ResolvedNode) -> str:
     if getattr(node, "node_type", None):
         extra_env_lines.append(f'  EIDAN_NODE_TYPE         = "{node.node_type}"')
 
-    # EIDAN_PLUGIN_SOURCE is a config value (a repo path like
-    # 'gh:sielay'), not a secret — but it has to be on the machine
-    # env for `eidan admin plugin install` to pick it up over SSH.
-    # Pinning it in the fly.toml [env] block (rather than threading
-    # it through `fly ssh -C` as a `VAR=val cmd` prefix) means the
-    # ssh command line carries neither the source nor the PAT, and
-    # fly-ssh's exec-style invocation (no shell) doesn't choke on
-    # what would otherwise look like a binary called
-    # "EIDAN_PLUGIN_SOURCE=gh:sielay".
-    plugin_source = getattr(node, "plugin_source", None) or "gh:sielay"
-    extra_env_lines.append(
-        f'  EIDAN_PLUGIN_SOURCE     = "{plugin_source}"'
-    )
+    # EIDAN_PLUGIN_SOURCE used to live in [env] so the runtime SSH
+    # install could see it. Bake-at-build (#104 slice A) means
+    # plugins are part of the image — nothing on the machine reads
+    # the source. The topology field stays (operator may still want
+    # to point at a different bundle org locally), it's just no
+    # longer plumbed into the running container.
 
     template_path = resources.files("eidan_cli.playbooks.fly") / "fly.toml.template"
     template = template_path.read_text(encoding="utf-8")
@@ -299,10 +302,157 @@ def _push_secrets(
     return _run(cmd, dry_run=dry_run)
 
 
+_BUILD_CONTEXT_IGNORE = shutil.ignore_patterns(
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "node_modules",
+    ".next",
+    ".venv",
+    ".git",
+    "dist",
+    "build",
+    "*.egg-info",
+    ".eidan",
+    ".eidan-runtime",
+    ".DS_Store",
+)
+
+
+def _resolve_bundle_root(eidan_dir: Path) -> Path:
+    """Where to look for operator-local bundle repos.
+
+    ``EIDAN_BUNDLE_ROOT`` wins if set; otherwise we use the eidan
+    checkout's parent directory — the conventional sibling-repo
+    layout (``~/Documents/GitHub/eidan`` + ``~/Documents/GitHub/eidan-pro``
+    etc.). Convention covers the single-operator default; the env
+    var is for operators who keep bundles elsewhere (CI, separate
+    drive) without committing the path into the public-mirror
+    topology schema.
+    """
+    env_value = os.environ.get("EIDAN_BUNDLE_ROOT", "").strip()
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return eidan_dir.parent.resolve()
+
+
+def _discover_bundle_plugins(bundle_dir: Path) -> list[Path]:
+    """Find every subdir of ``bundle_dir`` containing ``plugin.yaml``.
+
+    Mirrors the discovery logic in
+    :func:`eidan_cli.admin._install_plugins_from_bundle` so a local
+    bake produces the same plugin set as a remote install used to.
+    """
+    return [
+        child
+        for child in sorted(bundle_dir.iterdir())
+        if child.is_dir() and (child / "plugin.yaml").is_file()
+    ]
+
+
+def _assemble_build_context(
+    node: ResolvedNode,
+    *,
+    eidan_dir: Path,
+    runtime_dir: Path,
+) -> Path:
+    """Materialise a temp build context at ``<runtime>/build-context/``.
+
+    Layout::
+
+        build-context/
+          pyproject.toml
+          uv.lock
+          apps/
+          packages/
+          migrations/
+          infra/
+          plugins/
+            <core-plugin-1>/    ← from eidan checkout's plugins/
+            <core-plugin-2>/
+            ...
+            <bundle-plugin>/    ← from <bundle_root>/<bundle>/<plugin>/
+            ...
+
+    The context is wiped + recreated on every call. Excludes
+    `.git/`, `.venv/`, `node_modules/`, `__pycache__/`, etc. so the
+    Docker BuildKit upload stays bounded even when the operator's
+    `apps/web/` tree has a populated Next.js cache.
+
+    Raises :class:`TargetReconcileError` on:
+    - missing bundle dir under ``EIDAN_BUNDLE_ROOT`` / eidan parent
+    - bundle dir with no ``plugin.yaml`` subdirs
+    - plugin-name collision between a core plugin and a bundle one
+    """
+    context = runtime_dir / "build-context"
+    if context.exists():
+        shutil.rmtree(context)
+    context.mkdir(parents=True)
+
+    for filename in ("pyproject.toml", "uv.lock"):
+        src = eidan_dir / filename
+        if not src.is_file():
+            raise TargetReconcileError(
+                f"build context: {filename} not found at {src}. "
+                "Run `eidan deploy` from the eidan checkout root, or "
+                "set EIDAN_SOURCE_DIR."
+            )
+        shutil.copy2(src, context / filename)
+
+    for subdir in ("apps", "packages", "migrations", "infra", "plugins"):
+        src = eidan_dir / subdir
+        if not src.is_dir():
+            raise TargetReconcileError(
+                f"build context: {subdir}/ not found at {src}."
+            )
+        shutil.copytree(src, context / subdir, ignore=_BUILD_CONTEXT_IGNORE)
+
+    bundles = getattr(node, "bundles", None) or []
+    bundle_names = [
+        b.root if hasattr(b, "root") else str(b) for b in bundles
+    ]
+    if not bundle_names:
+        return context
+
+    bundle_root = _resolve_bundle_root(eidan_dir)
+    plugins_target = context / "plugins"
+
+    for bundle_name in bundle_names:
+        bundle_dir = bundle_root / bundle_name
+        if not bundle_dir.is_dir():
+            raise TargetReconcileError(
+                f"bundle {bundle_name!r}: directory not found at {bundle_dir}. "
+                "Clone the bundle repo there, or set EIDAN_BUNDLE_ROOT to "
+                "its parent dir."
+            )
+        plugin_dirs = _discover_bundle_plugins(bundle_dir)
+        if not plugin_dirs:
+            raise TargetReconcileError(
+                f"bundle {bundle_name!r}: no plugin.yaml found under any "
+                f"subdir of {bundle_dir}."
+            )
+        for plugin_src in plugin_dirs:
+            plugin_dst = plugins_target / plugin_src.name
+            if plugin_dst.exists():
+                raise TargetReconcileError(
+                    f"plugin name collision: bundle {bundle_name!r} brings "
+                    f"plugin {plugin_src.name!r}, but a plugin by that name "
+                    "already exists in the build context (likely a core "
+                    "plugin). Rename one or the other."
+                )
+            shutil.copytree(
+                plugin_src, plugin_dst, ignore=_BUILD_CONTEXT_IGNORE
+            )
+
+    return context
+
+
 def _fly_deploy(
     *,
     fly_toml_path: Path,
     image: str | None,
+    build_context: Path | None,
     dry_run: bool,
 ) -> int:
     """Build the `fly deploy` invocation.
@@ -313,71 +463,29 @@ def _fly_deploy(
       flyctl pulls the image and rolls the machines. fly.toml carries
       the same image in its ``[build]`` stanza for consistency.
     - ``image`` unset: ``fly deploy -c <fly.toml> --dockerfile
-      <eidan>/infra/fly/Dockerfile <eidan>``. flyctl builds from the
-      bundled Dockerfile using the eidan checkout as the build
-      context. fly.toml has no ``[build]`` stanza — the command-line
-      flags supply the build config.
+      <ctx>/infra/fly/Dockerfile <ctx>`` where ``<ctx>`` is the
+      pre-assembled build context (eidan tree + baked bundles). fly.toml
+      has no ``[build]`` stanza — the command-line flags supply the
+      build config.
+
+    ``build_context`` is required when ``image`` is unset; the caller
+    (``reconcile``) materialises it via :func:`_assemble_build_context`
+    before calling here.
     """
     cmd = ["fly", "deploy", "-c", str(fly_toml_path)]
     if image is not None:
         cmd += ["--image", image]
     else:
-        source_dir = _resolve_eidan_source_dir().resolve()
-        dockerfile = _resolve_dockerfile(source_dir)
-        cmd += ["--dockerfile", str(dockerfile), str(source_dir)]
+        if build_context is None:
+            raise TargetReconcileError(
+                "Fly deploy with no pinned image needs a build context. "
+                "Internal invariant — reconcile() should have assembled one."
+            )
+        dockerfile = build_context / "infra" / "fly" / "Dockerfile"
+        cmd += ["--dockerfile", str(dockerfile), str(build_context)]
     if dry_run:
         cmd.append("--build-only")
     return _run(cmd, dry_run=dry_run)
-
-
-def _install_bundles(
-    node: ResolvedNode, *, dry_run: bool, app: str
-) -> int:
-    """Install each declared bundle via `fly ssh console -C ...`.
-
-    The remote command routes through ``uv --directory /app run`` —
-    same shape as the Pi target's ``uv --directory /opt/eidan run``
-    and the Dockerfile's own CMD. ``eidan`` lives in the in-image
-    venv at ``/app/.venv/bin/eidan``, which isn't on the default
-    PATH ``fly ssh -C`` exposes (no shell, no activate-script);
-    ``uv`` IS on PATH (installed via ``pip`` at image build,
-    /usr/local/bin/uv) so we go through it.
-
-    Both env vars the installer reads — ``EIDAN_PLUGIN_SOURCE`` and
-    ``EIDAN_GITHUB_TOKEN`` — live on the machine already:
-    ``EIDAN_GITHUB_TOKEN`` via ``fly secrets set`` (see
-    :func:`_secret_values`), ``EIDAN_PLUGIN_SOURCE`` via the
-    rendered fly.toml ``[env]`` block (see :func:`_render_fly_toml`).
-
-    Why not pass them on the SSH command line? Two reasons:
-    1. ``fly ssh console -C "<cmd>"`` runs ``<cmd>`` via ``exec``,
-       not a shell, so a ``VAR=val cmd`` prefix is parsed as the
-       executable name — operators see ``executable file not found``.
-    2. Anything on the command line is printed by the CLI's
-       command-echo, visible in fly's audit log, and present in
-       the spawned process's argv. The PAT in particular must not
-       go there."""
-    bundles = getattr(node, "bundles", None) or []
-    if not bundles:
-        return 0
-    bundle_names = [b.root if hasattr(b, "root") else str(b) for b in bundles]
-    for bundle in bundle_names:
-        remote_cmd = (
-            f"uv --directory /app run eidan admin plugin install {bundle}"
-        )
-        cmd = [
-            "fly",
-            "ssh",
-            "console",
-            "--app",
-            app,
-            "-C",
-            remote_cmd,
-        ]
-        code = _run(cmd, dry_run=dry_run)
-        if code != 0:
-            return code
-    return 0
 
 
 def reconcile(
@@ -401,6 +509,13 @@ def reconcile(
     fly_toml_path.write_text(_render_fly_toml(node), encoding="utf-8")
 
     tags_set = set(tags or [])
+    # `--tags plugins` used to run an SSH install on every machine;
+    # with bake-at-build (issue #105 / #104 slice A) plugins ride
+    # the image, so the operator's "install plugins" intent maps to
+    # "rebuild + redeploy". Alias for backward compat with scripts.
+    if "plugins" in tags_set:
+        tags_set.add("deploy")
+        tags_set.discard("plugins")
     do_all = not tags_set
 
     if do_all or "secrets" in tags_set:
@@ -409,16 +524,24 @@ def reconcile(
             return code
 
     if do_all or "deploy" in tags_set:
+        image = _resolve_image(node)
+        build_context: Path | None = None
+        if image is None:
+            # Local Dockerfile build: validate the source dir + assemble
+            # a context with bundles merged in. The `_resolve_dockerfile`
+            # check stays as a friendly "you're in the wrong dir" guard
+            # before we touch the filesystem.
+            eidan_dir = _resolve_eidan_source_dir().resolve()
+            _resolve_dockerfile(eidan_dir)
+            build_context = _assemble_build_context(
+                node, eidan_dir=eidan_dir, runtime_dir=runtime_dir
+            )
         code = _fly_deploy(
             fly_toml_path=fly_toml_path,
-            image=_resolve_image(node),
+            image=image,
+            build_context=build_context,
             dry_run=dry_run,
         )
-        if code != 0:
-            return code
-
-    if do_all or "plugins" in tags_set:
-        code = _install_bundles(node, dry_run=dry_run, app=app)
         if code != 0:
             return code
 
