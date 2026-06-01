@@ -7,10 +7,18 @@ dependencies = [
     # email-validator is required by Pydantic's EmailStr (`format: email`
     # JSON-Schema-side maps to EmailStr via datamodel-code-generator);
     # without it, importing any generated model that references an email
-    # field fails at class-build time with an opaque ImportError. Carry
-    # the dep here so consumers of the generated package get it for
-    # free.
-    "pydantic[email]>=2.7.0",
+    # field fails at class-build time with an opaque ImportError.
+    #
+    # We depend on email-validator DIRECTLY here rather than via the
+    # `pydantic[email]` extra. The extra-marker resolution turned out to
+    # be fragile when this package was consumed transitively through an
+    # editable workspace dep chain (eidan-cli → eidan-backend →
+    # eidan-schemas); operators ended up with pydantic installed but
+    # email-validator missing, and the generated Smtp model crashed at
+    # module-import with `ImportError: email-validator is not installed`.
+    # A direct dep removes the ambiguity.
+    "pydantic>=2.7.0",
+    "email-validator>=2.0",
 ]
 
 [project.optional-dependencies]
