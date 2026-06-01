@@ -126,21 +126,22 @@ async def get_healthz() -> dict[str, str]:
 async def get_auth_config(request: Request) -> dict[str, Any]:
     """Publishable auth config the web UI renders into the login form.
 
-    Public, unauthenticated. Shape pinned in ``docs/011 §3.4``. The
-    native auth model only needs the operator-known email hint (so
-    the UI can pre-fill it) and the list of enabled providers
-    (``magic_link`` today; ``oauth_google`` / ``oauth_github`` land
-    behind the provider interface in a future commit).
+    Public, unauthenticated. Returns only the list of enabled
+    providers + optional ToS/privacy URLs — anything PII-shaped
+    (operator email, instance-private hints) MUST stay out of this
+    response. The verify endpoint re-checks ``EIDAN_AUTH_ALLOWED_EMAIL``
+    server-side on every magic-link submission, so the UI doesn't
+    need the email upfront to enforce the pin.
     """
     started_at = time.perf_counter()
     request_id = getattr(request.state, "request_id", "-")
-    allowed_email = get_allowed_email()
+    # Log whether the pin env var is configured so operators can
+    # tell at-a-glance whether they forgot to set it; the value
+    # itself is never logged and never on the wire.
+    allowed_email_configured = get_allowed_email() is not None
     payload = {
         "provider": "native",
         "providers": ["magic_link"],
-        # Hint only; the verify endpoint always re-checks against
-        # EIDAN_AUTH_ALLOWED_EMAIL so this isn't load-bearing.
-        "allowed_email": allowed_email,
         "tos_url": None,
         "privacy_url": None,
     }
@@ -149,7 +150,7 @@ async def get_auth_config(request: Request) -> dict[str, Any]:
         "allowed_email_configured=%s",
         request_id,
         (time.perf_counter() - started_at) * 1000,
-        allowed_email is not None,
+        allowed_email_configured,
     )
     return payload
 

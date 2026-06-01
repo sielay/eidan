@@ -25,7 +25,7 @@ import { requestMagicLink, verifyMagicLink } from "@/lib/auth";
  * `useAuth()` provider context (which refreshes once a token lands).
  */
 export default function LoginPage(): React.ReactElement {
-  const { config, configError } = useAuth();
+  const { configError } = useAuth();
 
   const [email, setEmail] = React.useState("");
   const [phase, setPhase] = React.useState<"enter-email" | "await-verify">(
@@ -37,12 +37,10 @@ export default function LoginPage(): React.ReactElement {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Pre-fill from the backend's hint (operator pin).
-  React.useEffect(() => {
-    if (config?.allowed_email && email === "") {
-      setEmail(config.allowed_email);
-    }
-  }, [config?.allowed_email, email]);
+  // The login form is intentionally not pre-filled from the backend.
+  // `/api/auth/config` is public + unauthenticated and must not
+  // leak the operator's pinned email; browser form autofill
+  // remembers it after first login.
 
   // Handle the email-link landing case: /login?token=...
   React.useEffect(() => {
