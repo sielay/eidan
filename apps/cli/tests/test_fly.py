@@ -67,6 +67,43 @@ def _fly_node(tmp_path: Path):
     return topology.resolve_node("fly-prod")
 
 
+def _stub_eidan_checkout(root: Path) -> None:
+    """Stand up a minimum-shaped fake eidan checkout for build-context
+    tests. Carries just enough files for `_assemble_build_context` to
+    copy everything it expects — pyproject.toml, uv.lock, the five
+    dirs the Dockerfile COPYs, and a single core plugin so the
+    plugins-merge logic has something to merge against."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pyproject.toml").write_text("[project]\nname='eidan'\n")
+    (root / "uv.lock").write_text("# lock\n")
+    for sub in ("apps", "packages", "migrations", "infra"):
+        (root / sub).mkdir()
+        # Drop a sentinel file so the dir survives the copy.
+        (root / sub / ".keep").write_text("")
+    # Dockerfile must exist at infra/fly/Dockerfile for the friendly
+    # `_resolve_dockerfile` check to pass.
+    (root / "infra" / "fly").mkdir()
+    (root / "infra" / "fly" / "Dockerfile").write_text("FROM python:3.12-slim\n")
+    # A single core plugin so we can assert the merge keeps both
+    # core + bundle plugins side-by-side.
+    core = root / "plugins" / "example-core"
+    core.mkdir(parents=True)
+    (core / "plugin.yaml").write_text("schema: 1\nname: example-core\n")
+
+
+def _stub_bundle_repo(bundle_dir: Path, *, plugins: list[str]) -> None:
+    """Lay out `<bundle_dir>/<plugin>/plugin.yaml` for each name in
+    ``plugins``. Mirrors the operator-local bundle-repo shape the
+    bake-at-build path resolves."""
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    for plugin_name in plugins:
+        plug = bundle_dir / plugin_name
+        plug.mkdir()
+        (plug / "plugin.yaml").write_text(
+            f"schema: 1\nname: {plugin_name}\n"
+        )
+
+
 # ---------- rendering ----------
 
 
@@ -130,14 +167,11 @@ def test_render_fly_toml_sentry_default_off(tmp_path: Path) -> None:
     assert 'EIDAN_SENTRY_ENABLED    = "0"' in rendered
 
 
-def test_render_fly_toml_pins_plugin_source_in_env_block(tmp_path: Path) -> None:
-    """``EIDAN_PLUGIN_SOURCE`` is a config value (repo path), not a
-    secret. Pinning it in fly.toml ``[env]`` puts it on the machine
-    before ``fly ssh -C "eidan admin plugin install ..."`` runs —
-    so the command line carries neither the source nor the PAT, and
-    fly-ssh's exec-style invocation (no shell) doesn't choke on
-    what would otherwise look like a binary called
-    ``EIDAN_PLUGIN_SOURCE=...``."""
+def test_render_fly_toml_no_longer_pins_plugin_source(tmp_path: Path) -> None:
+    """``EIDAN_PLUGIN_SOURCE`` used to live in fly.toml [env] for the
+    runtime SSH install. Bake-at-build (#104 slice A) means plugins
+    are part of the image — nothing on the machine reads the
+    source. The env line is gone."""
     body = """
         schema: 1
         nodes:
@@ -153,28 +187,158 @@ def test_render_fly_toml_pins_plugin_source_in_env_block(tmp_path: Path) -> None
     topology = load_topology(_write_topology(tmp_path, body))
     rendered = fly._render_fly_toml(topology.resolve_node("fly-prod"))
 
-    assert 'EIDAN_PLUGIN_SOURCE     = "gh:myorg"' in rendered
+    assert "EIDAN_PLUGIN_SOURCE" not in rendered
 
 
-def test_render_fly_toml_plugin_source_default(tmp_path: Path) -> None:
-    """``plugin_source:`` defaults to ``gh:sielay`` when unset — same
-    default the install command uses for the upstream eidan-pro
-    repository."""
-    body = """
-        schema: 1
-        nodes:
-          fly-prod:
-            target: fly
-            app: eidan-api
-            region: lhr
-            database_url: postgresql+asyncpg://...
-            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
-            auth_allowed_email: you@example.com
-    """
-    topology = load_topology(_write_topology(tmp_path, body))
-    rendered = fly._render_fly_toml(topology.resolve_node("fly-prod"))
+# ---------- build context assembly ----------
 
-    assert 'EIDAN_PLUGIN_SOURCE     = "gh:sielay"' in rendered
+
+def test_assemble_build_context_copies_eidan_tree_and_bundles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Happy path: assembler copies the eidan files the Dockerfile
+    COPYs + merges each bundle's plugin subdirs into the context's
+    ``plugins/`` slot, side-by-side with core plugins."""
+    fake_eidan = tmp_path / "eidan"
+    _stub_eidan_checkout(fake_eidan)
+    _stub_bundle_repo(
+        tmp_path / "eidan-pro", plugins=["slack", "imap"]
+    )
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+
+    node = _fly_node(tmp_path)  # carries `bundles: [eidan-pro]`
+    ctx = fly._assemble_build_context(
+        node, eidan_dir=fake_eidan, runtime_dir=runtime
+    )
+
+    # Files + dirs the Dockerfile COPYs.
+    assert (ctx / "pyproject.toml").is_file()
+    assert (ctx / "uv.lock").is_file()
+    for sub in ("apps", "packages", "migrations", "infra"):
+        assert (ctx / sub).is_dir()
+
+    # Plugins merged: both the core plugin (from eidan checkout)
+    # and the bundle plugins (from the operator-local bundle repo)
+    # land in <ctx>/plugins/.
+    assert (ctx / "plugins" / "example-core" / "plugin.yaml").is_file()
+    assert (ctx / "plugins" / "slack" / "plugin.yaml").is_file()
+    assert (ctx / "plugins" / "imap" / "plugin.yaml").is_file()
+
+
+def test_assemble_build_context_honours_eidan_bundle_root_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`EIDAN_BUNDLE_ROOT` wins over the eidan-parent convention.
+    Operators who keep bundles in a non-sibling layout (CI, separate
+    drive) override via env."""
+    fake_eidan = tmp_path / "anywhere" / "eidan"
+    _stub_eidan_checkout(fake_eidan)
+    custom_root = tmp_path / "elsewhere"
+    _stub_bundle_repo(custom_root / "eidan-pro", plugins=["slack"])
+    monkeypatch.setenv("EIDAN_BUNDLE_ROOT", str(custom_root))
+
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+
+    node = _fly_node(tmp_path)
+    ctx = fly._assemble_build_context(
+        node, eidan_dir=fake_eidan, runtime_dir=runtime
+    )
+
+    assert (ctx / "plugins" / "slack" / "plugin.yaml").is_file()
+
+
+def test_assemble_build_context_missing_bundle_dir_raises(
+    tmp_path: Path,
+) -> None:
+    """The bundle name in topology with no local checkout under
+    ``<eidan-parent>/<bundle>/`` is a fatal config error. The
+    message points the operator at where to clone the bundle repo."""
+    fake_eidan = tmp_path / "eidan"
+    _stub_eidan_checkout(fake_eidan)
+    # NB: no `eidan-pro` dir created — that's the bug.
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+
+    node = _fly_node(tmp_path)
+    with pytest.raises(fly.TargetReconcileError, match="eidan-pro"):
+        fly._assemble_build_context(
+            node, eidan_dir=fake_eidan, runtime_dir=runtime
+        )
+
+
+def test_assemble_build_context_bundle_dir_with_no_plugins_raises(
+    tmp_path: Path,
+) -> None:
+    """A bundle dir that exists but contains no ``plugin.yaml``
+    subdirs is also a fatal error — usually a sign the operator
+    cloned the wrong branch or hasn't pulled."""
+    fake_eidan = tmp_path / "eidan"
+    _stub_eidan_checkout(fake_eidan)
+    (tmp_path / "eidan-pro").mkdir()  # empty bundle dir
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+
+    node = _fly_node(tmp_path)
+    with pytest.raises(fly.TargetReconcileError, match="no plugin.yaml"):
+        fly._assemble_build_context(
+            node, eidan_dir=fake_eidan, runtime_dir=runtime
+        )
+
+
+def test_assemble_build_context_plugin_name_collision_raises(
+    tmp_path: Path,
+) -> None:
+    """If a bundle ships a plugin whose name collides with a core
+    plugin, the assembler aborts rather than silently overwriting
+    one with the other. Operator must rename one or the other."""
+    fake_eidan = tmp_path / "eidan"
+    _stub_eidan_checkout(fake_eidan)
+    # Bundle ships a plugin named `example-core` — the same as the
+    # stub eidan checkout's only core plugin.
+    _stub_bundle_repo(tmp_path / "eidan-pro", plugins=["example-core"])
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+
+    node = _fly_node(tmp_path)
+    with pytest.raises(fly.TargetReconcileError, match="collision"):
+        fly._assemble_build_context(
+            node, eidan_dir=fake_eidan, runtime_dir=runtime
+        )
+
+
+def test_assemble_build_context_idempotent_on_rerun(
+    tmp_path: Path,
+) -> None:
+    """A second call wipes + re-creates the context. Tests run
+    deploy more than once; we don't want stale plugins from a
+    previous bundle list lingering."""
+    fake_eidan = tmp_path / "eidan"
+    _stub_eidan_checkout(fake_eidan)
+    bundle_dir = tmp_path / "eidan-pro"
+    _stub_bundle_repo(bundle_dir, plugins=["slack"])
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+
+    node = _fly_node(tmp_path)
+
+    ctx_1 = fly._assemble_build_context(
+        node, eidan_dir=fake_eidan, runtime_dir=runtime
+    )
+    assert (ctx_1 / "plugins" / "slack").is_dir()
+
+    # Drop the slack plugin from the bundle, leave only imap; the
+    # next assembly must reflect that — slack must NOT survive.
+    import shutil as _shutil
+    _shutil.rmtree(bundle_dir / "slack")
+    _stub_bundle_repo(bundle_dir, plugins=["imap"])
+
+    ctx_2 = fly._assemble_build_context(
+        node, eidan_dir=fake_eidan, runtime_dir=runtime
+    )
+    assert (ctx_2 / "plugins" / "imap").is_dir()
+    assert not (ctx_2 / "plugins" / "slack").exists()
 
 
 # ---------- required-field errors ----------
@@ -328,11 +492,13 @@ def test_reconcile_renders_fly_toml_and_invokes_all_steps(
     node = topology.resolve_node("fly-prod")
 
     # Image is unset on the fixture, so the reconciler builds from
-    # the local Dockerfile. Point EIDAN_SOURCE_DIR at the repo root
-    # so the path-resolve helper finds infra/fly/Dockerfile
-    # regardless of where pytest was invoked.
-    repo_root = Path(__file__).resolve().parents[3]
-    monkeypatch.setenv("EIDAN_SOURCE_DIR", str(repo_root))
+    # the local Dockerfile. Stand up a fake eidan checkout in tmp
+    # (just the directories the build-context assembler needs) and
+    # a sibling bundle dir so `bundles: [eidan-pro]` resolves.
+    fake_eidan = tmp_path / "fake-eidan"
+    _stub_eidan_checkout(fake_eidan)
+    _stub_bundle_repo(tmp_path / "eidan-pro", plugins=["slack"])
+    monkeypatch.setenv("EIDAN_SOURCE_DIR", str(fake_eidan))
 
     invoked: list[list[str]] = []
 
@@ -358,33 +524,29 @@ def test_reconcile_renders_fly_toml_and_invokes_all_steps(
     assert any(arg.startswith("DATABASE_URL=") for arg in secret_cmds[0])
     assert any(arg.startswith("ANTHROPIC_API_KEY=") for arg in secret_cmds[0])
 
-    # `fly deploy -c .../fly.toml --dockerfile <eidan>/infra/fly/Dockerfile <eidan>`
-    # (no image pinned in the fixture → local Dockerfile build)
+    # Build context assembled at .eidan-runtime/<node>/build-context/.
+    # `fly deploy` points at THAT (not the original eidan checkout):
+    # bundles have been baked into <ctx>/plugins/, ready for the
+    # Dockerfile's COPY plugins ./plugins to pick up.
+    ctx = tmp_path / ".eidan-runtime" / "fly-prod" / "build-context"
+    assert ctx.is_dir()
+    assert (ctx / "plugins" / "slack" / "plugin.yaml").is_file()
+    assert (ctx / "plugins" / "example-core" / "plugin.yaml").is_file()  # core
+    assert (ctx / "pyproject.toml").is_file()
+    assert (ctx / "infra" / "fly" / "Dockerfile").is_file()
+
     deploy_cmds = [c for c in invoked if c[:2] == ["fly", "deploy"]]
     assert len(deploy_cmds) == 1
     assert "--dockerfile" in deploy_cmds[0]
-    assert any(arg.endswith("Dockerfile") for arg in deploy_cmds[0])
+    # Path arguments now point at the assembled context, not the eidan checkout.
+    assert str(ctx) in deploy_cmds[0]
+    assert str(ctx / "infra" / "fly" / "Dockerfile") in deploy_cmds[0]
     assert any(arg.endswith("fly.toml") for arg in deploy_cmds[0])
 
-    # `fly ssh console --app eidan-api -C "uv --directory /app run eidan admin plugin install eidan-pro"`
-    # The eidan script lives in the in-image venv /app/.venv/bin/eidan, not on
-    # the default PATH fly-ssh exposes; uv is at /usr/local/bin/uv (installed via
-    # pip at image build) so we route through `uv --directory /app run`. The PAT
-    # and EIDAN_PLUGIN_SOURCE MUST NOT appear on the ssh command line: fly-ssh
-    # execs the command (no shell), anything passed shows up in the spawned
-    # argv (visible to `ps`) and fly's connection log. Both env vars live on
-    # the machine — PAT via `fly secrets set`, plugin source via the fly.toml
-    # [env] block.
+    # No more `fly ssh console -C "eidan admin plugin install ..."`
+    # — plugins ride the image. Bake-at-build (#104 slice A).
     ssh_cmds = [c for c in invoked if c[:3] == ["fly", "ssh", "console"]]
-    assert len(ssh_cmds) == 1
-    assert any(
-        "uv --directory /app run eidan admin plugin install eidan-pro" in arg
-        for arg in ssh_cmds[0]
-    )
-    flat_ssh = " ".join(ssh_cmds[0])
-    assert "PAT-XXXX" not in flat_ssh
-    assert "EIDAN_GITHUB_TOKEN" not in flat_ssh
-    assert "EIDAN_PLUGIN_SOURCE" not in flat_ssh
+    assert ssh_cmds == []
 
 
 def test_reconcile_tag_secrets_only_runs_secrets(tmp_path: Path) -> None:
@@ -406,8 +568,16 @@ def test_reconcile_tag_secrets_only_runs_secrets(tmp_path: Path) -> None:
 
 
 def test_reconcile_dry_run_does_not_invoke_subprocess(
-    tmp_path: Path, capsys
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
+    """Dry-run echoes the subprocess commands instead of running them.
+    Build context still gets assembled (operator wants to inspect the
+    materialised tree), but no flyctl call lands on the network."""
+    fake_eidan = tmp_path / "fake-eidan"
+    _stub_eidan_checkout(fake_eidan)
+    _stub_bundle_repo(tmp_path / "eidan-pro", plugins=["slack"])
+    monkeypatch.setenv("EIDAN_SOURCE_DIR", str(fake_eidan))
+
     topology_path = _write_topology(tmp_path, _FLY_NODE_YAML)
     topology = load_topology(topology_path)
     node = topology.resolve_node("fly-prod")
@@ -427,6 +597,12 @@ def test_reconcile_dry_run_does_not_invoke_subprocess(
     out = capsys.readouterr().out
     assert "[dry-run]" in out
     assert "fly deploy" in out
+
+    # Build context was still materialised even on dry-run so the
+    # operator can inspect what would be deployed.
+    ctx = tmp_path / ".eidan-runtime" / "fly-prod" / "build-context"
+    assert ctx.is_dir()
+    assert (ctx / "plugins" / "slack" / "plugin.yaml").is_file()
 
 
 def test_reconcile_stops_on_first_non_zero(tmp_path: Path) -> None:
