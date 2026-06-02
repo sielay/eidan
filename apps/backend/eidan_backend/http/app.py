@@ -15,10 +15,8 @@ reads the public key from there to verify each inbound token.
 
 from __future__ import annotations
 
-import fcntl
 import logging
 import os
-import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -45,297 +43,15 @@ from .security_headers import SecurityHeadersMiddleware
 
 logger = logging.getLogger(__name__)
 
-# Default location for plugin discovery. Resolved relative to the repo
-# root: apps/backend/eidan_backend/http/app.py → parents[4] is the repo
-# root, which holds the top-level ``plugins/`` directory. Operators
-# running from a baked image (e.g. Fly, k8s) can override with
-# ``EIDAN_PLUGINS_DIR`` so the runtime reads from a writable mount
-# without needing the source tree on disk.
+# Default location for plugin discovery. Resolved relative to the
+# editable install: apps/backend/eidan_backend/http/app.py →
+# parents[4] is the eidan checkout root, which holds the top-level
+# ``plugins/`` directory. Bake-at-build makes this dir authoritative
+# in production deploys (Fly bakes it into /app/plugins/, Pi rsyncs
+# to /opt/eidan/plugins/). ``EIDAN_PLUGINS_DIR`` env override stays
+# available for local-dev convenience (point at a scratch dir to
+# iterate on a new plugin without touching the checkout).
 _DEFAULT_PLUGINS_DIR = Path(__file__).resolve().parents[4] / "plugins"
-
-
-def _read_plugin_tier(plugin_dir: Path) -> str | None:
-    """Return the ``tier:`` stanza from ``plugin_dir/plugin.yaml``.
-
-    Used by the volume seeder to filter the image-baked source set
-    down to ``tier: core`` plugins (cf. the bundle-install flow in
-    `docs/DEPLOYMENT.md` §6 and the Fly-side details in
-    `docs/DEPLOY_FLY_BOOTSTRAP.md`):
-    paid-tier plugins must never be seeded onto an operator volume
-    automatically because the operator licences and installs them
-    explicitly. A manifest that is unreadable / malformed / missing
-    ``tier`` yields ``None`` and the caller skips the plugin — the
-    host loader will refuse it later anyway, and seeding broken
-    inventory just makes the next boot louder.
-
-    Kept tolerant of YAML / IO failure: a corrupt manifest in the
-    image must not crash the lifespan; the host loader surfaces the
-    same problem with a proper diagnostic.
-    """
-    manifest = plugin_dir / "plugin.yaml"
-    if not manifest.is_file():
-        return None
-    try:
-        import yaml
-    except ImportError:  # pragma: no cover — yaml is a hard dep
-        return None
-    try:
-        raw = yaml.safe_load(manifest.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError):
-        # ``UnicodeDecodeError`` covers a manifest written in something
-        # other than UTF-8 (rare in our shipped plugins, but possible
-        # in a baked image that pulled in a third-party bundle). Falling
-        # through to ``return None`` matches the OSError / YAMLError
-        # posture: the host loader will refuse the plugin with its own
-        # diagnostic, and the seeder must not crash the lifespan.
-        return None
-    if not isinstance(raw, dict):
-        return None
-    tier = raw.get("tier")
-    return tier if isinstance(tier, str) else None
-
-
-def _seed_plugins_volume_if_needed(resolved: Path) -> None:
-    """Per-plugin idempotent bootstrap for a writable plugins volume.
-
-    Named ``_if_needed`` rather than ``_if_empty`` because the seeder
-    runs the per-plugin check even on a populated volume: a fresh
-    image-baked ``tier: core`` plugin that ships in ``v0.N+1`` lands
-    next to operator-installed paid bundles on the next deploy, with
-    no ``eidan admin plugin install`` ceremony required. The
-    "is the volume empty?" framing only describes the first-boot
-    case; this name covers the steady-state behaviour too.
-
-    Operators running the published image plus a mounted volume
-    (the Fly path — `eidan deploy --tags plugins` puts bundles
-    there; see ``docs/DEPLOY_FLY_BOOTSTRAP.md``) point
-    ``EIDAN_PLUGINS_DIR`` at e.g. ``/var/lib/eidan/plugins``. The
-    volume is empty on first boot; without seeding, the host would
-    activate zero plugins and the operator would have to run
-    ``eidan admin plugin install`` for every core plugin before the
-    machine becomes useful. Instead we copy each image-baked
-    **tier:core** plugin under :data:`_DEFAULT_PLUGINS_DIR` into the
-    volume — but only when the matching ``plugins/<name>/`` directory
-    is not already there.
-
-    **Source filter.** Only manifests declaring ``tier: core`` are
-    eligible. Paid-tier plugins (`pro` / `commercial`) bundled into
-    the image at build time would otherwise leak onto an operator
-    volume without the explicit ``eidan admin plugin install``
-    handshake; the lock file would not record them and they would
-    survive runtime upgrades as silent state. Filtering at the seed
-    keeps the operator-installed set isomorphic to ``plugins/.lock``.
-
-    **Atomicity.** Each plugin is copied into a private temporary
-    directory next to the target and renamed into place once the
-    copy finishes. A crash partway through ``copytree`` leaves the
-    tempdir (cleaned up by :func:`_sweep_orphan_seed_tempdirs` on
-    the next boot — an ``iterdir`` pass over the volume root that
-    drops anything matching ``.seed-*.tmp``) rather than a
-    half-populated ``plugins/<name>/`` that the next boot would
-    treat as "already seeded".
-
-    **Concurrency.** The sweep + per-plugin copy run under an
-    exclusive ``fcntl.flock`` on ``<volume>/.seed.lock`` so multiple
-    workers (uvicorn ``--workers >1`` or multi-instance startup
-    sharing a volume) serialize. A second caller blocks until the
-    first finishes, then enters and finds every seeded target in
-    place. This protects against the two race windows that
-    otherwise let one worker delete another's in-progress
-    ``.seed-<name>.tmp/``: the unconditional rmtree in
-    :func:`_sweep_orphan_seed_tempdirs`, and the per-plugin
-    ``tmp.exists()`` retry branch below.
-
-    Seeding is therefore **per-plugin, atomic, and idempotent**. The
-    three states this handles uniformly:
-
-    - Fresh volume on first boot: every image-baked tier:core plugin
-      lands.
-    - Partial-seed recovery: an earlier boot copied some plugins and
-      then failed mid-loop (transient IO, disk-full, OOM). The next
-      boot copies the missing ones; the survivors are left alone.
-      An "any directory exists ⇒ skip" gate would have left the
-      volume permanently missing the late-half plugins.
-    - Operator-populated volume (paid bundles already installed): the
-      paid plugins survive untouched, and any image-baked tier:core
-      plugin not present on the volume (e.g. a new tier:core shipping
-      in ``v0.N+1``) lands next to them on the next deploy without
-      ``eidan admin plugin install`` ceremony.
-
-    A pre-staged ``plugins/.lock`` (or any other dotfile / file at the
-    volume root) is irrelevant to seeding — the only "is this plugin
-    already on disk?" question we ask is per target plugin directory.
-
-    Skipped entirely when:
-
-    - ``resolved`` is the image-baked default (no volume in play); or
-    - the image-baked dir does not exist or has no children (running
-      outside an image — e.g. a test that only wired the env override
-      to redirect reads).
-    """
-    if resolved == _DEFAULT_PLUGINS_DIR:
-        return
-    try:
-        resolved.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        logger.warning(
-            "[plugins] could not create %s for seeding: %s", resolved, exc
-        )
-        return
-    if not _DEFAULT_PLUGINS_DIR.is_dir():
-        return
-    try:
-        children = [c for c in _DEFAULT_PLUGINS_DIR.iterdir() if c.is_dir()]
-    except OSError as exc:
-        # An unreadable image-baked plugins dir (permission denied,
-        # corrupt filesystem) must not crash the lifespan — the host
-        # boots without seeding and the operator can re-deploy with a
-        # fixed image. Same posture as the mkdir / copy error handlers
-        # below: log, return, never raise.
-        logger.warning(
-            "[plugins] could not list %s for seeding: %s",
-            _DEFAULT_PLUGINS_DIR,
-            exc,
-        )
-        return
-    if not children:
-        return
-    # Inter-process exclusive lock around the sweep + per-plugin
-    # copy. The backend is multi-instance by design and a single
-    # machine can run multiple workers (uvicorn --workers >1, or
-    # multi-instance startup on the same volume). Without a lock,
-    # one worker's `_sweep_orphan_seed_tempdirs` or the per-plugin
-    # `tmp.exists()` rmtree branch can delete another worker's
-    # in-progress `.seed-<name>.tmp/`, leaving the target plugin
-    # unseeded or causing intermittent boot failures. With the
-    # lock, the second caller blocks until the first finishes;
-    # when it then enters the loop it finds every seeded target
-    # already in place and skips it. ``fcntl.flock`` is local-FS
-    # advisory — Fly volumes are local block devices, so this is
-    # the right primitive; do NOT rely on it on NFS.
-    lock_path = resolved / ".seed.lock"
-    try:
-        lock_fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
-    except OSError as exc:
-        logger.warning(
-            "[plugins] could not open seed lock %s: %s", lock_path, exc
-        )
-        return
-    try:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        except OSError as exc:
-            logger.warning(
-                "[plugins] could not acquire seed lock %s: %s",
-                lock_path,
-                exc,
-            )
-            return
-        # Prior boot may have left a half-finished `.seed-<name>.tmp/`
-        # tempdir behind (crash between copytree and the rename). Sweep
-        # those first so we don't conflict with a fresh attempt for the
-        # same plugin below. Safe to run unconditionally now we hold the
-        # lock — no concurrent boot worker can have an in-progress
-        # tempdir.
-        _sweep_orphan_seed_tempdirs(resolved)
-        seeded: list[str] = []
-        for child in children:
-            target = resolved / child.name
-            if target.exists():
-                # Operator-populated, previously-seeded, or hand-edited —
-                # never overwrite. The host's plugin loader will read
-                # whatever's there.
-                continue
-            tier = _read_plugin_tier(child)
-            if tier != "core":
-                # Only tier:core plugins are eligible for unattended
-                # seeding (see docstring). Paid tiers in the image were
-                # baked in via `--build-arg EIDAN_BUNDLES=...`; the
-                # operator who chose that flag also runs the install path
-                # for them on the live machine.
-                continue
-            tmp = resolved / f".seed-{child.name}.tmp"
-            if tmp.exists():
-                # Defensive: sweep above should have caught this, but a
-                # readonly leftover would block copytree. Safe under the
-                # lock — no other worker can be writing into this path.
-                try:
-                    shutil.rmtree(tmp)
-                except OSError as exc:
-                    logger.warning(
-                        "[plugins] could not clear stale tempdir %s: %s",
-                        tmp,
-                        exc,
-                    )
-                    continue
-            try:
-                shutil.copytree(child, tmp)
-                tmp.replace(target)
-            except OSError as exc:
-                logger.warning(
-                    "[plugins] failed to seed %s into volume: %s",
-                    child.name,
-                    exc,
-                )
-                # Best-effort cleanup of the tempdir so the next boot
-                # retries from a clean slate rather than tripping the
-                # "tmp.exists()" guard above.
-                if tmp.exists():
-                    try:
-                        shutil.rmtree(tmp)
-                    except OSError:
-                        pass
-                continue
-            seeded.append(child.name)
-        if seeded:
-            logger.info(
-                "[plugins] seeded %d image-baked plugin(s) into %s: %s",
-                len(seeded),
-                resolved,
-                ", ".join(sorted(seeded)),
-            )
-    finally:
-        # ``os.close`` releases the flock as a side effect; explicit
-        # ``LOCK_UN`` is unnecessary and would be a second syscall.
-        os.close(lock_fd)
-
-
-def _sweep_orphan_seed_tempdirs(resolved: Path) -> None:
-    """Remove ``.seed-*.tmp`` directories left behind by a prior crash.
-
-    **Intended to be called only by :func:`_seed_plugins_volume_if_needed`
-    while it holds the volume seed lock.** Calling this standalone
-    in a context where another boot worker may be writing into a
-    ``.seed-*.tmp/`` is unsafe — the unconditional ``rmtree`` will
-    delete the in-progress tempdir.
-
-    Best-effort: an unreadable volume root logs a warning and returns
-    rather than raising. The seeder caller has already produced enough
-    boot-line context (mkdir / iterdir-on-image-dir warnings); a
-    second failure here would just bury the actual cause.
-    """
-    try:
-        entries = list(resolved.iterdir())
-    except OSError as exc:
-        logger.warning(
-            "[plugins] could not list %s to sweep orphan tempdirs: %s",
-            resolved,
-            exc,
-        )
-        return
-    for child in entries:
-        if not child.is_dir():
-            continue
-        if not (child.name.startswith(".seed-") and child.name.endswith(".tmp")):
-            continue
-        try:
-            shutil.rmtree(child)
-        except OSError as exc:
-            logger.warning(
-                "[plugins] could not sweep orphan seed tempdir %s: %s",
-                child,
-                exc,
-            )
 
 
 def _resolve_plugins_dir(app_state_value: object | None) -> Path:
@@ -346,10 +62,12 @@ def _resolve_plugins_dir(app_state_value: object | None) -> Path:
     1. ``app.state.plugins_dir`` — set explicitly by a caller (tests
        primarily). Highest priority so a test never reads from a
        stray operator env.
-    2. ``EIDAN_PLUGINS_DIR`` env — production override. Lets a baked
-       image read plugins from a mounted volume so bundles can be
-       swapped without rebuilding the image.
+    2. ``EIDAN_PLUGINS_DIR`` env — local-dev override. Lets the
+       operator iterate on a new plugin from a scratch dir without
+       touching the eidan checkout.
     3. ``_DEFAULT_PLUGINS_DIR`` — the in-repo / in-image default.
+       Bake-at-build deploys (Fly + Pi) land plugins here as part
+       of the build context; no env override needed in production.
     """
     if app_state_value is not None:
         # The pre-helper code used a truthiness check
@@ -441,7 +159,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     backend: BackendSettings = app.state.backend_settings
     plugins_dir = _resolve_plugins_dir(getattr(app.state, "plugins_dir", None))
-    _seed_plugins_volume_if_needed(plugins_dir)
 
     # Optional external log forwarder (BetterStack / Datadog / etc.).
     # Reads EIDAN_LOG_FORWARD_URL + EIDAN_LOG_FORWARD_TOKEN /

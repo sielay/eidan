@@ -15,12 +15,12 @@
 #   3. Set secrets (NEVER in this file): `fly secrets set --app <app> ...`.
 #   4. fly deploy                                   # auto-picks ./fly.toml
 #
-# Paid bundles install at *runtime* against the live machine — see
-# docs/DEPLOYMENT.md §4.6 and the `EIDAN_PLUGINS_DIR` comment below.
-# Do NOT pass `--build-arg EIDAN_BUNDLES=...` to `fly deploy`: flyctl
-# (as of v0.4.57) drops `--build-secret` on every remote-builder path,
-# so the Dockerfile's bundle-install precondition check aborts the
-# build. The build-time path only works with `fly deploy --local-only`.
+# Paid bundles are baked into the image at build time on the
+# operator's laptop (the CLI assembles a build context that
+# includes the bundle plugins resolved from sibling repos). The
+# running machine never clones a private repo and never holds a
+# GitHub PAT. See docs/DEPLOY_FLY_BOOTSTRAP.md and
+# docs/DEPLOYMENT.md for the full deploy flow.
 #
 # Only non-secret runtime config belongs in [env]. Secrets live in
 # `fly secrets set` and are surfaced to the process as env vars at
@@ -59,21 +59,12 @@ primary_region = "lhr"          # change me to your nearest Fly region
 
 [env]
   # Non-secret runtime config only. Everything else goes via
-  # `fly secrets set` (see docs/DEPLOYMENT.md §4.4 and §6).
+  # `fly secrets set` (see docs/DEPLOY_FLY_BOOTSTRAP.md).
   EIDAN_HTTP_HOST         = "0.0.0.0"
   EIDAN_DEPLOYMENT_MODE   = "production"
   # Comma-separated list of origins the Next.js frontend is served
   # from. Change to your domain.
   EIDAN_HTTP_CORS_ORIGINS = "https://app.example.com"
-  # Where the backend reads plugins from at boot. Defaults to the
-  # in-image `/app/plugins` baked at build time. Uncomment the next
-  # line AND the [[mounts]] block below to swap bundles at runtime
-  # without rebuilding the image (docs/DEPLOYMENT.md §4.6 — runtime
-  # plugin install). On first boot the backend seeds an empty volume
-  # with the image-baked tier:core plugins so the machine is
-  # immediately functional; subsequent `eidan admin plugin install`
-  # calls land in the volume and survive image upgrades.
-  # EIDAN_PLUGINS_DIR     = "/var/lib/eidan/plugins"
 
   # Sentry tick: defaults OFF on Fly (the loop is intended to call a
   # model, so leaving it on burns LLM cost on every Fly machine). Set
@@ -81,11 +72,3 @@ primary_region = "lhr"          # change me to your nearest Fly region
   # primary long-lived node and there is no Pi or other always-on
   # host running the tick. See plugins/sentry/plugin.yaml.
   # EIDAN_SENTRY_ENABLED  = "1"
-
-# Uncomment to mount a persistent plugin volume. Run
-# `fly volumes create eidan_plugins --size 1 -r <region>` first, then
-# `fly deploy`. See docs/DEPLOYMENT.md §4.6 for the runtime-install
-# workflow this enables.
-# [[mounts]]
-#   source      = "eidan_plugins"
-#   destination = "/var/lib/eidan/plugins"

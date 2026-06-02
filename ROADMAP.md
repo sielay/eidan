@@ -38,18 +38,14 @@ through Supabase-specific helpers. Adding fields to
 `SupabaseSettings` is fine; reaching into Supabase from the
 agent loop, persistence, or plugin contract is not.
 
-## (graduated) Deploy: published image + runtime plugin install
+## (graduated) Deploy: bake-at-build
 
-Shipped — see `docs/DEPLOYMENT.md §4.5` (published-image deploy
-path), `§4.6` (Fly-volume runtime install + `plugins/.lock` +
-`eidan admin plugin sync`). The code rule below remains in force
-because the image-baked path is still the default when
-`EIDAN_PLUGINS_DIR` is unset.
+Shipped — see `docs/DEPLOYMENT.md`. Plugins are baked into the
+image at build time on the operator's laptop; no runtime install
+step, no writable plugin volume, no PAT on the remote machine.
 
 **Code rule.** Anything depending on the absolute in-image path
 `/app/plugins` is forbidden. Read the plugin root through
 `_resolve_plugins_dir` (backend) or `admin.PLUGINS_DIR` (CLI) so
-the volume override resolves uniformly across processes. The
-build-time bundle install in `infra/fly/Dockerfile` is allowed to
-assume the image-baked path because the runtime override is a
-strict superset of that behaviour.
+operators iterating locally with `EIDAN_PLUGINS_DIR` set to a
+scratch dir get the same resolution everywhere.
