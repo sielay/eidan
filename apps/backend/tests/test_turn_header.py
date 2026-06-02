@@ -141,3 +141,19 @@ def test_eidan_base_identity_names_eidan_and_disclaims_other_brands() -> None:
     assert "Eidan" in EIDAN_BASE_IDENTITY
     assert "Claude" in EIDAN_BASE_IDENTITY
     assert "ChatGPT" in EIDAN_BASE_IDENTITY
+
+
+def test_eidan_base_identity_nudges_to_plugins_list_tool() -> None:
+    """The model needs the prompt-level instruction to CALL the
+    introspection tools (plugins_list / plugins_describe) rather
+    than enumerate plugins from memory. Without this nudge the
+    LLM lazily lists what it remembers from past turns and tells
+    the operator 'I don't see a list-plugins function' even
+    though the tool is on the registry (#138)."""
+    assert "plugins_list" in EIDAN_BASE_IDENTITY
+    assert "plugins_describe" in EIDAN_BASE_IDENTITY
+    # The "don't enumerate from memory" instruction is the
+    # load-bearing half of the nudge — without it the model knows
+    # the tool exists but doesn't necessarily prefer it over
+    # recital.
+    assert "memory" in EIDAN_BASE_IDENTITY.lower()
