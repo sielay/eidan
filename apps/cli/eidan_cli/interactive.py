@@ -334,8 +334,10 @@ def _ensure_fly_app(app: str) -> None:
 
 def _ask_fly_fields() -> dict[str, Any]:
     """Fly-specific topology fields. ``app`` + ``region`` are required;
-    everything else (image, build args, scaling) takes per-target
-    defaults the reconciler fills in.
+    ``cors_origins`` is required IF the operator is hosting a
+    browser-facing frontend (Vercel, GitHub Pages, custom domain)
+    that calls the backend's API — without it the browser drops
+    every cross-origin response with a CORS error.
 
     If the named app doesn't exist on Fly yet, we offer to create
     it inline rather than send the operator off to run
@@ -354,7 +356,26 @@ def _ask_fly_fields() -> dict[str, Any]:
             validate=lambda s: bool(s.strip()) or "region is required",
         )
     )
-    return {"app": app, "region": region.strip()}
+    cors_origins_raw = _ask(
+        questionary.text(
+            "Browser frontend origins for CORS "
+            "(comma-separated; e.g. https://app.example.com,https://www.example.com). "
+            "Leave empty if you'll only hit the API directly (curl / CLI):",
+            default="",
+        )
+    )
+    out: dict[str, Any] = {"app": app, "region": region.strip()}
+    cors_list = [
+        # Strip trailing `/` here too: operators paste browser
+        # URLs with the slash, but CORS comparisons happen against
+        # the browser's Origin header which never includes it.
+        origin.strip().rstrip("/")
+        for origin in cors_origins_raw.split(",")
+        if origin.strip()
+    ]
+    if cors_list:
+        out["cors_origins"] = cors_list
+    return out
 
 
 def _ask_provider() -> dict[str, Any]:

@@ -152,6 +152,7 @@ def test_init_wizard_fly_path_collects_app_and_region(
             "fly",                  # target
             "eidan-api",            # fly app
             "lhr",                  # fly region
+            "https://e.sielay.com/",  # cors origins (trailing slash → stripped)
             "db.example.com",       # db host
             "5432",                 # db port
             "eidan",                # db name
@@ -175,6 +176,16 @@ def test_init_wizard_fly_path_collects_app_and_region(
     assert "target: fly" in topology
     assert "app: eidan-api" in topology
     assert "region: lhr" in topology
+    # Wizard collected the frontend origin + stripped the trailing
+    # slash. Browsers send `Origin: https://e.sielay.com` (no
+    # trailing slash), so an origin written with one would fail
+    # the literal compare on the backend. The `:` in the URL
+    # triggers YAML quoting; we assert the unquoted-or-quoted
+    # forms by checking the bare origin appears + the slashed
+    # form doesn't.
+    assert "cors_origins:" in topology
+    assert "https://e.sielay.com" in topology
+    assert "https://e.sielay.com/" not in topology
     assert "postgresql+asyncpg://eidan_app:fly-secret@db.example.com:5432/eidan" in topology
     assert "name: anthropic" in topology
     assert "api_key:" in topology

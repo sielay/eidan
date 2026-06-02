@@ -155,8 +155,17 @@ def _render_fly_toml(node: ResolvedNode) -> str:
         if hasattr(node.deployment_mode, "value")
         else str(node.deployment_mode)
     )
+    # Strip trailing slashes from each origin: Pydantic's AnyUrl
+    # appends a `/` when stringifying, but browsers send the Origin
+    # header WITHOUT a trailing slash (per RFC 6454). The backend's
+    # CORS middleware does a literal compare against the allowed
+    # list, so a normalised origin in the topology becomes
+    # "https://e.sielay.com/" on the wire and never matches the
+    # browser's "https://e.sielay.com" — every request 400s with
+    # "Disallowed CORS origin". Strip once here at the boundary.
     cors_origins = ",".join(
-        str(origin) for origin in (getattr(node, "cors_origins", None) or [])
+        str(origin).rstrip("/")
+        for origin in (getattr(node, "cors_origins", None) or [])
     )
     # When `image:` is set the rendered fly.toml carries a [build]
     # image stanza; flyctl pulls + deploys the image. When unset,
