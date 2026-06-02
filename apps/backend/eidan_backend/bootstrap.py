@@ -38,6 +38,7 @@ from .node_identity import NodeIdentity
 from .node_identity import detect as detect_node_identity
 from .notifications import NotificationRouter, build_default_router
 from .persistence import flag_orphaned_assistant_messages
+from .plugin_tools import register_plugin_tools
 from .plugins import (
     AsyncpgPluginStateStore,
     LoadedPlugin,
@@ -486,6 +487,10 @@ async def bootstrap(
     if not plugins:
         logger.info("[bootstrap] no plugins discovered under %s", plugins_dir)
         tool_registry = _make_tool_registry_with_core_tools(pool)
+        # Plugin-introspection tools are useful even on a core-only
+        # host — answering "what plugins are loaded?" with an empty
+        # list is more helpful than the agent guessing.
+        register_plugin_tools(tool_registry, plugins=[])
         return BootstrapResult(plugins=[], tool_registry=tool_registry)
 
     logger.info(
@@ -495,6 +500,11 @@ async def bootstrap(
     )
 
     tool_registry = _make_tool_registry_with_core_tools(pool)
+    # Register plugin-introspection tools AFTER load_plugins so the
+    # closure inside `plugins_list` / `plugins_describe` sees the
+    # final loaded set. The list doesn't mutate after this point;
+    # capture by reference is safe.
+    register_plugin_tools(tool_registry, plugins=plugins)
     behaviour_registry = BehaviourRegistry()
     if state_store is None:
         if not await _plugin_state_exists(pool):

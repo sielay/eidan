@@ -59,6 +59,16 @@ _MEMORY_TOOL_NAMES = frozenset(
     }
 )
 
+# Plugin-introspection tools the host always registers, alongside
+# the memory tools above. Kept in lockstep with
+# eidan_backend.plugin_tools.register_plugin_tools.
+_PLUGIN_INTROSPECTION_TOOL_NAMES = frozenset(
+    {
+        "plugins_list",
+        "plugins_describe",
+    }
+)
+
 
 class _InMemoryStateStore:
     """Mirrors the bot's ``_InMemoryStateStore`` from ``test_plugin_loader``."""
@@ -130,9 +140,11 @@ async def test_bootstrap_activates_plugins_and_registers_tools(
     tool_names = {tool["name"] for tool in surface}
     # /learn registers one tool; /capture registers three (remember, note,
     # event). Core also pre-registers the memory introspection tools
-    # (docs/025) so the agent can query its own state.
+    # (docs/025) and the plugin-introspection tools (#136) so the
+    # agent can query its own state and its loaded plugin set.
     assert {"learn", "remember", "note", "event"} <= tool_names
     assert _MEMORY_TOOL_NAMES <= tool_names
+    assert _PLUGIN_INTROSPECTION_TOOL_NAMES <= tool_names
 
 
 @pytest.mark.asyncio
@@ -148,9 +160,11 @@ async def test_bootstrap_returns_empty_when_no_plugins(tmp_path: Path) -> None:
     )
     assert result.plugins == []
     # Even with no plugins, core registers the memory introspection
-    # tools (docs/025) so the agent has its read surface available.
+    # tools (docs/025) AND the plugin-introspection tools (#136) so
+    # the agent has its read surface available and can answer
+    # "what plugins are loaded?" with an honest empty list.
     surface_names = {t["name"] for t in (result.tool_registry.surface() or [])}
-    assert surface_names == _MEMORY_TOOL_NAMES
+    assert surface_names == _MEMORY_TOOL_NAMES | _PLUGIN_INTROSPECTION_TOOL_NAMES
     assert result.behaviour_dispatcher is None
 
 
