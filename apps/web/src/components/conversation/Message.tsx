@@ -1,5 +1,7 @@
 "use client";
 
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -67,6 +69,9 @@ export function MessageBlock({
             streaming…
           </span>
         ) : null}
+        {hasBody && role !== "tool" ? (
+          <CopyMessageButton content={content!} role={role} />
+        ) : null}
       </div>
       <div className="break-words text-foreground">
         {hasBody &&
@@ -88,6 +93,63 @@ export function MessageBlock({
         {hasToolCalls && <ToolDisclosure calls={toolCalls!} />}
       </div>
     </div>
+  );
+}
+
+function CopyMessageButton({
+  content,
+  role,
+}: {
+  content: string;
+  role: MessageRole;
+}): React.ReactElement {
+  const [copied, setCopied] = useState(false);
+  // Hold a single reset timer so rapid clicks reuse the slot instead of
+  // queueing N flashes that fire after unmount.
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const onClick = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard write can fail in insecure contexts or when permission
+      // is denied. Silent no-op is the right shape here — the user can
+      // still select-and-copy the message body manually.
+    }
+  }, [content]);
+
+  const label =
+    role === "user" ? "Copy prompt" : role === "assistant" ? "Copy response" : "Copy";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={copied ? "Copied" : label}
+      title={copied ? "Copied" : label}
+      className={cn(
+        "ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5",
+        "text-[10px] font-medium uppercase tracking-wider",
+        "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
+        "transition-colors",
+      )}
+    >
+      {copied ? (
+        <Check className="h-3 w-3" aria-hidden />
+      ) : (
+        <Copy className="h-3 w-3" aria-hidden />
+      )}
+      <span>{copied ? "Copied" : "Copy"}</span>
+    </button>
   );
 }
 
