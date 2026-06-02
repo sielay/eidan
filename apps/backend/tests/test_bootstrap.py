@@ -59,6 +59,12 @@ _MEMORY_TOOL_NAMES = frozenset(
     }
 )
 
+# Plugin introspection tools the bootstrap registers AFTER plugins
+# activate (and also on the empty-plugins early-return path) so the
+# primary agent can discover the host's plugin surface. Kept in
+# lockstep with eidan_backend.plugin_introspection.
+_PLUGIN_INTROSPECTION_TOOL_NAMES = frozenset({"list_plugins", "describe_plugin"})
+
 
 class _InMemoryStateStore:
     """Mirrors the bot's ``_InMemoryStateStore`` from ``test_plugin_loader``."""
@@ -148,9 +154,11 @@ async def test_bootstrap_returns_empty_when_no_plugins(tmp_path: Path) -> None:
     )
     assert result.plugins == []
     # Even with no plugins, core registers the memory introspection
-    # tools (docs/025) so the agent has its read surface available.
+    # tools (docs/025) and the plugin introspection tools so the agent
+    # has its read surface available — list_plugins answers "none"
+    # rather than 404ing as an unknown capability.
     surface_names = {t["name"] for t in (result.tool_registry.surface() or [])}
-    assert surface_names == _MEMORY_TOOL_NAMES
+    assert surface_names == _MEMORY_TOOL_NAMES | _PLUGIN_INTROSPECTION_TOOL_NAMES
     assert result.behaviour_dispatcher is None
 
 

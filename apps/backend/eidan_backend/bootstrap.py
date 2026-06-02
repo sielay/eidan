@@ -38,6 +38,10 @@ from .node_identity import NodeIdentity
 from .node_identity import detect as detect_node_identity
 from .notifications import NotificationRouter, build_default_router
 from .persistence import flag_orphaned_assistant_messages
+from .plugin_introspection import (
+    PluginIntrospection,
+    register_plugin_introspection_tools,
+)
 from .plugins import (
     AsyncpgPluginStateStore,
     LoadedPlugin,
@@ -142,6 +146,8 @@ def _make_context_factory(
     provider: Any | None = None,
     default_model: str | None = None,
     behaviour_dispatcher: BehaviourDispatcher | None = None,
+    tools_by_plugin: dict[str, list[str]] | None = None,
+    behaviours_by_plugin: dict[str, list[str]] | None = None,
 ) -> Any:
     """Build a :class:`ContextFactory` closed over the host's wiring.
 
@@ -178,6 +184,10 @@ def _make_context_factory(
                 # configuration error — surface it loudly rather than
                 # silently overwriting one plugin's tool with another's.
                 tool_registry.register(tool)
+                if tools_by_plugin is not None:
+                    tools_by_plugin.setdefault(
+                        loaded.manifest.name, []
+                    ).append(tool.name)
 
         def _register_router(_router: Any) -> None:
             # FastAPI router mounting against the manifest's
@@ -196,7 +206,12 @@ def _make_context_factory(
             # APScheduler. Re-registration of the same behaviour id is a
             # fatal configuration error (registry raises
             # BehaviourIdConflict) — same posture as the tool registry.
-            behaviour_registry.register_all(behaviours)
+            collected = list(behaviours)
+            behaviour_registry.register_all(collected)
+            if behaviours_by_plugin is not None:
+                behaviours_by_plugin.setdefault(
+                    loaded.manifest.name, []
+                ).extend(b.id for b in collected)
 
         return PluginContext(
             name=loaded.manifest.name,
@@ -486,6 +501,19 @@ async def bootstrap(
     if not plugins:
         logger.info("[bootstrap] no plugins discovered under %s", plugins_dir)
         tool_registry = _make_tool_registry_with_core_tools(pool)
+        # Introspection tools still register on the empty-plugins path
+        # so the primary agent can call list_plugins and learn the host
+        # is running with none — silence here would look like a missing
+        # capability.
+        register_plugin_introspection_tools(
+            tool_registry,
+            PluginIntrospection(
+                plugins=(),
+                tools_by_plugin={},
+                behaviours_by_plugin={},
+                pool=pool,
+            ),
+        )
         return BootstrapResult(plugins=[], tool_registry=tool_registry)
 
     logger.info(
@@ -515,6 +543,12 @@ async def bootstrap(
     # having at least one behaviour and ``start_dispatcher`` being
     # True.
     dispatcher = BehaviourDispatcher(behaviour_registry, pool=pool)
+    # Per-plugin attribution for the introspection tools. The shared
+    # ToolRegistry / BehaviourRegistry don't track which plugin
+    # registered which entry; the context-factory registrar closures
+    # populate these maps as plugins activate.
+    tools_by_plugin: dict[str, list[str]] = {}
+    behaviours_by_plugin: dict[str, list[str]] = {}
     factory = _make_context_factory(
         pool,
         tool_registry,
@@ -523,6 +557,8 @@ async def bootstrap(
         provider=provider,
         default_model=default_model,
         behaviour_dispatcher=dispatcher,
+        tools_by_plugin=tools_by_plugin,
+        behaviours_by_plugin=behaviours_by_plugin,
     )
 
     # Validate every plugin's required ``vault[]`` keys BEFORE the
@@ -552,6 +588,22 @@ async def bootstrap(
         state=state,
         context_factory=factory,
     )
+
+    # Plugin introspection tools (`list_plugins`, `describe_plugin`).
+    # Registered AFTER ``install_and_activate`` so the attribution
+    # snapshot reflects everything plugins contributed during their
+    # ``on_activate`` hooks. They're core tools but appear after the
+    # plugin tools so the primary agent's tool surface lists plugin
+    # capabilities first and introspection alongside the memory tools.
+    introspection = PluginIntrospection(
+        plugins=tuple(plugins),
+        tools_by_plugin={k: tuple(v) for k, v in tools_by_plugin.items()},
+        behaviours_by_plugin={
+            k: tuple(v) for k, v in behaviours_by_plugin.items()
+        },
+        pool=pool,
+    )
+    register_plugin_introspection_tools(tool_registry, introspection)
 
     # Resolve this process's node identity once. Cached on the
     # BootstrapResult so HTTP routes / future call sites can read
