@@ -29,9 +29,7 @@ eidan deploy             # reconcile every node
 ```
 
 <p align="center">
-<video src="https://github.com/sielay/eidan/raw/main/images/eidan-deploy.mp4" controls muted playsinline width="800">
-  Your browser doesn't render inline video — see <a href="./images/eidan-deploy.mp4">images/eidan-deploy.mp4</a>.
-</video>
+<img alt="eidan init + eidan deploy demo" src="./images/eidan-deploy.gif" width="800" />
 </p>
 
 `bootstrap.sh` configures git's `core.hooksPath` so a tracked
