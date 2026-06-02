@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Plugin-introspection tools for the agent loop — `docs/001 §3`.
 
 The host loads plugins at bootstrap (manifest, tools, behaviours,
