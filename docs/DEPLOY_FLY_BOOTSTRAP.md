@@ -98,7 +98,53 @@ fly certs create --app eidan-api api.yourdomain.com
 
 Then set `NEXT_PUBLIC_EIDAN_BACKEND_URL=https://api.yourdomain.com`
 on Vercel and add the frontend origin to `cors_origins:` on the
-Fly node in `topology.yml`.
+Fly node in `topology.yml`:
+
+```yaml
+nodes:
+  fly-prod:
+    target: fly
+    app: eidan-api
+    region: lhr
+    cors_origins:
+      - https://app.yourdomain.com    # exact origin, NO trailing slash
+      - https://www.yourdomain.com    # add each origin you serve from
+```
+
+The browser sends `Origin: https://app.yourdomain.com` (no
+trailing slash, per RFC 6454). The backend's CORS middleware
+does a literal compare, so `https://app.yourdomain.com/` (with
+slash) would never match — `eidan deploy` strips trailing
+slashes at the render boundary as a safety net, but topology
+entries should be written without them.
+
+`eidan init` prompts for these origins in the wizard. Adding /
+removing later is a topology edit + `eidan deploy --node
+fly-prod --tags deploy`.
+
+**Diagnosing CORS failures.** Browser console reports something
+like:
+
+```
+Access to fetch at 'https://api.example.com/api/auth/config'
+from origin 'https://app.example.com' has been blocked by CORS
+policy: No 'Access-Control-Allow-Origin' header is present on
+the requested resource.
+```
+
+The signal is in the OPTIONS preflight:
+
+```bash
+curl -sS -i -X OPTIONS \
+  -H "Origin: https://app.example.com" \
+  -H "Access-Control-Request-Method: GET" \
+  https://api.example.com/api/auth/config
+```
+
+A 200 with `access-control-allow-origin: https://app.example.com`
+means the backend accepts the origin. A 400 with `Disallowed
+CORS origin` means it doesn't — the origin string (after the
+slash-strip safety net) doesn't match what's in `cors_origins:`.
 
 `SameSite=None; Secure` would also paper over a
 cross-registrable-domain shape, but it's the dead-man-walking

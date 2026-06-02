@@ -117,8 +117,13 @@ def test_render_fly_toml_carries_app_region(tmp_path: Path) -> None:
     assert 'app            = "eidan-api"' in rendered
     assert 'primary_region = "lhr"' in rendered
     assert "[build]" not in rendered  # local-Dockerfile path
-    # AnyUrl normalises to a trailing slash; allow either form.
-    assert 'EIDAN_HTTP_CORS_ORIGINS = "https://app.example.com' in rendered
+    # CORS origin MUST be rendered without a trailing slash —
+    # Pydantic AnyUrl appends one when stringifying, but browsers
+    # send `Origin: https://e.sielay.com` (no slash), so the
+    # backend's literal compare would miss every request. Strip
+    # at the render boundary (regression for #133).
+    assert 'EIDAN_HTTP_CORS_ORIGINS = "https://app.example.com"' in rendered
+    assert "https://app.example.com/" not in rendered
     assert 'EIDAN_DISABLED_PLUGINS  = "sentry"' in rendered
 
 
