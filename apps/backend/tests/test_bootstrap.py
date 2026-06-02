@@ -377,6 +377,79 @@ def test_register_declared_adapters_imports_factory_and_registers(
     assert captured["secret"] is _stub_secret
 
 
+def test_register_declared_adapters_supports_keyword_only_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for #131. The slack plugin (and others) declare
+    ``def build_adapter(*, secret: SecretAccessor)`` — keyword-only.
+    Core must inspect the signature and pass ``secret`` as a kwarg
+    rather than positional; calling positionally crashes with
+    'takes 0 positional arguments but 1 was given' even though
+    the parameter exists."""
+    captured: dict[str, Any] = {}
+
+    def _factory(*, secret: Any) -> NotificationAdapter:
+        captured["secret"] = secret
+        return _stub_adapter
+
+    module_name = "eidan_backend.bootstrap"
+    monkeypatch.setattr(
+        f"{module_name}._kwonly_factory", _factory, raising=False
+    )
+
+    class _Adapter:
+        channel = "kwonly"
+        factory = f"{module_name}:_kwonly_factory"
+
+    class _Notifications:
+        adapters = [_Adapter()]
+
+    loaded = _make_loaded_plugin(
+        name="kw-plugin", notifications=_Notifications(), plugin_dir=tmp_path
+    )
+    router = NotificationRouter()
+    _register_declared_notification_adapters(
+        [loaded], router, _stub_secret
+    )
+
+    assert router.channels() == ["kwonly"]
+    assert captured["secret"] is _stub_secret
+
+
+def test_register_declared_adapters_supports_no_args_factory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stateless adapters that read config from env directly declare
+    ``def build_adapter()`` (no params). Core must call them with
+    no args; passing ``secret`` positionally OR as kwarg would
+    crash."""
+
+    def _factory() -> NotificationAdapter:
+        return _stub_adapter
+
+    module_name = "eidan_backend.bootstrap"
+    monkeypatch.setattr(
+        f"{module_name}._noargs_factory", _factory, raising=False
+    )
+
+    class _Adapter:
+        channel = "noargs"
+        factory = f"{module_name}:_noargs_factory"
+
+    class _Notifications:
+        adapters = [_Adapter()]
+
+    loaded = _make_loaded_plugin(
+        name="env-plugin", notifications=_Notifications(), plugin_dir=tmp_path
+    )
+    router = NotificationRouter()
+    _register_declared_notification_adapters(
+        [loaded], router, _stub_secret
+    )
+
+    assert router.channels() == ["noargs"]
+
+
 def test_register_declared_adapters_skips_plugins_without_notifications(
     tmp_path: Path,
 ) -> None:

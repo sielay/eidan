@@ -22,6 +22,7 @@ dispatcher cleanly at shutdown.
 from __future__ import annotations
 
 import importlib
+import inspect
 import logging
 import os
 from collections.abc import AsyncIterator, Iterable
@@ -338,7 +339,23 @@ def _register_declared_notification_adapters(
                     f"{module_path!r}"
                 )
             try:
-                adapter = factory(secret)
+                # Pass `secret` only when the factory declares it.
+                # Some plugins use a keyword-only `*, secret=...`
+                # parameter (idiomatic when the factory's contract is
+                # "I'll ask you for what I need"); others — usually
+                # stateless adapters that read config from env — take
+                # no args at all. Inspect once + call with the right
+                # kwargs so the contract stays permissive.
+                #
+                # We don't pass `secret` positionally because the slack
+                # plugin (and others) declare keyword-only — positional
+                # would crash with "takes 0 positional arguments but 1
+                # was given" even though the parameter exists.
+                sig = inspect.signature(factory)
+                kwargs: dict[str, Any] = {}
+                if "secret" in sig.parameters:
+                    kwargs["secret"] = secret
+                adapter = factory(**kwargs)
             except Exception as exc:  # noqa: BLE001 — narrow & rewrap
                 raise RuntimeError(
                     f"plugin {loaded.manifest.name!r}: notifications "
