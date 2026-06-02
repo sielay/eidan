@@ -291,8 +291,14 @@ def assemble_build_context(
     - missing bundle dir under ``EIDAN_BUNDLE_ROOT`` / eidan parent
     - bundle dir with no ``plugin.yaml`` subdirs
     - plugin-name collision between a core plugin and a bundle one
+
+    The returned context Path is always **absolute** — relative
+    paths cause flyctl to incorrectly concatenate ``--dockerfile``
+    against the context dir, producing a doubly-nested ``<ctx>/<ctx>``
+    that fails the build. Resolving once here keeps every downstream
+    consumer (subprocess args, error messages) unambiguous.
     """
-    context = runtime_dir / "build-context"
+    context = (runtime_dir / "build-context").resolve()
     if context.exists():
         shutil.rmtree(context)
     context.mkdir(parents=True)
