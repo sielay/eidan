@@ -324,6 +324,42 @@ def test_assemble_build_context_plugin_name_collision_raises(
         )
 
 
+def test_assemble_build_context_returns_absolute_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: when ``runtime_dir`` is a RELATIVE Path (which
+    happens whenever the operator runs ``eidan deploy`` against a
+    relative topology argument — ``Path('.eidan/topology.yml')`` —
+    and the CLI's per-target resolver just does
+    ``topology_path.parent / .eidan-runtime / <node>``), the
+    returned context must still be absolute.
+
+    Otherwise flyctl resolves ``--dockerfile <relative-path>``
+    against the context dir and produces a doubly-nested
+    ``<ctx>/<ctx>/...`` that fails the build (the bug operator
+    hit in the deploy that prompted this PR).
+    """
+    fake_eidan = tmp_path / "eidan"
+    _stub_eidan_checkout(fake_eidan)
+    _stub_bundle_repo(tmp_path / "eidan-pro", plugins=["slack"])
+    # cd into tmp_path so the relative `runtime_dir` below resolves
+    # against a known anchor — mirrors what happens when the
+    # operator runs ``eidan deploy`` from their checkout root.
+    monkeypatch.chdir(tmp_path)
+    relative_runtime = Path(".eidan-runtime") / "fly"
+
+    node = _fly_node(tmp_path)
+    ctx = fly._assemble_build_context(
+        node, eidan_dir=fake_eidan, runtime_dir=relative_runtime
+    )
+
+    assert ctx.is_absolute(), (
+        f"context must be absolute (got {ctx!r}); a relative path "
+        "causes flyctl --dockerfile to produce a doubly-nested path "
+        "and the build fails"
+    )
+
+
 def test_assemble_build_context_idempotent_on_rerun(
     tmp_path: Path,
 ) -> None:
