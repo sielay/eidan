@@ -1005,3 +1005,28 @@ async def test_get_conversation_llm_calls_requires_auth(http_client) -> None:
     convo = UUID("00000000-0000-0000-0000-000000abcdef")
     resp = await client.get(f"/api/conversations/{convo}/llm_calls")
     assert resp.status_code == 401
+
+
+# -----------------------------------------------------------------------------
+# /api/admin/activity/events (#155 — live cross-node feed)
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stream_admin_activity_events_requires_auth(http_client) -> None:
+    """Same gate as every non-config endpoint — the activity feed
+    surfaces cross-conversation context, must not leak to an
+    unauthenticated browser."""
+    client, _, _, _ = http_client
+    resp = await client.get("/api/admin/activity/events")
+    assert resp.status_code == 401
+
+
+# The "opens an SSE stream" path is exercised by a manual smoke
+# (`docs/014` §3 admin row → /admin/activity/live). asgi's
+# in-process test transport does not honour a clean cancel on the
+# server-side generator's `asyncio.sleep` loop, so a regression test
+# that opened the stream and then closed it would hang CI. The auth
+# gate test above (and the rest of the route's shape) gives us
+# coverage of the static behaviour; the streaming behaviour is small
+# enough — a 2 s poll over `eidan.node_events` — to verify by eye.

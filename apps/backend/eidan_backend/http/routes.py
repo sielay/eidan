@@ -1923,6 +1923,83 @@ async def list_nodes_endpoint(request: Request) -> dict[str, Any]:
     }
 
 
+@router.get("/api/admin/activity/events")
+async def stream_admin_activity_events(request: Request) -> StreamingResponse:
+    """Cross-node live tail of ``eidan.node_events`` (#155 / docs/014).
+
+    Streams `text/event-stream` so the operator's "what's happening
+    right now" page can read it via the standard `fetch`-stream
+    pattern used elsewhere (`lib/api/turn.ts`). EventSource isn't
+    used because it can't send the bearer token.
+
+    Cursor: the stream starts at the wall-clock when the request
+    landed, so the client only receives **new** events from that
+    point. Reconnects pick a fresh cursor — there is no "replay
+    last N" mode here; the existing per-node
+    `/api/admin/nodes/{id}/events` endpoint already covers that.
+    """
+    pool = request.app.state.pool
+
+    async def _stream() -> AsyncIterator[bytes]:
+        # Seed cursor at "now" so we don't replay old events on each
+        # connect. Operators wanting backfill use the per-node endpoint.
+        last_ts = datetime.now(UTC)
+        # Send an initial heartbeat so the client confirms the stream
+        # opened cleanly before the first real event lands.
+        yield b": stream-open\n\n"
+        try:
+            while True:
+                await asyncio.sleep(2)
+                async with pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        """
+                        SELECT node_id, seq, ts, type, payload, conversation_id
+                          FROM eidan.node_events
+                         WHERE ts > $1
+                         ORDER BY ts ASC
+                         LIMIT 200
+                        """,
+                        last_ts,
+                    )
+                for row in rows:
+                    payload_raw = row["payload"]
+                    if isinstance(payload_raw, (str, bytes, bytearray)):
+                        try:
+                            payload = json.loads(payload_raw)
+                        except (TypeError, ValueError):
+                            payload = {}
+                    else:
+                        payload = payload_raw or {}
+                    event = {
+                        "node_id": row["node_id"],
+                        "seq": row["seq"],
+                        "ts": row["ts"].isoformat(),
+                        "type": row["type"],
+                        "conversation_id": (
+                            str(row["conversation_id"])
+                            if row["conversation_id"] is not None
+                            else None
+                        ),
+                        "payload": payload,
+                    }
+                    yield f"data: {json.dumps(event)}\n\n".encode()
+                    last_ts = max(last_ts, row["ts"])
+                # Idle keep-alive so intermediaries don't reap a quiet stream.
+                if not rows:
+                    yield b": ping\n\n"
+        except asyncio.CancelledError:
+            raise
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get("/api/admin/nodes/{node_id}/events")
 async def list_node_events_endpoint(
     request: Request,
