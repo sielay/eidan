@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from .classifiers.scope import _classifier_model
 from .providers.base import Provider, UserMessage
+
 _TITLE_MAX_CHARS = 60
 
 _TITLE_SYSTEM = (
