@@ -8,18 +8,31 @@ fall back to the operator's configured default
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 
 from ..providers.base import Provider, ProviderCallResult, UserMessage
-from .scope import ScopeResult
-
-_SIZER_MODEL = "claude-haiku-4-5-20251001"
+from .scope import ScopeResult, _classifier_model
 
 _ALLOWED_MODELS: tuple[str, ...] = (
     "claude-haiku-4-5-20251001",
     "claude-sonnet-4-6",
 )
+
+
+def _sizer_enabled() -> bool:
+    """``EIDAN_SIZER_ENABLED`` kill switch.
+
+    The sizer's prompt + allowed-model list are Anthropic-specific
+    (haiku/sonnet/opus tier ladder). Operators running on Ollama,
+    OpenAI, or vLLM should set ``EIDAN_SIZER_ENABLED=0`` so the
+    loop bypasses the sizer entirely and uses the node's
+    configured ``default_model`` for the primary call. Default
+    ``True`` keeps Anthropic-shaped installs working as before.
+    """
+    raw = os.environ.get("EIDAN_SIZER_ENABLED", "").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
 
 # Default-deny escalation. The prior prompt's "complex reasoning / high
 # sensitivity" clause was broader than the ground truth and over-picked
@@ -91,7 +104,7 @@ async def pick_model(
     user_text: str,
     scope: ScopeResult,
     system_prefix: str = "",
-) -> tuple[SizerResult, ProviderCallResult]:
+) -> tuple[SizerResult, ProviderCallResult | None]:
     """Run the sizer and return (parsed_result, call_telemetry).
 
     ``system_prefix`` is the per-turn TZ header (issue #51) the loop
@@ -100,7 +113,15 @@ async def pick_model(
 
     If user explicitly requests Opus (e.g. "use opus", "opus model"),
     escalate to it regardless of sizer assessment.
+
+    When ``EIDAN_SIZER_ENABLED=0`` (operator opt-out on non-Anthropic
+    providers), returns ``(SizerResult(model=None), None)`` without
+    making a provider call — the caller falls back to ``default_model``
+    and skips the telemetry insert.
     """
+    if not _sizer_enabled():
+        return SizerResult(model=None, escalation_reason=None), None
+
     skills_hint = ", ".join(scope.skills) if scope.skills else "(none)"
     user_block = (
         f"Skills tagged for this turn: {skills_hint}.\n\n"
@@ -109,7 +130,7 @@ async def pick_model(
 
     chunks: list[str] = []
     async for chunk in provider.stream_turn(
-        model=_SIZER_MODEL,
+        model=_classifier_model(),
         messages=[UserMessage(role="user", content=user_block)],
         system=system_prefix + _SIZER_SYSTEM,
         max_tokens=64,

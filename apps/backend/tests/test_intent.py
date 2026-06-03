@@ -186,3 +186,25 @@ def test_render_mixed_list_renders_each_kind() -> None:
     assert "send_message" in rendered
     assert "lookup: what's up" in rendered
     assert "ambiguous" in rendered
+
+
+@pytest.mark.asyncio
+async def test_classifier_model_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``EIDAN_CLASSIFIER_MODEL`` overrides the hardcoded haiku id
+    the intent classifier asks the provider for. Unblocks
+    non-Anthropic providers (Ollama, OpenAI, vLLM) that 404 on the
+    haiku id — see sielay/eidan#149."""
+    monkeypatch.setenv("EIDAN_CLASSIFIER_MODEL", "phi3")
+    provider = FakeProvider(
+        [ScriptedTurn(text='{"actions": [{"kind": "lookup", "query": "x"}]}')]
+    )
+
+    await classify_intent(
+        provider=provider,
+        user_text="anything",
+        scope=ScopeResult(skills=[]),
+    )
+
+    assert [c["model"] for c in provider.calls] == ["phi3"]

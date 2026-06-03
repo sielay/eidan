@@ -29,8 +29,7 @@ from dataclasses import dataclass
 
 from ..failure_detector import HistoryMessage
 from ..providers.base import Provider, ProviderCallResult, UserMessage
-
-_FALLBACK_MODEL = "claude-haiku-4-5-20251001"
+from .scope import _classifier_model
 
 _VALID_VERDICTS: frozenset[str] = frozenset({"proceed", "escalate", "surrender"})
 
@@ -99,7 +98,7 @@ async def classify_failure(
 
     chunks: list[str] = []
     async for chunk in provider.stream_turn(
-        model=_FALLBACK_MODEL,
+        model=_classifier_model(),
         messages=[UserMessage(role="user", content=prompt)],
         system=system_prefix + _FALLBACK_SYSTEM,
         max_tokens=128,

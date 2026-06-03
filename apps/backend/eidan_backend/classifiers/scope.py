@@ -14,11 +14,27 @@ rather than raising.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 
 from ..providers.base import Provider, ProviderCallResult, UserMessage
 
-_SCOPE_MODEL = "claude-haiku-4-5-20251001"
+_DEFAULT_CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
+
+
+def _classifier_model() -> str:
+    """Resolve the model id this classifier asks the provider for.
+
+    ``EIDAN_CLASSIFIER_MODEL`` overrides the default at call time.
+    Operators running non-Anthropic providers (Ollama, OpenAI, vLLM)
+    set this to a model their provider recognises — the default
+    haiku id 404s outside Anthropic. Backwards-compatible: unset →
+    Anthropic-shaped install behaves as before.
+    """
+    return (
+        os.environ.get("EIDAN_CLASSIFIER_MODEL", "").strip()
+        or _DEFAULT_CLASSIFIER_MODEL
+    )
 
 _SCOPE_SYSTEM = (
     "You tag the user message with 1-5 skill labels from this set:\n"
@@ -51,7 +67,7 @@ async def classify_scope(
     """
     chunks: list[str] = []
     async for chunk in provider.stream_turn(
-        model=_SCOPE_MODEL,
+        model=_classifier_model(),
         messages=[UserMessage(role="user", content=user_text)],
         system=system_prefix + _SCOPE_SYSTEM,
         max_tokens=128,

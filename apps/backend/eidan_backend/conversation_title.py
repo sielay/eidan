@@ -16,9 +16,9 @@ call this helper, then write the title back via
 
 from __future__ import annotations
 
+from .classifiers.scope import _classifier_model
 from .providers.base import Provider, UserMessage
 
-_TITLE_MODEL = "claude-haiku-4-5-20251001"
 _TITLE_MAX_CHARS = 60
 
 _TITLE_SYSTEM = (
@@ -72,7 +72,7 @@ async def generate_conversation_title(
     )
     chunks: list[str] = []
     async for chunk in provider.stream_turn(
-        model=_TITLE_MODEL,
+        model=_classifier_model(),
         messages=[UserMessage(role="user", content=prompt)],
         system=_TITLE_SYSTEM,
         max_tokens=48,
