@@ -143,6 +143,7 @@ def _make_context_factory(
     provider: Any | None = None,
     default_model: str | None = None,
     behaviour_dispatcher: BehaviourDispatcher | None = None,
+    telemetry_holder: list[Any] | None = None,
 ) -> Any:
     """Build a :class:`ContextFactory` closed over the host's wiring.
 
@@ -164,7 +165,11 @@ def _make_context_factory(
     secret_accessor = make_secret_accessor(pool)
     notify_callable = _make_notify_callable(notification_router)
     spawn_turn_callable = _make_spawn_turn_callable(
-        pool, provider, default_model, tool_registry
+        pool,
+        provider,
+        default_model,
+        tool_registry,
+        telemetry_holder=telemetry_holder,
     )
     publish_event_callable = (
         behaviour_dispatcher.publish_event if behaviour_dispatcher is not None else None
@@ -220,6 +225,7 @@ def _make_spawn_turn_callable(
     provider: Any | None,
     default_model: str | None,
     tool_registry: ToolRegistry,
+    telemetry_holder: list[Any] | None = None,
 ) -> Any:
     """Bind :func:`run_agent_initiated_turn` to the host's pool +
     provider + model so plugins receive a ``ctx.spawn_turn(...)``
@@ -230,6 +236,14 @@ def _make_spawn_turn_callable(
     missing (test boots, degraded starts) so plugins can detect the
     absence via ``ctx.spawn_turn is None`` and fall back to writing an
     escalation instead.
+
+    ``telemetry_holder`` is a one-element list bootstrap populates
+    *after* the emitter is built (the emitter needs the activated
+    plugin snapshot, which the factory doesn't have at construction
+    time). When set, the closure reads through the holder at each
+    spawn so plugin-initiated turns inherit the host's emitter and
+    drop the `agent.turn.*` beacons #172 wired up. When unset
+    (test boots, degraded starts), spawns just don't emit.
     """
     if provider is None or default_model is None:
         return None
@@ -247,6 +261,11 @@ def _make_spawn_turn_callable(
         conversation_id: Any | None = None,
         conversation_title: str | None = None,
     ) -> Any:
+        telemetry = (
+            telemetry_holder[0]
+            if telemetry_holder is not None and telemetry_holder
+            else None
+        )
         return run_agent_initiated_turn(
             pool=pool,
             provider=provider,
@@ -257,6 +276,7 @@ def _make_spawn_turn_callable(
             conversation_id=conversation_id,
             conversation_title=conversation_title,
             tool_registry=tool_registry,
+            telemetry=telemetry,
         )
 
     return _spawn_turn
@@ -525,6 +545,13 @@ async def bootstrap(
     # having at least one behaviour and ``start_dispatcher`` being
     # True.
     dispatcher = BehaviourDispatcher(behaviour_registry, pool=pool)
+    # Holder lets the spawn-turn closure see the telemetry emitter
+    # once it's built — telemetry construction needs the activated
+    # plugin snapshot (computed below), so the factory can't receive
+    # the emitter directly. bootstrap() populates `telemetry_holder[0]`
+    # right after `telemetry = TelemetryEmitter(...)` and the closure
+    # reads through at every spawn. See #174.
+    telemetry_holder: list[Any] = [None]
     factory = _make_context_factory(
         pool,
         tool_registry,
@@ -533,6 +560,7 @@ async def bootstrap(
         provider=provider,
         default_model=default_model,
         behaviour_dispatcher=dispatcher,
+        telemetry_holder=telemetry_holder,
     )
 
     # Validate every plugin's required ``vault[]`` keys BEFORE the
@@ -608,6 +636,10 @@ async def bootstrap(
                 "[bootstrap] telemetry start failed — heartbeat / events disabled"
             )
             telemetry = None
+        # Populate the holder the context factory closes over so every
+        # plugin-spawned turn from this point forward inherits the
+        # emitter and drops the `agent.turn.*` beacons. See #174.
+        telemetry_holder[0] = telemetry
 
     # One milestone event per plugin we just activated. Cheap; lands
     # the activation trail in node_events for post-boot inspection.
