@@ -6,7 +6,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import AnyUrl, BaseModel, ConfigDict, EmailStr, Field, RootModel
+from pydantic import AnyUrl, BaseModel, ConfigDict, EmailStr, Field, RootModel, constr
 
 
 class Target(StrEnum):
@@ -233,6 +233,10 @@ class Node(BaseModel):
     disable: list[DisableItem] | None = Field([], validate_default=True)
     """
     Plugin names to disable on this node via `EIDAN_DISABLED_PLUGINS`. The plugin is installed but the loader skips it — no on_install, on_activate, behaviours, routers, or MCP tools. See `docs/001 §8.2`.
+    """
+    extra_env: dict[constr(pattern=r"^[A-Z][A-Z0-9_]*$"), str] | None = None
+    """
+    Per-node environment passthrough for plugin env vars not modelled as typed Node fields. Keys must match `^[A-Z][A-Z0-9_]*$` (e.g. `EIDAN_GIT_STACKS`, `EIDAN_SAGE_LOOP_MAX_ITERATIONS`). Values land verbatim in `/etc/eidan/eidan.env` (pi) or `[env]` in `fly.toml` (fly). Vault-encrypt entries that carry secrets.
     """
     plugin_source: str | None = Field(None, min_length=1)
     """

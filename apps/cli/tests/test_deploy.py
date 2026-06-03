@@ -289,6 +289,50 @@ def test_node_to_ansible_vars_omits_log_forward_when_unset(
     assert "eidan_log_forward_headers" not in vars_dict
 
 
+def test_node_to_ansible_vars_carries_extra_env_passthrough(
+    tmp_path: Path,
+) -> None:
+    """`extra_env:` on the node lands as a dict in the ansible vars
+    file; the Pi env template loops over it. Verifies the
+    operator-facing path that wires plugin env vars
+    (`EIDAN_GIT_STACKS`, etc.) without core having to model them."""
+    body = """
+        schema: 1
+        nodes:
+          kasha:
+            target: pi
+            host: 192.168.1.100
+            ssh_user: pi
+            database_url: postgresql+asyncpg://eidan:eidan@127.0.0.1:5432/eidan
+            auth_master_key: KEY-AT-LEAST-32-CHARS-LONG-YES-INDEED
+            auth_allowed_email: you@example.com
+            extra_env:
+              EIDAN_GIT_STACKS: sage
+              EIDAN_GIT_REPOS: "github:sielay/eidan-sage"
+              EIDAN_SAGE_LOOP_MAX_ITERATIONS: "5"
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    vars_dict = pi._node_to_ansible_vars(topology.resolve_node("kasha"))
+
+    assert vars_dict["eidan_extra_env"] == {
+        "EIDAN_GIT_STACKS": "sage",
+        "EIDAN_GIT_REPOS": "github:sielay/eidan-sage",
+        "EIDAN_SAGE_LOOP_MAX_ITERATIONS": "5",
+    }
+
+
+def test_node_to_ansible_vars_omits_extra_env_when_unset(
+    tmp_path: Path,
+) -> None:
+    """No `extra_env:` on the node → no key in vars_dict. The j2
+    template gates on `is defined`, so the rendered eidan.env stays
+    clean instead of carrying a `# --- Plugin pass-through env`
+    section with nothing in it."""
+    node = _kasha_node(tmp_path)
+    vars_dict = pi._node_to_ansible_vars(node)
+    assert "eidan_extra_env" not in vars_dict
+
+
 # ---------- reconcile() ----------
 
 
