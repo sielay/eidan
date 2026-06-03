@@ -37,10 +37,24 @@ const TYPE_TONE: Record<string, string> = {
   "node.shutdown": "bg-rose-500/10 text-rose-700 dark:text-rose-300",
   "plugin.activate": "bg-blue-500/10 text-blue-700 dark:text-blue-300",
   "dispatcher.started": "bg-purple-500/10 text-purple-700 dark:text-purple-300",
+  // `agent.turn.*` (#172 / #174) are the load-bearing rows for
+  // observing live agent work — give them their own ramp so they
+  // stand apart from the boot / lifecycle noise.
+  "agent.turn.start": "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  "agent.turn.tool_call": "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+  "agent.turn.complete": "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
 };
 
 function typeTone(type: string): string {
   return TYPE_TONE[type] ?? "bg-muted text-muted-foreground";
+}
+
+function formatUsd(value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value === 0) return "$0";
+  if (value < 0.0001) return `$${value.toExponential(1)}`;
+  if (value < 1) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(2)}`;
 }
 
 function formatTs(iso: string): string {
@@ -174,7 +188,10 @@ export function LivePane(): React.ReactElement {
 function EventRow({ event }: { event: DisplayEvent }): React.ReactElement {
   const [open, setOpen] = React.useState(false);
   const hasPayload = Object.keys(event.payload).length > 0;
-  const summary = summarisePayload(event.payload);
+  const summary =
+    event.type === "agent.turn.complete"
+      ? summariseTurnComplete(event.payload)
+      : summarisePayload(event.payload);
 
   return (
     <div className="rounded-md border border-border bg-background/40 p-2 text-xs">
@@ -222,6 +239,23 @@ function EventRow({ event }: { event: DisplayEvent }): React.ReactElement {
       ) : null}
     </div>
   );
+}
+
+function summariseTurnComplete(payload: Record<string, unknown>): string {
+  // Pluck the keys the loop ships on `agent.turn.complete` (#172) and
+  // render the operator-meaningful axes first. The generic
+  // summarisePayload would truncate `primary_model` and bury cost
+  // behind alphabetical order.
+  const parts: string[] = [];
+  const agent = payload.agent_name;
+  if (typeof agent === "string" && agent.length > 0) parts.push(agent);
+  const iterations = payload.iterations;
+  if (typeof iterations === "number") parts.push(`${iterations} iter`);
+  const tools = payload.tool_uses_seen;
+  if (typeof tools === "number" && tools > 0) parts.push(`${tools} tool`);
+  const cost = formatUsd(payload.cost_usd);
+  if (cost !== null) parts.push(cost);
+  return parts.join(" · ");
 }
 
 function summarisePayload(payload: Record<string, unknown>): string {
