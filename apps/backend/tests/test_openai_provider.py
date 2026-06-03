@@ -505,3 +505,28 @@ async def test_stream_turn_passes_system_and_tools_to_api() -> None:
     assert sent["tools"][0]["function"]["name"] == "search"
     assert sent["stream"] is True
     assert sent["stream_options"] == {"include_usage": True}
+
+
+# ---- timeout ------------------------------------------------------------
+
+
+def test_timeout_kwarg_flows_into_async_openai_client() -> None:
+    """``timeout`` is the load-bearing knob for the Ollama path on
+    slow hardware — a 3B tools model on a Pi CPU takes 15–25 min per
+    primary call and the SDK's 10-min default trips before the call
+    completes (#157)."""
+    provider = OpenAIProvider(api_key="sk-test", timeout=1800.0)
+    # The AsyncOpenAI client exposes the per-request timeout it was
+    # constructed with on its ``timeout`` attribute.
+    assert provider._client.timeout == 1800.0
+
+
+def test_timeout_unset_preserves_async_openai_default() -> None:
+    """``timeout=None`` (default) means we do NOT pass the kwarg, so
+    the openai SDK's own default applies. Backwards-compat for every
+    Anthropic / OpenAI.com operator who never set the env."""
+    provider = OpenAIProvider(api_key="sk-test")
+    # The SDK's default is a non-None httpx.Timeout / float; asserting
+    # it's specifically not the value we'd set is the cheapest check
+    # that no override leaked in.
+    assert provider._client.timeout != 1800.0

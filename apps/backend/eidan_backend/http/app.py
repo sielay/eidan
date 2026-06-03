@@ -261,6 +261,7 @@ def _build_provider_from_settings(backend: BackendSettings) -> Provider:
         return OpenAIProvider(
             api_key=backend.openai_api_key,
             base_url=backend.openai_base_url,
+            timeout=backend.openai_timeout_seconds,
         )
     if backend.provider == "ollama":
         # Ollama exposes an OpenAI-compatible API on
@@ -274,6 +275,7 @@ def _build_provider_from_settings(backend: BackendSettings) -> Provider:
         return OpenAIProvider(
             api_key=backend.openai_api_key or "ollama",
             base_url=backend.ollama_base_url,
+            timeout=backend.openai_timeout_seconds,
         )
     # The Literal type on backend.provider keeps this branch unreachable
     # at type-check time; the runtime check covers a stray env override.

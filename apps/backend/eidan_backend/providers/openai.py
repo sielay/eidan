@@ -286,13 +286,26 @@ class OpenAIProvider:
 
     name = "openai"
 
-    def __init__(self, *, api_key: str, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str | None = None,
+        timeout: float | None = None,
+    ) -> None:
         # ``base_url`` lets the operator point the adapter at an
         # OpenAI-compatible endpoint (Azure, vLLM, local Ollama proxy
         # speaking the OpenAI dialect). Defaults to api.openai.com.
+        # ``timeout`` (seconds) overrides the openai SDK default of
+        # 600s. Load-bearing for the Ollama path on slow hardware —
+        # a 3B tools model on a Pi CPU can take 15–25 min per primary
+        # call; default 10 min trips before the call completes. None
+        # = SDK default applies.
         kwargs: dict = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         self._client = AsyncOpenAI(**kwargs)
         self._pending = _PendingResult()
 
