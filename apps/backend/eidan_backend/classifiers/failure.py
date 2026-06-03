@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..failure_detector import HistoryMessage
+from ..persistence import capture_call_inputs
 from ..providers.base import Provider, ProviderCallResult, UserMessage
 from .scope import _classifier_model
 
@@ -96,15 +97,19 @@ async def classify_failure(
         f"Transcript:\n{transcript}"
     )
 
+    system_prompt = system_prefix + _FALLBACK_SYSTEM
     chunks: list[str] = []
     async for chunk in provider.stream_turn(
         model=_classifier_model(),
         messages=[UserMessage(role="user", content=prompt)],
-        system=system_prefix + _FALLBACK_SYSTEM,
+        system=system_prompt,
         max_tokens=128,
     ):
         chunks.append(chunk.text)
     call = await provider.last_call_result()
+    call = capture_call_inputs(
+        call, system_prompt=system_prompt, user_text=prompt
+    )
 
     raw = "".join(chunks).strip()
     try:

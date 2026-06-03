@@ -55,6 +55,7 @@ from .failure_detector import detect as detect_failure
 from .failure_detector import detect_pre_primary as detect_failure_pre_primary
 from .identity import Identity, current_agent_id, current_identity
 from .persistence import (
+    capture_call_inputs,
     cost_summary_for_turn,
     ensure_default_agent_context,
     insert_assistant_message,
@@ -515,6 +516,9 @@ async def run_turn(
                 tool_uses.append(block)
 
         result = await provider.last_call_result()
+        result = capture_call_inputs(
+            result, system_prompt=primary_system, user_text=user_text
+        )
 
         async with acquire(pool, ctx.identity) as conn:
             assistant_message_id = await insert_assistant_message(
@@ -725,6 +729,9 @@ async def run_turn(
                 retry_tool_uses.append(block)
 
         retry_result = await provider.last_call_result()
+        retry_result = capture_call_inputs(
+            retry_result, system_prompt=retry_system, user_text=user_text
+        )
 
         async with acquire(pool, ctx.identity) as conn:
             retry_assistant_id = await insert_assistant_message(
@@ -810,6 +817,11 @@ async def run_turn(
                     yield block
 
             terminal_result = await provider.last_call_result()
+            terminal_result = capture_call_inputs(
+                terminal_result,
+                system_prompt=retry_system,
+                user_text=user_text,
+            )
 
             async with acquire(pool, ctx.identity) as conn:
                 terminal_id = await insert_assistant_message(

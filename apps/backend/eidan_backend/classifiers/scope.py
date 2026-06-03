@@ -17,6 +17,7 @@ import json
 import os
 from dataclasses import dataclass
 
+from ..persistence import capture_call_inputs
 from ..providers.base import Provider, ProviderCallResult, UserMessage
 
 _DEFAULT_CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
@@ -65,15 +66,19 @@ async def classify_scope(
     The telemetry is handed back so the caller can persist a single
     ``llm_calls`` row with ``role='scope_classifier'`` per `docs/010 §3`.
     """
+    system_prompt = system_prefix + _SCOPE_SYSTEM
     chunks: list[str] = []
     async for chunk in provider.stream_turn(
         model=_classifier_model(),
         messages=[UserMessage(role="user", content=user_text)],
-        system=system_prefix + _SCOPE_SYSTEM,
+        system=system_prompt,
         max_tokens=128,
     ):
         chunks.append(chunk.text)
     call = await provider.last_call_result()
+    call = capture_call_inputs(
+        call, system_prompt=system_prompt, user_text=user_text
+    )
 
     text = "".join(chunks).strip()
     skills: list[str] = []

@@ -888,3 +888,120 @@ async def test_get_messages_404_for_other_users_conversation(http_client) -> Non
         headers=headers,
     )
     assert resp.status_code == 404
+
+
+# -----------------------------------------------------------------------------
+# /api/conversations/{id}/llm_calls (#152)
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_llm_calls_returns_rows(http_client) -> None:
+    """The introspection panel reads this endpoint to render
+    per-call traces alongside the message stream. Rows surface in
+    ``created_at`` order with the full telemetry shape — role,
+    model, latency, tokens, cost, error, and the metadata blob
+    holding the system prompt + user-text excerpt."""
+    client, pool, _, mint = http_client
+    identity = build_identity()
+    headers = mint(identity)
+    user_uuid = UUID(identity.user_id)
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO eidan.users (id, email) VALUES ($1, $2) "
+            "ON CONFLICT (id) DO NOTHING",
+            user_uuid,
+            identity.email,
+        )
+        conversation_id = await conn.fetchval(
+            "INSERT INTO eidan.conversations (user_id, title) "
+            "VALUES ($1, 'with calls') RETURNING id",
+            user_uuid,
+        )
+        message_id = await conn.fetchval(
+            "INSERT INTO eidan.messages "
+            "(user_id, conversation_id, role, content) "
+            "VALUES ($1, $2, 'user', 'hello world') RETURNING id",
+            user_uuid,
+            conversation_id,
+        )
+        await conn.execute(
+            """
+            INSERT INTO eidan.llm_calls
+                (user_id, conversation_id, message_id, role,
+                 provider, model,
+                 input_tokens, output_tokens,
+                 cache_read_tokens, cache_creation_tokens,
+                 cost_usd, latency_ms,
+                 started_at, finished_at, metadata)
+            VALUES
+                ($1, $2, $3, 'scope_classifier',
+                 'anthropic', 'claude-haiku-4-5-20251001',
+                 50, 5, 0, 0,
+                 0.000123, 120,
+                 now(), now(),
+                 $4::jsonb)
+            """,
+            user_uuid,
+            conversation_id,
+            message_id,
+            '{"system_prompt": "you tag", "user_text_excerpt": "hello world"}',
+        )
+
+    resp = await client.get(
+        f"/api/conversations/{conversation_id}/llm_calls",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["llm_calls"]) == 1
+    row = body["llm_calls"][0]
+    assert row["role"] == "scope_classifier"
+    assert row["provider"] == "anthropic"
+    assert row["model"] == "claude-haiku-4-5-20251001"
+    assert row["input_tokens"] == 50
+    assert row["output_tokens"] == 5
+    assert row["latency_ms"] == 120
+    assert row["cost_usd"] == pytest.approx(0.000123, rel=1e-3)
+    assert row["error"] is None
+    assert row["metadata"]["system_prompt"] == "you tag"
+    assert row["metadata"]["user_text_excerpt"] == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_llm_calls_404s_for_someone_elses_thread(
+    http_client,
+) -> None:
+    """Same owner-only check as the messages endpoint — the
+    introspection trace MUST NOT leak across users."""
+    client, pool, _, mint = http_client
+    identity = build_identity()
+    headers = mint(identity)
+
+    other_user = UUID("00000000-0000-0000-0000-000000feedee")
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO eidan.users (id, email) VALUES ($1, NULL) "
+            "ON CONFLICT (id) DO NOTHING",
+            other_user,
+        )
+        other_convo = await conn.fetchval(
+            "INSERT INTO eidan.conversations (user_id, title) "
+            "VALUES ($1, 'private') RETURNING id",
+            other_user,
+        )
+
+    resp = await client.get(
+        f"/api/conversations/{other_convo}/llm_calls",
+        headers=headers,
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_llm_calls_requires_auth(http_client) -> None:
+    client, _, _, _ = http_client
+    convo = UUID("00000000-0000-0000-0000-000000abcdef")
+    resp = await client.get(f"/api/conversations/{convo}/llm_calls")
+    assert resp.status_code == 401

@@ -1446,6 +1446,82 @@ def _maybe_json(value: Any) -> Any:
     return value
 
 
+@router.get("/api/conversations/{conversation_id}/llm_calls")
+async def get_conversation_llm_calls(
+    request: Request, conversation_id: UUID
+) -> dict[str, Any]:
+    """Per-call trace for a conversation (#152 / docs/014).
+
+    Returns every ``eidan.llm_calls`` row tied to the conversation in
+    ``created_at`` order. The UI's introspection panel folds these
+    next to the assistant messages they produced — same role chips
+    the operator sees today on cost reports (primary, scope_classifier,
+    intent_classifier, sizer, critic, ...), plus the metadata blob
+    carries the system prompt + user-text excerpt the call site
+    recorded via :func:`persistence.capture_call_inputs`.
+    """
+    identity = request.state.identity
+    user_uuid = UUID(identity.user_id)
+    pool = request.app.state.pool
+
+    async with acquire(pool, identity) as conn:
+        owned = await conversation_belongs_to(
+            conn, conversation_id=conversation_id, user_id=user_uuid
+        )
+        if not owned:
+            raise HTTPException(status_code=404, detail="conversation not found")
+        rows = await conn.fetch(
+            """
+            SELECT
+                id, message_id, role, provider, model,
+                input_tokens, output_tokens,
+                cache_read_tokens, cache_creation_tokens,
+                cost_usd, latency_ms,
+                error, error_type,
+                started_at, finished_at, request_id,
+                metadata, created_at
+            FROM eidan.llm_calls
+            WHERE conversation_id = $1
+            ORDER BY created_at
+            """,
+            conversation_id,
+        )
+
+    return {
+        "llm_calls": [
+            {
+                "id": str(row["id"]),
+                "message_id": (
+                    str(row["message_id"])
+                    if row["message_id"] is not None
+                    else None
+                ),
+                "role": row["role"],
+                "provider": row["provider"],
+                "model": row["model"],
+                "input_tokens": row["input_tokens"],
+                "output_tokens": row["output_tokens"],
+                "cache_read_tokens": row["cache_read_tokens"],
+                "cache_creation_tokens": row["cache_creation_tokens"],
+                "cost_usd": float(row["cost_usd"]),
+                "latency_ms": row["latency_ms"],
+                "error": row["error"],
+                "error_type": row["error_type"],
+                "request_id": row["request_id"],
+                "started_at": row["started_at"].isoformat(),
+                "finished_at": (
+                    row["finished_at"].isoformat()
+                    if row["finished_at"] is not None
+                    else None
+                ),
+                "metadata": _maybe_json(row["metadata"]),
+                "created_at": row["created_at"].isoformat(),
+            }
+            for row in rows
+        ]
+    }
+
+
 def _decode_plugins_jsonb(value: Any) -> list[dict[str, Any]]:
     """Decode the ``eidan.node_heartbeats.plugins`` JSONB array.
 

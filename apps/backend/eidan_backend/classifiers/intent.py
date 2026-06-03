@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 from eidan_schemas import IntendedActions, Lookup, Unknown
 
+from ..persistence import capture_call_inputs
 from ..providers.base import Provider, ProviderCallResult, UserMessage
 from .scope import ScopeResult, _classifier_model
 
@@ -100,15 +101,19 @@ async def classify_intent(
         f"User message:\n{user_text}"
     )
 
+    system_prompt = system_prefix + _INTENT_SYSTEM
     chunks: list[str] = []
     async for chunk in provider.stream_turn(
         model=_classifier_model(),
         messages=[UserMessage(role="user", content=user_block)],
-        system=system_prefix + _INTENT_SYSTEM,
+        system=system_prompt,
         max_tokens=512,
     ):
         chunks.append(chunk.text)
     call = await provider.last_call_result()
+    call = capture_call_inputs(
+        call, system_prompt=system_prompt, user_text=user_block
+    )
 
     text = "".join(chunks).strip()
     try:
