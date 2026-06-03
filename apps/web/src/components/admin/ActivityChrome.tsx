@@ -28,7 +28,7 @@ export function ActivityChrome({
   activeTab,
   children,
 }: {
-  activeTab: "conversations" | "nodes" | "triggers";
+  activeTab: "conversations" | "nodes" | "triggers" | "live";
   children: React.ReactNode;
 }): React.ReactElement {
   const { user } = useAuth();
@@ -99,7 +99,7 @@ export function ActivityChrome({
       </header>
 
       <nav className="flex items-center gap-1.5 text-xs" role="tablist">
-        {(["conversations", "nodes", "triggers"] as const).map((tab) => (
+        {(["conversations", "nodes", "triggers", "live"] as const).map((tab) => (
           <Link
             key={tab}
             href={`/admin/activity/${tab}`}

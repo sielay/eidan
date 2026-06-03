@@ -1,0 +1,245 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+"use client";
+
+import Link from "next/link";
+import * as React from "react";
+
+import { useAuth } from "@/components/providers/auth-provider";
+import {
+  streamActivityEvents,
+  type ActivityEvent,
+} from "@/lib/api/activity";
+import { cn } from "@/lib/utils";
+
+/**
+ * Cross-node live tail of `eidan.node_events` (#155 / docs/014).
+ *
+ * Opens an SSE-shaped stream against `/api/admin/activity/events`
+ * and renders each new event as a card at the top. The cursor
+ * resets to "now" on every reconnect, so the operator only sees
+ * events from when they opened the page — no replay. To page back
+ * through history, the per-node endpoint at
+ * `/api/admin/nodes/{id}/events` is the right surface.
+ */
+const MAX_EVENTS = 200;
+
+interface DisplayEvent extends ActivityEvent {
+  /** Stable per-event id for React keys — node_id+seq is unique. */
+  key: string;
+}
+
+function eventKey(event: ActivityEvent): string {
+  return `${event.node_id}:${event.seq}`;
+}
+
+const TYPE_TONE: Record<string, string> = {
+  "node.boot": "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  "node.shutdown": "bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  "plugin.activate": "bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  "dispatcher.started": "bg-purple-500/10 text-purple-700 dark:text-purple-300",
+};
+
+function typeTone(type: string): string {
+  return TYPE_TONE[type] ?? "bg-muted text-muted-foreground";
+}
+
+function formatTs(iso: string): string {
+  try {
+    const date = new Date(iso);
+    return date.toLocaleTimeString();
+  } catch {
+    return iso;
+  }
+}
+
+export function LivePane(): React.ReactElement {
+  const { user, loading } = useAuth();
+  const [events, setEvents] = React.useState<DisplayEvent[]>([]);
+  const [connected, setConnected] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [paused, setPaused] = React.useState(false);
+  const pausedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
+  React.useEffect(() => {
+    if (!user) return;
+    const controller = new AbortController();
+    let cancelled = false;
+
+    (async () => {
+      try {
+        for await (const event of streamActivityEvents(controller.signal)) {
+          if (cancelled) return;
+          if (pausedRef.current) continue;
+          setConnected(true);
+          setEvents((prev) => {
+            const next = [{ ...event, key: eventKey(event) }, ...prev];
+            return next.slice(0, MAX_EVENTS);
+          });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : "stream failed");
+        setConnected(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [user]);
+
+  if (loading || !user) {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-background/60 p-4 text-sm text-muted-foreground">
+        Sign in to see live activity.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs">
+          <span
+            className={cn(
+              "inline-block h-2 w-2 rounded-full",
+              connected && !paused
+                ? "bg-emerald-500"
+                : paused
+                  ? "bg-amber-500"
+                  : "bg-muted-foreground/40",
+            )}
+            aria-hidden
+          />
+          <span className="text-muted-foreground">
+            {paused
+              ? "Paused"
+              : connected
+                ? "Streaming"
+                : "Connecting…"}
+          </span>
+          <span className="text-muted-foreground/60">
+            · {events.length} event{events.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPaused((v) => !v)}
+            className="rounded-md border border-border bg-background/60 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
+          >
+            {paused ? "Resume" : "Pause"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEvents([])}
+            className="rounded-md border border-border bg-background/60 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {error !== null ? (
+        <div className="rounded-md border border-dashed border-red-300 bg-red-50/40 p-3 text-xs text-red-700 dark:bg-red-950/20">
+          {error}
+        </div>
+      ) : null}
+
+      {events.length === 0 ? (
+        <div className="rounded-md border border-dashed border-border bg-background/60 p-4 text-xs text-muted-foreground">
+          {connected
+            ? "Stream is idle — no events yet. Triggers / boots / activates land here as they happen across every node."
+            : "Connecting to the activity stream…"}
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {events.map((event) => (
+            <li key={event.key}>
+              <EventRow event={event} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function EventRow({ event }: { event: DisplayEvent }): React.ReactElement {
+  const [open, setOpen] = React.useState(false);
+  const hasPayload = Object.keys(event.payload).length > 0;
+  const summary = summarisePayload(event.payload);
+
+  return (
+    <div className="rounded-md border border-border bg-background/40 p-2 text-xs">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={!hasPayload && event.conversation_id === null}
+        className="flex w-full items-center gap-2 text-left"
+        aria-expanded={open}
+      >
+        <span
+          className={cn(
+            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+            typeTone(event.type),
+          )}
+        >
+          {event.type}
+        </span>
+        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+          {event.node_id}
+        </span>
+        {summary && (
+          <span className="min-w-0 truncate text-muted-foreground">
+            {summary}
+          </span>
+        )}
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
+          {formatTs(event.ts)}
+        </span>
+      </button>
+      {open && hasPayload ? (
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-background/60 p-2 font-mono text-[11px]">
+          {JSON.stringify(event.payload, null, 2)}
+        </pre>
+      ) : null}
+      {open && event.conversation_id ? (
+        <div className="mt-2 text-[10px] text-muted-foreground">
+          <Link
+            href={`/c/${event.conversation_id}`}
+            className="underline-offset-2 hover:underline"
+          >
+            open conversation {event.conversation_id.slice(0, 8)}…
+          </Link>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function summarisePayload(payload: Record<string, unknown>): string {
+  const entries = Object.entries(payload).slice(0, 2);
+  if (entries.length === 0) return "";
+  return entries
+    .map(([k, v]) => `${k}=${stringifyScalar(v)}`)
+    .join(" · ");
+}
+
+function stringifyScalar(value: unknown): string {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value === "string") {
+    return value.length > 32 ? `${value.slice(0, 31)}…` : value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  const json = JSON.stringify(value);
+  return json.length > 32 ? `${json.slice(0, 31)}…` : json;
+}

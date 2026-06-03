@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { ActivityChrome } from "@/components/admin/ActivityChrome";
 import { ConversationsPane } from "@/components/admin/ConversationsPane";
+import { LivePane } from "@/components/admin/LivePane";
 import { NodesPane } from "@/components/admin/NodesPane";
 import { TriggersPane } from "@/components/admin/TriggersPane";
 
@@ -10,9 +11,10 @@ const TAB_COMPONENTS: Record<string, () => React.ReactElement> = {
   conversations: ConversationsPane,
   nodes: NodesPane,
   triggers: TriggersPane,
+  live: LivePane,
 };
 
-const TAB_ORDER = ["conversations", "nodes", "triggers"] as const;
+const TAB_ORDER = ["conversations", "nodes", "triggers", "live"] as const;
 
 /**
  * Tab router for `/admin/activity/[tab]` (docs/014 §3 admin row).
