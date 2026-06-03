@@ -71,7 +71,8 @@ function ToolCallCard({ call }: { call: PairedToolCall }): React.ReactElement {
   // the failure reason. Successful cards stay collapsed.
   const [open, setOpen] = React.useState(call.is_error);
 
-  const summary = summariseInput(call.input);
+  const inputSummary = summariseInput(call.input);
+  const resultPreview = previewResult(call.result);
   const status = call.is_error ? "error" : call.result === null ? "pending" : "done";
 
   return (
@@ -91,21 +92,40 @@ function ToolCallCard({ call }: { call: PairedToolCall }): React.ReactElement {
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs"
       >
         <StatusBadge status={status} />
-        <span className="font-mono">{call.name}</span>
-        {summary && (
-          <span className="min-w-0 truncate text-muted-foreground">
-            {summary}
-          </span>
-        )}
-        <Chevron open={open} className="ml-auto" />
+        <span className="shrink-0 font-mono">{call.name}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-2 text-muted-foreground">
+          {inputSummary && (
+            <span className="min-w-0 truncate">{inputSummary}</span>
+          )}
+          {resultPreview && (
+            <>
+              <span aria-hidden className="opacity-60">→</span>
+              <span
+                className={cn(
+                  "min-w-0 truncate font-mono",
+                  call.is_error && "text-red-700 dark:text-red-300",
+                )}
+              >
+                {resultPreview}
+              </span>
+            </>
+          )}
+        </span>
+        <Chevron open={open} className="ml-auto shrink-0" />
       </button>
       {open && (
         <div className="border-t border-border/60 bg-muted/20">
-          <DetailSection label="Input">
+          <DetailSection
+            label="Input"
+            copyText={prettyJson(call.input)}
+          >
             <Code>{prettyJson(call.input)}</Code>
           </DetailSection>
           {call.result !== null ? (
-            <DetailSection label={call.is_error ? "Error" : "Result"}>
+            <DetailSection
+              label={call.is_error ? "Error" : "Result"}
+              copyText={call.result}
+            >
               <Code error={call.is_error}>{call.result}</Code>
             </DetailSection>
           ) : (
@@ -124,17 +144,66 @@ function ToolCallCard({ call }: { call: PairedToolCall }): React.ReactElement {
 function DetailSection({
   label,
   children,
+  copyText,
 }: {
   label: string;
   children: React.ReactNode;
+  copyText?: string;
 }): React.ReactElement {
   return (
     <div className="border-t border-border/40 px-2.5 py-2 first:border-t-0">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        {copyText ? <CopyButton text={copyText} /> : null}
+      </div>
       {children}
     </div>
+  );
+}
+
+function CopyButton({ text }: { text: string }): React.ReactElement {
+  const [copied, setCopied] = React.useState(false);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  const onClick = React.useCallback(
+    async (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      // Browsers expose navigator.clipboard only over secure contexts;
+      // a failure here just leaves the operator with the
+      // already-visible text to copy by hand, so swallow silently.
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), 1200);
+      } catch {
+        /* noop */
+      }
+    },
+    [text],
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={copied ? "Copied" : "Copy to clipboard"}
+      className={cn(
+        "rounded border border-border/60 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground transition-colors",
+        "hover:border-border hover:text-foreground",
+        copied && "border-emerald-300 text-emerald-700 dark:text-emerald-300",
+      )}
+    >
+      {copied ? "copied" : "copy"}
+    </button>
   );
 }
 
@@ -211,6 +280,7 @@ function Chevron({
 const MAX_SUMMARY_NAMES = 3;
 const MAX_SUMMARY_VALUE_CHARS = 48;
 const MAX_SUMMARY_FIELDS = 2;
+const MAX_RESULT_PREVIEW_CHARS = 80;
 
 function summariseNames(calls: readonly PairedToolCall[]): string {
   const unique = Array.from(new Set(calls.map((c) => c.name)));
@@ -252,4 +322,9 @@ function prettyJson(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+export function previewResult(result: string | null): string {
+  if (result === null) return "";
+  return truncate(result, MAX_RESULT_PREVIEW_CHARS);
 }
