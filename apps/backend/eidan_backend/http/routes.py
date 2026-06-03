@@ -1098,7 +1098,14 @@ async def get_plugins(request: Request) -> dict[str, Any]:
     contract.
     """
     plugins = getattr(request.app.state, "plugins", []) or []
+    identity = getattr(request.app.state, "node_identity", None)
+    node_payload: dict[str, str] | None = (
+        {"node_id": identity.node_id, "node_type": identity.node_type}
+        if identity is not None
+        else None
+    )
     return {
+        "node": node_payload,
         "plugins": [
             {
                 "name": p.manifest.name,
@@ -1111,7 +1118,60 @@ async def get_plugins(request: Request) -> dict[str, Any]:
                 "enabled": True,
             }
             for p in plugins
+        ],
+    }
+
+
+@router.get("/api/plugins/{name}")
+async def get_plugin(request: Request, name: str) -> dict[str, Any]:
+    """Detail view for a single loaded plugin.
+
+    Returns the manifest fields the operator wants on the per-plugin
+    info page (`/plugins/<name>` in the web UI) plus the plugin's
+    ``README.md`` body if one ships next to the manifest. README is
+    read from disk per request — the file is small, the route is
+    operator-facing and rarely hit, and not caching avoids a stale
+    body after an in-place edit on a dev install.
+    """
+    plugins = getattr(request.app.state, "plugins", []) or []
+    loaded = next((p for p in plugins if p.manifest.name == name), None)
+    if loaded is None:
+        raise HTTPException(status_code=404, detail="unknown plugin")
+
+    manifest = loaded.manifest
+    tier = (
+        manifest.tier.value
+        if hasattr(manifest.tier, "value")
+        else str(manifest.tier)
+    )
+    authors = (
+        [
+            {"name": a.name, "email": getattr(a, "email", None)}
+            for a in (manifest.authors or [])
         ]
+        if getattr(manifest, "authors", None)
+        else []
+    )
+
+    readme: str | None = None
+    plugin_dir = getattr(loaded, "plugin_dir", None)
+    if plugin_dir is not None:
+        readme_path = plugin_dir / "README.md"
+        if readme_path.is_file():
+            try:
+                readme = readme_path.read_text(encoding="utf-8")
+            except OSError:
+                readme = None
+
+    return {
+        "name": manifest.name,
+        "display_name": manifest.display_name or manifest.name,
+        "tier": tier,
+        "version": manifest.version,
+        "description": manifest.description,
+        "license": getattr(manifest, "license", None),
+        "authors": authors,
+        "readme": readme,
     }
 
 

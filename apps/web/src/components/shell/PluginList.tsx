@@ -1,9 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import * as React from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
-import { listPlugins, type PluginSummary } from "@/lib/api/plugins";
+import {
+  listPlugins,
+  type NodeIdentity,
+  type PluginSummary,
+} from "@/lib/api/plugins";
 import { groupByTier } from "@/lib/plugin-grouping";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +29,7 @@ export function PluginList(): React.ReactElement {
   const { config, user, loading } = useAuth();
 
   const [plugins, setPlugins] = React.useState<PluginSummary[] | null>(null);
+  const [node, setNode] = React.useState<NodeIdentity | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -31,9 +37,10 @@ export function PluginList(): React.ReactElement {
     let cancelled = false;
     (async () => {
       try {
-        const rows = await listPlugins();
+        const res = await listPlugins();
         if (cancelled) return;
-        setPlugins(rows);
+        setPlugins(res.plugins);
+        setNode(res.node);
         setError(null);
       } catch (err) {
         if (cancelled) return;
@@ -94,6 +101,14 @@ export function PluginList(): React.ReactElement {
 
   return (
     <div data-slot="plugin-nav" className="flex flex-col gap-3">
+      {node ? (
+        <div
+          title={`${node.node_type} node ${node.node_id}`}
+          className="px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70"
+        >
+          Plugins on {node.node_id}
+        </div>
+      ) : null}
       {grouped.map(({ tier, rows }) => (
         <section key={tier} className="flex flex-col gap-1">
           <h3 className="px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
@@ -114,18 +129,19 @@ export function PluginList(): React.ReactElement {
 
 function PluginRow({ row }: { row: PluginSummary }): React.ReactElement {
   return (
-    <div
+    <Link
+      href={`/plugins/${row.name}`}
       title={row.description ?? undefined}
       className={cn(
         "flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs",
-        "text-muted-foreground",
+        "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
       )}
     >
       <span className="truncate text-foreground">{row.display_name}</span>
       <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
         v{row.version}
       </span>
-    </div>
+    </Link>
   );
 }
 
