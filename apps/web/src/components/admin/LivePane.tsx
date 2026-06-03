@@ -66,13 +66,36 @@ function formatTs(iso: string): string {
   }
 }
 
+type TypeFilter = "all" | "agent" | "lifecycle";
+
+function matchesTypeFilter(filter: TypeFilter, type: string): boolean {
+  if (filter === "all") return true;
+  if (filter === "agent") return type.startsWith("agent.");
+  // "lifecycle" — boot / shutdown / activate / dispatcher.* — i.e. the
+  // process / wiring events. Anything not prefixed with `agent.` lands
+  // here, including future event families we haven't named yet.
+  return !type.startsWith("agent.");
+}
+
+const TYPE_FILTER_LABEL: Record<TypeFilter, string> = {
+  all: "All",
+  agent: "Agent",
+  lifecycle: "Lifecycle",
+};
+
 export function LivePane(): React.ReactElement {
   const { user, loading } = useAuth();
   const [events, setEvents] = React.useState<DisplayEvent[]>([]);
   const [connected, setConnected] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [paused, setPaused] = React.useState(false);
+  const [typeFilter, setTypeFilter] = React.useState<TypeFilter>("all");
   const pausedRef = React.useRef(false);
+
+  const visibleEvents = React.useMemo(
+    () => events.filter((e) => matchesTypeFilter(typeFilter, e.type)),
+    [events, typeFilter],
+  );
 
   React.useEffect(() => {
     pausedRef.current = paused;
@@ -139,10 +162,34 @@ export function LivePane(): React.ReactElement {
                 : "Connecting…"}
           </span>
           <span className="text-muted-foreground/60">
-            · {events.length} event{events.length === 1 ? "" : "s"}
+            · {visibleEvents.length}/{events.length} event
+            {events.length === 1 ? "" : "s"}
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <div
+            role="tablist"
+            aria-label="Filter by event type"
+            className="inline-flex rounded-md border border-border bg-background/60 p-0.5 text-[10px]"
+          >
+            {(["all", "agent", "lifecycle"] as const).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                role="tab"
+                aria-selected={typeFilter === kind}
+                onClick={() => setTypeFilter(kind)}
+                className={cn(
+                  "rounded px-2 py-0.5 font-medium uppercase tracking-wider transition-colors",
+                  typeFilter === kind
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {TYPE_FILTER_LABEL[kind]}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => setPaused((v) => !v)}
@@ -172,9 +219,14 @@ export function LivePane(): React.ReactElement {
             ? "Stream is idle — no events yet. Triggers / boots / activates land here as they happen across every node."
             : "Connecting to the activity stream…"}
         </div>
+      ) : visibleEvents.length === 0 ? (
+        <div className="rounded-md border border-dashed border-border bg-background/60 p-4 text-xs text-muted-foreground">
+          {events.length} event{events.length === 1 ? "" : "s"} in the
+          buffer; none match the {TYPE_FILTER_LABEL[typeFilter]} filter.
+        </div>
       ) : (
         <ul className="flex flex-col gap-1.5">
-          {events.map((event) => (
+          {visibleEvents.map((event) => (
             <li key={event.key}>
               <EventRow event={event} />
             </li>
