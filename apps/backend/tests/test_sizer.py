@@ -123,6 +123,59 @@ async def test_opus_override_short_circuits_parser() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sizer_disabled_via_env_skips_provider_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`EIDAN_SIZER_ENABLED=0` short-circuits before any provider
+    call. The sizer's prompt + allowed-model list are
+    Anthropic-tier-laddered (haiku/sonnet/opus); operators on
+    Ollama / OpenAI / vLLM disable the sizer and the loop falls
+    back to ``default_model`` for the primary call.
+
+    Verifies: returns ``(SizerResult(model=None), None)`` and the
+    provider's scripted turn is NOT consumed."""
+    monkeypatch.setenv("EIDAN_SIZER_ENABLED", "0")
+    provider = FakeProvider(
+        [ScriptedTurn(text="MODEL: claude-haiku-4-5-20251001")]
+    )
+
+    result, call = await pick_model(
+        provider=provider,
+        user_text="anything",
+        scope=ScopeResult(skills=[]),
+    )
+
+    assert result.model is None
+    assert result.escalation_reason is None
+    assert call is None
+    # No provider call happened — script unconsumed.
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_sizer_model_overridable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``EIDAN_CLASSIFIER_MODEL`` overrides the sizer's own provider
+    call model. Backwards-compat: unset → the previously-hardcoded
+    haiku id is used."""
+    monkeypatch.setenv("EIDAN_CLASSIFIER_MODEL", "phi3")
+    provider = FakeProvider(
+        [ScriptedTurn(text="MODEL: claude-haiku-4-5-20251001")]
+    )
+
+    await pick_model(
+        provider=provider,
+        user_text="anything",
+        scope=ScopeResult(skills=[]),
+    )
+
+    # FakeProvider records each call; assert the sizer asked the
+    # provider for the overridden id instead of haiku.
+    assert [c["model"] for c in provider.calls] == ["phi3"]
+
+
+@pytest.mark.asyncio
 async def test_unknown_model_id_in_structured_reply_is_rejected() -> None:
     """A MODEL: line naming an id outside the allowed set collapses to
     None so we never silently route to an unmapped model."""

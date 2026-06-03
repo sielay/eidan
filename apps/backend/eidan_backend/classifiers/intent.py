@@ -27,9 +27,7 @@ from dataclasses import dataclass
 from eidan_schemas import IntendedActions, Lookup, Unknown
 
 from ..providers.base import Provider, ProviderCallResult, UserMessage
-from .scope import ScopeResult
-
-_INTENT_MODEL = "claude-haiku-4-5-20251001"
+from .scope import ScopeResult, _classifier_model
 
 _INTENT_SYSTEM = (
     "Enumerate the actions the user wants the assistant to perform on "
@@ -104,7 +102,7 @@ async def classify_intent(
 
     chunks: list[str] = []
     async for chunk in provider.stream_turn(
-        model=_INTENT_MODEL,
+        model=_classifier_model(),
         messages=[UserMessage(role="user", content=user_block)],
         system=system_prefix + _INTENT_SYSTEM,
         max_tokens=512,

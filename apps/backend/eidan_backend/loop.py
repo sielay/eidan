@@ -419,22 +419,26 @@ async def run_turn(
 
     # ④ Sizer — picks the primary call's model. Falls back to the
     # operator-configured default when the sizer's output is unparseable.
+    # ``sizer_call`` is ``None`` when the sizer is disabled via
+    # ``EIDAN_SIZER_ENABLED=0`` (non-Anthropic providers) — no provider
+    # call happened so there is no telemetry row to write.
     sizer_result, sizer_call = await pick_model(
         provider=provider,
         user_text=user_text,
         scope=scope_result,
         system_prefix=turn_header,
     )
-    async with acquire(pool, ctx.identity) as conn:
-        await insert_llm_call(
-            conn,
-            user_id=user_uuid,
-            conversation_id=ctx.conversation_id,
-            message_id=user_message_id,
-            agent_id=agent_uuid,
-            role="sizer",
-            result=sizer_call,
-        )
+    if sizer_call is not None:
+        async with acquire(pool, ctx.identity) as conn:
+            await insert_llm_call(
+                conn,
+                user_id=user_uuid,
+                conversation_id=ctx.conversation_id,
+                message_id=user_message_id,
+                agent_id=agent_uuid,
+                role="sizer",
+                result=sizer_call,
+            )
 
     # ④.5 Intent classifier — names the actions the user wants performed
     # before the primary tries to perform them (issue #59). Output is
