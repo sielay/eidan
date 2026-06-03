@@ -30,3 +30,7 @@ behaviours:
   - id: example-behaviour:tick
     trigger: "cron:* * * * *"
     handler: example_behaviour.behaviours:tick
+    # Pure in-memory bookkeeping — no LLM, no tools. The handler
+    # records the firing and returns; the design's `tool_chain`
+    # bucket (docs/026 §2.2) fits even though no tools are called.
+    kind: tool_chain

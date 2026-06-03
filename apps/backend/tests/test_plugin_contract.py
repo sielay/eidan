@@ -232,6 +232,25 @@ def test_manifest_accepts_known_behaviour_kind(tmp_path: Path) -> None:
     assert manifest.behaviours[1].kind == "llm_turn"
 
 
+def test_in_tree_plugins_declare_expected_behaviour_kinds() -> None:
+    """Regression for slice 2 of docs/026: in-tree plugins re-tagged
+    with their dispatch intent. example-behaviour:tick is pure
+    bookkeeping (`tool_chain`); sentry:tick is the canonical
+    introspective loop (`llm_turn`, explicit even though it's the
+    default)."""
+    plugins_dir = Path(__file__).resolve().parents[3] / "plugins"
+
+    example_manifest = load_manifest(plugins_dir / "example-behaviour")
+    assert example_manifest.behaviours is not None
+    assert example_manifest.behaviours[0].id == "example-behaviour:tick"
+    assert example_manifest.behaviours[0].kind == "tool_chain"
+
+    sentry_manifest = load_manifest(plugins_dir / "sentry")
+    assert sentry_manifest.behaviours is not None
+    assert sentry_manifest.behaviours[0].id == "sentry:tick"
+    assert sentry_manifest.behaviours[0].kind == "llm_turn"
+
+
 def test_manifest_rejects_unknown_behaviour_kind(tmp_path: Path) -> None:
     """Anything outside the enum trips the strict schema, same
     posture as the unknown-tier check above. A typo'd kind

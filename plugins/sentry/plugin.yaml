@@ -66,3 +66,9 @@ behaviours:
   - id: sentry:tick
     trigger: schedule:PT5M
     handler: eidan_sentry.plugin:Plugin
+    # The canonical thought loop — the handler reads recent state,
+    # decides whether to act, and calls `ctx.spawn_turn` for the
+    # open-ended pattern path. `llm_turn` is the design's default
+    # (docs/026 §2.1); declaring it explicitly here is documentation
+    # for the next contributor reading the manifest.
+    kind: llm_turn
