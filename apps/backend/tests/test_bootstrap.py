@@ -33,6 +33,7 @@ from eidan_backend.behaviours import (
 from eidan_backend.bootstrap import (
     _disabled_plugins_from_env,
     _make_context_factory,
+    _make_spawn_turn_callable,
     _register_declared_notification_adapters,
     bootstrap,
 )
@@ -531,3 +532,147 @@ def test_register_declared_adapters_missing_factory_raises(
         _register_declared_notification_adapters(
             [loaded], router, _stub_secret
         )
+
+
+# ---------- _make_spawn_turn_callable + telemetry holder (#174) ----------
+
+
+@pytest.mark.asyncio
+async def test_spawn_turn_callable_reads_telemetry_through_holder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The factory binds before the emitter is built, so the closure
+    reads through a mutable holder. When the holder is populated
+    after construction, the next spawn passes that emitter to
+    `run_agent_initiated_turn`."""
+    captured: dict[str, Any] = {}
+
+    async def _fake_yield() -> Any:
+        if False:  # pragma: no cover
+            yield None
+
+    def _fake_run_agent_initiated_turn(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return _fake_yield()
+
+    # Monkeypatch the symbol the closure imports at call time.
+    import eidan_backend.loop as loop_mod
+
+    monkeypatch.setattr(
+        loop_mod, "run_agent_initiated_turn", _fake_run_agent_initiated_turn
+    )
+
+    holder: list[Any] = [None]
+    spawn_turn = _make_spawn_turn_callable(
+        pool=object(),  # type: ignore[arg-type]
+        provider=object(),
+        default_model="claude-haiku-4-5-20251001",
+        tool_registry=ToolRegistry(),
+        telemetry_holder=holder,
+    )
+    assert spawn_turn is not None
+
+    # Pre-populate scenario: bootstrap drops the emitter into the holder
+    # AFTER the factory binds. Mirror that ordering here.
+    class _RecordingTelemetry:
+        async def emit_event(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+    emitter = _RecordingTelemetry()
+    holder[0] = emitter
+
+    # Drain the generator so the kwargs we want to inspect are passed.
+    async for _ in spawn_turn(
+        user_id="00000000-0000-0000-0000-000000000001",
+        agent_name="example-tick",
+        prompt_text="hi",
+    ):
+        pass
+
+    assert captured["telemetry"] is emitter
+    assert captured["agent_name"] == "example-tick"
+
+
+@pytest.mark.asyncio
+async def test_spawn_turn_callable_yields_none_telemetry_when_holder_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A spawn that happens before the holder is populated (degraded
+    boot, telemetry start failure) passes ``telemetry=None`` rather
+    than raising — the loop's emit code paths are already None-safe."""
+    captured: dict[str, Any] = {}
+
+    async def _fake_yield() -> Any:
+        if False:  # pragma: no cover
+            yield None
+
+    def _fake_run_agent_initiated_turn(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return _fake_yield()
+
+    import eidan_backend.loop as loop_mod
+
+    monkeypatch.setattr(
+        loop_mod, "run_agent_initiated_turn", _fake_run_agent_initiated_turn
+    )
+
+    holder: list[Any] = [None]
+    spawn_turn = _make_spawn_turn_callable(
+        pool=object(),  # type: ignore[arg-type]
+        provider=object(),
+        default_model="claude-haiku-4-5-20251001",
+        tool_registry=ToolRegistry(),
+        telemetry_holder=holder,
+    )
+    assert spawn_turn is not None
+
+    async for _ in spawn_turn(
+        user_id="00000000-0000-0000-0000-000000000001",
+        agent_name="early-spawn",
+        prompt_text="hi",
+    ):
+        pass
+
+    assert captured["telemetry"] is None
+
+
+@pytest.mark.asyncio
+async def test_spawn_turn_callable_works_without_holder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Callers that don't care about telemetry (tests, REPL boots,
+    every existing call site before #174) pass no holder and the
+    spawn still goes through; the loop just doesn't get an emitter."""
+    captured: dict[str, Any] = {}
+
+    async def _fake_yield() -> Any:
+        if False:  # pragma: no cover
+            yield None
+
+    def _fake_run_agent_initiated_turn(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return _fake_yield()
+
+    import eidan_backend.loop as loop_mod
+
+    monkeypatch.setattr(
+        loop_mod, "run_agent_initiated_turn", _fake_run_agent_initiated_turn
+    )
+
+    spawn_turn = _make_spawn_turn_callable(
+        pool=object(),  # type: ignore[arg-type]
+        provider=object(),
+        default_model="claude-haiku-4-5-20251001",
+        tool_registry=ToolRegistry(),
+        # telemetry_holder kwarg intentionally omitted
+    )
+    assert spawn_turn is not None
+
+    async for _ in spawn_turn(
+        user_id="00000000-0000-0000-0000-000000000001",
+        agent_name="legacy",
+        prompt_text="hi",
+    ):
+        pass
+
+    assert captured["telemetry"] is None
