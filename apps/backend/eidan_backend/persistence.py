@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -419,6 +420,30 @@ async def insert_tool_message(
 USER_TEXT_EXCERPT_LIMIT = 240
 
 
+def _node_identity_for_metadata() -> dict[str, str]:
+    """Resolve the node identity that should ride on every per-call
+    metadata blob so the introspection panel (#169) can show
+    "this turn ran on kasha" without scraping logs.
+
+    Reads ``EIDAN_NODE_ID`` / ``EIDAN_NODE_TYPE`` set by the deploy
+    pipeline (topology.yml → pi.py / fly.py). Keys are omitted when
+    the env is unset — the UI then renders no chip rather than a
+    placeholder. The autodetect fallback that lives in
+    :mod:`eidan_backend.node_identity` is intentionally NOT used
+    here: that would tie the metadata write to the host's hostname,
+    which is opaque on fly machines. The operator-provided env is
+    the canonical answer.
+    """
+    out: dict[str, str] = {}
+    node_id = os.environ.get("EIDAN_NODE_ID", "").strip()
+    if node_id:
+        out["node_id"] = node_id
+    node_type = os.environ.get("EIDAN_NODE_TYPE", "").strip()
+    if node_type:
+        out["node_type"] = node_type
+    return out
+
+
 def capture_call_inputs(
     call: ProviderCallResult,
     *,
@@ -433,11 +458,16 @@ def capture_call_inputs(
 
     The excerpt is clipped to :data:`USER_TEXT_EXCERPT_LIMIT` so a long
     user message can't bloat every per-call row.
+
+    Per #169, the node identity (``EIDAN_NODE_ID`` / ``EIDAN_NODE_TYPE``)
+    is also stashed when the env is set, so the introspection panel
+    can render a chip for which node executed the turn.
     """
     blob: dict[str, Any] = {**call.metadata}
     blob["system_prompt"] = system_prompt
     if user_text is not None:
         blob["user_text_excerpt"] = user_text[:USER_TEXT_EXCERPT_LIMIT]
+    blob.update(_node_identity_for_metadata())
     if extra:
         blob.update(extra)
     return dataclasses.replace(call, metadata=blob)

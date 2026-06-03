@@ -137,6 +137,8 @@ function LlmCallRowView({ row }: { row: LlmCallRow }): React.ReactElement {
   const [open, setOpen] = React.useState(false);
   const systemPrompt = asString(row.metadata.system_prompt);
   const userExcerpt = asString(row.metadata.user_text_excerpt);
+  const nodeId = asString(row.metadata.node_id);
+  const nodeType = asString(row.metadata.node_type);
   const hasError = row.error !== null;
 
   const tokens = (
@@ -168,6 +170,18 @@ function LlmCallRowView({ row }: { row: LlmCallRow }): React.ReactElement {
         >
           {row.role}
         </span>
+        {nodeId !== null ? (
+          <span
+            title={
+              nodeType !== null
+                ? `Executed on ${nodeId} (${nodeType})`
+                : `Executed on ${nodeId}`
+            }
+            className="shrink-0 rounded-full bg-muted px-1.5 py-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"
+          >
+            {nodeId}
+          </span>
+        ) : null}
         <span className="truncate font-mono text-[11px] text-muted-foreground">
           {row.model}
         </span>

@@ -136,3 +136,55 @@ def test_limit_is_a_positive_integer(limit: int) -> None:
     """The clip limit must stay positive — a 0 would record an
     always-empty excerpt and silently break the panel."""
     assert limit > 0
+
+
+def test_stashes_node_identity_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ``EIDAN_NODE_ID`` / ``EIDAN_NODE_TYPE`` are set, the
+    capture helper stashes them in metadata so the introspection
+    panel can render a chip for which node executed the turn (#169)."""
+    monkeypatch.setenv("EIDAN_NODE_ID", "kasha")
+    monkeypatch.setenv("EIDAN_NODE_TYPE", "pi")
+    out = capture_call_inputs(
+        _bare_call(),
+        system_prompt="sys",
+        user_text="hi",
+    )
+    assert out.metadata["node_id"] == "kasha"
+    assert out.metadata["node_type"] == "pi"
+
+
+def test_omits_node_identity_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No env → no keys in the blob (rather than a placeholder
+    string). The UI renders no chip in that case, which is the
+    right signal for a test boot / degraded start where the
+    operator hasn't pinned an id yet."""
+    monkeypatch.delenv("EIDAN_NODE_ID", raising=False)
+    monkeypatch.delenv("EIDAN_NODE_TYPE", raising=False)
+    out = capture_call_inputs(
+        _bare_call(),
+        system_prompt="sys",
+        user_text="hi",
+    )
+    assert "node_id" not in out.metadata
+    assert "node_type" not in out.metadata
+
+
+def test_extra_metadata_wins_over_node_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A call site that knows better — e.g. a subagent invocation
+    that wants to record the *parent* node id rather than the
+    current process's — can override via ``extra``. The order in
+    :func:`capture_call_inputs` applies ``extra`` last."""
+    monkeypatch.setenv("EIDAN_NODE_ID", "current-node")
+    out = capture_call_inputs(
+        _bare_call(),
+        system_prompt="sys",
+        user_text="hi",
+        extra={"node_id": "parent-node"},
+    )
+    assert out.metadata["node_id"] == "parent-node"
