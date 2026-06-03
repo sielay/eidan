@@ -544,14 +544,17 @@ async def bootstrap(
     # ``start()`` still runs after activation, gated on the registry
     # having at least one behaviour and ``start_dispatcher`` being
     # True.
-    dispatcher = BehaviourDispatcher(behaviour_registry, pool=pool)
-    # Holder lets the spawn-turn closure see the telemetry emitter
-    # once it's built — telemetry construction needs the activated
-    # plugin snapshot (computed below), so the factory can't receive
-    # the emitter directly. bootstrap() populates `telemetry_holder[0]`
-    # right after `telemetry = TelemetryEmitter(...)` and the closure
-    # reads through at every spawn. See #174.
+    # Holder lets the spawn-turn closure + the behaviour dispatcher see
+    # the telemetry emitter once it's built — telemetry construction
+    # needs the activated plugin snapshot (computed below), so neither
+    # the factory nor the dispatcher can receive the emitter directly.
+    # bootstrap() populates `telemetry_holder[0]` right after
+    # `telemetry = TelemetryEmitter(...)` and both consumers read
+    # through at fire/spawn time. See #174 (spawn-turn) + #179 (dispatcher).
     telemetry_holder: list[Any] = [None]
+    dispatcher = BehaviourDispatcher(
+        behaviour_registry, pool=pool, telemetry_holder=telemetry_holder
+    )
     factory = _make_context_factory(
         pool,
         tool_registry,
