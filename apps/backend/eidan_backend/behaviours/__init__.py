@@ -18,8 +18,10 @@ here is the substrate they will plug into.
 
 from .dispatch import BehaviourDispatcher, make_idempotency_key
 from .registry import (
+    BEHAVIOUR_KINDS,
     Behaviour,
     BehaviourIdConflict,
+    BehaviourKind,
     BehaviourNotFound,
     BehaviourRegistry,
     BehaviourResult,
@@ -29,9 +31,11 @@ from .registry import (
 from .triggers import Trigger, parse_trigger
 
 __all__ = [
+    "BEHAVIOUR_KINDS",
     "Behaviour",
     "BehaviourDispatcher",
     "BehaviourIdConflict",
+    "BehaviourKind",
     "BehaviourNotFound",
     "BehaviourRegistry",
     "BehaviourResult",

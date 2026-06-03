@@ -200,6 +200,69 @@ def test_unknown_tier_is_rejected(tmp_path: Path) -> None:
     assert "tier" in str(excinfo.value)
 
 
+def test_manifest_accepts_known_behaviour_kind(tmp_path: Path) -> None:
+    """`kind:` joins the existing behaviour fields per docs/026.
+    Verify the four declared values flow through manifest
+    validation; the default (`llm_turn`) sticks when omitted."""
+    plugin_dir = tmp_path / "kinds"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        textwrap.dedent(
+            """\
+            schema: 1
+            name: kinds
+            version: 0.1.0
+            tier: core
+            license: AGPL
+            behaviours:
+              - id: kinds:t1
+                trigger: event:x
+                handler: kinds.handlers:t1
+                kind: tool_chain
+              - id: kinds:t2
+                trigger: event:y
+                handler: kinds.handlers:t2
+                # kind omitted — defaults to llm_turn
+            """
+        ),
+        encoding="utf-8",
+    )
+    manifest = load_manifest(plugin_dir)
+    assert manifest.behaviours[0].kind == "tool_chain"
+    assert manifest.behaviours[1].kind == "llm_turn"
+
+
+def test_manifest_rejects_unknown_behaviour_kind(tmp_path: Path) -> None:
+    """Anything outside the enum trips the strict schema, same
+    posture as the unknown-tier check above. A typo'd kind
+    should fail at manifest-load, not propagate to the
+    dispatcher."""
+    plugin_dir = tmp_path / "badkind"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        textwrap.dedent(
+            """\
+            schema: 1
+            name: badkind
+            version: 0.1.0
+            tier: core
+            license: AGPL
+            behaviours:
+              - id: badkind:t
+                trigger: event:x
+                handler: badkind.handlers:t
+                kind: garbage
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MalformedManifest) as excinfo:
+        load_manifest(plugin_dir)
+
+    assert "kind" in str(excinfo.value)
+
+
 # ---------- host.eidan pre-gate ------------------------------------------------
 
 

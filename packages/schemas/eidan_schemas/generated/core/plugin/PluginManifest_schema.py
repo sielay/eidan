@@ -176,6 +176,17 @@ class Migrations(BaseModel):
     driver: Driver | None = "alembic"
 
 
+class Kind1(StrEnum):
+    """
+    Dispatch shape (docs/026). `llm_turn` (default) — host wraps the handler in the full run_turn loop. `tool_chain` — handler is a deterministic coroutine that calls tools directly. `classifier_gate` — coroutine plus one classifier call at a branch point. `notify` — no agent work, just emit a side effect. Additive: unset means `llm_turn` and behaves as today.
+    """
+
+    llm_turn = "llm_turn"
+    tool_chain = "tool_chain"
+    classifier_gate = "classifier_gate"
+    notify = "notify"
+
+
 class Behaviour(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -193,6 +204,10 @@ class Behaviour(BaseModel):
     )
     """
     Python module:function reference for the handler.
+    """
+    kind: Kind1 | None = "llm_turn"
+    """
+    Dispatch shape (docs/026). `llm_turn` (default) — host wraps the handler in the full run_turn loop. `tool_chain` — handler is a deterministic coroutine that calls tools directly. `classifier_gate` — coroutine plus one classifier call at a branch point. `notify` — no agent work, just emit a side effect. Additive: unset means `llm_turn` and behaves as today.
     """
 
 

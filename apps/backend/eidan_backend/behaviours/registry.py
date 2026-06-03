@@ -26,8 +26,24 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
+from typing import Literal
 
 from .triggers import Trigger
+
+#: Dispatch shape declared per behaviour. See `docs/026`. ``llm_turn``
+#: is the default and matches today's host behaviour (run the handler,
+#: it may call `spawn_turn` internally for the full agentic loop). The
+#: other three are operator hints today and grow host-side ctx-shaping
+#: in follow-up slices (#161 ships the field; slice 2 adds per-kind
+#: ctx and validates that a handler's runtime shape matches its
+#: declared kind).
+BehaviourKind = Literal["llm_turn", "tool_chain", "classifier_gate", "notify"]
+BEHAVIOUR_KINDS: tuple[BehaviourKind, ...] = (
+    "llm_turn",
+    "tool_chain",
+    "classifier_gate",
+    "notify",
+)
 
 
 class BehaviourIdConflict(Exception):
@@ -77,7 +93,7 @@ HandlerFn = Callable[[TriggerEvent], Awaitable[BehaviourResult | None]]
 
 @dataclass(frozen=True, slots=True)
 class Behaviour:
-    """Registered behaviour: id, trigger, callable.
+    """Registered behaviour: id, trigger, callable, dispatch kind.
 
     ``id`` is globally unique and plugin-prefixed
     (``"example-behaviour:tick"``); the registry refuses a second
@@ -85,11 +101,24 @@ class Behaviour:
     The full `Behaviour` dataclass in `docs/006 §2.1` adds mode,
     prompt stanza, tools, and priority — those land alongside the
     classifier in the follow-up issue.
+
+    ``kind`` declares the dispatch shape per `docs/026`. Defaults to
+    ``"llm_turn"`` so existing plugins are unaffected. The host does
+    not branch on the kind yet — slice 1 (#161) ships the field as
+    metadata; slice 2 builds the per-kind ``ctx``.
     """
 
     id: str
     trigger: Trigger
     handler: HandlerFn = field(repr=False)
+    kind: BehaviourKind = "llm_turn"
+
+    def __post_init__(self) -> None:
+        if self.kind not in BEHAVIOUR_KINDS:
+            raise ValueError(
+                f"behaviour {self.id!r}: unknown kind {self.kind!r}; "
+                f"expected one of {BEHAVIOUR_KINDS}"
+            )
 
 
 class BehaviourRegistry:
