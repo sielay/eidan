@@ -9,6 +9,12 @@ import { MoreHorizontal, Pencil, Plus, RefreshCw } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
+  filterMatches,
+  parseAgentName,
+  THREAD_KIND_FILTERS,
+  type ThreadKindFilter,
+} from "@/lib/agent-thread";
+import {
   createConversation,
   listConversations,
   regenerateConversationTitle,
@@ -16,6 +22,12 @@ import {
   type ConversationSummary,
 } from "@/lib/api/conversations";
 import { cn } from "@/lib/utils";
+
+const FILTER_LABEL: Record<ThreadKindFilter, string> = {
+  all: "All",
+  agents: "Agents",
+  chats: "Chats",
+};
 
 /**
  * Sidebar conversation list (`docs/014 §3`).
@@ -47,6 +59,14 @@ export function ConversationList(): React.ReactElement {
   >(null);
   const [error, setError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
+  const [filter, setFilter] = React.useState<ThreadKindFilter>("all");
+
+  const visible = React.useMemo(() => {
+    if (conversations === null) return null;
+    return conversations.filter((row) =>
+      filterMatches(filter, parseAgentName(row.title)),
+    );
+  }, [conversations, filter]);
 
   React.useEffect(() => {
     if (!config || !user) return;
@@ -120,11 +140,35 @@ export function ConversationList(): React.ReactElement {
         {creating ? "Creating…" : "New conversation"}
       </Button>
 
+      <div
+        role="tablist"
+        aria-label="Filter conversations by kind"
+        className="inline-flex w-full rounded-md border border-border bg-background/60 p-0.5 text-[10px]"
+      >
+        {THREAD_KIND_FILTERS.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            role="tab"
+            aria-selected={filter === kind}
+            onClick={() => setFilter(kind)}
+            className={cn(
+              "flex-1 rounded px-2 py-1 font-medium uppercase tracking-wider transition-colors",
+              filter === kind
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {FILTER_LABEL[kind]}
+          </button>
+        ))}
+      </div>
+
       {error !== null ? (
         <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-red-600">
           {error}
         </p>
-      ) : conversations === null ? (
+      ) : conversations === null || visible === null ? (
         <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-muted-foreground">
           Loading…
         </p>
@@ -132,9 +176,13 @@ export function ConversationList(): React.ReactElement {
         <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-muted-foreground">
           No conversations yet. Start a new conversation above.
         </p>
+      ) : visible.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-muted-foreground">
+          No {filter === "agents" ? "agent threads" : "chats"} in this view.
+        </p>
       ) : (
         <ul className="flex flex-col gap-0.5">
-          {conversations.map((row) => (
+          {visible.map((row) => (
             <li key={row.id}>
               <ConversationRow
                 row={row}
@@ -258,6 +306,7 @@ function ConversationRow({
   }
 
   const label = row.title?.trim() ? row.title : "Untitled";
+  const agentName = parseAgentName(row.title);
 
   return (
     <div className="group relative flex items-center gap-1">
@@ -265,21 +314,31 @@ function ConversationRow({
         href={`/c/${row.id}`}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "block flex-1 truncate rounded-md px-2 py-1.5 text-xs text-foreground transition-colors",
+          "flex flex-1 min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-foreground transition-colors",
           active
             ? "bg-accent text-accent-foreground"
             : "hover:bg-accent/60 hover:text-accent-foreground text-muted-foreground",
           row.title === null && "italic",
         )}
       >
-        {busy === "regen" ? (
-          <span className="inline-flex items-center gap-1">
-            <RefreshCw className="h-3 w-3 animate-spin" />
-            {label}
+        {agentName !== null ? (
+          <span
+            title={`Agent-spawned thread (${agentName})`}
+            className="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0 font-mono text-[9px] uppercase tracking-wider text-blue-700 dark:text-blue-300"
+          >
+            {agentName}
           </span>
-        ) : (
-          label
-        )}
+        ) : null}
+        <span className="min-w-0 flex-1 truncate">
+          {busy === "regen" ? (
+            <span className="inline-flex items-center gap-1">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              {label}
+            </span>
+          ) : (
+            label
+          )}
+        </span>
       </Link>
       <div ref={menuRef} className="relative">
         <button
