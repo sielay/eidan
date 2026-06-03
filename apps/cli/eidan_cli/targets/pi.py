@@ -118,6 +118,10 @@ def _node_to_ansible_vars(node: ResolvedNode) -> dict[str, Any]:
             d.root if hasattr(d, "root") else str(d) for d in disable
         )
 
+    extra_env = getattr(node, "extra_env", None) or {}
+    if extra_env:
+        vars_dict["eidan_extra_env"] = dict(extra_env)
+
     # `plugin_source` / `github_token` are intentionally NOT plumbed
     # into the ansible vars anymore (slice C of #104). Bundle plugins
     # arrive on the Pi via the rsync of the operator-local build

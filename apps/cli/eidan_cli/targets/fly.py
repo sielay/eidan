@@ -297,6 +297,16 @@ def _secret_values(node: ResolvedNode) -> dict[str, str]:
             out["EIDAN_LOG_FORWARD_TIMEOUT"] = str(log_forward.timeout)
         if log_forward.queue_size is not None:
             out["EIDAN_LOG_FORWARD_QUEUE_SIZE"] = str(log_forward.queue_size)
+
+    extra_env = getattr(node, "extra_env", None) or {}
+    for key, value in extra_env.items():
+        # Route through `fly secrets set`, not the rendered fly.toml
+        # `[env]` block. flyctl has been observed to silently drop new
+        # `[env]` keys on push; secrets are the reliable env vehicle
+        # and incidentally vault-encrypt the value at rest, which is
+        # what an operator carrying a `PAT` or `OAUTH_TOKEN` through
+        # extra_env wants anyway.
+        out[key] = value
     return out
 
 

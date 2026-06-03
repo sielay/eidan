@@ -135,6 +135,12 @@
           "default": [],
           "description": "Plugin names to disable on this node via `EIDAN_DISABLED_PLUGINS`. The plugin is installed but the loader skips it — no on_install, on_activate, behaviours, routers, or MCP tools. See `docs/001 §8.2`."
         },
+        "extra_env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "description": "Per-node environment passthrough for plugin env vars not modelled as typed Node fields. Keys must match `^[A-Z][A-Z0-9_]*$` (e.g. `EIDAN_GIT_STACKS`, `EIDAN_SAGE_LOOP_MAX_ITERATIONS`). Values land verbatim in `/etc/eidan/eidan.env` (pi) or `[env]` in `fly.toml` (fly). Vault-encrypt entries that carry secrets."
+        },
         "plugin_source": {
           "type": "string",
           "minLength": 1,

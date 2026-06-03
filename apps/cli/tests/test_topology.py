@@ -113,6 +113,50 @@ def test_unknown_field_rejected_by_additional_properties(
         load_topology(_write(tmp_path, body))
 
 
+def test_extra_env_accepts_uppercase_keys(tmp_path: Path) -> None:
+    """`extra_env:` is the operator's pass-through for plugin env vars
+    not modelled as typed Node fields. Keys must match the env-var
+    convention (`^[A-Z][A-Z0-9_]*$`); values are strings."""
+    body = """
+        schema: 1
+        nodes:
+          kasha:
+            target: pi
+            database_url: postgresql+asyncpg://eidan@127.0.0.1/eidan
+            auth_master_key: KEY-AT-LEAST-32-CHARS-LONG-YES-INDEED
+            auth_allowed_email: you@example.com
+            extra_env:
+              EIDAN_GIT_STACKS: sage
+              EIDAN_SAGE_LOOP_MAX_ITERATIONS: "5"
+    """
+    topology = load_topology(_write(tmp_path, body))
+    node = topology.resolve_node("kasha")
+    assert node.extra_env == {
+        "EIDAN_GIT_STACKS": "sage",
+        "EIDAN_SAGE_LOOP_MAX_ITERATIONS": "5",
+    }
+
+
+def test_extra_env_rejects_lowercase_keys(tmp_path: Path) -> None:
+    """Keys that don't match `^[A-Z][A-Z0-9_]*$` are a sign the operator
+    typed a YAML field name instead of an env var — fail fast rather
+    than letting `eidan_git_stacks=sage` ship to `/etc/eidan/eidan.env`
+    where the loader won't recognise it."""
+    body = """
+        schema: 1
+        nodes:
+          kasha:
+            target: pi
+            database_url: postgresql+asyncpg://eidan@127.0.0.1/eidan
+            auth_master_key: KEY-AT-LEAST-32-CHARS-LONG-YES-INDEED
+            auth_allowed_email: you@example.com
+            extra_env:
+              eidan_git_stacks: sage
+    """
+    with pytest.raises(TopologyValidationError):
+        load_topology(_write(tmp_path, body))
+
+
 def test_zero_nodes_rejected(tmp_path: Path) -> None:
     """`nodes:` must declare at least one entry — a topology with no
     nodes is a useless config the operator almost certainly didn't

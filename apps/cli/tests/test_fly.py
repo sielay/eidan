@@ -541,6 +541,34 @@ def test_secret_values_log_forward_headers_compact_json(
     assert "EIDAN_LOG_FORWARD_TOKEN" not in secrets
 
 
+def test_secret_values_carries_extra_env_passthrough(tmp_path: Path) -> None:
+    """`extra_env:` on the node is routed through `fly secrets set` —
+    NOT the rendered `fly.toml` `[env]` block — to work around the
+    flyctl bug where added `[env]` keys can be silently dropped on
+    push. Secrets are the reliable env vehicle and incidentally
+    vault-encrypt values an operator might be carrying (PATs,
+    OAuth tokens) through extra_env."""
+    body = """
+        schema: 1
+        nodes:
+          fly-prod:
+            target: fly
+            app: eidan-api
+            region: lhr
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+            extra_env:
+              EIDAN_CUSTOM_FEATURE_FLAG: "1"
+              EIDAN_PASSTHROUGH_KEY: "abc"
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    secrets = fly._secret_values(topology.resolve_node("fly-prod"))
+
+    assert secrets["EIDAN_CUSTOM_FEATURE_FLAG"] == "1"
+    assert secrets["EIDAN_PASSTHROUGH_KEY"] == "abc"
+
+
 # ---------- reconcile() flow ----------
 
 
