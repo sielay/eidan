@@ -14,6 +14,7 @@ import { buildThread } from "./buildThread";
 import { Composer } from "./Composer";
 import { ConversationTitle } from "./ConversationTitle";
 import { CostCounter } from "./CostCounter";
+import { LlmCallTrace } from "./LlmCallTrace";
 import { Thread } from "./Thread";
 
 /**
@@ -60,6 +61,7 @@ export function ConversationView({
     string | null
   >(null);
   const [turnRefreshKey, setTurnRefreshKey] = React.useState(0);
+  const [traceOpen, setTraceOpen] = React.useState(false);
 
   const reloadHistory = React.useCallback(async () => {
     if (!config) return;
@@ -179,6 +181,19 @@ export function ConversationView({
               onChange={setTitle}
             />
           </div>
+          <button
+            type="button"
+            onClick={() => setTraceOpen((v) => !v)}
+            aria-pressed={traceOpen}
+            title="Show per-call LLM trace"
+            className={
+              traceOpen
+                ? "rounded-md border border-primary bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary"
+                : "rounded-md border border-border bg-background/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
+            }
+          >
+            inspect
+          </button>
           <span className="font-mono text-xs text-muted-foreground">
             {conversationId.slice(0, 8)}…
           </span>
@@ -200,6 +215,14 @@ export function ConversationView({
         ) : (
           <Thread messages={messages} />
         )}
+        {traceOpen ? (
+          <div className="mt-6 border-t border-border pt-4">
+            <LlmCallTrace
+              conversationId={conversationId}
+              refreshKey={turnRefreshKey}
+            />
+          </div>
+        ) : null}
       </div>
 
       <div className="border-t border-border pt-3">
