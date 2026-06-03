@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from eidan_backend.behaviours import (
+    BEHAVIOUR_KINDS,
     Behaviour,
     BehaviourDispatcher,
     BehaviourIdConflict,
@@ -130,6 +131,80 @@ def test_registry_register_and_lookup() -> None:
     assert registry.by_trigger_kind("cron") == (beh,)
     assert registry.by_trigger_kind("event") == ()
     assert registry.subscribers("cron", "* * * * *") == (beh,)
+
+
+# ---- kind --------------------------------------------------------------
+
+
+def test_behaviour_kind_defaults_to_llm_turn() -> None:
+    """Existing plugins that build :class:`Behaviour` without
+    passing ``kind`` keep today's behaviour: the host runs the
+    handler and the handler may call ``spawn_turn`` itself. The
+    default is `docs/026`'s ``llm_turn``."""
+    beh = Behaviour(
+        id="example:tick",
+        trigger=parse_trigger("cron:* * * * *"),
+        handler=_noop_handler,
+    )
+    assert beh.kind == "llm_turn"
+
+
+@pytest.mark.parametrize("kind", BEHAVIOUR_KINDS)
+def test_behaviour_kind_accepts_every_declared_value(kind: str) -> None:
+    """Round-trip each declared kind through the dataclass to
+    confirm it survives ``__post_init__`` validation. Keeps the
+    Python contract aligned with the manifest enum in
+    ``PluginManifest.schema.json``."""
+    beh = Behaviour(
+        id=f"example:{kind}",
+        trigger=parse_trigger("event:x"),
+        handler=_noop_handler,
+        kind=kind,  # type: ignore[arg-type]
+    )
+    assert beh.kind == kind
+
+
+def test_behaviour_kind_rejects_unknown_value() -> None:
+    """A typo at construction time fails fast rather than
+    propagating into the dispatcher, where the wrong ctx shape
+    would be a confusing AttributeError later."""
+    with pytest.raises(ValueError, match="unknown kind"):
+        Behaviour(
+            id="example:tick",
+            trigger=parse_trigger("cron:* * * * *"),
+            handler=_noop_handler,
+            kind="garbage",  # type: ignore[arg-type]
+        )
+
+
+def test_registry_round_trips_kind_through_register_all() -> None:
+    """Mixed-kind batch survives ``register_all`` and lookup —
+    the registry doesn't drop the field on its way through."""
+    registry = BehaviourRegistry()
+    behaviours = [
+        Behaviour(
+            id="a",
+            trigger=parse_trigger("event:x"),
+            handler=_noop_handler,
+            kind="tool_chain",
+        ),
+        Behaviour(
+            id="b",
+            trigger=parse_trigger("event:y"),
+            handler=_noop_handler,
+            kind="notify",
+        ),
+        Behaviour(
+            id="c",
+            trigger=parse_trigger("event:z"),
+            handler=_noop_handler,
+            # default kind — make sure it sticks
+        ),
+    ]
+    registry.register_all(behaviours)
+    assert registry.get("a").kind == "tool_chain"  # type: ignore[union-attr]
+    assert registry.get("b").kind == "notify"  # type: ignore[union-attr]
+    assert registry.get("c").kind == "llm_turn"  # type: ignore[union-attr]
 
 
 def test_registry_id_conflict() -> None:

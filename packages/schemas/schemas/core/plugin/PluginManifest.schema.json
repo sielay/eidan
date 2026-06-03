@@ -240,6 +240,12 @@
             "type": "string",
             "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
             "description": "Python module:function reference for the handler."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["llm_turn", "tool_chain", "classifier_gate", "notify"],
+            "default": "llm_turn",
+            "description": "Dispatch shape (docs/026). `llm_turn` (default) — host wraps the handler in the full run_turn loop. `tool_chain` — handler is a deterministic coroutine that calls tools directly. `classifier_gate` — coroutine plus one classifier call at a branch point. `notify` — no agent work, just emit a side effect. Additive: unset means `llm_turn` and behaves as today."
           }
         }
       },
