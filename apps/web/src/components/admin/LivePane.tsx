@@ -90,11 +90,34 @@ export function LivePane(): React.ReactElement {
   const [error, setError] = React.useState<string | null>(null);
   const [paused, setPaused] = React.useState(false);
   const [typeFilter, setTypeFilter] = React.useState<TypeFilter>("all");
+  const [nodeFilter, setNodeFilter] = React.useState<string>("all");
   const pausedRef = React.useRef(false);
 
+  // Set of node ids seen in the current ring buffer. Sorted for a
+  // stable filter-button order; "all" always rides at the front.
+  const knownNodes = React.useMemo(() => {
+    const seen = new Set<string>();
+    for (const e of events) seen.add(e.node_id);
+    return Array.from(seen).sort();
+  }, [events]);
+
+  // If the operator picked a node and then that node's events scroll
+  // out of the buffer (or get cleared), reset back to "all" so the
+  // counter doesn't get stuck on "0/N".
+  React.useEffect(() => {
+    if (nodeFilter !== "all" && !knownNodes.includes(nodeFilter)) {
+      setNodeFilter("all");
+    }
+  }, [nodeFilter, knownNodes]);
+
   const visibleEvents = React.useMemo(
-    () => events.filter((e) => matchesTypeFilter(typeFilter, e.type)),
-    [events, typeFilter],
+    () =>
+      events.filter(
+        (e) =>
+          matchesTypeFilter(typeFilter, e.type) &&
+          (nodeFilter === "all" || e.node_id === nodeFilter),
+      ),
+    [events, typeFilter, nodeFilter],
   );
 
   React.useEffect(() => {
@@ -190,6 +213,46 @@ export function LivePane(): React.ReactElement {
               </button>
             ))}
           </div>
+          {knownNodes.length > 1 ? (
+            <div
+              role="tablist"
+              aria-label="Filter by node"
+              className="inline-flex rounded-md border border-border bg-background/60 p-0.5 text-[10px]"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={nodeFilter === "all"}
+                onClick={() => setNodeFilter("all")}
+                className={cn(
+                  "rounded px-2 py-0.5 font-medium uppercase tracking-wider transition-colors",
+                  nodeFilter === "all"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                All
+              </button>
+              {knownNodes.map((nodeId) => (
+                <button
+                  key={nodeId}
+                  type="button"
+                  role="tab"
+                  aria-selected={nodeFilter === nodeId}
+                  onClick={() => setNodeFilter(nodeId)}
+                  title={nodeId}
+                  className={cn(
+                    "max-w-[90px] truncate rounded px-2 py-0.5 font-mono font-medium uppercase tracking-wider transition-colors",
+                    nodeFilter === nodeId
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {nodeId}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => setPaused((v) => !v)}
@@ -222,7 +285,11 @@ export function LivePane(): React.ReactElement {
       ) : visibleEvents.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-background/60 p-4 text-xs text-muted-foreground">
           {events.length} event{events.length === 1 ? "" : "s"} in the
-          buffer; none match the {TYPE_FILTER_LABEL[typeFilter]} filter.
+          buffer; none match the current filters
+          {typeFilter !== "all"
+            ? ` (type=${TYPE_FILTER_LABEL[typeFilter]})`
+            : ""}
+          {nodeFilter !== "all" ? ` (node=${nodeFilter})` : ""}.
         </div>
       ) : (
         <ul className="flex flex-col gap-1.5">
