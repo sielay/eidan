@@ -11,6 +11,7 @@ critic, no subagent attribution).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -412,6 +413,36 @@ async def insert_tool_message(
     return message_id
 
 
+#: How many characters of an inbound user message to persist alongside
+#: a call. The introspection panel (#152) renders this as a glance — full
+#: replay is owned by the message rows, not the llm_calls row.
+USER_TEXT_EXCERPT_LIMIT = 240
+
+
+def capture_call_inputs(
+    call: ProviderCallResult,
+    *,
+    system_prompt: str,
+    user_text: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> ProviderCallResult:
+    """Return a copy of ``call`` whose ``metadata`` carries the inputs
+    the model saw. Classifier + primary call sites use this so the
+    persisted row keeps "what did we send" alongside the existing
+    "what came back" telemetry — see #152 / docs/014.
+
+    The excerpt is clipped to :data:`USER_TEXT_EXCERPT_LIMIT` so a long
+    user message can't bloat every per-call row.
+    """
+    blob: dict[str, Any] = {**call.metadata}
+    blob["system_prompt"] = system_prompt
+    if user_text is not None:
+        blob["user_text_excerpt"] = user_text[:USER_TEXT_EXCERPT_LIMIT]
+    if extra:
+        blob.update(extra)
+    return dataclasses.replace(call, metadata=blob)
+
+
 async def insert_llm_call(
     conn: asyncpg.Connection,
     *,
@@ -421,12 +452,22 @@ async def insert_llm_call(
     role: str,
     result: ProviderCallResult,
     agent_id: UUID | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
-    """Write the per-call telemetry row. Immutable; no soft-delete."""
+    """Write the per-call telemetry row. Immutable; no soft-delete.
+
+    Persists whatever the call site recorded into ``metadata``. When
+    the explicit ``metadata`` kwarg is omitted, the row picks up
+    ``result.metadata`` instead — the classifier / primary call has
+    typically stashed the system prompt + a user-text excerpt there
+    so the introspection panel (`docs/014` + #152) can later render
+    "what the model actually saw" without a separate kwarg dance at
+    every call site."""
     finished_at = result.finished_at or datetime.now(UTC)
     latency_ms = int(
         (finished_at - result.started_at).total_seconds() * 1000
     )
+    row_metadata = metadata if metadata is not None else result.metadata
     await conn.execute(
         """
         INSERT INTO eidan.llm_calls
@@ -435,14 +476,16 @@ async def insert_llm_call(
              input_tokens, output_tokens,
              cache_read_tokens, cache_creation_tokens,
              cost_usd, latency_ms,
-             started_at, finished_at, request_id, agent_id)
+             started_at, finished_at, request_id, agent_id,
+             metadata)
         VALUES
             ($1, $2, $3, $4,
              $5, $6,
              $7, $8,
              $9, $10,
              $11, $12,
-             $13, $14, $15, $16)
+             $13, $14, $15, $16,
+             $17)
         """,
         user_id,
         conversation_id,
@@ -460,6 +503,7 @@ async def insert_llm_call(
         finished_at,
         result.request_id,
         agent_id,
+        json.dumps(row_metadata or {}, default=str),
     )
 
 
