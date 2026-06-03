@@ -77,6 +77,7 @@ from .providers.base import (
     ToolUseBlock,
     UserMessage,
 )
+from .telemetry import TelemetryEmitter
 from .tools import ToolContext, ToolError, ToolRegistry
 from .turn_header import EIDAN_BASE_IDENTITY, build_turn_header, compose_system_prompt
 
@@ -193,6 +194,8 @@ async def run_turn(
     user_tz: str,
     tool_registry: ToolRegistry | None = None,
     max_turn_cost_usd: float | None = None,
+    telemetry: TelemetryEmitter | None = None,
+    agent_name: str = "operator",
 ) -> AsyncIterator[AssistantChunk | TurnComplete]:
     """Drive one turn end-to-end. Yields chunks, then a TurnComplete.
 
@@ -281,6 +284,22 @@ async def run_turn(
         # detector sees only user/assistant dialogue.
         full_rows = await load_full_conversation_messages(
             conn, conversation_id=ctx.conversation_id
+        )
+
+    if telemetry is not None:
+        # Emit the loop's "turn started" beacon so the live activity
+        # tab (#155 / #172) shows the work as it begins, not only
+        # after the assistant message lands. Payload is small on
+        # purpose — the full prompt + history live in the
+        # introspection panel (#152).
+        await telemetry.emit_event(
+            "agent.turn.start",
+            payload={
+                "agent_name": agent_name,
+                "user_text_excerpt": user_text[:80],
+                "depth": ctx.depth,
+            },
+            conversation_id=ctx.conversation_id,
         )
 
     # Publish the active agent_id for tool handlers that need it (paired
@@ -589,6 +608,20 @@ async def run_turn(
 
         tool_results: list[ToolResultBlock] = []
         for tu in tool_uses:
+            if telemetry is not None:
+                # One row per tool call dispatched. Operators tailing
+                # `/admin/activity/live` see the chain unfold in real
+                # time (#172) — fan-out + sequence become legible
+                # without diving into the conversation page.
+                await telemetry.emit_event(
+                    "agent.turn.tool_call",
+                    payload={
+                        "tool_name": tu.name,
+                        "iteration": iterations_used,
+                        "agent_name": agent_name,
+                    },
+                    conversation_id=ctx.conversation_id,
+                )
             try:
                 output = await registry.execute(tu.name, tu.input, tool_ctx)
                 tool_results.append(
@@ -909,6 +942,33 @@ async def run_turn(
             },
         )
 
+    if telemetry is not None:
+        # Final beacon — pairs with `agent.turn.start` so the live
+        # tab can render a "this turn ran X iterations and cost $Y"
+        # closer. The cost summary already lives in eidan.llm_calls;
+        # we redo the rollup here once (one extra query at the end
+        # of the turn) so the event payload is self-contained.
+        try:
+            async with acquire(pool, ctx.identity) as conn:
+                cost_rollup = await cost_summary_for_turn(
+                    conn,
+                    user_id=user_uuid,
+                    message_id=user_message_id,
+                )
+        except Exception:  # noqa: BLE001 — telemetry must not crash the turn
+            cost_rollup = {"cost_usd": None}
+        await telemetry.emit_event(
+            "agent.turn.complete",
+            payload={
+                "agent_name": agent_name,
+                "iterations": iterations_used,
+                "primary_model": primary_model,
+                "cost_usd": float(cost_rollup.get("cost_usd") or 0.0),
+                "tool_uses_seen": tool_uses_seen,
+            },
+            conversation_id=ctx.conversation_id,
+        )
+
     yield TurnComplete(
         user_message_id=user_message_id,
         assistant_message_id=final_assistant_id,
@@ -930,6 +990,7 @@ async def run_agent_initiated_turn(
     tool_registry: ToolRegistry | None = None,
     max_turn_cost_usd: float | None = None,
     user_email: str | None = None,
+    telemetry: TelemetryEmitter | None = None,
 ) -> AsyncIterator[AssistantChunk | TurnComplete]:
     """Drive a turn that an agent (cron behaviour, Sentry tick, plugin) initiates
     without an inbound user JWT.
@@ -989,5 +1050,7 @@ async def run_agent_initiated_turn(
         user_tz=user_tz,
         tool_registry=tool_registry,
         max_turn_cost_usd=max_turn_cost_usd,
+        telemetry=telemetry,
+        agent_name=agent_name,
     ):
         yield event

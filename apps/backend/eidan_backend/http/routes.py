@@ -1714,6 +1714,7 @@ async def post_turn(
                 user_tz=body.user_tz,
                 tool_registry=tool_registry,
                 max_turn_cost_usd=max_turn_cost,
+                telemetry=getattr(request.app.state, "telemetry", None),
             ):
                 if await request.is_disconnected():
                     break
