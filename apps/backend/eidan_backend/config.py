@@ -112,6 +112,18 @@ class BackendSettings(BaseSettings):
             "Ollama has pulled (`ollama pull phi3`, `ollama list`)."
         ),
     )
+    openai_timeout_seconds: float | None = Field(
+        None,
+        validation_alias="EIDAN_OPENAI_TIMEOUT_SECONDS",
+        description=(
+            "Per-request timeout for the OpenAI client (also drives "
+            "the Ollama branch since both go through OpenAIProvider). "
+            "Default `None` → the openai SDK's default (10 min) "
+            "applies, which is right for openai.com. Bump on a node "
+            "running a slow local Ollama (e.g. 1800 = 30 min on a "
+            "Pi CPU driving a 3B tools model)."
+        ),
+    )
     default_model: str = Field(
         "claude-haiku-4-5-20251001",
         validation_alias="EIDAN_DEFAULT_MODEL",
