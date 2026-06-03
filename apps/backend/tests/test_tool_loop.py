@@ -268,3 +268,142 @@ async def test_tool_error_is_surfaced_as_error_block() -> None:
     assert len(results) == 1
     assert results[0]["is_error"] is True
     assert "kaboom" in results[0]["content"]
+
+
+class _RecordingTelemetry:
+    """Stand-in for :class:`TelemetryEmitter` that records every emit
+    so the loop's `agent.turn.*` beacons (#172) can be asserted."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    async def emit_event(
+        self,
+        event_type: str,
+        payload: dict | None = None,
+        *,
+        conversation_id=None,
+    ) -> None:
+        self.events.append(
+            {
+                "type": event_type,
+                "payload": payload or {},
+                "conversation_id": conversation_id,
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_loop_emits_turn_lifecycle_events_when_telemetry_supplied() -> None:
+    """When the caller passes a telemetry emitter, the loop drops
+    `agent.turn.start` + one `agent.turn.tool_call` per dispatched
+    tool + `agent.turn.complete` so the live activity tab (#155)
+    can show in-flight work. Mirrors the scripted shape from
+    `test_tool_loop_executes_registered_tool`."""
+
+    async def echo_handler(args: dict) -> str:
+        return json.dumps({"echoed": args.get("query")})
+
+    registry = ToolRegistry()
+    registry.register(
+        Tool(
+            name="echo",
+            description="Echoes input back.",
+            input_schema={
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+            handler=echo_handler,
+        )
+    )
+
+    tool_use = ToolUseBlock(id="toolu_a", name="echo", input={"query": "hi"})
+    provider = FakeProvider(
+        [
+            ScriptedTurn(text='["coding"]'),
+            ScriptedTurn(text="claude-sonnet-4-6"),
+            ScriptedTurn(text='{"actions": []}'),
+            ScriptedTurn(text="thinking", tool_uses=[tool_use]),
+            ScriptedTurn(text="ok"),
+        ]
+    )
+
+    store = FakeStore()
+    pool = FakePool(store)
+    ctx = TurnContext(identity=build_identity(), conversation_id=conversation_uuid())
+    telemetry = _RecordingTelemetry()
+
+    async for _ in run_turn(
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        ctx=ctx,
+        user_text="ping",
+        tool_registry=registry,
+        telemetry=telemetry,  # type: ignore[arg-type]
+        agent_name="test-bot",
+        **TZ_TEST_KWARGS,
+    ):
+        pass
+
+    types = [e["type"] for e in telemetry.events]
+    assert types.count("agent.turn.start") == 1
+    assert types.count("agent.turn.tool_call") == 1
+    assert types.count("agent.turn.complete") == 1
+    # Order matters — start fires before any tool dispatch, complete
+    # fires after every iteration has wound down.
+    assert types[0] == "agent.turn.start"
+    assert types[-1] == "agent.turn.complete"
+
+    start_event = next(e for e in telemetry.events if e["type"] == "agent.turn.start")
+    assert start_event["payload"]["agent_name"] == "test-bot"
+    assert start_event["payload"]["user_text_excerpt"] == "ping"
+    assert start_event["conversation_id"] == ctx.conversation_id
+
+    tool_event = next(
+        e for e in telemetry.events if e["type"] == "agent.turn.tool_call"
+    )
+    assert tool_event["payload"]["tool_name"] == "echo"
+    assert tool_event["payload"]["agent_name"] == "test-bot"
+    assert tool_event["conversation_id"] == ctx.conversation_id
+
+    complete_event = next(
+        e for e in telemetry.events if e["type"] == "agent.turn.complete"
+    )
+    assert complete_event["payload"]["agent_name"] == "test-bot"
+    assert complete_event["payload"]["tool_uses_seen"] == 1
+    assert complete_event["payload"]["iterations"] >= 2  # tool fan-out + terminal
+
+
+@pytest.mark.asyncio
+async def test_loop_skips_turn_events_when_telemetry_is_none() -> None:
+    """The default — no telemetry argument — runs cleanly without
+    attempting any emit. Keeps the loop usable in REPLs, tests, and
+    degraded boots where the telemetry emitter isn't wired."""
+
+    provider = FakeProvider(
+        [
+            ScriptedTurn(text='["coding"]'),
+            ScriptedTurn(text="claude-sonnet-4-6"),
+            ScriptedTurn(text='{"actions": []}'),
+            ScriptedTurn(text="hello"),
+        ]
+    )
+    store = FakeStore()
+    pool = FakePool(store)
+    ctx = TurnContext(identity=build_identity(), conversation_id=conversation_uuid())
+
+    completion: TurnComplete | None = None
+    async for event in run_turn(
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        ctx=ctx,
+        user_text="hi",
+        **TZ_TEST_KWARGS,
+    ):
+        if isinstance(event, TurnComplete):
+            completion = event
+
+    assert completion is not None
