@@ -363,7 +363,7 @@ async def test_get_plugins_returns_empty_list_when_none_loaded(http_client) -> N
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"plugins": []}
+    assert resp.json() == {"node": None, "plugins": []}
 
 
 @pytest.mark.asyncio
@@ -428,6 +428,7 @@ async def test_get_plugins_renders_loaded_manifest_fields(
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body == {
+            "node": None,
             "plugins": [
                 {
                     "name": "demo-plugin",
@@ -437,7 +438,7 @@ async def test_get_plugins_renders_loaded_manifest_fields(
                     "description": "Used by tests only.",
                     "enabled": True,
                 }
-            ]
+            ],
         }
     finally:
         await pool.close()
@@ -448,6 +449,100 @@ async def test_get_plugins_requires_auth(http_client) -> None:
     """Plugins list is authenticated like every non-config route."""
     client, _, _, _ = http_client
     resp = await client.get("/api/plugins")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "auth.missing_token"
+
+
+@pytest.mark.asyncio
+async def test_get_plugin_returns_404_for_unknown(http_client) -> None:
+    client, _, _, mint = http_client
+    identity = build_identity()
+    headers = mint(identity)
+    resp = await client.get("/api/plugins/does-not-exist", headers=headers)
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_get_plugin_returns_manifest_and_readme(
+    eidan_db: str, stub_provider, tmp_path
+) -> None:
+    """The per-plugin endpoint returns manifest detail and the
+    README body when one ships next to the plugin manifest. Built
+    around a synthetic :class:`LoadedPlugin` whose ``plugin_dir``
+    is a real path so the README read-back exercises the on-disk
+    branch."""
+    import httpx
+    from eidan_backend.plugins import LoadedPlugin
+    from eidan_backend.plugins.base import PluginBase
+    from eidan_schemas.generated.core.plugin.PluginManifest_schema import (
+        PluginManifest,
+    )
+
+    plugin_dir = tmp_path / "demo-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "README.md").write_text("# Demo\n\nHello.", encoding="utf-8")
+
+    pool = await create_pool(eidan_db)
+    try:
+        manifest = PluginManifest.model_validate(
+            {
+                "schema": 1,
+                "name": "demo-plugin",
+                "version": "1.2.3",
+                "display_name": "Demo Plugin",
+                "description": "Used by tests only.",
+                "tier": "core",
+                "license": "AGPL-3.0",
+            }
+        )
+
+        class _NoopPlugin(PluginBase):
+            pass
+
+        loaded = LoadedPlugin(
+            manifest=manifest,
+            plugin=_NoopPlugin(),
+            plugin_dir=plugin_dir,
+        )
+
+        private_pem, public_pem = _get_test_keypair()
+        provider = stub_provider([])
+        app = create_app(
+            pool=pool,
+            provider=provider,
+            default_model="claude-sonnet-4-6",
+            plugins=[loaded],
+            auth_private_pem=private_pem,
+            auth_public_pem=public_pem,
+        )
+
+        identity = build_identity()
+        headers = _auth_header(identity)
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            resp = await client.get(
+                "/api/plugins/demo-plugin", headers=headers
+            )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["name"] == "demo-plugin"
+        assert body["display_name"] == "Demo Plugin"
+        assert body["tier"] == "core"
+        assert body["version"] == "1.2.3"
+        assert body["description"] == "Used by tests only."
+        assert body["license"] == "AGPL-3.0"
+        assert body["readme"] == "# Demo\n\nHello."
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_get_plugin_requires_auth(http_client) -> None:
+    client, _, _, _ = http_client
+    resp = await client.get("/api/plugins/anything")
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "auth.missing_token"
 
