@@ -38,6 +38,7 @@ def behaviour_registry(tool_registry: ToolRegistry) -> BehaviourRegistry:
     return BehaviourRegistry(tool_registry=tool_registry)
 
 
+@pytest.mark.asyncio
 async def test_llm_turn_dispatch_calls_handler_with_event_only(
     behaviour_registry: BehaviourRegistry,
 ) -> None:
@@ -71,6 +72,7 @@ async def test_llm_turn_dispatch_calls_handler_with_event_only(
     assert isinstance(received_args[0][1], TriggerEvent)
 
 
+@pytest.mark.asyncio
 async def test_tool_chain_dispatch_provides_context_with_tools(
     behaviour_registry: BehaviourRegistry,
 ) -> None:
@@ -112,6 +114,7 @@ async def test_tool_chain_dispatch_provides_context_with_tools(
     assert received_args[0][3].classify is None
 
 
+@pytest.mark.asyncio
 async def test_classifier_gate_dispatch_provides_context_with_tools_and_classify(
     behaviour_registry: BehaviourRegistry,
 ) -> None:
@@ -150,6 +153,7 @@ async def test_classifier_gate_dispatch_provides_context_with_tools_and_classify
     assert received_args[0][3].tools is not None
 
 
+@pytest.mark.asyncio
 async def test_notify_dispatch_does_not_call_handler(
     behaviour_registry: BehaviourRegistry,
 ) -> None:
@@ -182,6 +186,7 @@ async def test_notify_dispatch_does_not_call_handler(
     assert result.ok is True
 
 
+@pytest.mark.asyncio
 async def test_idempotency_still_works_across_kinds(
     behaviour_registry: BehaviourRegistry,
 ) -> None:
@@ -220,6 +225,7 @@ async def test_idempotency_still_works_across_kinds(
     assert call_count == 1  # Handler not called again
 
 
+@pytest.mark.asyncio
 async def test_unknown_kind_raises_error(
     behaviour_registry: BehaviourRegistry,
 ) -> None:
