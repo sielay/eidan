@@ -12,8 +12,6 @@ based on their declared kind and provides appropriate context:
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 import pytest
 from eidan_backend.behaviours.context import BehaviourContext
 from eidan_backend.behaviours.registry import (
