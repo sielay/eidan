@@ -42,6 +42,7 @@ from .db import acquire
 from .loop import TurnComplete, TurnContext, run_turn
 from .persistence import cost_summary_for_turn
 from .providers.base import AssistantChunk, Provider
+from .telemetry import TelemetryEmitter
 from .tools import ToolRegistry
 
 # Hard cap on subagent depth (`docs/008 §3`). User-initiated turns
@@ -122,6 +123,7 @@ async def spawn_turn(
     user_tz: str = "UTC",
     tool_registry: ToolRegistry | None = None,
     max_turn_cost_usd: float | None = None,
+    telemetry: TelemetryEmitter | None = None,
 ) -> SpawnResult:
     """Run one subagent turn end-to-end against the same primary loop.
 
@@ -157,6 +159,18 @@ async def spawn_turn(
     text_chunks: list[str] = []
     completion: TurnComplete | None = None
 
+    # Emit start event
+    if telemetry:
+        await telemetry.emit_event(
+            "agent.spawn.start",
+            {
+                "depth": child_depth,
+                "request_text_excerpt": request.user_text[:80],
+                "parent_depth": parent_ctx.depth,
+            },
+            conversation_id=parent_ctx.conversation_id,
+        )
+
     try:
         async for event in run_turn(
             pool=pool,
@@ -168,6 +182,7 @@ async def spawn_turn(
             user_tz=user_tz,
             tool_registry=tool_registry,
             max_turn_cost_usd=max_turn_cost_usd,
+            telemetry=telemetry,
         ):
             if isinstance(event, AssistantChunk):
                 text_chunks.append(event.text)
@@ -177,6 +192,18 @@ async def spawn_turn(
         # Parent cancellation — propagate up; not a SpawnError.
         raise
     except Exception as exc:  # noqa: BLE001 — every failure type belongs in SpawnError
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if telemetry:
+            await telemetry.emit_event(
+                "agent.spawn.error",
+                {
+                    "depth": child_depth,
+                    "error_code": "subagent.exception",
+                    "error_detail": f"{type(exc).__name__}: {exc}"[:200],
+                    "latency_ms": latency_ms,
+                },
+                conversation_id=parent_ctx.conversation_id,
+            )
         return SpawnResult(
             ok=False,
             error=SpawnError(
@@ -184,10 +211,22 @@ async def spawn_turn(
                 detail=f"{type(exc).__name__}: {exc}",
             ),
             depth=child_depth,
-            latency_ms=int((time.monotonic() - started) * 1000),
+            latency_ms=latency_ms,
         )
 
     if completion is None:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if telemetry:
+            await telemetry.emit_event(
+                "agent.spawn.error",
+                {
+                    "depth": child_depth,
+                    "error_code": "subagent.no_completion",
+                    "error_detail": "run_turn ended without a TurnComplete event",
+                    "latency_ms": latency_ms,
+                },
+                conversation_id=parent_ctx.conversation_id,
+            )
         return SpawnResult(
             ok=False,
             error=SpawnError(
@@ -195,7 +234,7 @@ async def spawn_turn(
                 detail="run_turn ended without a TurnComplete event",
             ),
             depth=child_depth,
-            latency_ms=int((time.monotonic() - started) * 1000),
+            latency_ms=latency_ms,
         )
 
     # Cost rollup: every llm_calls row the child wrote attributes to
@@ -208,15 +247,34 @@ async def spawn_turn(
             message_id=completion.user_message_id,
         )
 
+    latency_ms = int((time.monotonic() - started) * 1000)
+    cost_usd = float(summary.get("cost_usd") or 0.0)
+    input_tokens = int(summary.get("input_tokens") or 0)
+    output_tokens = int(summary.get("output_tokens") or 0)
+
+    if telemetry:
+        await telemetry.emit_event(
+            "agent.spawn.complete",
+            {
+                "depth": child_depth,
+                "cost_usd": cost_usd,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "latency_ms": latency_ms,
+                "iterations": completion.iterations,
+            },
+            conversation_id=parent_ctx.conversation_id,
+        )
+
     return SpawnResult(
         ok=True,
         text="".join(text_chunks),
         user_message_id=completion.user_message_id,
         final_message_id=completion.assistant_message_id,
-        cost_usd=float(summary.get("cost_usd") or 0.0),
-        input_tokens=int(summary.get("input_tokens") or 0),
-        output_tokens=int(summary.get("output_tokens") or 0),
-        latency_ms=int((time.monotonic() - started) * 1000),
+        cost_usd=cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        latency_ms=latency_ms,
         depth=child_depth,
         metadata=dict(request.metadata),
     )
@@ -235,6 +293,7 @@ async def stream_spawn_turn(
     user_tz: str = "UTC",
     tool_registry: ToolRegistry | None = None,
     max_turn_cost_usd: float | None = None,
+    telemetry: TelemetryEmitter | None = None,
 ) -> AsyncIterator[AssistantChunk | SpawnResult]:
     """Streaming variant — yields each ``AssistantChunk`` as it
     arrives, then a final :class:`SpawnResult` once the child turn
@@ -263,6 +322,18 @@ async def stream_spawn_turn(
     completion: TurnComplete | None = None
     failure: Exception | None = None
 
+    # Emit start event
+    if telemetry:
+        await telemetry.emit_event(
+            "agent.spawn.start",
+            {
+                "depth": child_depth,
+                "request_text_excerpt": request.user_text[:80],
+                "parent_depth": parent_ctx.depth,
+            },
+            conversation_id=parent_ctx.conversation_id,
+        )
+
     try:
         async for event in run_turn(
             pool=pool,
@@ -274,6 +345,7 @@ async def stream_spawn_turn(
             user_tz=user_tz,
             tool_registry=tool_registry,
             max_turn_cost_usd=max_turn_cost_usd,
+            telemetry=telemetry,
         ):
             if isinstance(event, AssistantChunk):
                 text_chunks.append(event.text)
@@ -286,6 +358,18 @@ async def stream_spawn_turn(
         failure = exc
 
     if failure is not None:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if telemetry:
+            await telemetry.emit_event(
+                "agent.spawn.error",
+                {
+                    "depth": child_depth,
+                    "error_code": "subagent.exception",
+                    "error_detail": f"{type(failure).__name__}: {failure}"[:200],
+                    "latency_ms": latency_ms,
+                },
+                conversation_id=parent_ctx.conversation_id,
+            )
         yield SpawnResult(
             ok=False,
             error=SpawnError(
@@ -293,11 +377,23 @@ async def stream_spawn_turn(
                 detail=f"{type(failure).__name__}: {failure}",
             ),
             depth=child_depth,
-            latency_ms=int((time.monotonic() - started) * 1000),
+            latency_ms=latency_ms,
         )
         return
 
     if completion is None:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if telemetry:
+            await telemetry.emit_event(
+                "agent.spawn.error",
+                {
+                    "depth": child_depth,
+                    "error_code": "subagent.no_completion",
+                    "error_detail": "run_turn ended without a TurnComplete event",
+                    "latency_ms": latency_ms,
+                },
+                conversation_id=parent_ctx.conversation_id,
+            )
         yield SpawnResult(
             ok=False,
             error=SpawnError(
@@ -316,15 +412,34 @@ async def stream_spawn_turn(
             message_id=completion.user_message_id,
         )
 
+    latency_ms = int((time.monotonic() - started) * 1000)
+    cost_usd = float(summary.get("cost_usd") or 0.0)
+    input_tokens = int(summary.get("input_tokens") or 0)
+    output_tokens = int(summary.get("output_tokens") or 0)
+
+    if telemetry:
+        await telemetry.emit_event(
+            "agent.spawn.complete",
+            {
+                "depth": child_depth,
+                "cost_usd": cost_usd,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "latency_ms": latency_ms,
+                "iterations": completion.iterations,
+            },
+            conversation_id=parent_ctx.conversation_id,
+        )
+
     yield SpawnResult(
         ok=True,
         text="".join(text_chunks),
         user_message_id=completion.user_message_id,
         final_message_id=completion.assistant_message_id,
-        cost_usd=float(summary.get("cost_usd") or 0.0),
-        input_tokens=int(summary.get("input_tokens") or 0),
-        output_tokens=int(summary.get("output_tokens") or 0),
-        latency_ms=int((time.monotonic() - started) * 1000),
+        cost_usd=cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        latency_ms=latency_ms,
         depth=child_depth,
         metadata=dict(request.metadata),
     )

@@ -197,3 +197,145 @@ async def test_spawn_turn_wraps_child_exception_in_spawn_error() -> None:
     assert result.error is not None
     assert result.error.code == "subagent.exception"
     assert "exhausted" in result.error.detail.lower()
+
+
+class _RecordingTelemetry:
+    """Stand-in for TelemetryEmitter that records emits for testing."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    async def emit_event(
+        self,
+        event_type: str,
+        payload: dict | None = None,
+        *,
+        conversation_id=None,
+    ) -> None:
+        self.events.append(
+            {
+                "type": event_type,
+                "payload": payload or {},
+                "conversation_id": conversation_id,
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_spawn_turn_emits_start_event() -> None:
+    """spawn_turn emits agent.spawn.start before running the child."""
+    provider = FakeProvider(
+        _classifier_pipeline()
+        + [ScriptedTurn(text="result", input_tokens=10, output_tokens=5)]
+    )
+    store = FakeStore()
+    pool = FakePool(store)
+    telemetry = _RecordingTelemetry()
+
+    parent_ctx = TurnContext(
+        identity=build_identity(),
+        conversation_id=conversation_uuid(),
+        depth=0,
+    )
+    parent_anchor = UUID("44444444-4444-4444-4444-444444444444")
+
+    await spawn_turn(
+        request=SpawnRequest(
+            user_text="test prompt",
+            parent=parent_ctx,
+            parent_message_id=parent_anchor,
+        ),
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        telemetry=telemetry,
+        **TZ_TEST_KWARGS,
+    )
+
+    # Verify start event was emitted first
+    assert len(telemetry.events) >= 1
+    start_event = telemetry.events[0]
+    assert start_event["type"] == "agent.spawn.start"
+    assert start_event["payload"]["depth"] == 1
+    assert start_event["payload"]["request_text_excerpt"] == "test prompt"
+    assert start_event["payload"]["parent_depth"] == 0
+    assert start_event["conversation_id"] == parent_ctx.conversation_id
+
+
+@pytest.mark.asyncio
+async def test_spawn_turn_emits_complete_event_on_success() -> None:
+    """spawn_turn emits agent.spawn.complete with cost/token rollup."""
+    provider = FakeProvider(
+        _classifier_pipeline()
+        + [ScriptedTurn(text="child result", input_tokens=100, output_tokens=50)]
+    )
+    store = FakeStore()
+    pool = FakePool(store)
+    telemetry = _RecordingTelemetry()
+
+    parent_ctx = TurnContext(
+        identity=build_identity(),
+        conversation_id=conversation_uuid(),
+    )
+
+    result = await spawn_turn(
+        request=SpawnRequest(
+            user_text="echo test",
+            parent=parent_ctx,
+            parent_message_id=UUID("55555555-5555-5555-5555-555555555555"),
+        ),
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        telemetry=telemetry,
+        **TZ_TEST_KWARGS,
+    )
+
+    assert result.ok is True
+    # Find the complete event (should be last)
+    complete_event = [e for e in telemetry.events if e["type"] == "agent.spawn.complete"]
+    assert len(complete_event) == 1
+    payload = complete_event[0]["payload"]
+    assert payload["depth"] == 1
+    assert payload["cost_usd"] >= 0
+    assert "input_tokens" in payload
+    assert "output_tokens" in payload
+    assert "latency_ms" in payload
+    assert "iterations" in payload
+
+
+@pytest.mark.asyncio
+async def test_spawn_turn_emits_error_event_on_failure() -> None:
+    """spawn_turn emits agent.spawn.error when child turn fails."""
+    # Script too short to complete — will cause exception
+    provider = FakeProvider(_classifier_pipeline())
+    store = FakeStore()
+    pool = FakePool(store)
+    telemetry = _RecordingTelemetry()
+
+    parent_ctx = TurnContext(
+        identity=build_identity(),
+        conversation_id=conversation_uuid(),
+    )
+
+    result = await spawn_turn(
+        request=SpawnRequest(
+            user_text="will fail",
+            parent=parent_ctx,
+            parent_message_id=UUID("66666666-6666-6666-6666-666666666666"),
+        ),
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        telemetry=telemetry,
+        **TZ_TEST_KWARGS,
+    )
+
+    assert result.ok is False
+    # Find the error event
+    error_events = [e for e in telemetry.events if e["type"] == "agent.spawn.error"]
+    assert len(error_events) == 1
+    payload = error_events[0]["payload"]
+    assert payload["depth"] == 1
+    assert payload["error_code"] == "subagent.exception"
+    assert "latency_ms" in payload
