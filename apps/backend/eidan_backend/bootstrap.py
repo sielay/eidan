@@ -525,7 +525,7 @@ async def bootstrap(
     # final loaded set. The list doesn't mutate after this point;
     # capture by reference is safe.
     register_plugin_tools(tool_registry, plugins=plugins)
-    behaviour_registry = BehaviourRegistry()
+    behaviour_registry = BehaviourRegistry(tool_registry=tool_registry)
     if state_store is None:
         if not await _plugin_state_exists(pool):
             raise BootstrapNotMigratedError(
