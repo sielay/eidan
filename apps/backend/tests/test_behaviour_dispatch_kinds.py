@@ -193,7 +193,7 @@ async def test_idempotency_still_works_across_kinds(
     """Idempotency gate works regardless of kind."""
     call_count = 0
 
-    async def handler(event: TriggerEvent) -> BehaviourResult:
+    async def handler(event: TriggerEvent, ctx: BehaviourContext) -> BehaviourResult:
         nonlocal call_count
         call_count += 1
         return BehaviourResult(ok=True)
