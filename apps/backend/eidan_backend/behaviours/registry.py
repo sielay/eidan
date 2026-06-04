@@ -26,9 +26,13 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
+from .context import BehaviourContext
 from .triggers import Trigger
+
+if TYPE_CHECKING:
+    from ..tools import ToolRegistry
 
 #: Dispatch shape declared per behaviour. See `docs/026`. ``llm_turn``
 #: is the default and matches today's host behaviour (run the handler,
@@ -88,7 +92,7 @@ class BehaviourResult:
     error: str | None = None
 
 
-HandlerFn = Callable[[TriggerEvent], Awaitable[BehaviourResult | None]]
+HandlerFn = Callable[..., Awaitable[BehaviourResult | None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,11 +131,15 @@ class BehaviourRegistry:
     Read-mostly: writes happen at plugin activation, reads happen at
     trigger time. The map is keyed by ``id``; the dispatcher walks
     the values to find subscribers for a given trigger kind / spec.
+
+    Slice 3 addition: routes handlers based on their declared `kind`,
+    providing appropriate context (tools, classifier) per kind.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, tool_registry: ToolRegistry | None = None) -> None:
         self._behaviours: dict[str, Behaviour] = {}
         self._seen_keys: set[tuple[str, str]] = set()
+        self._tool_registry = tool_registry
 
     def register(self, behaviour: Behaviour) -> None:
         if behaviour.id in self._behaviours:
@@ -191,9 +199,15 @@ class BehaviourRegistry:
 
         Returns ``None`` when the ``(behaviour_id, idempotency_key)``
         pair has already been dispatched in this process; otherwise
-        runs the handler and returns its result. The key is recorded
-        *before* the handler runs so two concurrent dispatches with
-        the same key collapse to one invocation.
+        runs the handler and returns its result based on its declared
+        `kind`. The key is recorded *before* the handler runs so two
+        concurrent dispatches with the same key collapse to one invocation.
+
+        Dispatch routing (slice 3 — docs/026 §4):
+        - `llm_turn`: Handler called with TriggerEvent only
+        - `tool_chain`: Handler called with TriggerEvent + BehaviourContext(tools)
+        - `classifier_gate`: Handler called with TriggerEvent + BehaviourContext(tools, classify)
+        - `notify`: Handler NOT called; event written directly to node_events
         """
         if (behaviour_id, idempotency_key) in self._seen_keys:
             return None
@@ -206,11 +220,35 @@ class BehaviourRegistry:
             idempotency_key=idempotency_key,
             payload=dict(payload) if payload else {},
         )
-        return await beh.handler(event)
+
+        if beh.kind == "llm_turn":
+            # Current path: handler calls spawn_turn internally
+            return await beh.handler(event)
+
+        if beh.kind == "tool_chain":
+            # Handler gets tools, deterministic orchestration
+            ctx = BehaviourContext(tools=self._tool_registry)
+            return await beh.handler(event, ctx)
+
+        if beh.kind == "classifier_gate":
+            # Handler gets tools + classifier for branching
+            ctx = BehaviourContext(
+                tools=self._tool_registry,
+                classify=None,  # TODO: wire classify helper from bootstrap
+            )
+            return await beh.handler(event, ctx)
+
+        if beh.kind == "notify":
+            # No handler call; write event directly
+            # TODO: implement node_events write
+            return BehaviourResult(ok=True)
+
+        raise ValueError(f"unknown behaviour kind: {beh.kind!r}")
 
 
 __all__ = [
     "Behaviour",
+    "BehaviourContext",
     "BehaviourIdConflict",
     "BehaviourNotFound",
     "BehaviourRegistry",
