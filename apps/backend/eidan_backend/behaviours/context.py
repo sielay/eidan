@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-if False:  # TYPE_CHECKING
+if TYPE_CHECKING:
     from ..tools import ToolRegistry
 
 
