@@ -1703,6 +1703,7 @@ async def post_turn(
     sent_at_utc = body.sent_at_utc.astimezone(UTC)
 
     async def _stream() -> AsyncIterator[bytes]:
+        telemetry = getattr(request.app.state, "telemetry", None)
         try:
             async for event in run_turn(
                 pool=pool,
@@ -1714,7 +1715,7 @@ async def post_turn(
                 user_tz=body.user_tz,
                 tool_registry=tool_registry,
                 max_turn_cost_usd=max_turn_cost,
-                telemetry=getattr(request.app.state, "telemetry", None),
+                telemetry=telemetry,
             ):
                 if await request.is_disconnected():
                     break
@@ -1747,6 +1748,23 @@ async def post_turn(
                     )
         except asyncio.CancelledError:
             # Client disconnect — propagate so the provider call unwinds.
+            raise
+        except Exception as exc:  # noqa: BLE001 — telemetry error must not crash
+            # Non-tool exceptions bubble here. Emit the error beacon before
+            # re-raising so the live feed (#172) logs the failure.
+            if telemetry is not None:
+                try:
+                    await telemetry.emit_event(
+                        "agent.turn.error",
+                        payload={
+                            "agent_name": ctx.identity.raw_claims.get("sub", "unknown"),
+                            "error_type": type(exc).__name__,
+                            "error_message": str(exc)[:200],
+                        },
+                        conversation_id=ctx.conversation_id,
+                    )
+                except Exception:  # noqa: BLE001 — telemetry must not crash
+                    pass
             raise
 
     return StreamingResponse(
