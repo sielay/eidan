@@ -92,7 +92,7 @@ class BehaviourResult:
     error: str | None = None
 
 
-HandlerFn = Callable[[TriggerEvent], Awaitable[BehaviourResult | None]]
+HandlerFn = Callable[..., Awaitable[BehaviourResult | None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,12 +223,12 @@ class BehaviourRegistry:
 
         if beh.kind == "llm_turn":
             # Current path: handler calls spawn_turn internally
-            return await beh.handler(event)  # type: ignore[call-arg]
+            return await beh.handler(event)
 
         if beh.kind == "tool_chain":
             # Handler gets tools, deterministic orchestration
             ctx = BehaviourContext(tools=self._tool_registry)
-            return await beh.handler(event, ctx)  # type: ignore[call-arg]
+            return await beh.handler(event, ctx)
 
         if beh.kind == "classifier_gate":
             # Handler gets tools + classifier for branching
@@ -236,7 +236,7 @@ class BehaviourRegistry:
                 tools=self._tool_registry,
                 classify=None,  # TODO: wire classify helper from bootstrap
             )
-            return await beh.handler(event, ctx)  # type: ignore[call-arg]
+            return await beh.handler(event, ctx)
 
         if beh.kind == "notify":
             # No handler call; write event directly
