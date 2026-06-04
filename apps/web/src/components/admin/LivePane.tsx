@@ -43,6 +43,7 @@ const TYPE_TONE: Record<string, string> = {
   "agent.turn.start": "bg-amber-500/10 text-amber-700 dark:text-amber-300",
   "agent.turn.tool_call": "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
   "agent.turn.complete": "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  "agent.turn.error": "bg-red-500/10 text-red-700 dark:text-red-300",
   // `behaviour.fired` (#179) is the cron / schedule trigger pulse — sentry
   // ticks, git pollers, etc. Distinct ramp so it doesn't blur into
   // `agent.turn.*` but still reads as agent-side scheduled work.
@@ -75,9 +76,9 @@ type TypeFilter = "all" | "agent" | "lifecycle";
 function matchesTypeFilter(filter: TypeFilter, type: string): boolean {
   if (filter === "all") return true;
   if (filter === "agent") {
-    // `behaviour.fired` (#179) rides under Agent because cron / schedule
-    // triggers ARE agent-side work — the operator watching the Agent
-    // filter wants to see the sentry tick, not just the turn it spawns.
+    // `agent.turn.*` and `behaviour.fired` are agent-side work: the operator
+    // watching the Agent filter wants to see turn events, errors, and the
+    // cron/schedule pulses that kick them off, not boot/shutdown noise.
     return type.startsWith("agent.") || type === "behaviour.fired";
   }
   // "lifecycle" — boot / shutdown / activate / dispatcher.* — i.e. the
