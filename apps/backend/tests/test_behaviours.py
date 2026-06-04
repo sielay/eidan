@@ -898,3 +898,153 @@ async def test_cron_handler_is_idempotent_on_repeat_key() -> None:
     assert first is not None and first.ok
     assert second is None
     assert len(example_behaviours.state.invocations) == 1
+
+
+# ---- behaviour.fired telemetry emit (#179) ---------------------------------
+
+
+class _RecordingTelemetry:
+    """Minimal stand-in for :class:`TelemetryEmitter`. Records every
+    emit so the dispatcher's `behaviour.fired` row (#179) can be
+    asserted."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    async def emit_event(
+        self,
+        event_type: str,
+        payload: dict | None = None,
+        *,
+        conversation_id=None,
+    ) -> None:
+        self.events.append(
+            {
+                "type": event_type,
+                "payload": payload or {},
+                "conversation_id": conversation_id,
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_fire_schedule_emits_behaviour_fired_event() -> None:
+    """A schedule-triggered behaviour drops one `behaviour.fired` row
+    BEFORE the handler runs so the live activity feed (#155) sees
+    the tick even when the handler is a no-op (the canonical sentry
+    case, which only spawns a turn when a pattern is matched)."""
+    fired: list[TriggerEvent] = []
+
+    async def _handler(event: TriggerEvent) -> BehaviourResult:
+        fired.append(event)
+        return BehaviourResult(ok=True)
+
+    registry = BehaviourRegistry()
+    registry.register(
+        Behaviour(
+            id="example:tick",
+            trigger=parse_trigger("schedule:PT5M"),
+            handler=_handler,
+        )
+    )
+    telemetry = _RecordingTelemetry()
+    holder: list = [telemetry]
+    dispatcher = BehaviourDispatcher(registry, telemetry_holder=holder)
+
+    await dispatcher._fire_schedule("example:tick")
+
+    assert len(fired) == 1
+    types = [e["type"] for e in telemetry.events]
+    assert types == ["behaviour.fired"]
+    payload = telemetry.events[0]["payload"]
+    assert payload["behaviour_id"] == "example:tick"
+    assert payload["trigger_kind"] == "schedule"
+    assert "idempotency_key" in payload
+
+
+@pytest.mark.asyncio
+async def test_fire_cron_emits_behaviour_fired_event() -> None:
+    """Same shape via the cron path — every fire surfaces a single
+    `behaviour.fired` row keyed on the trigger kind so the live feed
+    can distinguish cron from schedule activity."""
+    fired: list[TriggerEvent] = []
+
+    async def _handler(event: TriggerEvent) -> BehaviourResult:
+        fired.append(event)
+        return BehaviourResult(ok=True)
+
+    registry = BehaviourRegistry()
+    registry.register(
+        Behaviour(
+            id="example:cron-tick",
+            trigger=parse_trigger("cron:* * * * *"),
+            handler=_handler,
+        )
+    )
+    telemetry = _RecordingTelemetry()
+    holder: list = [telemetry]
+    dispatcher = BehaviourDispatcher(registry, telemetry_holder=holder)
+
+    await dispatcher._fire_cron("example:cron-tick")
+
+    assert len(fired) == 1
+    payload = telemetry.events[0]["payload"]
+    assert payload["trigger_kind"] == "cron"
+
+
+@pytest.mark.asyncio
+async def test_fire_skips_emit_when_holder_empty() -> None:
+    """Degraded / early-boot path: the dispatcher fires before
+    bootstrap populates the holder, or fires when the telemetry
+    emitter failed to start (`telemetry = None`). The fire should
+    still complete; we just skip the emit silently."""
+    fired: list[TriggerEvent] = []
+
+    async def _handler(event: TriggerEvent) -> BehaviourResult:
+        fired.append(event)
+        return BehaviourResult(ok=True)
+
+    registry = BehaviourRegistry()
+    registry.register(
+        Behaviour(
+            id="example:tick",
+            trigger=parse_trigger("schedule:PT5M"),
+            handler=_handler,
+        )
+    )
+    holder: list = [None]  # populated after bootstrap, or never
+    dispatcher = BehaviourDispatcher(registry, telemetry_holder=holder)
+
+    await dispatcher._fire_schedule("example:tick")
+
+    assert len(fired) == 1  # handler still ran
+
+
+@pytest.mark.asyncio
+async def test_fire_swallows_telemetry_emit_errors() -> None:
+    """A misbehaving telemetry emitter must not break the dispatcher
+    loop — same posture as today's DLQ write swallow boundary."""
+    fired: list[TriggerEvent] = []
+
+    async def _handler(event: TriggerEvent) -> BehaviourResult:
+        fired.append(event)
+        return BehaviourResult(ok=True)
+
+    class _Boom:
+        async def emit_event(self, *args, **kwargs):
+            raise RuntimeError("telemetry boom")
+
+    registry = BehaviourRegistry()
+    registry.register(
+        Behaviour(
+            id="example:tick",
+            trigger=parse_trigger("schedule:PT5M"),
+            handler=_handler,
+        )
+    )
+    holder: list = [_Boom()]
+    dispatcher = BehaviourDispatcher(registry, telemetry_holder=holder)
+
+    await dispatcher._fire_schedule("example:tick")
+
+    assert len(fired) == 1  # handler still ran

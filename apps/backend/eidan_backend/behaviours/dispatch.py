@@ -31,7 +31,7 @@ import uuid
 import zlib
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -143,6 +143,7 @@ class BehaviourDispatcher:
         *,
         scheduler: AsyncIOScheduler | None = None,
         pool: asyncpg.Pool | None = None,
+        telemetry_holder: list[Any] | None = None,
     ) -> None:
         self._registry = registry
         self._scheduler = scheduler if scheduler is not None else AsyncIOScheduler()
@@ -156,6 +157,14 @@ class BehaviourDispatcher:
         # the registry's in-process dedupe still protects against
         # accidental double-dispatch within one process.
         self._pool = pool
+        # One-element holder bootstrap populates AFTER the telemetry
+        # emitter is built — same shape and same reason as the spawn-turn
+        # factory in #174. Every fire emits one `behaviour.fired` row so
+        # the live activity feed (#155) sees cron / schedule activity
+        # even when the handler doesn't itself spawn a turn (e.g. a sentry
+        # tick that finds nothing). When the holder is unset or holds
+        # None, the dispatcher just skips the emit.
+        self._telemetry_holder = telemetry_holder
 
     @property
     def scheduler(self) -> AsyncIOScheduler:
@@ -247,6 +256,7 @@ class BehaviourDispatcher:
         # actually dispatches.
         now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M")
         key = f"cron:{behaviour_id}:{now}"
+        await self._emit_behaviour_fired(behaviour_id, "cron", key)
         await self._dispatch_under_lock(
             behaviour_id, key, slot=now, trigger_kind="cron"
         )
@@ -358,9 +368,35 @@ class BehaviourDispatcher:
         # entry within the instance that won the lock.
         now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
         key = f"schedule:{behaviour_id}:{uuid.uuid4().hex}"
+        await self._emit_behaviour_fired(behaviour_id, "schedule", key)
         await self._dispatch_under_lock(
             behaviour_id, key, slot=now, trigger_kind="schedule"
         )
+
+    async def _emit_behaviour_fired(
+        self, behaviour_id: str, trigger_kind: str, idempotency_key: str
+    ) -> None:
+        """Drop one `behaviour.fired` row into `eidan.node_events` so the
+        live activity feed (#155 / #179) shows cron / schedule activity
+        even when the handler doesn't itself spawn a turn. The emit is
+        fire-and-forget — `TelemetryEmitter.emit_event` swallows DB
+        errors so the dispatcher loop stays alive."""
+        if self._telemetry_holder is None or not self._telemetry_holder:
+            return
+        telemetry = self._telemetry_holder[0]
+        if telemetry is None:
+            return
+        try:
+            await telemetry.emit_event(
+                "behaviour.fired",
+                payload={
+                    "behaviour_id": behaviour_id,
+                    "trigger_kind": trigger_kind,
+                    "idempotency_key": idempotency_key,
+                },
+            )
+        except Exception:  # noqa: BLE001 — telemetry must not kill the scheduler
+            pass
 
     # ---- event publish ---------------------------------------------------
 
