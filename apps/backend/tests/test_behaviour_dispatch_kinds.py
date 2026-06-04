@@ -228,22 +228,10 @@ async def test_unknown_kind_raises_error(
     behaviour_registry: BehaviourRegistry,
 ) -> None:
     """Unknown kind raises ValueError."""
-    # Directly construct a Behaviour with invalid kind to bypass validation
-    # (the dataclass already validates, so this is defense-in-depth in dispatch)
-    behaviour = Behaviour(
-        id="test:invalid",
-        trigger=Trigger(kind="event", spec="test"),
-        handler=lambda e: None,
-        kind="llm_turn",  # Bypass with valid kind to construct
-    )
-    behaviour_registry.register(behaviour)
-
-    # Manually override kind to invalid value (for testing edge case)
-    behaviour_registry._behaviours["test:invalid"].kind = "unknown_kind"  # type: ignore
-
-    with pytest.raises(ValueError, match="unknown behaviour kind"):
-        await behaviour_registry.dispatch(
-            "test:invalid",
-            idempotency_key="key",
-            payload={},
+    with pytest.raises(ValueError, match="behaviour .* unknown kind"):
+        Behaviour(
+            id="test:invalid",
+            trigger=Trigger(kind="event", spec="test"),
+            handler=lambda e: None,
+            kind="unknown_kind",  # type: ignore
         )
