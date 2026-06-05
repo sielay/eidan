@@ -53,6 +53,24 @@ def _env_key_for(dotted: str) -> str:
     return "".join(c if c.isalnum() else "_" for c in upper)
 
 
+def split_secret_key(key: str) -> tuple[str, str]:
+    """Split a dotted secret key into ``(scope, subkey)``.
+
+    ``slack.bot_token`` → ``("slack", "bot_token")``;
+    ``plugin_sentry.smtp_password`` → ``("plugin_sentry", "smtp_password")``.
+    A key with no ``.`` lands in scope ``core``.
+
+    Single source of truth for vault namespacing: the read path
+    (:func:`_read_native_vault`) and the ``eidan secret`` CLI writer
+    both call it, so a value set under a key is always found by the
+    same key — they cannot drift apart.
+    """
+    if "." in key:
+        scope, _, subkey = key.partition(".")
+        return scope, subkey
+    return "core", key
+
+
 async def _read_env(key: str) -> str | None:
     value = os.environ.get(_env_key_for(key))
     return value if value else None
@@ -74,10 +92,7 @@ async def _read_native_vault(
     fails (the latter is logged so the operator notices a stale
     master-key rotation). The loop never blocks on a vault outage.
     """
-    if "." in key:
-        scope, _, subkey = key.partition(".")
-    else:
-        scope, subkey = "core", key
+    scope, subkey = split_secret_key(key)
 
     try:
         async with pool.acquire() as conn:
