@@ -171,6 +171,7 @@ def _make_context_factory(
         tool_registry,
         telemetry_holder=telemetry_holder,
     )
+    assess_sufficiency_callable = _make_sufficiency_assessor(provider, default_model)
     publish_event_callable = (
         behaviour_dispatcher.publish_event if behaviour_dispatcher is not None else None
     )
@@ -213,6 +214,7 @@ def _make_context_factory(
             register_tools=_register_tools,
             notify=notify_callable,
             spawn_turn=spawn_turn_callable,
+            assess_sufficiency=assess_sufficiency_callable,
             publish_event=publish_event_callable,
             identity=None,
         )
@@ -280,6 +282,34 @@ def _make_spawn_turn_callable(
         )
 
     return _spawn_turn
+
+
+def _make_sufficiency_assessor(
+    provider: Any | None,
+    default_model: str | None,
+) -> Any:
+    """Bind :func:`assess_sufficiency` to the host's provider + model so a
+    plugin gets a ``ctx.assess_sufficiency(goal, gathered)`` accessor — the
+    loop-level second-voice critic (#186 / `docs/027 §5`).
+
+    ``None`` when no provider / model is wired (test boots, degraded
+    starts), so a consumer falls back to the investigator's own ``[DONE]``
+    self-declaration via ``if ctx.assess_sufficiency is None``.
+    """
+    if provider is None or default_model is None:
+        return None
+
+    from .sufficiency import assess_sufficiency
+
+    async def _assess(*, goal: str, gathered: str) -> Any:
+        return await assess_sufficiency(
+            provider=provider,
+            model=default_model,
+            goal=goal,
+            gathered=gathered,
+        )
+
+    return _assess
 
 
 def _make_notify_callable(

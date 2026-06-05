@@ -117,6 +117,21 @@ class TurnInitiator(Protocol):
 
 
 @runtime_checkable
+class SufficiencyAssessor(Protocol):
+    """The loop-level second-voice critic (#186 / `docs/027 §5`).
+
+    Given a goal and what an autonomous loop has gathered, returns a
+    ``SufficiencyVerdict`` (``await``) — whether there's enough to
+    conclude. The host pre-binds the provider + model; plugins supply
+    only ``goal`` + ``gathered``. ``None`` when no provider is wired, so
+    a consumer falls back to the investigator's own ``[DONE]`` signal via
+    ``if ctx.assess_sufficiency is None``.
+    """
+
+    def __call__(self, *, goal: str, gathered: str) -> Any: ...
+
+
+@runtime_checkable
 class EventPublisher(Protocol):
     """In-process event-bus publish accessor handed to a plugin via
     ``ctx.publish_event``.
@@ -218,6 +233,7 @@ class PluginContext:
     register_tools: ToolRegistrar
     notify: NotificationSender | None = None
     spawn_turn: TurnInitiator | None = None
+    assess_sufficiency: SufficiencyAssessor | None = None
     publish_event: EventPublisher | None = None
     identity: Identity | None = None
 
@@ -227,6 +243,7 @@ __all__ = [
     "DbAccessor",
     "EventPublisher",
     "NotificationSender",
+    "SufficiencyAssessor",
     "PluginContext",
     "RouterRegistrar",
     "SecretAccessor",

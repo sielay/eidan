@@ -78,6 +78,7 @@ async def run_sentry_tick(
     tick_id: str | None = None,
     notify: Any | None = None,
     spawn_turn: Any | None = None,
+    assess_sufficiency: Any | None = None,
 ) -> dict[str, Any]:
     """Run one sentry tick across every user.
 
@@ -179,6 +180,7 @@ async def run_sentry_tick(
                                 conn=conn,
                                 user_id=user_id,
                                 pattern=pattern,
+                                assess=assess_sufficiency,
                             )
                         else:
                             await _try_spawn_turn(
