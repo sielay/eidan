@@ -38,6 +38,43 @@ through Supabase-specific helpers. Adding fields to
 `SupabaseSettings` is fine; reaching into Supabase from the
 agent loop, persistence, or plugin contract is not.
 
+## Cost: recomputable pricing + finer budget scopes
+
+**State today.** `docs/010_COST_BUDGETING.md` is the graduated
+spec: core captures tokens + `cost_usd` on `llm_calls` and enforces
+per-turn / per-conversation / per-day / per-user / per-agent caps
+pre-call. Three follow-ups surfaced while reviewing the cost path:
+
+- **Unpriced model silently prices at $0.** The code returns
+  `cost_usd = 0` when a model id is missing from the price table,
+  with no log — diverging from `010 §3.3`, which says raise and
+  surface the misconfiguration. Tracked in
+  [#203](https://github.com/sielay/eidan/issues/203). Near-term
+  bug, not parked.
+- **Recomputable cost from an effective-dated price table.**
+  `010` freezes `cost_usd` on the row, so a stale/wrong price can
+  never be corrected and a price change can't be back-applied.
+  Evaluate a bitemporal (`effective_from` + `recorded_at`) price
+  table with cost as a derived/recomputable value — freeze for
+  billing, recompute for analysis. Design issue
+  [#204](https://github.com/sielay/eidan/issues/204).
+- **Per-node & per-model budget scopes + throttle-to-cheaper-model.**
+  `010 §4` lacks per-node / per-model scopes, and the cap is a
+  cliff (soft wrap-up → hard deny). Add a `downgrade` tier that
+  biases the sizer toward cheaper models before denying. Design
+  issue [#205](https://github.com/sielay/eidan/issues/205).
+
+**Why parked (the design pair).** #204 and #205 revise a graduated
+spec; they wait on a design delta to `010` before any code. #203 is
+a straight bug and ships independently.
+
+**Shape when we get to it.** Both #204 and #205 land first as a new
+section in `docs/010`, then implementation. The richer pricing
+maintenance and budget *policy* (how a price is sourced, which model
+to downgrade to) is a paid-plugin consumer of these core seams —
+the same core-capture / paid-consumer split `010 §7` already draws
+for analytics.
+
 ## (graduated) Deploy: bake-at-build
 
 Shipped — see `docs/DEPLOYMENT.md`. Plugins are baked into the
