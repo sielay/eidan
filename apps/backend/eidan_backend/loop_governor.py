@@ -26,7 +26,7 @@ escalation wiring land in slice 2, with the bicameral critic surface.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 
@@ -174,4 +174,104 @@ class LoopGovernor:
         return len(set(tail)) == 1
 
 
-__all__ = ["LoopBudget", "LoopGovernor", "LoopVerdict"]
+@dataclass(frozen=True, slots=True)
+class StepResult:
+    """What one step of a governed loop reports back to the driver.
+
+    ``fingerprint`` is a stable hash of the step's *intent* (so the
+    governor can spot repetition); ``produced_new_memory`` is whether it
+    wrote anything durable; ``done`` is the step's own signal that the
+    work is complete — the slice-1 sufficiency proxy, refined by the
+    critic in slice 2. ``payload`` carries step-specific data the caller
+    wants back (e.g. the turn's message ids)."""
+
+    fingerprint: str
+    cost_usd: float = 0.0
+    produced_new_memory: bool = True
+    done: bool = False
+    payload: object = None
+
+
+@dataclass(frozen=True, slots=True)
+class LoopOutcome:
+    """The result of a governed loop.
+
+    ``stopped_by`` is ``"done"`` (a step signalled completion — the
+    closest slice-1 has to StopSufficient), or the governor's verdict
+    kind (``"budget"`` / ``"stuck"``). ``verdict`` is the governor's
+    last verdict; on a ``"done"`` stop it is the final ``continue``
+    verdict. ``bailed`` is True when the loop stopped on budget/stuck
+    rather than completing — the caller escalates in that case
+    (:func:`escalation_for_loop_stop`)."""
+
+    stopped_by: str  # "done" | "budget" | "stuck"
+    steps: int
+    verdict: LoopVerdict
+    last_payload: object = None
+
+    @property
+    def bailed(self) -> bool:
+        return self.stopped_by in ("budget", "stuck")
+
+
+async def run_governed_loop(
+    *,
+    governor: LoopGovernor,
+    step: Callable[[int], Awaitable[StepResult]],
+    safety_cap: int = 50,
+) -> LoopOutcome:
+    """Drive ``step`` repeatedly under ``governor`` until the work is
+    done or the governor stops it.
+
+    Each call ``await step(i)`` performs one unit of work (typically one
+    turn) and returns a :class:`StepResult`. The loop records it, lets a
+    ``done`` step finish cleanly, otherwise consults the governor:
+    ``continue`` runs the next step; ``budget`` / ``stuck`` end the loop
+    (``LoopOutcome.bailed`` → the caller escalates per ``docs/027 §7``).
+
+    ``safety_cap`` is an absolute backstop independent of the budget — a
+    governor misconfigured with all limits ``None`` and a step that
+    never reports ``done`` would otherwise spin forever.
+    """
+    i = 0
+    verdict = LoopVerdict(kind="continue")
+    last_payload: object = None
+    while i < safety_cap:
+        result = await step(i)
+        i += 1
+        last_payload = result.payload
+        governor.record_step(
+            fingerprint=result.fingerprint,
+            cost_usd=result.cost_usd,
+            produced_new_memory=result.produced_new_memory,
+        )
+        if result.done:
+            return LoopOutcome(
+                stopped_by="done", steps=i, verdict=governor.verdict(),
+                last_payload=last_payload,
+            )
+        verdict = governor.verdict()
+        if verdict.should_stop:
+            return LoopOutcome(
+                stopped_by=verdict.kind, steps=i, verdict=verdict,
+                last_payload=last_payload,
+            )
+    return LoopOutcome(
+        stopped_by="budget",
+        steps=i,
+        verdict=LoopVerdict(
+            kind="budget", cause="iterations",
+            detail=f"hit safety cap of {safety_cap} steps",
+        ),
+        last_payload=last_payload,
+    )
+
+
+__all__ = [
+    "LoopBudget",
+    "LoopGovernor",
+    "LoopOutcome",
+    "LoopVerdict",
+    "StepResult",
+    "run_governed_loop",
+]

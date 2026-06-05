@@ -62,8 +62,30 @@ class EscalationReason(StrEnum):
     AMBIGUOUS_INTENT = "ambiguous_intent"
     OVER_BUDGET = "over_budget"
     OVER_CAPACITY = "over_capacity"
+    NO_PROGRESS = "no_progress"
     UNRECOVERABLE_ERROR = "unrecoverable_error"
     OTHER = "other"
+
+
+def escalation_for_loop_stop(
+    cause: str,
+) -> tuple[EscalationSeverity, EscalationReason]:
+    """Map a governed-loop bail (`LoopVerdict.cause` from `docs/027 §7`)
+    onto an escalation (severity, reason).
+
+    A loop that bailed couldn't finish on its own — it surfaces to the
+    operator at ``MEDIUM`` (interrupt the next turn, `docs/022 §1`). Kept
+    here rather than in :mod:`loop_governor` so the governor stays free
+    of escalation deps; the caller passes the verdict's ``cause`` string.
+    """
+    reason = {
+        "cost": EscalationReason.OVER_BUDGET,
+        "iterations": EscalationReason.OVER_CAPACITY,
+        "wall_clock": EscalationReason.OVER_CAPACITY,
+        "repeat": EscalationReason.NO_PROGRESS,
+        "idle": EscalationReason.NO_PROGRESS,
+    }.get(cause, EscalationReason.OTHER)
+    return EscalationSeverity.MEDIUM, reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,6 +292,7 @@ __all__ = [
     "EscalationRow",
     "EscalationSeverity",
     "acknowledge_escalation",
+    "escalation_for_loop_stop",
     "list_escalations",
     "record_escalation",
     "resolve_escalation",
