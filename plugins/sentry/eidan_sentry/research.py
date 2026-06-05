@@ -48,6 +48,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_LOOP_MAX_ITERATIONS = 3
 DEFAULT_LOOP_MAX_WALL_CLOCK_S = 300.0
 
+# The agent ends its final message with this token when it has concluded
+# (docs/027's slice-1 "agent declares done" completion signal). A step
+# that carries it stops the loop cleanly — a conclusion, not a bail — so
+# no escalation is raised. An independent second-voice critic that can
+# overrule a premature/false DONE is the slice-2 refinement on top.
+_DONE_TOKEN = "[DONE]"
+
 
 def research_loop_enabled() -> bool:
     """Off by default; opt in via ``EIDAN_SENTRY_RESEARCH_LOOP=1``.
@@ -96,17 +103,22 @@ async def _count_notes(conn: asyncpg.Connection, conversation_id: UUID) -> int:
 
 
 def _research_prompt(pattern: DetectedPattern, step_index: int) -> str:
+    done = (
+        f" When you have concluded and recorded your findings/recommendation, "
+        f"end your final message with the exact token {_DONE_TOKEN} and nothing "
+        f"after it."
+    )
     if step_index == 0:
         meta = " ".join(f"{k}={v}" for k, v in sorted(pattern.metadata.items()))
         return (
             "[sentry] Investigate this high-severity pattern and write a note "
             "with what you find. Use your tools.\n"
             f"Pattern: {pattern.name}\n"
-            f"Details: {meta}"
+            f"Details: {meta}" + done
         )
     return (
         "[sentry] Continue the investigation above. If you have concluded, "
-        "write a brief note with your conclusion and recommended action."
+        "write a brief note with your conclusion and recommended action." + done
     )
 
 
@@ -149,16 +161,28 @@ async def run_pattern_research(
                 )
                 cost = float(summary.get("cost_usd") or 0.0)
             notes_after = await _count_notes(conn, conv_id)
-            fingerprint = hashlib.sha256("".join(text_parts).encode()).hexdigest()
+            text = "".join(text_parts)
+            fingerprint = hashlib.sha256(text.encode()).hexdigest()
             return StepResult(
                 fingerprint=fingerprint,
                 cost_usd=cost,
                 produced_new_memory=notes_after > notes_before,
-                done=False,  # approach (a): no sufficiency critic yet
+                done=_DONE_TOKEN in text,  # agent self-declared completion
                 payload=anchor,
             )
 
         outcome = await run_governed_loop(governor=governor, step=step)
+        if not outcome.bailed:
+            # The agent concluded (stopped_by == "done") — a result, not a
+            # blocker. The investigation conversation + notes are the
+            # artifact; the pattern's own escalation already pinged the
+            # operator, so don't raise a second, misleading one.
+            logger.info(
+                "[sentry] research loop for %s concluded after %d step(s)",
+                pattern.name,
+                outcome.steps,
+            )
+            return
         severity, reason = escalation_for_loop_stop(outcome.verdict.cause)
         await record_escalation(
             conn,
@@ -182,10 +206,10 @@ async def run_pattern_research(
             ),
         )
         logger.info(
-            "[sentry] research loop for %s stopped after %d step(s): %s",
+            "[sentry] research loop for %s bailed after %d step(s): %s",
             pattern.name,
             outcome.steps,
-            outcome.verdict.cause or outcome.stopped_by,
+            outcome.verdict.cause,
         )
     except Exception as exc:  # noqa: BLE001 — best-effort, never break the tick
         logger.info(
