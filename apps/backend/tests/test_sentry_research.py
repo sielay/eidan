@@ -151,3 +151,47 @@ async def test_research_loop_bails_on_iteration_budget(eidan_db, monkeypatch) ->
         assert esc[0]["metadata"]  # carries pattern / steps
     finally:
         await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_research_loop_concludes_without_escalating(eidan_db, monkeypatch) -> None:
+    """When the agent self-declares done ([DONE]) the loop stops cleanly —
+    a conclusion, not a bail — so NO escalation is raised (the pattern's
+    own escalation already pinged the operator)."""
+    research, patterns = _load_sentry()
+    monkeypatch.setenv("EIDAN_SENTRY_LOOP_MAX_ITERATIONS", "10")
+
+    identity = build_identity()
+    user_id = UUID(identity.user_id)
+    pattern = patterns.DetectedPattern(
+        name="scope_drift",
+        severity="high",
+        reason_class="over_capacity",
+        summary="overcommitted",
+        metadata={},
+    )
+
+    pool = await create_pool(eidan_db)
+    try:
+        async with pool.acquire() as conn:
+            await upsert_user(conn, user_id=user_id, email=identity.email)
+            await research.run_pattern_research(
+                # First turn looks; second turn concludes with the token.
+                spawn_turn=_fake_spawn_turn(
+                    texts=["looking into it", "here is my conclusion [DONE]"]
+                ),
+                conn=conn,
+                user_id=user_id,
+                pattern=pattern,
+            )
+        esc = await _escalations_for(pool, user_id)
+        assert esc == [], "a concluded investigation must not escalate"
+        # but the investigation conversation was still created
+        async with pool.acquire() as conn:
+            convs = await conn.fetchval(
+                "SELECT count(*) FROM eidan.conversations WHERE user_id = $1",
+                user_id,
+            )
+        assert convs == 1
+    finally:
+        await pool.close()
