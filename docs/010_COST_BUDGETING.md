@@ -87,7 +87,9 @@ Three rules follow from this.
 The price table (`007 §6.4`) can change between deployments; the
 row's `cost_usd` is frozen at its row's pricing. The analytics
 plugin never multiplies tokens by a current price — it sums
-`cost_usd`.
+`cost_usd`. *(Revisited by the proposed §12: the frozen value is
+retained for billing and enforcement, with recomputation added for
+analysis. Until §12 lands, frozen is the only behaviour.)*
 
 **Failed calls are still rows.** `005 §6.5` is explicit: every
 attempted call writes a row, populated with whatever tokens did
@@ -398,6 +400,10 @@ agents on the same conversation. Off by default; operators
 opt in when they ship a new agent and want a budgetary fence
 around it.
 
+*(Two further scopes — per-node and per-model — are proposed in
+§13, along with a `downgrade` decision tier between the soft and
+hard caps.)*
+
 ### 4.6 Where the caps physically live
 
 ```python
@@ -638,6 +644,11 @@ inside the check, since the heuristic is a 4-chars-per-token
 fallback and is empirically low on tool-heavy prompts.
 
 ### 5.4 What the runner does with the decision
+
+The three variants below (`allow` / `wrap_up` / `deny`) are the
+shipped set. The proposed §13 adds a fourth, `downgrade`, between
+`allow` and `wrap_up`, that substitutes a cheaper model instead of
+refusing the call.
 
 ```python
 match decision:
@@ -1159,3 +1170,202 @@ Deliberately out of scope, to be specified in follow-ups:
   but a deployment that shards the ledger across databases
   would need a reconciliation strategy. Out of scope until
   sharding is.
+
+---
+
+## 12. Design delta — recomputable cost (proposed)
+
+Status: **Proposed.** Revisits §2.1, §3.3, §3.4. Tracked in
+`sielay/eidan#204`. Not implemented until the shape is agreed; until
+then the frozen behaviour of §2.1 is the only behaviour.
+
+### 12.1 Why revisit "frozen cost"
+
+`§2.1` freezes `cost_usd` on the row and the analytics path "never
+multiplies tokens by a current price — it sums `cost_usd`." The
+strength is immutable audit. The weakness: a **stale or wrong price
+is enshrined forever**, and a price correction can never be
+back-applied. Anthropic and OpenAI expose no pricing API and put no
+cost in the response or headers — only token usage — so the price
+table is maintained out-of-band and *will* sometimes lag a price
+change or carry a bad value (the acute form is the unpriced-model
+silent-$0 fixed under #203). Freezing a guess as if it were ground
+truth is the failure this section addresses.
+
+The reframe: **tokens are ground truth** (already on the row, `§2.1`);
+**price is a derived multiplier** that decays.
+
+### 12.2 Principle — freeze for money, recompute for insight
+
+- Keep `cost_usd` on the row, frozen — but reframed as *"cost as
+  priced at write time,"* an audit/enforcement snapshot, not the sole
+  truth.
+- Add **recomputation**: `cost = tokens × price` where the price is
+  the one effective at the call's `started_at`, against an
+  effective-dated table.
+- **Enforcement (`§5`) and invoices read the frozen value** —
+  deterministic, cheap, and race-stable, so `§5.5`'s slip-tolerance
+  reasoning is untouched. **Analytics (`§7`) and forecasting may read
+  the recomputed value** so corrections propagate.
+
+### 12.3 The effective-dated (bitemporal) price table
+
+```sql
+CREATE TABLE eidan.model_prices (
+  model           text        NOT NULL,
+  effective_from  timestamptz NOT NULL,   -- applies to usage from here
+  recorded_at     timestamptz NOT NULL    -- when the system learned it
+                              DEFAULT now(),
+  input           numeric(12, 6) NOT NULL,
+  output          numeric(12, 6) NOT NULL,
+  cache_read      numeric(12, 6) NOT NULL,
+  cache_creation  numeric(12, 6) NOT NULL,
+  source          text,                   -- provenance: "default" |
+                                          -- "anthropic.page" | "azure.api" | …
+  source_ref      text,                   -- URL / API id / parser version
+  fetched_at      timestamptz,
+  PRIMARY KEY (model, effective_from, recorded_at)
+);
+```
+
+Two time axes (bitemporal):
+
+- `effective_from` — when a price applies to **usage**.
+- `recorded_at` — when this system **learned** it.
+
+A call's cost uses the `model_prices` row with the greatest
+`effective_from ≤ call.started_at` for that model. The `recorded_at`
+axis answers the as-of-knowledge question — *"what did we **think**
+this cost last week, before a correction landed"* — by filtering
+`recorded_at ≤ knowledge_time`. Provenance columns make every
+recompute auditable and a bad ingest traceable.
+
+### 12.4 Ownership — core schema + seed, bundle maintenance
+
+- **Core** owns the table schema, the recompute view, and **ships it
+  seeded from the provider default tables** (`providers/*.py`
+  `_DEFAULT_PRICING`), so a core-only deployment still prices exactly
+  as today.
+- A **paid bundle** owns the *ingestion* that keeps the table fresh
+  (scrape-and-alert for Anthropic/OpenAI, API for Azure/OpenRouter).
+  Core reads whatever rows exist; absent fresh rows it falls back to
+  the seed. Same opportunistic `LEFT JOIN`-on-`to_regclass` pattern
+  `§4.6` already uses for `user_budgets`.
+- The `EIDAN_PRICE_<MODEL>_*` env overrides (`§3.4`) remain the
+  highest-priority overlay; optionally they may carry an
+  `effective_from` so a negotiated-rate change is itself dated.
+
+### 12.5 Recompute surface
+
+A read-only view (`§7.1` naming):
+
+| View                       | Purpose                                                                                  |
+|----------------------------|------------------------------------------------------------------------------------------|
+| `eidan.v_llm_cost_recomputed` | `llm_calls` joined to `model_prices` on (`model`, price effective at `started_at`), exposing `recomputed_cost_usd` alongside the frozen `cost_usd`. Analytics MAY prefer it; enforcement never does. |
+
+`cost_usd`'s meaning for `§5` is unchanged; no migration to the
+enforcement path.
+
+### 12.6 What does NOT change
+
+- `§5` enforcement still reads the frozen `cost_usd` (race-stability,
+  `§5.5`).
+- The ledger stays **append-only** (`§2.2`); recompute is a read-side
+  projection, never a mutation. This also subsumes part of `§11`'s
+  "refund / adjustment" item: a corrected price is a **new
+  effective-dated `model_prices` row**, not a ledger edit.
+
+---
+
+## 13. Design delta — finer budget scopes & throttle (proposed)
+
+Status: **Proposed.** Extends `§4`–`§5`. Tracked in
+`sielay/eidan#205`. Not implemented until agreed.
+
+### 13.1 Two new scopes — per-node, per-model
+
+- **Per-model.** `llm_calls` already carries `model` (`§7.1`
+  `v_llm_cost_per_model_day`, `§8.5` index). A per-model cap is a new
+  aggregate keyed on `model` — cheap, no schema change. Config:
+  `per_model_day_usd` as a `{model: usd}` map.
+- **Per-node.** `llm_calls` carries no node identity today. Add node
+  attribution **reusing the node identity from
+  `024_NODE_TELEMETRY.md`** (do not invent a new one), populated from
+  the host's configured node at write time. Config:
+  `per_node_day_usd`. Index: a partial `(node_id, started_at)` index
+  when any deployment enables it (the lazy-index posture of `§8.5`).
+
+Both fold into the same `min()` composition as `§4.7` and are **hard
+caps** by default. Aggregates mirror `§8`:
+`SUM(cost_usd) WHERE model = $1 AND started_at > now() - $window`,
+and the same keyed on `node_id`.
+
+### 13.2 A throttle tier — the `downgrade` decision
+
+Today the ladder is `allow → wrap_up` (soft, per-turn `§4.1`) `→ deny`
+(hard) — a cliff. Insert **`downgrade`** between `allow` and the caps:
+fired when a scope enters its **warn band** (≥ `warn_fraction` of cap,
+the `0.8` default of `§6.3`) but is not yet over.
+
+Effect: **bias model selection cheaper** — drop the expensive tiers
+and refuse escalation — *before* refusing work. `BudgetDecision`
+(`§5.4`) gains a fourth variant:
+
+```python
+BudgetDecision.downgrade(reason: str, max_tier: str)
+# max_tier = the most expensive model tier still permitted this turn
+```
+
+### 13.3 How it reaches the sizer
+
+The pre-call check (`§5.2`) runs at spawn, but the model is chosen
+earlier, at the sizer (`005 §3` step ④). So budget pressure must reach
+the sizer. Two coordinated hooks:
+
+1. **Sizer-time ceiling.** `resolve_budget_config` (`§4.7`) already
+   runs per turn; expose the warn-band pressure so the sizer caps its
+   `_ALLOWED_MODELS` ladder (drop sonnet/opus when pressured) and
+   refuses the "use opus" escalation
+   (`classifiers/sizer.py:_ESCALATION_MODEL`).
+2. **Pre-call enforcement.** If a call still arrives above `max_tier`
+   (sizer disabled via `EIDAN_SIZER_ENABLED`, a plugin-chosen model,
+   an escalation), the pre-call check returns `downgrade` and the
+   runner **substitutes the permitted cheaper model** rather than
+   denying — only crossing to `deny` at the hard cap.
+
+The **mechanism** is core; the **tier ladder** (which model is "one
+cheaper") is configurable, defaulting to the provider's known tier
+order so a core-only deploy degrades too. A bundle may override the
+ladder.
+
+### 13.4 The updated ladder
+
+```
+allow
+  → downgrade   (warn band: cheaper model, no escalation)
+  → wrap_up     (per-turn soft cap §4.1: finish, tools off)
+  → deny        (hard caps)
+```
+
+Each step is strictly more restrictive than the last.
+
+### 13.5 Race & autonomy notes
+
+- `downgrade` is advisory/graceful, so `§5.5`'s slip-tolerance
+  reasoning is unchanged — a race just means one call at a slightly
+  higher tier.
+- **Per-autonomous-run ceilings** ("this self-closing loop may spend
+  $X then halt") are a *consumer* of this seam, not part of it:
+  autonomous-loop governance (`027` `LoopBudget`) composes a per-run
+  cap and uses `downgrade` for graceful throttle before its hard stop.
+  Core provides the scope + the decision; the per-run policy lives
+  with the loop governor (tracked downstream).
+
+### 13.6 Config additions (`BudgetConfig`, `§4.6`)
+
+```python
+per_node_day_usd:   float | None          # hard; §13.1
+per_model_day_usd:  dict[str, float]       # hard; §13.1 (per model id)
+downgrade_ladder:   list[str] | None       # optional tier override; §13.3
+# warn_fraction already exists (§6.3) and drives the downgrade band.
+```
