@@ -34,6 +34,7 @@ from .patterns import (
     DetectedPattern,
     run_all_detectors,
 )
+from .research import research_loop_enabled, run_pattern_research
 
 logger = logging.getLogger(__name__)
 
@@ -167,11 +168,24 @@ async def run_sentry_tick(
                         and spawn_turn is not None
                         and _spawn_turn_enabled()
                     ):
-                        await _try_spawn_turn(
-                            spawn_turn=spawn_turn,
-                            user_id=user_id,
-                            pattern=pattern,
-                        )
+                        # When the research loop is enabled, a high-severity
+                        # pattern gets a bounded, governed multi-turn
+                        # investigation (#186); otherwise the single-turn
+                        # kickoff. Both gated by EIDAN_SENTRY_HIGH_INITIATES_TURN
+                        # (cost) above.
+                        if research_loop_enabled():
+                            await run_pattern_research(
+                                spawn_turn=spawn_turn,
+                                conn=conn,
+                                user_id=user_id,
+                                pattern=pattern,
+                            )
+                        else:
+                            await _try_spawn_turn(
+                                spawn_turn=spawn_turn,
+                                user_id=user_id,
+                                pattern=pattern,
+                            )
             summary[str(user_id)] = [p.name for p in patterns]
     return summary
 
