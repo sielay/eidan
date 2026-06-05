@@ -9,7 +9,18 @@ progress, and budget-takes-precedence-over-stuck ordering.
 
 from __future__ import annotations
 
-from eidan_backend.loop_governor import LoopBudget, LoopGovernor
+import pytest
+from eidan_backend.escalations import (
+    EscalationReason,
+    EscalationSeverity,
+    escalation_for_loop_stop,
+)
+from eidan_backend.loop_governor import (
+    LoopBudget,
+    LoopGovernor,
+    StepResult,
+    run_governed_loop,
+)
 
 
 class _FakeClock:
@@ -119,3 +130,74 @@ def test_budget_takes_precedence_over_stuck() -> None:
     v = gov.verdict()
     assert v.kind == "budget"
     assert v.cause == "iterations"
+
+
+# --------------------------------------------------------------------------- #
+# run_governed_loop — the loop engine driving steps under the governor
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_governed_loop_completes_on_done() -> None:
+    """A step signalling done ends the loop cleanly — not a bail."""
+
+    async def step(i: int) -> StepResult:
+        return StepResult(fingerprint=f"s{i}", done=(i == 2), payload=i)
+
+    gov = LoopGovernor(budget=LoopBudget(max_iterations=10))
+    outcome = await run_governed_loop(governor=gov, step=step)
+    assert outcome.stopped_by == "done"
+    assert outcome.steps == 3
+    assert outcome.bailed is False
+    assert outcome.last_payload == 2
+
+
+@pytest.mark.asyncio
+async def test_governed_loop_bails_on_budget() -> None:
+    async def step(i: int) -> StepResult:
+        return StepResult(fingerprint=f"s{i}")  # distinct, never done
+
+    gov = LoopGovernor(budget=LoopBudget(max_iterations=2))
+    outcome = await run_governed_loop(governor=gov, step=step)
+    assert outcome.stopped_by == "budget"
+    assert outcome.bailed is True
+    assert outcome.steps == 2
+    assert outcome.verdict.cause == "iterations"
+
+
+@pytest.mark.asyncio
+async def test_governed_loop_bails_on_stuck() -> None:
+    async def step(i: int) -> StepResult:
+        return StepResult(fingerprint="same")  # repeated intent, never done
+
+    gov = LoopGovernor(budget=LoopBudget(), no_progress_repeat=3)
+    outcome = await run_governed_loop(governor=gov, step=step)
+    assert outcome.stopped_by == "stuck"
+    assert outcome.bailed is True
+    assert outcome.verdict.cause == "repeat"
+
+
+@pytest.mark.asyncio
+async def test_governed_loop_safety_cap_with_no_budget() -> None:
+    """All budget axes None + a step that never finishes → the absolute
+    safety cap stops it rather than spinning forever."""
+
+    async def step(i: int) -> StepResult:
+        return StepResult(fingerprint=f"s{i}")  # distinct, never done
+
+    gov = LoopGovernor(budget=LoopBudget())  # no limits
+    outcome = await run_governed_loop(governor=gov, step=step, safety_cap=5)
+    assert outcome.steps == 5
+    assert outcome.stopped_by == "budget"
+
+
+def test_escalation_for_loop_stop_mapping() -> None:
+    assert escalation_for_loop_stop("cost") == (
+        EscalationSeverity.MEDIUM,
+        EscalationReason.OVER_BUDGET,
+    )
+    assert escalation_for_loop_stop("iterations")[1] == EscalationReason.OVER_CAPACITY
+    assert escalation_for_loop_stop("wall_clock")[1] == EscalationReason.OVER_CAPACITY
+    assert escalation_for_loop_stop("repeat")[1] == EscalationReason.NO_PROGRESS
+    assert escalation_for_loop_stop("idle")[1] == EscalationReason.NO_PROGRESS
+    assert escalation_for_loop_stop("???")[1] == EscalationReason.OTHER
