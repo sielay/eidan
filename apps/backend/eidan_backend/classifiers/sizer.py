@@ -21,6 +21,12 @@ _ALLOWED_MODELS: tuple[str, ...] = (
     "claude-sonnet-4-6",
 )
 
+# User-requested escalation target (the "use opus" branch below). Kept
+# out of _ALLOWED_MODELS because the sizer never picks it on its own —
+# only an explicit operator request reaches it. Named so the price-table
+# regression guard (tests/test_pricing.py) can assert it stays priced.
+_ESCALATION_MODEL = "claude-opus-4-7"
+
 
 def _sizer_enabled() -> bool:
     """``EIDAN_SIZER_ENABLED`` kill switch.
@@ -151,7 +157,7 @@ async def pick_model(
         phrase in user_text_lower
         for phrase in ("use opus", "opus model", "claude opus", "claude-opus")
     ):
-        model = "claude-opus-4-7"
+        model = _ESCALATION_MODEL
         reason = "user-requested opus"
 
     return SizerResult(model=model, escalation_reason=reason), call
