@@ -975,6 +975,12 @@ async def run_turn(
     )
 
 
+class ConversationAccessError(Exception):
+    """An agent-initiated turn targeted a conversation its user does not
+    own — the ``#184`` ownership guard. Raised lazily when the returned
+    async generator is first consumed."""
+
+
 async def run_agent_initiated_turn(
     *,
     pool: asyncpg.Pool,
@@ -1008,8 +1014,9 @@ async def run_agent_initiated_turn(
     Conversation handling:
 
     - conversation_id given → land the turn under that
-      conversation. Caller is responsible for choosing one the
-      operator considers "agent log"-shaped.
+      conversation, **after verifying the user owns it**
+      (``ConversationAccessError`` otherwise). Caller is responsible
+      for choosing one the operator considers "agent log"-shaped.
     - conversation_id not given → create a fresh one with
       title = conversation_title or '[${agent_name}] tick'. The
       operator can rename it via the UI.
@@ -1019,7 +1026,7 @@ async def run_agent_initiated_turn(
     identity for completeness. Loop-side code uses the user_id;
     email is informational.
     """
-    from .persistence import create_conversation
+    from .persistence import conversation_belongs_to, create_conversation
 
     identity = Identity.synthetic_for_agent(
         str(user_id),
@@ -1032,6 +1039,23 @@ async def run_agent_initiated_turn(
         async with acquire(pool, identity) as conn:
             conversation_id = await create_conversation(
                 conn, user_id=user_id, title=title
+            )
+    else:
+        # Ownership guard (#184): a caller that supplies a
+        # conversation_id must own it. Without this an agent-initiated
+        # turn could land in any operator's thread. `conversation_belongs_to`
+        # already existed; it just wasn't wired on this path. It filters
+        # `deleted_at IS NULL`, so a soft-deleted conversation reads as
+        # not-owned.
+        async with acquire(pool, identity) as conn:
+            owned = await conversation_belongs_to(
+                conn, conversation_id=conversation_id, user_id=user_id
+            )
+        if not owned:
+            raise ConversationAccessError(
+                f"agent '{agent_name}' may not initiate a turn in "
+                f"conversation {conversation_id}: not owned by user "
+                f"{user_id} (or soft-deleted)"
             )
 
     ctx = TurnContext(
