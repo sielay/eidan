@@ -29,6 +29,24 @@ class AuthError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class Actor:
+    """Provenance for a turn — *what* initiated it (`docs/028 §1`).
+
+    Distinct from the turn's ``on_behalf_of`` :class:`Identity` (the
+    principal whose data / cost / RLS the turn touches). ``Actor`` is
+    **provenance-only**: it is recorded in the seed message's metadata
+    and never affects attribution. Chains reconstruct by following
+    ``ref`` (a turn initiated by a turn initiated by an agent).
+    """
+
+    kind: str  # "user" | "agent" | "turn" | "schedule"
+    ref: str  # user_id / agent_name / originating message id / trigger id
+
+    def as_metadata(self) -> dict:
+        return {"kind": self.kind, "ref": self.ref}
+
+
+@dataclass(frozen=True, slots=True)
 class Identity:
     """The post-validation identity record carried through a turn."""
 

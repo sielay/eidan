@@ -53,7 +53,7 @@ from .failure_detector import (
 )
 from .failure_detector import detect as detect_failure
 from .failure_detector import detect_pre_primary as detect_failure_pre_primary
-from .identity import Identity, current_agent_id, current_identity
+from .identity import Actor, Identity, current_agent_id, current_identity
 from .persistence import (
     capture_call_inputs,
     cost_summary_for_turn,
@@ -202,6 +202,7 @@ async def run_turn(
     max_turn_cost_usd: float | None = None,
     telemetry: TelemetryEmitter | None = None,
     agent_name: str = "operator",
+    seed_metadata: dict[str, Any] | None = None,
 ) -> AsyncIterator[AssistantChunk | TurnComplete]:
     """Drive one turn end-to-end. Yields chunks, then a TurnComplete.
 
@@ -260,10 +261,12 @@ async def run_turn(
         # ``parent_message_id`` + ``depth`` so a query against this
         # message's metadata recovers the parent linkage from
         # ``docs/008``.
-        msg_metadata: dict[str, Any] = {
-            "sent_at_utc": sent_at_utc.isoformat(),
-            "user_tz": user_tz,
-        }
+        # Start from any caller-supplied provenance (e.g. ``initiated_by``
+        # for agent-initiated turns — #187/#184), then stamp the loop's
+        # authoritative keys last so a caller can't clobber them.
+        msg_metadata: dict[str, Any] = dict(seed_metadata or {})
+        msg_metadata["sent_at_utc"] = sent_at_utc.isoformat()
+        msg_metadata["user_tz"] = user_tz
         if ctx.depth > 0:
             msg_metadata["depth"] = ctx.depth
         if ctx.parent_message_id is not None:
@@ -1004,6 +1007,7 @@ async def run_agent_initiated_turn(
     max_turn_cost_usd: float | None = None,
     user_email: str | None = None,
     telemetry: TelemetryEmitter | None = None,
+    initiated_by: Actor | None = None,
 ) -> AsyncIterator[AssistantChunk | TurnComplete]:
     """Drive a turn that an agent (cron behaviour, Sentry tick, plugin) initiates
     without an inbound user JWT.
@@ -1071,6 +1075,13 @@ async def run_agent_initiated_turn(
     )
     sent_at = sent_at_utc or datetime.now(tz=UTC)
 
+    # Provenance (#187/#184): record WHAT initiated this turn on the seed
+    # message. Defaults to the agent itself; a caller can pass a different
+    # Actor (e.g. a chain link, or the user who scheduled it). The
+    # on_behalf_of principal stays ``user_id`` — initiated_by never
+    # affects attribution (docs/028 §1, §4).
+    actor = initiated_by or Actor(kind="agent", ref=agent_name)
+
     async for event in run_turn(
         pool=pool,
         provider=provider,
@@ -1083,5 +1094,6 @@ async def run_agent_initiated_turn(
         max_turn_cost_usd=max_turn_cost_usd,
         telemetry=telemetry,
         agent_name=agent_name,
+        seed_metadata={"initiated_by": actor.as_metadata()},
     ):
         yield event

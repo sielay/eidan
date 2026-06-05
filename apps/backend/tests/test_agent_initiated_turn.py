@@ -17,10 +17,11 @@ Two halves:
 
 from __future__ import annotations
 
+import json
 from uuid import UUID, uuid4
 
 import pytest
-from eidan_backend.identity import Identity
+from eidan_backend.identity import Actor, Identity
 from eidan_backend.loop import (
     ConversationAccessError,
     TurnComplete,
@@ -169,3 +170,89 @@ async def test_run_agent_initiated_turn_rejects_unowned_conversation() -> None:
     assert not [
         sql for sql, _ in store.executes if "INTO eidan.conversations" in sql
     ]
+
+
+def _seed_message_metadata(store: FakeStore) -> dict:
+    """The metadata jsonb of the single inbound user message the turn
+    wrote. insert_user_message positions metadata at arg index 4
+    ($5::jsonb)."""
+    user_inserts = [
+        args
+        for sql, args in store.executes
+        if "INTO eidan.messages" in sql and "'user'" in sql
+    ]
+    assert len(user_inserts) == 1
+    return json.loads(user_inserts[0][4])
+
+
+def test_actor_as_metadata() -> None:
+    assert Actor(kind="turn", ref="abc").as_metadata() == {
+        "kind": "turn",
+        "ref": "abc",
+    }
+
+
+@pytest.mark.asyncio
+async def test_agent_initiated_turn_stamps_initiated_by_provenance() -> None:
+    """#184/#187: the seed message records WHAT initiated the turn —
+    defaulting to the agent — as provenance metadata, alongside the
+    loop's own keys. on_behalf_of stays the user_id; initiated_by is
+    provenance-only."""
+    provider = FakeProvider(
+        [
+            ScriptedTurn(text='["chitchat"]'),
+            ScriptedTurn(text="claude-sonnet-4-6"),
+            ScriptedTurn(text='{"actions": []}'),
+            ScriptedTurn(text="ok"),
+        ]
+    )
+    store = FakeStore()
+    pool = FakePool(store)
+    user_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa4")
+
+    async for _ in run_agent_initiated_turn(
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        user_id=user_id,
+        agent_name="sentry",
+        prompt_text="anything to surface?",
+    ):
+        pass
+
+    meta = _seed_message_metadata(store)
+    assert meta["initiated_by"] == {"kind": "agent", "ref": "sentry"}
+    # the loop's authoritative keys survive the merge
+    assert "sent_at_utc" in meta
+    assert "user_tz" in meta
+
+
+@pytest.mark.asyncio
+async def test_agent_initiated_turn_accepts_explicit_actor() -> None:
+    """A caller can override the initiator — e.g. the user who scheduled
+    the work, or a chain link — without affecting on_behalf_of."""
+    provider = FakeProvider(
+        [
+            ScriptedTurn(text='["chitchat"]'),
+            ScriptedTurn(text="claude-sonnet-4-6"),
+            ScriptedTurn(text='{"actions": []}'),
+            ScriptedTurn(text="ok"),
+        ]
+    )
+    store = FakeStore()
+    pool = FakePool(store)
+    user_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa5")
+
+    async for _ in run_agent_initiated_turn(
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        user_id=user_id,
+        agent_name="sentry",
+        prompt_text="x",
+        initiated_by=Actor(kind="user", ref=str(user_id)),
+    ):
+        pass
+
+    meta = _seed_message_metadata(store)
+    assert meta["initiated_by"] == {"kind": "user", "ref": str(user_id)}
