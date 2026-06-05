@@ -177,10 +177,16 @@ class TurnComplete:
     eventually UI) can correlate streaming output with persisted state.
     ``assistant_message_id`` is the *final* assistant text turn — the
     one the UI renders — not any intermediate tool_use turn.
+
+    ``iterations`` is the number of primary-loop iterations the turn
+    ran; the spawn telemetry emit (`spawn.py`) reads it for the
+    ``agent.spawn.complete`` event. Defaults to 0 so existing
+    constructors stay valid.
     """
 
     user_message_id: UUID
     assistant_message_id: UUID
+    iterations: int = 0
 
 
 async def run_turn(
@@ -972,6 +978,7 @@ async def run_turn(
     yield TurnComplete(
         user_message_id=user_message_id,
         assistant_message_id=final_assistant_id,
+        iterations=iterations_used,
     )
 
 
