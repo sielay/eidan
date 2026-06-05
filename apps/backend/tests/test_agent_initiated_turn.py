@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 import pytest
 from eidan_backend.identity import Identity
 from eidan_backend.loop import (
+    ConversationAccessError,
     TurnComplete,
     run_agent_initiated_turn,
 )
@@ -118,6 +119,9 @@ async def test_run_agent_initiated_turn_reuses_existing_conversation() -> None:
     pool = FakePool(store)
     user_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2")
     pinned_conv = uuid4()
+    # The caller owns the pinned conversation — the #184 ownership guard
+    # checks this before reusing it.
+    store.owned_conversations.add((pinned_conv, user_id))
 
     async for _ in run_agent_initiated_turn(
         pool=pool,  # type: ignore[arg-type]
@@ -136,3 +140,32 @@ async def test_run_agent_initiated_turn_reuses_existing_conversation() -> None:
         if "INSERT INTO eidan.conversations" in sql
     ]
     assert conv_inserts == [], "should not create a new conversation when one is supplied"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_initiated_turn_rejects_unowned_conversation() -> None:
+    """#184 ownership guard: supplying a conversation_id the user does not
+    own raises ConversationAccessError before any provider work — an
+    agent must not be able to land a turn in another operator's thread."""
+    provider = FakeProvider([])  # never reached — guard fires first
+    store = FakeStore()
+    pool = FakePool(store)
+    user_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3")
+    foreign_conv = uuid4()  # deliberately NOT seeded as owned
+
+    with pytest.raises(ConversationAccessError):
+        async for _ in run_agent_initiated_turn(
+            pool=pool,  # type: ignore[arg-type]
+            provider=provider,  # type: ignore[arg-type]
+            model="claude-sonnet-4-6",
+            user_id=user_id,
+            agent_name="sentry",
+            prompt_text="prompt",
+            conversation_id=foreign_conv,
+        ):
+            pass
+
+    # No conversation INSERT, no message writes — the guard short-circuits.
+    assert not [
+        sql for sql, _ in store.executes if "INTO eidan.conversations" in sql
+    ]

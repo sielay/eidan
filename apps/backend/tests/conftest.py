@@ -222,7 +222,13 @@ class FakeConnection:
             # somewhere to attribute messages to.
             from uuid import uuid4 as _uuid4
 
-            return {"id": _uuid4()}
+            minted = _uuid4()
+            # create_conversation's VALUES are ($1 user_id, $2 title);
+            # record the new row as owned so a later ownership check
+            # (conversation_belongs_to) on this conversation passes.
+            if args:
+                self.store.owned_conversations.add((minted, args[0]))
+            return {"id": minted}
         if "FROM eidan.llm_calls" in sql or "from eidan.llm_calls" in sql:
             # The loop's per-turn cost summary aggregates inserted rows.
             # Replay the in-memory llm_calls inserts so the budget cap
@@ -246,6 +252,13 @@ class FakeConnection:
                 "output_tokens": sum(int(r[7]) for r in rows),
                 "started_at": None,
             }
+        if "FROM eidan.conversations" in sql and "deleted_at IS NULL" in sql:
+            # ``conversation_belongs_to``: SELECT 1 ... WHERE id=$1 AND
+            # user_id=$2 AND deleted_at IS NULL. Truthy row iff the
+            # (conversation_id, user_id) pair was seeded as owned (#184).
+            if (args[0], args[1]) in self.store.owned_conversations:
+                return {"?column?": 1}
+            return None
         return None
 
 
@@ -287,6 +300,10 @@ class FakeStore:
     # who has saved a persona.
     default_code_defaults: dict = field(default_factory=dict)
     default_user_overrides: dict = field(default_factory=dict)
+    # (conversation_id, user_id) pairs treated as owned by
+    # ``conversation_belongs_to``: auto-seeded on create_conversation and
+    # settable directly for the agent-initiated-turn ownership guard (#184).
+    owned_conversations: set = field(default_factory=set)
 
     def messages_by_role(self, role: str) -> list[tuple[str, tuple]]:
         # Crude but adequate: persistence.py uses 'role=user', 'role=assistant',
