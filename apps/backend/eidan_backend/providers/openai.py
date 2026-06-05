@@ -157,6 +157,9 @@ def _estimate_cost(
 ) -> float:
     rates = _pricing_for(model)
     if rates is None:
+        from ..pricing import warn_unpriced_model
+
+        warn_unpriced_model(model, source="openai")
         return 0.0
     return round(
         (

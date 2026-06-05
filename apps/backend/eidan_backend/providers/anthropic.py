@@ -33,6 +33,12 @@ from .base import (
 # USD per 1M tokens. Conservative defaults; an operator can override at
 # runtime via env vars (see :func:`_pricing_for`).
 _DEFAULT_PRICING: dict[str, dict[str, float]] = {
+    "claude-opus-4-8": {
+        "input": 5.0,
+        "output": 25.0,
+        "cache_read": 0.50,
+        "cache_creation": 6.25,
+    },
     "claude-opus-4-7": {
         "input": 15.0,
         "output": 75.0,
@@ -102,6 +108,9 @@ def _estimate_cost(
 ) -> float:
     rates = _pricing_for(model)
     if rates is None:
+        from ..pricing import warn_unpriced_model
+
+        warn_unpriced_model(model, source="anthropic")
         return 0.0
     return round(
         (
