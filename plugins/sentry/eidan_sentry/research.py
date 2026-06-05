@@ -128,6 +128,7 @@ async def run_pattern_research(
     conn: asyncpg.Connection,
     user_id: UUID,
     pattern: DetectedPattern,
+    assess: Any | None = None,
 ) -> None:
     """Run a bounded governed investigation of a high-severity pattern in
     one conversation, then escalate the outcome. Best-effort — never
@@ -138,6 +139,11 @@ async def run_pattern_research(
             conn, user_id=user_id, title=f"[sentry] research: {pattern.name}"
         )
         governor = LoopGovernor(budget=loop_budget())
+        goal = (
+            f"Investigate and resolve sentry pattern '{pattern.name}': "
+            f"{pattern.summary}"
+        )
+        gathered: list[str] = []
 
         async def step(i: int) -> StepResult:
             notes_before = await _count_notes(conn, conv_id)
@@ -162,12 +168,22 @@ async def run_pattern_research(
                 cost = float(summary.get("cost_usd") or 0.0)
             notes_after = await _count_notes(conn, conv_id)
             text = "".join(text_parts)
+            gathered.append(text)
             fingerprint = hashlib.sha256(text.encode()).hexdigest()
+            # The independent critic decides "enough" when wired (#186
+            # slice 2) — it can confirm or overrule the investigator's own
+            # [DONE]. Without a provider (ctx.assess_sufficiency is None),
+            # fall back to the [DONE] self-declaration.
+            if assess is not None:
+                verdict = await assess(goal=goal, gathered="\n\n".join(gathered))
+                done = bool(getattr(verdict, "sufficient", False))
+            else:
+                done = _DONE_TOKEN in text
             return StepResult(
                 fingerprint=fingerprint,
                 cost_usd=cost,
                 produced_new_memory=notes_after > notes_before,
-                done=_DONE_TOKEN in text,  # agent self-declared completion
+                done=done,
                 payload=anchor,
             )
 

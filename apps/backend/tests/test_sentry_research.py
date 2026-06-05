@@ -21,8 +21,19 @@ from eidan_backend.db import create_pool
 from eidan_backend.loop import TurnComplete
 from eidan_backend.persistence import upsert_user
 from eidan_backend.providers.base import AssistantChunk
+from eidan_backend.sufficiency import SufficiencyVerdict
 
 from .conftest import build_identity
+
+
+def _fake_assess(*, sufficient: bool):
+    """A stand-in for ctx.assess_sufficiency that always returns the given
+    verdict — lets a DB test drive the loop's done decision deterministically."""
+
+    async def _assess(*, goal: str, gathered: str) -> SufficiencyVerdict:
+        return SufficiencyVerdict(sufficient=sufficient, reason="test")
+
+    return _assess
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SENTRY_DIR = _REPO_ROOT / "plugins" / "sentry" / "eidan_sentry"
@@ -193,5 +204,68 @@ async def test_research_loop_concludes_without_escalating(eidan_db, monkeypatch)
                 user_id,
             )
         assert convs == 1
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_research_loop_critic_concludes(eidan_db, monkeypatch) -> None:
+    """With the independent critic wired and saying SUFFICIENT, the loop
+    concludes (no escalation) regardless of the agent's own text."""
+    research, patterns = _load_sentry()
+    monkeypatch.setenv("EIDAN_SENTRY_LOOP_MAX_ITERATIONS", "10")
+
+    identity = build_identity()
+    user_id = UUID(identity.user_id)
+    pattern = patterns.DetectedPattern(
+        name="overdue_events", severity="high", reason_class="over_capacity",
+        summary="2 overdue", metadata={},
+    )
+    pool = await create_pool(eidan_db)
+    try:
+        async with pool.acquire() as conn:
+            await upsert_user(conn, user_id=user_id, email=identity.email)
+            await research.run_pattern_research(
+                spawn_turn=_fake_spawn_turn(texts=["investigating"]),
+                conn=conn,
+                user_id=user_id,
+                pattern=pattern,
+                assess=_fake_assess(sufficient=True),
+            )
+        assert await _escalations_for(pool, user_id) == []
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_research_loop_critic_overrules_done_token(eidan_db, monkeypatch) -> None:
+    """The agent emits [DONE], but the independent critic says CONTINUE —
+    the critic wins, so the loop keeps going and ultimately bails on
+    budget and escalates. Proves the second voice can overrule a
+    premature/false self-declaration."""
+    research, patterns = _load_sentry()
+    monkeypatch.setenv("EIDAN_SENTRY_LOOP_MAX_ITERATIONS", "2")
+
+    identity = build_identity()
+    user_id = UUID(identity.user_id)
+    pattern = patterns.DetectedPattern(
+        name="idle_too_long", severity="high", reason_class="over_capacity",
+        summary="quiet", metadata={},
+    )
+    pool = await create_pool(eidan_db)
+    try:
+        async with pool.acquire() as conn:
+            await upsert_user(conn, user_id=user_id, email=identity.email)
+            await research.run_pattern_research(
+                # Each turn falsely claims done — the critic overrules.
+                spawn_turn=_fake_spawn_turn(texts=["all good [DONE]"]),
+                conn=conn,
+                user_id=user_id,
+                pattern=pattern,
+                assess=_fake_assess(sufficient=False),
+            )
+        esc = await _escalations_for(pool, user_id)
+        assert len(esc) == 1
+        assert esc[0]["reason_class"] == "over_capacity"
     finally:
         await pool.close()

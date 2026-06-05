@@ -55,6 +55,11 @@ class Plugin(PluginBase):
         self._db: object | None = None
         self._notify: object | None = None
         self._spawn_turn: object | None = None
+        # ctx.assess_sufficiency is the loop-level second-voice critic the
+        # research loop uses to decide a turn-sequence is "enough" (#186);
+        # None when no provider is wired, in which case the loop falls back
+        # to the investigator's own [DONE] self-declaration.
+        self._assess_sufficiency: object | None = None
 
     async def on_install(self, ctx: PluginContext) -> None:
         logger.info("[sentry] on_install (name=%s)", ctx.name)
@@ -69,6 +74,7 @@ class Plugin(PluginBase):
         self._db = ctx.db
         self._notify = ctx.notify
         self._spawn_turn = ctx.spawn_turn
+        self._assess_sufficiency = ctx.assess_sufficiency
         ctx.register_behaviours(
             [
                 Behaviour(
@@ -84,6 +90,7 @@ class Plugin(PluginBase):
         self._db = None
         self._notify = None
         self._spawn_turn = None
+        self._assess_sufficiency = None
 
     async def on_uninstall(self, ctx: PluginContext) -> None:
         logger.info("[sentry] on_uninstall (name=%s)", ctx.name)
@@ -123,6 +130,7 @@ class Plugin(PluginBase):
                 tick_id=event.idempotency_key,
                 notify=self._notify,
                 spawn_turn=self._spawn_turn,
+                assess_sufficiency=self._assess_sufficiency,
             )
         except Exception as exc:  # noqa: BLE001 — surface in BehaviourResult
             logger.exception("[sentry] tick failed")
