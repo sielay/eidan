@@ -21,10 +21,17 @@ vendor's id via the env-var overlay regardless.
 
 from __future__ import annotations
 
+import logging
 import os
 
 from .providers.anthropic import _DEFAULT_PRICING as _ANTHROPIC_PRICING
 from .providers.openai import _DEFAULT_PRICING as _OPENAI_PRICING
+
+_logger = logging.getLogger(__name__)
+
+# Model ids already warned about this process, so a busy loop on a
+# missing model warns once, not once per call. See warn_unpriced_model.
+_warned_unpriced: set[str] = set()
 
 _RATE_KEYS = ("input", "output", "cache_read", "cache_creation")
 
@@ -70,6 +77,36 @@ def pricing_for(model: str) -> dict[str, float] | None:
     return rates
 
 
+def warn_unpriced_model(model: str, *, source: str) -> None:
+    """Emit a one-shot structured warning for an unpriceable model.
+
+    `docs/010 §3.3` requires an unpriced model to surface as a
+    misconfiguration rather than bill silently at ``$0``. We log once
+    per model id per process — a busy loop on a missing model must not
+    flood the logs — at WARNING with a structured
+    ``budget.unpriced_model`` event. The caller still returns
+    ``cost_usd = 0`` so the row lands and the operator sees real token
+    usage against a ``$0`` cost in the dashboard. ``source`` names the
+    pricing path that missed (``"host"`` / ``"anthropic"`` /
+    ``"openai"``).
+    """
+    if model in _warned_unpriced:
+        return
+    _warned_unpriced.add(model)
+    _logger.warning(
+        "model %r has no price-table entry and no EIDAN_PRICE_%s_* "
+        "override; billing it at $0 — add it to the price table or set "
+        "the overrides",
+        model,
+        model_env_key(model),
+        extra={
+            "event": "budget.unpriced_model",
+            "model": model,
+            "source": source,
+        },
+    )
+
+
 def compute_cost_usd(
     model: str,
     *,
@@ -84,10 +121,12 @@ def compute_cost_usd(
     rate axes the env-var overlay covers. A model that's missing
     from every source returns ``0.0`` — the row still lands so
     the operator can spot the misconfiguration in dashboards
-    (`docs/010 §3.3`).
+    (`docs/010 §3.3`) — and :func:`warn_unpriced_model` emits a
+    one-shot WARNING so the $0 is never silent.
     """
     rates = pricing_for(model)
     if rates is None:
+        warn_unpriced_model(model, source="host")
         return 0.0
     return round(
         (
@@ -105,4 +144,5 @@ __all__ = [
     "compute_cost_usd",
     "model_env_key",
     "pricing_for",
+    "warn_unpriced_model",
 ]

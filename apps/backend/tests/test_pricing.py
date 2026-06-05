@@ -39,6 +39,78 @@ def test_compute_cost_usd_unknown_model_is_zero() -> None:
     assert compute_cost_usd("not-a-real-model", input_tokens=1_000_000) == 0.0
 
 
+def test_compute_cost_usd_opus_4_8_is_priced() -> None:
+    # Current flagship must be in the table so it never bills at $0
+    # (issue #203). Input rate is $5 per Mtok.
+    cost = compute_cost_usd("claude-opus-4-8", input_tokens=1_000_000)
+    assert cost == pytest.approx(5.0)
+
+
+def test_unpriced_model_logs_structured_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # docs/010 §3.3 / issue #203: an unpriced model must surface as a
+    # misconfiguration, never bill silently at $0.
+    import eidan_backend.pricing as pricing_mod
+
+    pricing_mod._warned_unpriced.discard("ghost-model-a")
+    with caplog.at_level("WARNING", logger="eidan_backend.pricing"):
+        cost = compute_cost_usd("ghost-model-a", input_tokens=1_000_000)
+
+    assert cost == 0.0
+    events = [
+        r
+        for r in caplog.records
+        if getattr(r, "event", None) == "budget.unpriced_model"
+        and getattr(r, "model", None) == "ghost-model-a"
+    ]
+    assert len(events) == 1
+    assert events[0].source == "host"
+
+
+def test_unpriced_warning_is_once_per_model(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import eidan_backend.pricing as pricing_mod
+
+    pricing_mod._warned_unpriced.discard("ghost-model-b")
+    with caplog.at_level("WARNING", logger="eidan_backend.pricing"):
+        compute_cost_usd("ghost-model-b", input_tokens=1)
+        compute_cost_usd("ghost-model-b", input_tokens=1)
+
+    events = [
+        r
+        for r in caplog.records
+        if getattr(r, "event", None) == "budget.unpriced_model"
+        and getattr(r, "model", None) == "ghost-model-b"
+    ]
+    assert len(events) == 1
+
+
+def test_every_default_model_id_is_priced() -> None:
+    # Regression guard (issue #203): every model id the host can emit
+    # from its own config / classifier / critic / sizer defaults must
+    # resolve to a price-table entry, or it bills at $0.
+    from eidan_backend.classifiers.behaviour import _CLASSIFIER_MODEL
+    from eidan_backend.classifiers.scope import _DEFAULT_CLASSIFIER_MODEL
+    from eidan_backend.classifiers.sizer import _ALLOWED_MODELS, _ESCALATION_MODEL
+    from eidan_backend.config import BackendSettings
+    from eidan_backend.critic import _CRITIC_MODEL
+
+    default_model = BackendSettings.model_fields["default_model"].default
+
+    referenced = {
+        default_model,
+        _CRITIC_MODEL,
+        _CLASSIFIER_MODEL,
+        _DEFAULT_CLASSIFIER_MODEL,
+        _ESCALATION_MODEL,
+        *_ALLOWED_MODELS,
+    }
+    unpriced = sorted(m for m in referenced if pricing_for(m) is None)
+    assert not unpriced, f"unpriced default model ids: {unpriced}"
+
+
 def test_compute_cost_usd_env_override_takes_precedence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
