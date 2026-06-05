@@ -151,18 +151,84 @@ async def create_conversation(
     *,
     user_id: UUID,
     title: str | None = None,
+    parent_conversation_id: UUID | None = None,
+    origin_message_id: UUID | None = None,
 ) -> UUID:
+    """Create a conversation, optionally as a child of another (#185).
+
+    ``parent_conversation_id`` / ``origin_message_id`` default to
+    ``None`` — a root conversation, the existing shape. When set, the
+    new row is a child stemming from that conversation (and, if given,
+    the specific message that spawned it), navigable via
+    :func:`list_child_conversations`. Children are NOT message forks —
+    they live in their own conversation, not inlined in the parent's
+    message stream.
+    """
     row = await conn.fetchrow(
         """
-        INSERT INTO eidan.conversations (user_id, title)
-        VALUES ($1, $2)
+        INSERT INTO eidan.conversations
+            (user_id, title, parent_conversation_id, origin_message_id)
+        VALUES ($1, $2, $3, $4)
         RETURNING id
         """,
         user_id,
         title,
+        parent_conversation_id,
+        origin_message_id,
     )
     assert row is not None
     return row["id"]
+
+
+async def list_child_conversations(
+    conn: asyncpg.Connection,
+    *,
+    parent_conversation_id: UUID,
+    user_id: UUID,
+) -> list[dict]:
+    """Child conversations of ``parent_conversation_id`` owned by
+    ``user_id``, newest first. Soft-deleted rows are excluded, matching
+    the partial index ``idx_conversations_parent`` (#185 / ``003 §1.3``).
+    """
+    rows = await conn.fetch(
+        """
+        SELECT id, title, parent_conversation_id, origin_message_id,
+               created_at
+        FROM eidan.conversations
+        WHERE parent_conversation_id = $1
+          AND user_id = $2
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC
+        """,
+        parent_conversation_id,
+        user_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def list_child_conversations_for_message(
+    conn: asyncpg.Connection,
+    *,
+    origin_message_id: UUID,
+    user_id: UUID,
+) -> list[dict]:
+    """Child conversations that stem from a specific message, owned by
+    ``user_id``, newest first. Lets a UI anchor children under the turn
+    that spawned them (#185)."""
+    rows = await conn.fetch(
+        """
+        SELECT id, title, parent_conversation_id, origin_message_id,
+               created_at
+        FROM eidan.conversations
+        WHERE origin_message_id = $1
+          AND user_id = $2
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC
+        """,
+        origin_message_id,
+        user_id,
+    )
+    return [dict(r) for r in rows]
 
 
 async def insert_user_message(
