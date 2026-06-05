@@ -16,7 +16,7 @@ import json
 import os
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 import asyncpg
 
@@ -88,6 +88,46 @@ async def upsert_user(
         user_id,
         email,
     )
+
+
+# Fixed namespace for deriving a service-account user id from an agent
+# name (#187 / docs/028 §3). Deterministic so ensure_service_account is
+# idempotent across processes/nodes with no lookup.
+_AGENT_USER_NAMESPACE = UUID("eada0000-0000-4000-8000-000000000187")
+
+
+def service_account_id(agent_name: str) -> UUID:
+    """Deterministic ``eidan.users.id`` for an agent's service account.
+
+    The same ``agent_name`` always maps to the same id, so every node
+    converges on one row without coordination."""
+    return uuid5(_AGENT_USER_NAMESPACE, f"eidan-agent:{agent_name}")
+
+
+async def ensure_service_account(
+    conn: asyncpg.Connection,
+    *,
+    agent_name: str,
+    email: str | None = None,
+) -> UUID:
+    """Lazily provision (and return) the ``kind='agent'`` service-account
+    ``users`` row for an agent acting on its own behalf — model C
+    (#187 / ``docs/028``).
+
+    Idempotent on the derived id, so concurrent callers / nodes collapse
+    to one row. The row is never JWT-authenticated (``docs/028 §8``);
+    ``email`` is informational only and defaults to ``None``."""
+    uid = service_account_id(agent_name)
+    await conn.execute(
+        """
+        INSERT INTO eidan.users (id, email, kind)
+        VALUES ($1, $2, 'agent')
+        ON CONFLICT (id) DO NOTHING
+        """,
+        uid,
+        email,
+    )
+    return uid
 
 
 async def ensure_default_agent_context(
