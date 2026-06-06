@@ -188,6 +188,30 @@ class NotificationSender(Protocol):
     ) -> Any: ...
 
 
+@runtime_checkable
+class TopicNotifier(Protocol):
+    """Topic-routed notification accessor handed to a plugin via
+    ``ctx.notify_topic``.
+
+    Plugins call ``await ctx.notify_topic(topic, text, severity=...)`` to
+    emit a *topic* (``"sentry"``, ``"job.update"``, …); the operator's
+    per-node routes (``EIDAN_NOTIFY_ROUTES``) decide which channel +
+    destination it lands on. A topic with no route is a silent no-op, and
+    a delivery failure is logged rather than raised — so the caller never
+    has to branch on routing. ``None`` when no notification router is
+    wired (the unit-test / degraded path).
+    """
+
+    async def __call__(
+        self,
+        topic: str,
+        text: str,
+        *,
+        severity: str = "info",
+        user_id: Any | None = None,
+    ) -> Any: ...
+
+
 @dataclass(frozen=True, slots=True)
 class PluginContext:
     """The host surface a :class:`PluginBase` subclass receives.
@@ -202,6 +226,10 @@ class PluginContext:
       (Telegram first, more to follow). ``None`` when no channel
       adapter is registered; in that case plugins fall back to
       writing escalations.
+    - ``notify_topic``        — topic-routed notification: emit a topic
+      (``"sentry"``, ``"job.update"``, …) and the operator's per-node
+      ``EIDAN_NOTIFY_ROUTES`` decides the channel + destination. Unrouted
+      topic → silent no-op. ``None`` when no router is wired.
     - ``spawn_turn``          — agent-initiated turn primitive: a
       plugin (Sentry tick, cron behaviour) calls it to ask the
       configured provider "here's a prompt, think about it" without
@@ -232,6 +260,7 @@ class PluginContext:
     register_behaviours: BehaviourRegistrar
     register_tools: ToolRegistrar
     notify: NotificationSender | None = None
+    notify_topic: TopicNotifier | None = None
     spawn_turn: TurnInitiator | None = None
     assess_sufficiency: SufficiencyAssessor | None = None
     publish_event: EventPublisher | None = None
@@ -243,6 +272,7 @@ __all__ = [
     "DbAccessor",
     "EventPublisher",
     "NotificationSender",
+    "TopicNotifier",
     "SufficiencyAssessor",
     "PluginContext",
     "RouterRegistrar",
