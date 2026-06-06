@@ -37,6 +37,7 @@ from .memory_tools import register_memory_tools
 from .node_identity import NodeIdentity
 from .node_identity import detect as detect_node_identity
 from .notifications import NotificationRouter, build_default_router
+from .notify_routes import make_route_resolver
 from .persistence import flag_orphaned_assistant_messages
 from .plugin_tools import register_plugin_tools
 from .plugins import (
@@ -164,6 +165,10 @@ def _make_context_factory(
     """
     secret_accessor = make_secret_accessor(pool)
     notify_callable = _make_notify_callable(notification_router)
+    route_resolver = make_route_resolver(notification_router)
+    notify_topic_callable = (
+        route_resolver.emit if route_resolver is not None else None
+    )
     spawn_turn_callable = _make_spawn_turn_callable(
         pool,
         provider,
@@ -213,6 +218,7 @@ def _make_context_factory(
             register_behaviours=_register_behaviours,
             register_tools=_register_tools,
             notify=notify_callable,
+            notify_topic=notify_topic_callable,
             spawn_turn=spawn_turn_callable,
             assess_sufficiency=assess_sufficiency_callable,
             publish_event=publish_event_callable,
@@ -715,6 +721,22 @@ async def bootstrap(
                 "tool_count": len(tool_registry.surface() or []),
                 "metadata": node_identity.metadata,
             },
+        )
+
+    # Operator-routed startup notification (distinct from the telemetry
+    # event above): lands on whatever channel this node's
+    # ``EIDAN_NOTIFY_ROUTES`` maps ``node.startup`` to (e.g.
+    # ``#eidan-deployments``). No route configured → silent no-op, and a
+    # delivery failure is logged inside ``emit``, never raised — a boot
+    # must not depend on a webhook.
+    startup_resolver = make_route_resolver(notification_router)
+    if startup_resolver is not None:
+        await startup_resolver.emit(
+            "node.startup",
+            f"\U0001f7e2 {node_identity.node_id} started — "
+            f"{len(plugins)} plugin(s), "
+            f"{len(tool_registry.surface() or [])} tool(s)",
+            severity="info",
         )
 
     return BootstrapResult(

@@ -519,3 +519,29 @@ behaviour, not a schema change.
   Worth revisiting if "x just restarted vs x crashed" matters
   diagnostically — would need a `degraded` post-stop state that
   resolves to `offline` on the next read-path threshold check.
+
+## Operator-routed notifications (`EIDAN_NOTIFY_ROUTES`)
+
+The node-event stream above is the *durable* activity log. Separately,
+an operator can route selected **topics** to a notification channel +
+destination, per node, via the gitignored `EIDAN_NOTIFY_ROUTES` env (set
+in the node's topology `extra_env`, same JSON-in-env shape as
+`EIDAN_LOG_FORWARD_HEADERS`):
+
+```yaml
+extra_env:
+  EIDAN_NOTIFY_ROUTES: '{"node.startup": {"channel": "slack", "target": "#eidan-deployments"},
+                         "sentry":       {"channel": "slack", "target": "#eidan-sentry"}}'
+```
+
+`eidan_backend.notify_routes` parses it into `{topic: {channel, target}}`.
+A resolver maps `target` onto the destination key the channel adapter
+reads (`slack` → `slack_channel`, `telegram` → `chat_id`) and dispatches
+through the existing `NotificationRouter`, so adapters need no change. The
+resolver is exposed to plugins as `ctx.notify_topic(topic, text,
+severity=…)` and used by core (e.g. the `node.startup` emit at boot). A
+topic with no configured route is a **silent no-op**; a delivery failure
+is logged, never raised — routing is operator config and must not be able
+to break a boot or a tick. Routes are per-node: each instance reads its
+own env, so a Pi can route `sentry` → `#eidan-sentry` while a cloud node
+routes only `node.startup`.

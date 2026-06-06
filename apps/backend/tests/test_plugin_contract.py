@@ -51,6 +51,7 @@ def test_plugin_context_is_frozen_slots_dataclass() -> None:
         "register_behaviours",
         "register_tools",
         "notify",
+        "notify_topic",
         "spawn_turn",
         "assess_sufficiency",
         "publish_event",
