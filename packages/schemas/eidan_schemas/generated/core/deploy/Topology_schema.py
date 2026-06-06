@@ -46,6 +46,7 @@ class Name(StrEnum):
     gemini = "gemini"
     mistral = "mistral"
     ollama = "ollama"
+    openrouter = "openrouter"
 
 
 class Provider(BaseModel):
@@ -62,7 +63,7 @@ class Provider(BaseModel):
     """
     api_key: str | None = Field(None, min_length=1)
     """
-    API key for the chosen provider. Vault-encrypt. Ignored for `ollama` (which has no API key). Maps to the provider-specific env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / etc.) on the target node.
+    API key for the chosen provider. Vault-encrypt. Ignored for `ollama` (which has no API key). Maps to the provider-specific env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` / etc.) on the target node.
     """
 
 
