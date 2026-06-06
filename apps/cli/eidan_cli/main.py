@@ -39,7 +39,16 @@ if _repo_root_env.is_file():
 import typer  # noqa: E402
 from rich.console import Console  # noqa: E402
 
-from . import admin, auth_flow, doctor, lint, repl, scaffold, storage  # noqa: E402
+from . import (  # noqa: E402
+    admin,
+    admin_secrets,
+    auth_flow,
+    doctor,
+    lint,
+    repl,
+    scaffold,
+    storage,
+)
 from . import deploy as _deploy  # noqa: E402
 from . import topology as _topology  # noqa: E402
 from . import topology_editor as _topology_editor  # noqa: E402
@@ -757,6 +766,7 @@ admin_app.add_typer(db_app, name="db")
 admin_app.add_typer(plugin_app, name="plugin")
 admin_app.add_typer(agent_app, name="agent")
 admin_app.add_typer(release_app, name="release")
+admin_app.add_typer(admin_secrets.secrets_app, name="secrets")
 
 
 @db_app.command("migrate")
