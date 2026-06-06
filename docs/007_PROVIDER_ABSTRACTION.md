@@ -41,8 +41,9 @@ Out of scope (deferred to follow-ups, see §12):
 - Embeddings, image generation, audio. Only chat-style completions
   are in scope for MVP.
 - Self-hosted Anthropic-/OpenAI-compatible gateways (LiteLLM,
-  OpenRouter, Bedrock, Vertex AI proxy) beyond what the existing
-  OpenAI-compatible base handles.
+  Bedrock, Vertex AI proxy) beyond what the existing
+  OpenAI-compatible base handles. (OpenRouter ships as a first-class
+  OpenAI-compatible adapter — see §9.7; eidan#219.)
 - Adaptive cross-provider routing under cost / latency pressure —
   the data is in `llm_calls`, the policy is not.
 
@@ -850,6 +851,40 @@ the next person to touch one doesn't re-derive them.
   slot surfaces as `ProviderOverloadedError` and the runner's
   retry policy (`005 §6.4`) decides.
 
+### 9.7 OpenRouter (eidan#219)
+
+- Wire: OpenAI-compatible `POST /v1/chat/completions` at
+  `https://openrouter.ai/api/v1`. The adapter
+  (`providers/openrouter.py`) is a thin subclass of the OpenAI
+  adapter (§9.2) — it inherits streaming, tool-use, and the
+  neutral-DTO translation unchanged, overriding only the two seams
+  below. Selected with `EIDAN_PROVIDER=openrouter`; one
+  `OPENROUTER_API_KEY` fronts the whole OpenRouter catalogue
+  (200+ models from every major vendor). Claude stays the host
+  default (§6.2); OpenRouter is opt-in.
+- **Cost: native, not table-priced.** §4.1 derives `cost_usd` from
+  the per-model price table. That does not scale to OpenRouter's
+  catalogue, so the adapter instead opts into per-call accounting
+  (`usage: {include: true}` in the request body) and reads the
+  gateway's reported `usage.cost` (USD) straight into `cost_usd`.
+  This is the one sanctioned departure from §4.1's table pricing,
+  and it means `llm_calls.cost_usd` (`010 §2.1`) is populated for
+  *any* model OpenRouter exposes without per-model config. When no
+  cost is reported it falls back to the static table (§4.1), which
+  for an uncovered model is `0.0` plus a one-shot unpriced-model
+  warning (`010 §3.3`).
+- **Model ids carry the vendor prefix** OpenRouter expects —
+  `anthropic/claude-3.7-sonnet`, `openai/gpt-4o-mini`,
+  `google/gemini-2.5-flash` — set via `EIDAN_DEFAULT_MODEL` / a
+  per-route override like any provider.
+- **Ranking headers.** The optional `OPENROUTER_SITE_URL` /
+  `OPENROUTER_APP_NAME` map to OpenRouter's `HTTP-Referer` /
+  `X-Title` leaderboard-attribution headers. Cosmetic; unset is
+  fine. `OPENROUTER_BASE_URL` overrides the endpoint for a proxy.
+- **Error normalisation** rides the OpenAI mapping (§8.2) since the
+  gateway returns OpenAI-shaped errors; a fuller gateway-specific
+  mapping is the §12 follow-up.
+
 ---
 
 ## 10. Selection: how the runner picks a Provider
@@ -1000,11 +1035,12 @@ Deliberately out of scope, deferred:
   the wire shape is owned by `004_SCHEMAS.md` once finalised.
 - **Audio / TTS / STT.** Out of scope for MVP. If Eidan ships
   voice it will be its own protocol, not a stretching of this one.
-- **Self-hosted gateways** (LiteLLM, OpenRouter, Bedrock proxy,
-  Vertex AI proxy). The current OpenAI-compatible base (§9.4)
-  covers the simple case; a fuller gateway adapter that maps
-  gateway-side error shapes back to §8.1 is a follow-up. Plugins
-  may ship their own provider in the meantime via §10.4.
+- **Self-hosted gateways** (LiteLLM, Bedrock proxy, Vertex AI
+  proxy). The current OpenAI-compatible base (§9.4) covers the
+  simple case; a fuller gateway adapter that maps gateway-side
+  error shapes back to §8.1 is a follow-up. (OpenRouter shipped as
+  a first-class adapter — §9.7, eidan#219.) Plugins may ship their
+  own provider in the meantime via §10.4.
 - **Adaptive routing.** A layer that chooses between Anthropic and
   OpenAI for the same size class based on observed latency and
   cost. The data is already in `llm_calls`; the policy is not.

@@ -295,22 +295,36 @@ class OpenAIProvider:
         api_key: str,
         base_url: str | None = None,
         timeout: float | None = None,
+        default_headers: dict | None = None,
     ) -> None:
         # ``base_url`` lets the operator point the adapter at an
         # OpenAI-compatible endpoint (Azure, vLLM, local Ollama proxy
-        # speaking the OpenAI dialect). Defaults to api.openai.com.
+        # speaking the OpenAI dialect, OpenRouter). Defaults to
+        # api.openai.com.
         # ``timeout`` (seconds) overrides the openai SDK default of
         # 600s. Load-bearing for the Ollama path on slow hardware —
         # a 3B tools model on a Pi CPU can take 15–25 min per primary
         # call; default 10 min trips before the call completes. None
         # = SDK default applies.
+        # ``default_headers`` lets a subclass attach per-request headers
+        # the gateway wants (OpenRouter's ``HTTP-Referer`` / ``X-Title``
+        # ranking headers); ``None`` = none.
         kwargs: dict = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
         if timeout is not None:
             kwargs["timeout"] = timeout
+        if default_headers:
+            kwargs["default_headers"] = default_headers
         self._client = AsyncOpenAI(**kwargs)
         self._pending = _PendingResult()
+
+    def _extra_create_kwargs(self) -> dict:
+        """Extra kwargs merged into the chat-completions create call.
+
+        Empty for OpenAI; OpenRouter overrides it to opt into per-call
+        cost reporting (``usage: {include: true}``)."""
+        return {}
 
     async def stream_turn(
         self,
@@ -334,6 +348,7 @@ class OpenAIProvider:
         api_tools = _translate_tools(tools)
         if api_tools:
             kwargs["tools"] = api_tools
+        kwargs.update(self._extra_create_kwargs())
 
         text_buffer: list[str] = []
         tool_calls_by_index: dict[int, _PendingToolCall] = {}
@@ -394,22 +409,8 @@ class OpenAIProvider:
         )
 
         if usage is not None:
-            self._pending.input_tokens = getattr(usage, "prompt_tokens", 0) or 0
-            self._pending.output_tokens = (
-                getattr(usage, "completion_tokens", 0) or 0
-            )
-            details = getattr(usage, "prompt_tokens_details", None)
-            if details is not None:
-                self._pending.cache_read_tokens = (
-                    getattr(details, "cached_tokens", 0) or 0
-                )
-        self._pending.cost_usd = _estimate_cost(
-            model,
-            self._pending.input_tokens,
-            self._pending.output_tokens,
-            self._pending.cache_read_tokens,
-            self._pending.cache_creation_tokens,
-        )
+            self._apply_usage(usage)
+        self._pending.cost_usd = self._cost_from_usage(model, usage)
         self._pending.finished_at = datetime.now(UTC)
         self._pending.request_id = request_id
         self._pending.message = AssistantMessage(
@@ -417,6 +418,37 @@ class OpenAIProvider:
             provider=self.name,
             model=model,
             tool_calls=tool_uses,
+        )
+
+    def _apply_usage(self, usage: object) -> None:
+        """Populate the token counters from the upstream ``usage`` block.
+
+        Split out from :meth:`stream_turn` so OpenAI-compatible
+        subclasses (OpenRouter) reuse the token extraction unchanged and
+        override only the cost computation in :meth:`_cost_from_usage`.
+        """
+        self._pending.input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        self._pending.output_tokens = getattr(usage, "completion_tokens", 0) or 0
+        details = getattr(usage, "prompt_tokens_details", None)
+        if details is not None:
+            self._pending.cache_read_tokens = (
+                getattr(details, "cached_tokens", 0) or 0
+            )
+
+    def _cost_from_usage(self, model: str, usage: object | None) -> float:
+        """Cost for the completed call, from the static price table.
+
+        ``usage`` is unused here — OpenAI does not report a per-call
+        price — but is part of the hook signature so a subclass whose
+        upstream *does* return a cost (OpenRouter's ``usage.cost``) can
+        prefer it over the token-times-rate estimate.
+        """
+        return _estimate_cost(
+            model,
+            self._pending.input_tokens,
+            self._pending.output_tokens,
+            self._pending.cache_read_tokens,
+            self._pending.cache_creation_tokens,
         )
 
     async def last_call_result(self) -> ProviderCallResult:
