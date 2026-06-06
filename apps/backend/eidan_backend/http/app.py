@@ -34,7 +34,7 @@ from ..config import (
 )
 from ..db import create_pool
 from ..plugins import LoadedPlugin
-from ..providers import AnthropicProvider, OpenAIProvider
+from ..providers import AnthropicProvider, OpenAIProvider, OpenRouterProvider
 from ..providers.base import Provider
 from ..tools import ToolRegistry
 from .auth import AuthMiddleware
@@ -277,6 +277,24 @@ def _build_provider_from_settings(backend: BackendSettings) -> Provider:
             base_url=backend.ollama_base_url,
             timeout=backend.openai_timeout_seconds,
         )
+    if backend.provider == "openrouter":
+        # One key fronts the whole OpenRouter catalogue. Cost is captured
+        # from the gateway's per-call usage.cost, not a static table, so
+        # any of its 200+ models populates llm_calls.cost_usd (docs/007
+        # §9). The openai_timeout_seconds knob applies here too — it
+        # drives the shared OpenAI SDK client.
+        if not backend.openrouter_api_key:
+            raise RuntimeError(
+                "OPENROUTER_API_KEY is not set but EIDAN_PROVIDER=openrouter. "
+                "Set the key or switch EIDAN_PROVIDER."
+            )
+        return OpenRouterProvider(
+            api_key=backend.openrouter_api_key,
+            base_url=backend.openrouter_base_url,
+            timeout=backend.openai_timeout_seconds,
+            site_url=backend.openrouter_site_url,
+            app_name=backend.openrouter_app_name,
+        )
     # The Literal type on backend.provider keeps this branch unreachable
     # at type-check time; the runtime check covers a stray env override.
     raise RuntimeError(f"unknown EIDAN_PROVIDER={backend.provider!r}")
@@ -287,7 +305,8 @@ def create_app_from_env() -> FastAPI:
 
     Reads :class:`BackendSettings`, picks the provider per
     ``EIDAN_PROVIDER`` (``anthropic`` by default; ``openai`` /
-    ``ollama`` are the alternates — `docs/007`), and wires a lifespan
+    ``ollama`` / ``openrouter`` are the alternates — `docs/007`), and
+    wires a lifespan
     that owns the DB pool and loads the native RS256 keypair. The DB
     pool isn't opened here — opening it inside ``lifespan`` means
     uvicorn's ``startup`` event reports failures the user can see,

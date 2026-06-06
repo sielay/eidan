@@ -81,7 +81,7 @@ class BackendSettings(BaseSettings):
     # shorthand that maps to the OpenAI adapter against the local
     # Ollama OpenAI-compatible endpoint — convenient for the Sentry
     # plugin's Phi-3 / Mistral local-inference path.
-    provider: Literal["anthropic", "openai", "ollama"] = Field(
+    provider: Literal["anthropic", "openai", "ollama", "openrouter"] = Field(
         "anthropic",
         validation_alias="EIDAN_PROVIDER",
     )
@@ -110,6 +110,40 @@ class BackendSettings(BaseSettings):
             "Defaults to the local install's port. The OpenAI adapter "
             "drives it transparently — model names are whatever "
             "Ollama has pulled (`ollama pull phi3`, `ollama list`)."
+        ),
+    )
+    # OpenRouter — one key fronts the whole OpenRouter catalogue
+    # (`docs/007 §9`). Selected via ``EIDAN_PROVIDER=openrouter``; only
+    # ``OPENROUTER_API_KEY`` is required. Cost is captured from the
+    # gateway's per-call ``usage.cost`` (no per-model price table), so
+    # ``llm_calls.cost_usd`` is populated for any of its 200+ models.
+    openrouter_api_key: str | None = Field(
+        None,
+        validation_alias="OPENROUTER_API_KEY",
+    )
+    openrouter_base_url: str | None = Field(
+        None,
+        validation_alias="OPENROUTER_BASE_URL",
+        description=(
+            "Override for the OpenRouter endpoint (default "
+            "``https://openrouter.ai/api/v1``). Point at a self-hosted "
+            "proxy in front of OpenRouter if you run one."
+        ),
+    )
+    openrouter_site_url: str | None = Field(
+        None,
+        validation_alias="OPENROUTER_SITE_URL",
+        description=(
+            "Optional ``HTTP-Referer`` OpenRouter uses to attribute "
+            "traffic on its public leaderboard. Cosmetic; unset is fine."
+        ),
+    )
+    openrouter_app_name: str | None = Field(
+        None,
+        validation_alias="OPENROUTER_APP_NAME",
+        description=(
+            "Optional ``X-Title`` shown next to your traffic on the "
+            "OpenRouter leaderboard. Cosmetic; unset is fine."
         ),
     )
     openai_timeout_seconds: float | None = Field(
