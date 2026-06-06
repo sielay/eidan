@@ -144,6 +144,7 @@ class BehaviourDispatcher:
         scheduler: AsyncIOScheduler | None = None,
         pool: asyncpg.Pool | None = None,
         telemetry_holder: list[Any] | None = None,
+        notify_topic: Any | None = None,
     ) -> None:
         self._registry = registry
         self._scheduler = scheduler if scheduler is not None else AsyncIOScheduler()
@@ -165,6 +166,12 @@ class BehaviourDispatcher:
         # tick that finds nothing). When the holder is unset or holds
         # None, the dispatcher just skips the emit.
         self._telemetry_holder = telemetry_holder
+        # Optional ``ctx.notify_topic``-shaped callable. When set, a
+        # handler failure (the DLQ path below) also emits a `job.update`
+        # notification so the operator's EIDAN_NOTIFY_ROUTES can surface
+        # background-job failures (e.g. to #eidan-updates). Success ticks
+        # are NOT emitted — high-frequency polls would spam the channel.
+        self._notify_topic = notify_topic
 
     @property
     def scheduler(self) -> AsyncIOScheduler:
@@ -335,6 +342,21 @@ class BehaviourDispatcher:
                 )
         except Exception:  # noqa: BLE001 — DLQ write itself failed; do not crash
             pass
+
+        # Heads-up notification, routed via the node's
+        # EIDAN_NOTIFY_ROUTES["job.update"] (e.g. #eidan-updates). The DLQ
+        # row above is the durable record; this is the operator nudge. No
+        # route → no-op; a notification failure must not crash the scheduler.
+        if self._notify_topic is not None:
+            try:
+                await self._notify_topic(
+                    "job.update",
+                    f"⚠️ behaviour {behaviour_id} failed "
+                    f"({trigger_kind}): {handler_exc}",
+                    severity="warn",
+                )
+            except Exception:  # noqa: BLE001 — best-effort; never crash the scheduler
+                pass
 
     def _schedule_interval(self, behaviour: Behaviour) -> None:
         """Install an APScheduler ``IntervalTrigger`` for a ``schedule:``

@@ -701,3 +701,76 @@ async def test_notify_dedupe_skips_already_nudged_today(
         assert captured == ["telegram"]
     finally:
         await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_try_notify_prefers_topic_route_then_falls_back() -> None:
+    """`_try_notify` prefers ``ctx.notify_topic("sentry", …)``: a delivered
+    topic stamps the nudge (no escalation); a topic that returns None (no
+    route / failure) lands the escalation safety net and does NOT fall
+    through to the legacy channel; with no topic router, the legacy
+    per-channel notify path is used. DB-free (fake conn)."""
+    _load_sentry_package()
+    from eidan_sentry.loop import _try_notify
+    from eidan_sentry.patterns import DetectedPattern
+
+    pattern = DetectedPattern(
+        name="hot", severity="high", reason_class="external_failure", summary="x"
+    )
+
+    class _FakeConn:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        async def execute(self, sql: str, *args: object) -> None:
+            self.sql.append(sql)
+
+    def _stamped(c: _FakeConn) -> bool:
+        return any("UPDATE plugin_sentry.sentry_nudges" in s for s in c.sql)
+
+    def _escalated(c: _FakeConn) -> bool:
+        return any("INSERT INTO eidan.escalations" in s for s in c.sql)
+
+    # 1) topic delivers -> stamp, no escalation
+    seen: list[tuple[str, str]] = []
+
+    async def ok_topic(topic, text, *, severity="info", user_id=None):
+        seen.append((topic, severity))
+        return {"ok": True}
+
+    conn = _FakeConn()
+    await _try_notify(conn, notify_topic=ok_topic, user_id=uuid4(), pattern=pattern)
+    assert seen == [("sentry", "high")]
+    assert _stamped(conn) and not _escalated(conn)
+
+    # 2) topic returns None (no route) -> escalation; legacy notify NOT used
+    notify_calls: list[str] = []
+
+    async def none_topic(topic, text, *, severity="info", user_id=None):
+        return None
+
+    async def legacy_notify(channel, text, *, user_id=None, metadata=None):
+        notify_calls.append(channel)
+
+    conn = _FakeConn()
+    await _try_notify(
+        conn,
+        notify=legacy_notify,
+        notify_topic=none_topic,
+        user_id=uuid4(),
+        pattern=pattern,
+    )
+    assert _escalated(conn) and not _stamped(conn)
+    assert notify_calls == []
+
+    # 3) no topic router -> legacy per-channel notify used
+    legacy: list[str] = []
+
+    async def legacy_ok(channel, text, *, user_id=None, metadata=None):
+        legacy.append(channel)
+
+    conn = _FakeConn()
+    await _try_notify(
+        conn, notify=legacy_ok, notify_topic=None, user_id=uuid4(), pattern=pattern
+    )
+    assert legacy and _stamped(conn) and not _escalated(conn)

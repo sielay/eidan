@@ -77,6 +77,7 @@ async def run_sentry_tick(
     *,
     tick_id: str | None = None,
     notify: Any | None = None,
+    notify_topic: Any | None = None,
     spawn_turn: Any | None = None,
     assess_sufficiency: Any | None = None,
 ) -> dict[str, Any]:
@@ -151,10 +152,11 @@ async def run_sentry_tick(
                     # the unique-constraint return tells us whether
                     # this insert was the first. Operators don't want
                     # the same nudge re-delivered through the day.
-                    if inserted and notify is not None:
+                    if inserted and (notify_topic is not None or notify is not None):
                         await _try_notify(
                             conn,
                             notify=notify,
+                            notify_topic=notify_topic,
                             user_id=user_id,
                             pattern=pattern,
                         )
@@ -402,45 +404,75 @@ _NOTIFY_CHANNELS: tuple[str, ...] = ("telegram",)
 async def _try_notify(
     conn: asyncpg.Connection,
     *,
-    notify: Any,
+    notify: Any = None,
+    notify_topic: Any = None,
     user_id: UUID,
     pattern: DetectedPattern,
 ) -> None:
-    """Best-effort out-of-band nudge through the host's notify
-    surface. Lands one ``plugin_sentry.sentry_nudges.sent_at`` stamp
-    on success or one ``eidan.escalations`` follow-up on failure
-    (so the operator sees "Sentry tried to telegram you about X but
-    Telegram was down").
+    """Best-effort out-of-band nudge.
 
-    The function never raises — every failure path is captured and
-    surfaced as data the operator can read. The tick loop continues
-    on to the next pattern.
+    Prefers the operator's topic routing: ``ctx.notify_topic("sentry", …)``
+    lands on whatever channel ``EIDAN_NOTIFY_ROUTES["sentry"]`` maps to
+    (e.g. ``#eidan-sentry``). When no topic router is wired at all
+    (degraded boot), falls back to the legacy per-channel ``ctx.notify``
+    surface. Lands one ``plugin_sentry.sentry_nudges.sent_at`` stamp on
+    delivery, or an ``eidan.escalations`` follow-up when nothing got
+    through (audit §10 safety net: "Sentry tried to nudge you and the
+    channel was down"). Never raises.
     """
     text = _format_notify_text(pattern)
-    last_error: str | None = None
-    for channel in _NOTIFY_CHANNELS:
+    delivered = False
+    detail: str | None = None
+
+    if notify_topic is not None:
+        # The resolver swallows its own errors and returns None on
+        # no-route / delivery failure, so a truthy result means the
+        # configured channel accepted the message.
         try:
-            await notify(
-                channel,
-                text,
-                user_id=user_id,
-                metadata={
-                    "pattern_name": pattern.name,
-                    "severity": pattern.severity,
-                    "source": "sentry",
-                },
+            result = await notify_topic(
+                "sentry", text, severity=pattern.severity, user_id=user_id
             )
         except Exception as exc:  # noqa: BLE001 — best-effort path
-            last_error = f"{channel}: {exc}"
+            result = None
+            detail = f"notify_topic: {exc}"
             logger.info(
-                "[sentry] notify via %s failed for pattern %s: %s",
-                channel,
+                "[sentry] notify_topic failed for pattern %s: %s",
                 pattern.name,
                 exc,
             )
-            continue
-        # Delivered — stamp the row so the operator inbox shows
-        # "delivered" status.
+        if result is not None:
+            delivered = True
+        elif detail is None:
+            detail = "no route for topic 'sentry' (set EIDAN_NOTIFY_ROUTES)"
+    elif notify is not None:
+        # Degraded path: no topic router — use the legacy per-channel
+        # notify surface directly.
+        for channel in _NOTIFY_CHANNELS:
+            try:
+                await notify(
+                    channel,
+                    text,
+                    user_id=user_id,
+                    metadata={
+                        "pattern_name": pattern.name,
+                        "severity": pattern.severity,
+                        "source": "sentry",
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001 — best-effort path
+                detail = f"{channel}: {exc}"
+                logger.info(
+                    "[sentry] notify via %s failed for pattern %s: %s",
+                    channel,
+                    pattern.name,
+                    exc,
+                )
+                continue
+            delivered = True
+            break
+
+    if delivered:
+        # Stamp the row so the operator inbox shows "delivered" status.
         await conn.execute(
             """
             UPDATE plugin_sentry.sentry_nudges
@@ -457,36 +489,33 @@ async def _try_notify(
         )
         return
 
-    # Every channel raised. Write a follow-up escalation so the
-    # operator sees the missed nudge — this is the audit §10
-    # safety net: "Sentry tried to telegram you and Telegram was
-    # down."
-    if last_error is not None:
-        await conn.execute(
-            """
-            INSERT INTO eidan.escalations
-                (id, user_id, severity, reason_class, suggested_action,
-                 evidence, metadata)
-            VALUES ($1, $2, 'low', 'external_failure', $3,
-                    $4::jsonb, $5::jsonb)
-            """,
-            uuid4(),
-            user_id,
-            (
-                f"Sentry tried to nudge you about {pattern.name!r} but "
-                f"the configured notify channel failed: {last_error}. "
-                "Check your notification credentials."
-            ),
-            json.dumps([f"sentry-nudge:{pattern.name}"]),
-            json.dumps(
-                {
-                    "source": "sentry",
-                    "pattern_name": pattern.name,
-                    "kind": "notify_failure",
-                    "channel_error": last_error,
-                }
-            ),
-        )
+    # Nothing delivered — write a follow-up escalation so the operator
+    # sees the missed nudge (audit §10 safety net).
+    await conn.execute(
+        """
+        INSERT INTO eidan.escalations
+            (id, user_id, severity, reason_class, suggested_action,
+             evidence, metadata)
+        VALUES ($1, $2, 'low', 'external_failure', $3,
+                $4::jsonb, $5::jsonb)
+        """,
+        uuid4(),
+        user_id,
+        (
+            f"Sentry tried to nudge you about {pattern.name!r} but the "
+            f"notification did not get through: {detail or 'no channel'}. "
+            "Check your notification routing / credentials."
+        ),
+        json.dumps([f"sentry-nudge:{pattern.name}"]),
+        json.dumps(
+            {
+                "source": "sentry",
+                "pattern_name": pattern.name,
+                "kind": "notify_failure",
+                "channel_error": detail,
+            }
+        ),
+    )
 
 
 def _format_notify_text(pattern: DetectedPattern) -> str:
