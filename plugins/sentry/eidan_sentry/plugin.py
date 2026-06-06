@@ -54,6 +54,7 @@ class Plugin(PluginBase):
         # e.g. unit-test boots).
         self._db: object | None = None
         self._notify: object | None = None
+        self._notify_topic: object | None = None
         self._spawn_turn: object | None = None
         # ctx.assess_sufficiency is the loop-level second-voice critic the
         # research loop uses to decide a turn-sequence is "enough" (#186);
@@ -73,6 +74,7 @@ class Plugin(PluginBase):
         )
         self._db = ctx.db
         self._notify = ctx.notify
+        self._notify_topic = ctx.notify_topic
         self._spawn_turn = ctx.spawn_turn
         self._assess_sufficiency = ctx.assess_sufficiency
         ctx.register_behaviours(
@@ -89,6 +91,7 @@ class Plugin(PluginBase):
         logger.info("[sentry] on_deactivate (name=%s)", ctx.name)
         self._db = None
         self._notify = None
+        self._notify_topic = None
         self._spawn_turn = None
         self._assess_sufficiency = None
 
@@ -129,6 +132,7 @@ class Plugin(PluginBase):
                 pool,
                 tick_id=event.idempotency_key,
                 notify=self._notify,
+                notify_topic=self._notify_topic,
                 spawn_turn=self._spawn_turn,
                 assess_sufficiency=self._assess_sufficiency,
             )

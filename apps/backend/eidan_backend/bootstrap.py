@@ -588,8 +588,14 @@ async def bootstrap(
     # `telemetry = TelemetryEmitter(...)` and both consumers read
     # through at fire/spawn time. See #174 (spawn-turn) + #179 (dispatcher).
     telemetry_holder: list[Any] = [None]
+    _dispatch_resolver = make_route_resolver(notification_router)
     dispatcher = BehaviourDispatcher(
-        behaviour_registry, pool=pool, telemetry_holder=telemetry_holder
+        behaviour_registry,
+        pool=pool,
+        telemetry_holder=telemetry_holder,
+        notify_topic=(
+            _dispatch_resolver.emit if _dispatch_resolver is not None else None
+        ),
     )
     factory = _make_context_factory(
         pool,
