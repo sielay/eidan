@@ -227,7 +227,7 @@
       "properties": {
         "name": {
           "type": "string",
-          "enum": ["anthropic", "openai", "gemini", "mistral", "ollama"],
+          "enum": ["anthropic", "openai", "gemini", "mistral", "ollama", "openrouter"],
           "description": "Provider slug. Matches `EIDAN_PROVIDER`."
         },
         "default_model": {
@@ -238,7 +238,7 @@
         "api_key": {
           "type": "string",
           "minLength": 1,
-          "description": "API key for the chosen provider. Vault-encrypt. Ignored for `ollama` (which has no API key). Maps to the provider-specific env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / etc.) on the target node."
+          "description": "API key for the chosen provider. Vault-encrypt. Ignored for `ollama` (which has no API key). Maps to the provider-specific env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` / etc.) on the target node."
         }
       }
     },

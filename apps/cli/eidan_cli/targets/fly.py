@@ -134,6 +134,7 @@ def _provider_secret_env(node: ResolvedNode) -> tuple[str, str] | None:
         "openai": "OPENAI_API_KEY",
         "gemini": "GEMINI_API_KEY",
         "mistral": "MISTRAL_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
     }
     env_var = env_map.get(name)
     if env_var is None:

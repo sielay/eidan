@@ -481,6 +481,34 @@ def test_secret_values_omits_provider_key_when_unset(tmp_path: Path) -> None:
     assert "OPENAI_API_KEY" not in secrets
 
 
+def test_secret_values_maps_openrouter_key(tmp_path: Path) -> None:
+    """A `provider: name: openrouter` block pushes the key as
+    OPENROUTER_API_KEY and sets EIDAN_PROVIDER/EIDAN_DEFAULT_MODEL, so
+    the backend routes the whole catalogue through one key (eidan#219)."""
+    body = """
+        schema: 1
+        nodes:
+          fly-or:
+            target: fly
+            app: eidan-api
+            region: lhr
+            database_url: postgresql+asyncpg://...
+            auth_master_key: A-KEY-LONGER-THAN-THIRTY-TWO-CHARS-FOR-VALIDATION
+            auth_allowed_email: you@example.com
+            provider:
+              name: openrouter
+              default_model: openai/gpt-4o-mini
+              api_key: sk-or-v1-XXXX
+    """
+    topology = load_topology(_write_topology(tmp_path, body))
+    secrets = fly._secret_values(topology.resolve_node("fly-or"))
+
+    assert secrets["OPENROUTER_API_KEY"] == "sk-or-v1-XXXX"
+    assert secrets["EIDAN_PROVIDER"] == "openrouter"
+    assert secrets["EIDAN_DEFAULT_MODEL"] == "openai/gpt-4o-mini"
+    assert "ANTHROPIC_API_KEY" not in secrets
+
+
 def test_secret_values_pushes_log_forward_bundle(tmp_path: Path) -> None:
     """log_forward fields go through `fly secrets set` — URL and
     level alongside the auth (token or headers). Keeps the deploy
