@@ -238,7 +238,7 @@ class _ToolCapture:
 def _identity(user_id: str = "00000000-0000-0000-0000-000000000001") -> Identity:
     return Identity(
         user_id=user_id,
-        email=None,
+        email=f"{user_id}@example.test",
         session_id=None,
         aal="aal1",
         raw_claims={},
