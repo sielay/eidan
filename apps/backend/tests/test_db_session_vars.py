@@ -17,7 +17,7 @@ from eidan_backend.identity import Identity
 def _identity(user_id: str, session_id: str | None, aal: str) -> Identity:
     return Identity(
         user_id=user_id,
-        email=None,
+        email=f"{user_id}@example.test",
         session_id=session_id,
         aal=aal,
         raw_claims={},
@@ -201,7 +201,7 @@ async def test_acquire_rolls_back_on_exception(eidan_db: str) -> None:
                 await conn.execute(
                     """
                     INSERT INTO eidan.users (id, email)
-                    VALUES ($1::uuid, NULL)
+                    VALUES ($1::uuid, $1::text || '@example.test')
                     """,
                     identity.user_id,
                 )

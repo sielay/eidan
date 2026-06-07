@@ -85,7 +85,7 @@ async def test_ensure_default_agent_context_reads_user_override_persona(
         user_uuid = uuid4()
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await upsert_user(conn, user_id=user_uuid, email=None)
+                await upsert_user(conn, user_id=user_uuid, email=f"{user_uuid}@example.test")
                 agent_id, _ = await ensure_default_agent_context(
                     conn, user_id=user_uuid
                 )
@@ -117,7 +117,7 @@ async def test_ensure_default_agent_context_user_override_beats_code_default(
         user_uuid = uuid4()
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await upsert_user(conn, user_id=user_uuid, email=None)
+                await upsert_user(conn, user_id=user_uuid, email=f"{user_uuid}@example.test")
                 agent_id, _ = await ensure_default_agent_context(
                     conn, user_id=user_uuid
                 )
