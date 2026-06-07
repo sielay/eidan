@@ -201,7 +201,7 @@ async def test_acquire_rolls_back_on_exception(eidan_db: str) -> None:
                 await conn.execute(
                     """
                     INSERT INTO eidan.users (id, email)
-                    VALUES ($1::uuid, $1::text || '@example.test')
+                    VALUES ($1::uuid, ($1::uuid)::text || '@example.test')
                     """,
                     identity.user_id,
                 )

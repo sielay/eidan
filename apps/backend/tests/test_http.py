@@ -873,7 +873,7 @@ async def test_get_messages_404_for_other_users_conversation(http_client) -> Non
     other_user = UUID("00000000-0000-0000-0000-00000000beef")
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO eidan.users (id, email) VALUES ($1, $1::text || '@example.test') "
+            "INSERT INTO eidan.users (id, email) VALUES ($1::uuid, ($1::uuid)::text || '@example.test') "
             "ON CONFLICT (id) DO NOTHING",
             other_user,
         )
@@ -982,7 +982,7 @@ async def test_get_conversation_llm_calls_404s_for_someone_elses_thread(
     other_user = UUID("00000000-0000-0000-0000-000000feedee")
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO eidan.users (id, email) VALUES ($1, $1::text || '@example.test') "
+            "INSERT INTO eidan.users (id, email) VALUES ($1::uuid, ($1::uuid)::text || '@example.test') "
             "ON CONFLICT (id) DO NOTHING",
             other_user,
         )
