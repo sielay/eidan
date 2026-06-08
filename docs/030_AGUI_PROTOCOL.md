@@ -28,9 +28,10 @@ AG-UI-speaking frontend or middleware.
 
 **Decision (2026-06-08):** adopt the official SDKs — `ag-ui-protocol`
 (Python; `ag_ui.core` events + `ag_ui.encoder.EventEncoder`) on the
-backend, `@ag-ui/core` / `@ag-ui/client` / `@ag-ui/encoder` on the web —
-and **replace** the old `/api/turn` wire outright (not an additive
-second transport).
+backend, and `@ag-ui/core` (the TypeScript event types) on the web — and
+**replace** the old `/api/turn` wire outright (not an additive second
+transport). The web deliberately does *not* pull in `@ag-ui/client` /
+`@ag-ui/encoder` (see §4).
 
 ## 2. Wire shape
 
@@ -116,12 +117,14 @@ Notes:
   generative-tool-rendering work, #245).
 
   > Implementation note: `@ag-ui/client` also ships an rxjs-based
-  > `parseSSEStream` / `HttpAgent`. We deliberately did **not** adopt
-  > those for the chat panel — they impose an rxjs Observable + agent
+  > `parseSSEStream` / `HttpAgent`. We deliberately **don't depend on
+  > it** (nor `@ag-ui/encoder`) — they impose an rxjs Observable + agent
   > state machine that doesn't fit eidan's `authFetch` + async-generator
-  > + React-`setState` flow. The wire is AG-UI and the types come from
-  > the SDK; only the transport reader stays eidan's. Revisit if/when we
-  > want the full client runtime (shared state, frontend actions).
+  > + React-`setState` flow, and pull heavier transitive deps (rxjs,
+  > protobuf tooling) we'd never exercise. The wire is AG-UI and the
+  > types come from `@ag-ui/core`; only the transport reader stays
+  > eidan's. Add `@ag-ui/client` if/when we want the full client runtime
+  > (shared state, frontend actions).
 
 - **CLI REPL** ([apps/cli/eidan_cli/repl.py](../apps/cli/eidan_cli/repl.py))
   — the HTTP-fallback transport decodes the same AG-UI frames and renders

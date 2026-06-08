@@ -30,12 +30,12 @@ import { Thread } from "./Thread";
  *    payload).
  * 2. Two optimistic placeholder rows during a streaming turn: the
  *    user message we just submitted, and the assistant message whose
- *    text accumulates from each ``chunk`` SSE frame
- *    (`docs/005 §5.5`).
+ *    text + live tool calls accumulate from the AG-UI event stream
+ *    (`docs/030`; protocol of record, #263).
  * 3. An ``inFlight`` flag that disables the composer while a turn is
  *    open, per `docs/014 §4.5`.
  *
- * On stream interruption (network drop, 5xx, ``complete`` never
+ * On stream interruption (network drop, 5xx, ``RUN_FINISHED`` never
  * arrived) the partial assistant text is preserved with an
  * ``[interrupted]`` marker per `docs/014 §4.6`.
  */

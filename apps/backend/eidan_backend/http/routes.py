@@ -1623,14 +1623,16 @@ async def _auto_title_first_turn(
 
 @router.post("/api/turn")
 async def post_turn(request: Request, body: TurnRequestBody) -> StreamingResponse:
-    """Drive one turn and stream chunks back as ``text/event-stream``.
+    """Drive one turn and stream it back as AG-UI events over
+    ``text/event-stream`` (``docs/030``; protocol of record, #263).
 
     Per ``docs/005 §5.1`` the runner is authoritative: it persists every
     row (user, assistant, tool, llm_calls) before the next step depends
-    on it. This handler is a thin SSE adapter on top of ``run_turn`` —
-    no extra writes here. Client disconnect raises ``CancelledError``
-    inside ``_stream`` which propagates into ``run_turn`` and unwinds
-    the provider call.
+    on it. This handler is a thin AG-UI adapter on top of ``run_turn`` —
+    the ``AguiEmitter`` maps runner events onto AG-UI and the SDK
+    ``EventEncoder`` frames them; no extra writes here. Client disconnect
+    raises ``CancelledError`` inside ``_stream`` which propagates into
+    ``run_turn`` and unwinds the provider call.
     """
     identity = request.state.identity
     user_uuid = UUID(identity.user_id)
