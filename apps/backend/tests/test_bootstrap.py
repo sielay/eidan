@@ -19,6 +19,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -37,6 +38,7 @@ from eidan_backend.bootstrap import (
     _register_declared_notification_adapters,
     bootstrap,
 )
+from eidan_backend.escalations import EscalationReason, EscalationSeverity
 from eidan_backend.notifications import (
     NotificationAdapter,
     NotificationResult,
@@ -287,6 +289,107 @@ async def test_context_factory_publish_event_is_none_without_dispatcher(
     ctx = factory(loaded)
 
     assert ctx.publish_event is None
+
+
+# ---------- ctx.escalate (#271) -----------------------------------------------
+
+
+class _RecordingConn:
+    """Captures the args of every ``execute`` so a test can assert what
+    :func:`record_escalation` wrote without a real Postgres."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    async def execute(self, query: str, *args: Any) -> str:
+        self.calls.append((query, args))
+        return "INSERT 0 1"
+
+
+class _RecordingPool:
+    """Pool stand-in whose ``acquire()`` yields a connection that records
+    its ``execute`` calls. Doubles as its own async context manager."""
+
+    def __init__(self) -> None:
+        self.conn = _RecordingConn()
+
+    def acquire(self) -> Any:
+        return self
+
+    async def __aenter__(self) -> _RecordingConn:
+        return self.conn
+
+    async def __aexit__(self, *_args: Any) -> bool:
+        return False
+
+
+@pytest.mark.asyncio
+async def test_context_factory_escalate_writes_row() -> None:
+    """``ctx.escalate`` MUST write one ``eidan.escalations`` row via
+    :func:`record_escalation`, owned by the caller-supplied ``user_id``,
+    and return the new row id — so an autonomous behaviour's blocker
+    lands in the operator inbox (`docs/022`, #271)."""
+    pool = _RecordingPool()
+    factory = _make_context_factory(
+        pool,  # type: ignore[arg-type]
+        ToolRegistry(),
+        BehaviourRegistry(),
+    )
+    loaded = LoadedPlugin(
+        manifest=load_manifest(_EXAMPLE_CORE_DIR),
+        plugin=_StubPluginBase(),  # type: ignore[arg-type]
+        plugin_dir=_EXAMPLE_CORE_DIR,
+    )
+    ctx = factory(loaded)
+    assert ctx.escalate is not None
+
+    user_id = uuid4()
+    row_id = await ctx.escalate(
+        user_id=user_id,
+        severity=EscalationSeverity.MEDIUM,
+        reason_class=EscalationReason.AMBIGUOUS_INTENT,
+        suggested_action="confirm the licensing model for the new plugin",
+        evidence=("https://github.com/owner/repo/pull/10",),
+        metadata={"repo": "owner/repo", "pr_number": 10},
+    )
+
+    assert isinstance(row_id, UUID)
+    assert len(pool.conn.calls) == 1
+    query, args = pool.conn.calls[0]
+    assert "INSERT INTO eidan.escalations" in query
+    # record_escalation arg order: row_id, user_id, conversation_id,
+    # agent_id, severity, reason_class, suggested_action, evidence, metadata.
+    assert args[0] == row_id
+    assert args[1] == user_id
+    assert args[4] == "medium"
+    assert args[5] == "ambiguous_intent"
+
+
+@pytest.mark.asyncio
+async def test_context_factory_escalate_rejects_null_user() -> None:
+    """The inbox is user-scoped (``user_id`` NOT NULL). A null user_id
+    MUST raise an actionable error before touching the pool — autonomous
+    callers with no originating user fall back to ``notify_topic``."""
+    pool = _FakePool()  # .acquire() raises if touched
+    factory = _make_context_factory(
+        pool,  # type: ignore[arg-type]
+        ToolRegistry(),
+        BehaviourRegistry(),
+    )
+    loaded = LoadedPlugin(
+        manifest=load_manifest(_EXAMPLE_CORE_DIR),
+        plugin=_StubPluginBase(),  # type: ignore[arg-type]
+        plugin_dir=_EXAMPLE_CORE_DIR,
+    )
+    ctx = factory(loaded)
+    assert ctx.escalate is not None
+
+    with pytest.raises(ValueError, match="user_id"):
+        await ctx.escalate(
+            user_id=None,
+            severity=EscalationSeverity.MEDIUM,
+            reason_class=EscalationReason.AMBIGUOUS_INTENT,
+        )
 
 
 # ---------- EIDAN_DISABLED_PLUGINS env parsing --------------------------------
