@@ -10,7 +10,7 @@ import {
 } from "@/lib/api/conversations";
 import { streamTurn } from "@/lib/api/turn";
 
-import { buildThread } from "./buildThread";
+import { buildThread, type StreamingAssistant } from "./buildThread";
 import { Composer } from "./Composer";
 import { ConversationTitle } from "./ConversationTitle";
 import { CostCounter } from "./CostCounter";
@@ -52,10 +52,8 @@ export function ConversationView({
   const [pendingUserText, setPendingUserText] = React.useState<string | null>(
     null,
   );
-  const [streamingAssistant, setStreamingAssistant] = React.useState<{
-    text: string;
-    interrupted: boolean;
-  } | null>(null);
+  const [streamingAssistant, setStreamingAssistant] =
+    React.useState<StreamingAssistant | null>(null);
   const [inFlight, setInFlight] = React.useState(false);
   const [lastUserMessageId, setLastUserMessageId] = React.useState<
     string | null
@@ -96,8 +94,15 @@ export function ConversationView({
     async (text: string) => {
       if (!config) throw new Error("auth config not ready");
       setPendingUserText(text);
-      setStreamingAssistant({ text: "", interrupted: false });
+      setStreamingAssistant({ text: "", interrupted: false, toolCalls: [] });
       setInFlight(true);
+
+      // Reduce the AG-UI event stream (#263) into the optimistic
+      // streaming-assistant row: text deltas append to the bubble, tool
+      // calls accumulate and render live (#265/#267), and ``complete``
+      // hands back the persisted ids that trigger the history re-fetch.
+      const ensure = (prev: StreamingAssistant | null): StreamingAssistant =>
+        prev ?? { text: "", interrupted: false, toolCalls: [] };
 
       let completed = false;
       try {
@@ -105,17 +110,59 @@ export function ConversationView({
           conversationId,
           text,
         })) {
-          if (event.kind === "chunk") {
-            setStreamingAssistant((prev) =>
-              prev
-                ? { text: prev.text + event.text, interrupted: false }
-                : { text: event.text, interrupted: false },
-            );
+          if (event.kind === "text") {
+            setStreamingAssistant((prev) => {
+              const base = ensure(prev);
+              return { ...base, text: base.text + event.delta };
+            });
+          } else if (event.kind === "tool_call_start") {
+            setStreamingAssistant((prev) => {
+              const base = ensure(prev);
+              return {
+                ...base,
+                toolCalls: [
+                  ...base.toolCalls,
+                  {
+                    tool_call_id: event.tool_call_id,
+                    tool_name: event.tool_name,
+                    args_text: "",
+                    result: null,
+                  },
+                ],
+              };
+            });
+          } else if (event.kind === "tool_call_args") {
+            setStreamingAssistant((prev) => {
+              const base = ensure(prev);
+              return {
+                ...base,
+                toolCalls: base.toolCalls.map((tc) =>
+                  tc.tool_call_id === event.tool_call_id
+                    ? { ...tc, args_text: tc.args_text + event.args_delta }
+                    : tc,
+                ),
+              };
+            });
+          } else if (event.kind === "tool_call_result") {
+            setStreamingAssistant((prev) => {
+              const base = ensure(prev);
+              return {
+                ...base,
+                toolCalls: base.toolCalls.map((tc) =>
+                  tc.tool_call_id === event.tool_call_id
+                    ? { ...tc, result: event.content }
+                    : tc,
+                ),
+              };
+            });
           } else if (event.kind === "complete") {
             completed = true;
             setLastUserMessageId(event.user_message_id);
             setTurnRefreshKey((key) => key + 1);
           }
+          // ``error`` and ``unknown`` fall through: a RUN_ERROR ends the
+          // stream and the cleanup branch below marks the partial row
+          // ``[interrupted]`` per `docs/014 §4.6`.
         }
       } catch {
         // Stream interrupted — fall through to the cleanup branch

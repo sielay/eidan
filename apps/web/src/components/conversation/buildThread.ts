@@ -5,10 +5,48 @@ import type { PairedToolCall, ThreadMessage } from "./Thread";
 const PENDING_USER_ID = "pending-user";
 const PENDING_ASSISTANT_ID = "pending-assistant";
 
+/**
+ * A tool call as it streams in live (#263 / #267), before the turn's
+ * rows are persisted and re-fetched. ``args_text`` accumulates the
+ * AG-UI ``TOOL_CALL_ARGS`` delta(s); ``result`` is ``null`` until the
+ * ``TOOL_CALL_RESULT`` lands.
+ */
+export interface LiveToolCall {
+  tool_call_id: string;
+  tool_name: string;
+  args_text: string;
+  result: string | null;
+}
+
+export interface StreamingAssistant {
+  text: string;
+  interrupted: boolean;
+  toolCalls: LiveToolCall[];
+}
+
 export interface BuildThreadInput {
   history: MessageRow[] | null;
   pendingUserText: string | null;
-  streamingAssistant: { text: string; interrupted: boolean } | null;
+  streamingAssistant: StreamingAssistant | null;
+}
+
+/**
+ * Best-effort parse of a live tool call's accumulated argument JSON.
+ * The backend sends the whole argument object in one ``TOOL_CALL_ARGS``
+ * frame, so this normally parses cleanly; while a frame is mid-flight
+ * (or a tool takes no args) we fall back to an empty object so the
+ * call still renders.
+ */
+function parseToolArgs(argsText: string): Record<string, unknown> {
+  if (!argsText) return {};
+  try {
+    const parsed: unknown = JSON.parse(argsText);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -95,10 +133,20 @@ export function buildThread({
     });
   }
   if (streamingAssistant !== null) {
+    const livePairs: PairedToolCall[] = streamingAssistant.toolCalls.map(
+      (tc) => ({
+        id: tc.tool_call_id,
+        name: tc.tool_name,
+        input: parseToolArgs(tc.args_text),
+        result: tc.result,
+        is_error: false,
+      }),
+    );
     out.push({
       id: PENDING_ASSISTANT_ID,
       role: "assistant",
       content: streamingAssistant.text,
+      tool_calls: livePairs.length > 0 ? livePairs : undefined,
       streaming: !streamingAssistant.interrupted,
       interrupted: streamingAssistant.interrupted,
     });
