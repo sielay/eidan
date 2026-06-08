@@ -26,6 +26,7 @@ import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ..artifacts import ArtifactService, make_artifact_store
 from ..bootstrap import BootstrapResult, bootstrap, shutdown
 from ..config import (
     BackendSettings,
@@ -37,6 +38,7 @@ from ..plugins import LoadedPlugin
 from ..providers import AnthropicProvider, OpenAIProvider, OpenRouterProvider
 from ..providers.base import Provider
 from ..tools import ToolRegistry
+from .artifacts import router as artifacts_router
 from .auth import AuthMiddleware
 from .routes import router
 from .security_headers import SecurityHeadersMiddleware
@@ -123,6 +125,10 @@ def create_app(
     """
     app = FastAPI(title="eidan-backend", version="0.1.0")
     app.state.pool = pool
+    # Artifact primitive (#252): the configured byte-store (default
+    # Postgres bytea; EIDAN_ARTIFACT_STORE=s3 for object storage). The
+    # lifespan rebuilds this against its own pool below.
+    app.state.artifact_service = ArtifactService(pool, make_artifact_store())
     app.state.provider = provider
     app.state.default_model = default_model
     app.state.tool_registry = tool_registry or ToolRegistry()
@@ -143,6 +149,7 @@ def create_app(
     # after AuthMiddleware places it on the outside of the chain.
     app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(router)
+    app.include_router(artifacts_router)
 
     return app
 
@@ -174,6 +181,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     pool = await create_pool(backend.database_url)
     app.state.pool = pool
+    # Rebuild the artifact service against the lifespan-owned pool (#252).
+    app.state.artifact_service = ArtifactService(pool, make_artifact_store())
 
     # Native auth needs an RS256 keypair stashed on app.state before
     # any request hits the middleware. ``ensure_keypair`` mints +
@@ -368,9 +377,7 @@ def _resolve_cors_origins(raw: str) -> list[str]:
     """
     origins = [o.strip() for o in raw.split(",") if o.strip()]
     if "*" in origins:
-        is_production = (
-            os.environ.get("EIDAN_DEPLOYMENT_MODE") == "production"
-        )
+        is_production = os.environ.get("EIDAN_DEPLOYMENT_MODE") == "production"
         if is_production:
             raise RuntimeError(
                 "EIDAN_HTTP_CORS_ORIGINS contains '*' and "

@@ -229,6 +229,35 @@ class TopicNotifier(Protocol):
     ) -> Any: ...
 
 
+@runtime_checkable
+class ArtifactCreator(Protocol):
+    """Create a downloadable artifact from a plugin tool (#252).
+
+    A tool that produces *bytes* (a rendered deck, a PDF, an export) calls
+    ``await ctx.artifacts.create(...)``; the host writes a user-scoped
+    ``eidan.artifacts`` row, stores the bytes in the configured backend
+    (Postgres bytea / S3 / R2 / MinIO), and returns a ref carrying a
+    ``download_url`` to surface as a download chip. The host binds the
+    calling :class:`Identity`, so plugins never pass it.
+
+    ``None`` when the host wires a context without an artifact service (the
+    unit-test / degraded path); plugins guard with
+    ``if ctx.artifacts is not None``.
+    """
+
+    async def create(
+        self,
+        *,
+        kind: str,
+        filename: str,
+        data: bytes,
+        mime_type: str,
+        message_id: Any | None = None,
+        conversation_id: Any | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any: ...
+
+
 @dataclass(frozen=True, slots=True)
 class PluginContext:
     """The host surface a :class:`PluginBase` subclass receives.
@@ -286,10 +315,12 @@ class PluginContext:
     assess_sufficiency: SufficiencyAssessor | None = None
     publish_event: EventPublisher | None = None
     register_capabilities: CapabilityRegistrar | None = None
+    artifacts: ArtifactCreator | None = None
     identity: Identity | None = None
 
 
 __all__ = [
+    "ArtifactCreator",
     "BehaviourRegistrar",
     "CapabilityRegistrar",
     "DbAccessor",
