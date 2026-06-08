@@ -32,8 +32,10 @@ from typing import Any
 
 import asyncpg
 
+from .artifacts import ArtifactService, make_artifact_store
 from .behaviours import Behaviour, BehaviourDispatcher, BehaviourRegistry
 from .capabilities import CapabilityRegistry, JobCapability
+from .identity import get_current_identity
 from .memory_tools import register_memory_tools
 from .node_identity import NodeIdentity
 from .node_identity import detect as detect_node_identity
@@ -127,14 +129,54 @@ class _PluginConnectionContext:
     async def __aenter__(self) -> asyncpg.Connection:
         self._conn_cm = self._pool.acquire()
         self._conn = await self._conn_cm.__aenter__()
-        await self._conn.execute(
-            f'SET LOCAL search_path TO "{self._schema}", public'
-        )
+        await self._conn.execute(f'SET LOCAL search_path TO "{self._schema}", public')
         return self._conn
 
     async def __aexit__(self, *args: Any) -> None:
         if self._conn_cm is not None:
             await self._conn_cm.__aexit__(*args)
+
+
+class _ArtifactCreator:
+    """``ctx.artifacts`` adapter (#252).
+
+    Resolves the calling :class:`Identity` from the ambient contextvar the
+    loop sets before tool dispatch (so the artifact is owned by the right
+    user) and delegates to the host :class:`ArtifactService`. Built once
+    per host wiring; identity is per-call.
+    """
+
+    def __init__(self, service: ArtifactService) -> None:
+        self._service = service
+
+    async def create(
+        self,
+        *,
+        kind: str,
+        filename: str,
+        data: bytes,
+        mime_type: str,
+        message_id: Any | None = None,
+        conversation_id: Any | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        identity = get_current_identity()
+        if identity is None:
+            raise RuntimeError(
+                "ctx.artifacts.create() requires an active identity — call it "
+                "from within a turn (the loop sets the identity contextvar "
+                "before tool dispatch)."
+            )
+        return await self._service.create(
+            identity,
+            kind=kind,
+            filename=filename,
+            data=data,
+            mime_type=mime_type,
+            message_id=message_id,
+            conversation_id=conversation_id,
+            metadata=metadata,
+        )
 
 
 def _make_context_factory(
@@ -166,11 +208,10 @@ def _make_context_factory(
     absence.
     """
     secret_accessor = make_secret_accessor(pool)
+    artifact_creator = _ArtifactCreator(ArtifactService(pool, make_artifact_store()))
     notify_callable = _make_notify_callable(notification_router)
     route_resolver = make_route_resolver(notification_router)
-    notify_topic_callable = (
-        route_resolver.emit if route_resolver is not None else None
-    )
+    notify_topic_callable = route_resolver.emit if route_resolver is not None else None
     spawn_turn_callable = _make_spawn_turn_callable(
         pool,
         provider,
@@ -235,6 +276,7 @@ def _make_context_factory(
             register_capabilities=(
                 _register_capabilities if capability_registry is not None else None
             ),
+            artifacts=artifact_creator,
             identity=None,
         )
 
