@@ -5,7 +5,9 @@ application so a browser frontend (and the CLI's HTTP fallback) can
 talk to it. The shape — endpoints, auth middleware, error envelope,
 SSE transport — is pinned by:
 
-- ``docs/005 §5.1`` — inbound persistence and the wire shape of ``/turn``.
+- ``docs/005 §5.1`` — inbound persistence behind ``/turn``.
+- ``docs/030`` — the AG-UI event stream ``/turn`` emits (protocol of
+  record, #263); the ``AguiEmitter`` maps the turn runner onto it.
 - ``docs/014 §3`` — chat-panel data sources.
 - ``docs/011 §4, §10`` — JWT extraction, auth middleware, typed 401/403
   responses.
