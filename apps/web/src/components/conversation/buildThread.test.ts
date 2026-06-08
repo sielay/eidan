@@ -232,7 +232,7 @@ describe("buildThread", () => {
     const out = buildThread({
       history: [row({ id: "u1", role: "user", content: "hi" })],
       pendingUserText: "follow up",
-      streamingAssistant: { text: "thinking", interrupted: false },
+      streamingAssistant: { text: "thinking", interrupted: false, toolCalls: [] },
     });
     expect(out.map((m) => m.id)).toEqual([
       "u1",
@@ -245,5 +245,49 @@ describe("buildThread", () => {
       streaming: true,
       interrupted: false,
     });
+  });
+
+  it("renders live tool calls on the streaming assistant row (#267)", () => {
+    const out = buildThread({
+      history: null,
+      pendingUserText: "search please",
+      streamingAssistant: {
+        text: "on it",
+        interrupted: false,
+        toolCalls: [
+          {
+            tool_call_id: "tc1",
+            tool_name: "search",
+            args_text: '{"q":"x"}',
+            result: '{"r":1}',
+          },
+          // A call still in flight — no result yet, args mid-stream.
+          {
+            tool_call_id: "tc2",
+            tool_name: "fetch",
+            args_text: "",
+            result: null,
+          },
+        ],
+      },
+    });
+    const assistant = out[out.length - 1];
+    expect(assistant.id).toBe("pending-assistant");
+    expect(assistant.tool_calls).toEqual([
+      {
+        id: "tc1",
+        name: "search",
+        input: { q: "x" },
+        result: '{"r":1}',
+        is_error: false,
+      },
+      {
+        id: "tc2",
+        name: "fetch",
+        input: {}, // empty args parse to {} so the call still renders
+        result: null,
+        is_error: false,
+      },
+    ]);
   });
 });

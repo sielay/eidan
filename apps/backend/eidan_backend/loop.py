@@ -30,6 +30,7 @@ Phase 2.
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -189,6 +190,116 @@ class TurnComplete:
     iterations: int = 0
 
 
+# --- Tool-call observation events (#265) ------------------------------------
+#
+# The loop already executes tools and persists the tool turn, but until
+# now that work was invisible in the *streamed* event sequence — the only
+# things `run_turn` yielded were assistant text chunks and the terminal
+# `TurnComplete`. A surface that wanted to show a tool call had to wait
+# for the turn to finish and re-read the persisted rows.
+#
+# These four events surface the tool-call boundaries *as they happen* so a
+# surface can render them live. They map 1:1 onto AG-UI's tool events
+# (`TOOL_CALL_START` / `TOOL_CALL_ARGS` / `TOOL_CALL_END` /
+# `TOOL_CALL_RESULT`, #263). They are a pure *observation* of work the
+# loop is already doing — emitting them never changes persistence, which
+# stays authoritative (`docs/005 §5.1`). `tool_call_id` is the provider's
+# opaque `ToolUseBlock.id`, and is the correlation key tying a start →
+# args → end → result quartet together (and to the persisted
+# `messages.tool_calls` / `tool_results` rows).
+#
+# The provider assembles each tool_use block in full before the loop sees
+# it, so `args` arrive whole in a single `ToolCallArgs` rather than as a
+# delta stream; AG-UI permits this (one ARGS frame carrying the complete
+# JSON). Execution happens after the model's whole turn is streamed, so a
+# `ToolCallResult` always arrives strictly after its matching
+# start/args/end triple, once per dispatched call.
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallStart:
+    """A tool call the model emitted, about to be dispatched."""
+
+    tool_call_id: str
+    tool_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallArgs:
+    """The (complete) JSON arguments for a tool call.
+
+    ``args_json`` is the serialised `ToolUseBlock.input`. One frame per
+    call — the provider hands the loop a fully-assembled block, so there
+    is no partial-args stream to forward.
+    """
+
+    tool_call_id: str
+    args_json: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallEnd:
+    """Closes the model's emission of a tool call (no payload)."""
+
+    tool_call_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallResult:
+    """The local registry's reply after executing the call.
+
+    Mirrors the persisted :class:`ToolResultBlock`; ``is_error`` follows
+    the same Anthropic shape (a tool that raised surfaces as an error
+    result, never an exception out of the stream).
+    """
+
+    tool_call_id: str
+    content: str
+    is_error: bool = False
+
+
+# Everything `run_turn` can yield. Consumers filter by ``isinstance`` and
+# ignore types they don't render, so this union can grow without breaking
+# existing surfaces (the SSE adapter, spawn driver, REPL).
+TurnEvent = (
+    AssistantChunk
+    | ToolCallStart
+    | ToolCallArgs
+    | ToolCallEnd
+    | ToolCallResult
+    | TurnComplete
+)
+
+
+def _tool_open_events(
+    block: ToolUseBlock,
+) -> tuple[ToolCallStart, ToolCallArgs, ToolCallEnd]:
+    """The start → args → end triple announcing one model-emitted call."""
+    return (
+        ToolCallStart(tool_call_id=block.id, tool_name=block.name),
+        ToolCallArgs(
+            tool_call_id=block.id,
+            args_json=json.dumps(block.input, separators=(",", ":")),
+        ),
+        ToolCallEnd(tool_call_id=block.id),
+    )
+
+
+async def _execute_tool(
+    registry: ToolRegistry,
+    tu: ToolUseBlock,
+    tool_ctx: ToolContext,
+) -> ToolResultBlock:
+    """Run one tool call, normalising a :class:`ToolError` into an error
+    result block (the loop never lets a tool exception escape the stream).
+    """
+    try:
+        output = await registry.execute(tu.name, tu.input, tool_ctx)
+        return ToolResultBlock(tool_use_id=tu.id, content=output)
+    except ToolError as exc:
+        return ToolResultBlock(tool_use_id=tu.id, content=str(exc), is_error=True)
+
+
 async def run_turn(
     *,
     pool: asyncpg.Pool,
@@ -203,7 +314,7 @@ async def run_turn(
     telemetry: TelemetryEmitter | None = None,
     agent_name: str = "operator",
     seed_metadata: dict[str, Any] | None = None,
-) -> AsyncIterator[AssistantChunk | TurnComplete]:
+) -> AsyncIterator[TurnEvent]:
     """Drive one turn end-to-end. Yields chunks, then a TurnComplete.
 
     Each provider call gets its own ``llm_calls`` row (scope_classifier,
@@ -542,6 +653,8 @@ async def run_turn(
                 yield block
             elif isinstance(block, ToolUseBlock):
                 tool_uses.append(block)
+                for ev in _tool_open_events(block):
+                    yield ev
 
         result = await provider.last_call_result()
         result = capture_call_inputs(
@@ -631,19 +744,13 @@ async def run_turn(
                     },
                     conversation_id=ctx.conversation_id,
                 )
-            try:
-                output = await registry.execute(tu.name, tu.input, tool_ctx)
-                tool_results.append(
-                    ToolResultBlock(tool_use_id=tu.id, content=output)
-                )
-            except ToolError as exc:
-                tool_results.append(
-                    ToolResultBlock(
-                        tool_use_id=tu.id,
-                        content=str(exc),
-                        is_error=True,
-                    )
-                )
+            result_block = await _execute_tool(registry, tu, tool_ctx)
+            tool_results.append(result_block)
+            yield ToolCallResult(
+                tool_call_id=tu.id,
+                content=result_block.content,
+                is_error=result_block.is_error,
+            )
 
         async with acquire(pool, ctx.identity) as conn:
             await insert_tool_message(
@@ -655,9 +762,7 @@ async def run_turn(
                 tool_results=tuple(tool_results),
             )
 
-        messages.append(
-            UserMessage(role="tool", tool_results=tuple(tool_results))
-        )
+        messages.append(UserMessage(role="tool", tool_results=tuple(tool_results)))
 
     assert final_assistant_id is not None  # loop always runs ≥ 1 iteration
 
@@ -769,6 +874,8 @@ async def run_turn(
                 yield block
             elif isinstance(block, ToolUseBlock):
                 retry_tool_uses.append(block)
+                for ev in _tool_open_events(block):
+                    yield ev
 
         retry_result = await provider.last_call_result()
         retry_result = capture_call_inputs(
@@ -818,19 +925,13 @@ async def run_turn(
 
             tool_results: list[ToolResultBlock] = []
             for tu in retry_tool_uses:
-                try:
-                    output = await registry.execute(tu.name, tu.input, tool_ctx)
-                    tool_results.append(
-                        ToolResultBlock(tool_use_id=tu.id, content=output)
-                    )
-                except ToolError as exc:
-                    tool_results.append(
-                        ToolResultBlock(
-                            tool_use_id=tu.id,
-                            content=str(exc),
-                            is_error=True,
-                        )
-                    )
+                result_block = await _execute_tool(registry, tu, tool_ctx)
+                tool_results.append(result_block)
+                yield ToolCallResult(
+                    tool_call_id=tu.id,
+                    content=result_block.content,
+                    is_error=result_block.is_error,
+                )
 
             async with acquire(pool, ctx.identity) as conn:
                 await insert_tool_message(
@@ -842,9 +943,7 @@ async def run_turn(
                     tool_results=tuple(tool_results),
                 )
 
-            messages.append(
-                UserMessage(role="tool", tool_results=tuple(tool_results))
-            )
+            messages.append(UserMessage(role="tool", tool_results=tuple(tool_results)))
 
             # Terminal iteration — collects the model's final text after
             # tool results land. We deliberately DON'T pass tools= here
@@ -917,9 +1016,7 @@ async def run_turn(
     # rather than overwrite.
     pre_primary_payload: dict[str, Any] = {}
     if pre_primary_result.signals:
-        pre_primary_payload["signals"] = [
-            s.name for s in pre_primary_result.signals
-        ]
+        pre_primary_payload["signals"] = [s.name for s in pre_primary_result.signals]
         pre_primary_payload["weight"] = round(pre_primary_weight, 3)
     if fallback_verdict is not None:
         pre_primary_payload["classifier"] = {
@@ -1008,7 +1105,7 @@ async def run_agent_initiated_turn(
     user_email: str | None = None,
     telemetry: TelemetryEmitter | None = None,
     initiated_by: Actor | None = None,
-) -> AsyncIterator[AssistantChunk | TurnComplete]:
+) -> AsyncIterator[TurnEvent]:
     """Drive a turn that an agent (cron behaviour, Sentry tick, plugin) initiates
     without an inbound user JWT.
 

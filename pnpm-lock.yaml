@@ -16,6 +16,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@ag-ui/core':
+        specifier: ^0.0.55
+        version: 0.0.55
       '@eidan/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
@@ -110,6 +113,9 @@ importers:
         version: 2.6.1
 
 packages:
+
+  '@ag-ui/core@0.0.55':
+    resolution: {integrity: sha512-Pj7Ke0NsCxbCFgI3xK5YE56LaMRxnXnyeDUgDFTYxeF6KZDcSf5E0x2gB6/37w6bE0hcn/LRNPFd8Es18eIEzA==}
 
   '@alloc/quick-lru@5.2.0':
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
@@ -4331,6 +4337,10 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@ag-ui/core@0.0.55':
+    dependencies:
+      zod: 3.25.76
 
   '@alloc/quick-lru@5.2.0': {}
 
