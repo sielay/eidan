@@ -15,7 +15,15 @@ from __future__ import annotations
 import json
 
 import pytest
-from eidan_backend.loop import TurnComplete, TurnContext, run_turn
+from eidan_backend.loop import (
+    ToolCallArgs,
+    ToolCallEnd,
+    ToolCallResult,
+    ToolCallStart,
+    TurnComplete,
+    TurnContext,
+    run_turn,
+)
 from eidan_backend.providers.base import AssistantChunk, ToolUseBlock
 from eidan_backend.tools import Tool, ToolRegistry
 
@@ -165,6 +173,152 @@ async def test_tool_loop_executes_registered_tool() -> None:
 
 
 @pytest.mark.asyncio
+async def test_loop_streams_tool_call_events_in_order() -> None:
+    """#265 — the runner surfaces each tool call as an AG-UI-shaped
+    quartet in the streamed event sequence: ``ToolCallStart`` →
+    ``ToolCallArgs`` (whole JSON) → ``ToolCallEnd`` (the model's
+    emission) then ``ToolCallResult`` (after execution). All four share
+    the provider's ``tool_use_id``, the start/args/end triple arrives
+    before the assistant streams its terminal text, and the result lands
+    once the tool has run — all strictly before ``TurnComplete``."""
+
+    async def echo_handler(args: dict) -> str:
+        return json.dumps({"echoed": args.get("query")})
+
+    registry = ToolRegistry()
+    registry.register(
+        Tool(
+            name="echo",
+            description="Echoes the input back.",
+            input_schema={
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+            handler=echo_handler,
+        )
+    )
+
+    tool_use = ToolUseBlock(id="toolu_evt_01", name="echo", input={"query": "hello"})
+    provider = FakeProvider(
+        [
+            ScriptedTurn(text='["coding"]'),
+            ScriptedTurn(text="claude-sonnet-4-6"),
+            ScriptedTurn(text='{"actions": []}'),
+            ScriptedTurn(text="thinking", tool_uses=[tool_use]),
+            ScriptedTurn(text="Here is the answer: hello"),
+        ]
+    )
+
+    store = FakeStore()
+    pool = FakePool(store)
+    ctx = TurnContext(identity=build_identity(), conversation_id=conversation_uuid())
+
+    events: list = []
+    async for event in run_turn(
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        ctx=ctx,
+        user_text="run the tool",
+        tool_registry=registry,
+        **TZ_TEST_KWARGS,
+    ):
+        events.append(event)
+
+    # Exactly one of each tool event for the single dispatched call.
+    starts = [e for e in events if isinstance(e, ToolCallStart)]
+    args = [e for e in events if isinstance(e, ToolCallArgs)]
+    ends = [e for e in events if isinstance(e, ToolCallEnd)]
+    results = [e for e in events if isinstance(e, ToolCallResult)]
+    assert len(starts) == len(args) == len(ends) == len(results) == 1
+
+    # Shared correlation id across the quartet.
+    assert (
+        starts[0].tool_call_id
+        == args[0].tool_call_id
+        == ends[0].tool_call_id
+        == results[0].tool_call_id
+        == "toolu_evt_01"
+    )
+
+    # Payloads carry the model's call + the handler's reply.
+    assert starts[0].tool_name == "echo"
+    assert json.loads(args[0].args_json) == {"query": "hello"}
+    assert json.loads(results[0].content) == {"echoed": "hello"}
+    assert results[0].is_error is False
+
+    # Ordering: start → args → end → result, and the whole quartet sits
+    # before the terminal TurnComplete.
+    kinds = [type(e).__name__ for e in events]
+    i_start = kinds.index("ToolCallStart")
+    i_args = kinds.index("ToolCallArgs")
+    i_end = kinds.index("ToolCallEnd")
+    i_result = kinds.index("ToolCallResult")
+    i_complete = kinds.index("TurnComplete")
+    assert i_start < i_args < i_end < i_result < i_complete
+
+    # The start/args/end triple is the model *emitting* the call, so it
+    # precedes the result (which only exists after execution).
+    assert i_end < i_result
+
+
+@pytest.mark.asyncio
+async def test_loop_streams_tool_error_as_error_result_event() -> None:
+    """#265 — a handler that raises surfaces as a ``ToolCallResult`` with
+    ``is_error=True`` in the stream, never an exception out of the
+    iterator (mirrors the persisted error block)."""
+
+    async def boom(_: dict) -> str:
+        raise RuntimeError("kaboom")
+
+    registry = ToolRegistry()
+    registry.register(
+        Tool(
+            name="boom",
+            description="Always fails.",
+            input_schema={"type": "object"},
+            handler=boom,
+        )
+    )
+
+    provider = FakeProvider(
+        [
+            ScriptedTurn(text="[]"),
+            ScriptedTurn(text="claude-sonnet-4-6"),
+            ScriptedTurn(text='{"actions": []}'),
+            ScriptedTurn(
+                text="",
+                tool_uses=[ToolUseBlock(id="toolu_b", name="boom", input={})],
+            ),
+            ScriptedTurn(text="I tried, but the tool failed."),
+        ]
+    )
+
+    store = FakeStore()
+    pool = FakePool(store)
+    ctx = TurnContext(identity=build_identity(), conversation_id=conversation_uuid())
+
+    results: list[ToolCallResult] = []
+    async for event in run_turn(
+        pool=pool,  # type: ignore[arg-type]
+        provider=provider,  # type: ignore[arg-type]
+        model="claude-sonnet-4-6",
+        ctx=ctx,
+        user_text="please run boom",
+        tool_registry=registry,
+        **TZ_TEST_KWARGS,
+    ):
+        if isinstance(event, ToolCallResult):
+            results.append(event)
+
+    assert len(results) == 1
+    assert results[0].tool_call_id == "toolu_b"
+    assert results[0].is_error is True
+    assert "kaboom" in results[0].content
+
+
+@pytest.mark.asyncio
 async def test_loop_refuses_tool_use_with_empty_registry() -> None:
     """An empty registry never surfaces tools; defensive refusal exits the loop."""
 
@@ -177,9 +331,7 @@ async def test_loop_refuses_tool_use_with_empty_registry() -> None:
             # does, the loop persists the turn and exits.
             ScriptedTurn(
                 text="hi",
-                tool_uses=[
-                    ToolUseBlock(id="toolu_x", name="ghost", input={})
-                ],
+                tool_uses=[ToolUseBlock(id="toolu_x", name="ghost", input={})],
             ),
         ]
     )
@@ -204,15 +356,13 @@ async def test_loop_refuses_tool_use_with_empty_registry() -> None:
 
     # Exactly one primary llm_call row: we did not loop back after the refused
     # tool_use.
-    primary_count = sum(
-        1
-        for sql, args in store.llm_calls()
-        if args[3] == "primary"
-    )
+    primary_count = sum(1 for sql, args in store.llm_calls() if args[3] == "primary")
     assert primary_count == 1
 
     # No tools were passed to any primary call.
-    primary_calls = [c for c in provider.calls if c["model"] == "claude-haiku-4-5-20251001"]
+    primary_calls = [
+        c for c in provider.calls if c["model"] == "claude-haiku-4-5-20251001"
+    ]
     for call in primary_calls:
         assert call["tools"] is None
 
