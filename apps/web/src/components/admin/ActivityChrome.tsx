@@ -13,13 +13,17 @@ import { cn } from "@/lib/utils";
 const ACTIVE_JOB_STATUSES = new Set(["queued", "claimed", "running"]);
 
 /**
- * Tab + counter chrome around the three /admin/activity panes.
+ * Tab + counter chrome around the /admin/activity panes
+ * (conversations / nodes / triggers / jobs / live).
  *
  * Owns the live polling that drives the banner counts ("X nodes
- * online · Y conversations · Z triggers") so the numbers stay
- * accurate regardless of which tab is in front — a pattern lifted
- * from sibling job-dashboard surfaces where per-pane polling
- * leaves stale counts behind when the user clicks a sibling tab.
+ * online · Y conversations · Z triggers · N jobs active") so the
+ * numbers stay accurate regardless of which tab is in front — a
+ * pattern lifted from sibling job-dashboard surfaces where per-pane
+ * polling leaves stale counts behind when the user clicks a sibling
+ * tab. Each count pulls its pane's full list (the over-fetch is cheap
+ * at Phase-1 scale); a rolled-up summary endpoint is a future
+ * optimisation across all counts, not just jobs.
  *
  * 15 s cadence: matches the 30 s heartbeat in `docs/024 §3` (two
  * polls per beat is enough to render the freshness dot reliably)

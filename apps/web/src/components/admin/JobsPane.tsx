@@ -85,8 +85,13 @@ export function JobsPane(): React.ReactElement {
 }
 
 function JobRow({ job }: { job: JobInfo }): React.ReactElement {
+  // result is worker-controlled, so only surface it as a link when it's an
+  // http(s) URL — guards against a javascript:/data: scheme reaching href.
   const prUrl =
-    typeof job.result?.pr_url === "string" ? job.result.pr_url : null;
+    typeof job.result?.pr_url === "string" &&
+    /^https?:\/\//i.test(job.result.pr_url)
+      ? job.result.pr_url
+      : null;
   return (
     <article className="flex flex-col gap-1 border-b border-border px-3 py-2 text-sm last:border-b-0">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -116,7 +121,7 @@ function JobRow({ job }: { job: JobInfo }): React.ReactElement {
           <a
             href={prUrl}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="text-blue-700 underline"
           >
             {prUrl}
