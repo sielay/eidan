@@ -119,10 +119,9 @@ class S3ArtifactStore:
     Backend selected entirely by config (endpoint/bucket/credentials), so
     Supabase Storage ↔ S3 ↔ R2 ↔ MinIO is a config swap, no code change.
 
-    NOTE: the concrete client needs ``aioboto3`` in the backend deps — a
-    deliberate follow-up (``uv add aioboto3`` + ``uv lock``) under #252 so
-    this "start" stays dependency-clean. The interface, config, and
-    key-shaping are real now; the three methods raise until the dep lands.
+    The concrete client needs ``aioboto3`` — shipped as the optional
+    ``eidan-backend[s3]`` extra so the default install (Postgres backend)
+    stays lean. ``_client`` raises a clear install hint if it's absent.
     """
 
     backend = "s3"
@@ -150,8 +149,8 @@ class S3ArtifactStore:
             import aioboto3  # type: ignore
         except ModuleNotFoundError as err:  # pragma: no cover
             raise RuntimeError(
-                "S3 artifact backend requires 'aioboto3'. Add it: "
-                "`uv add aioboto3 && uv lock` (issue #252 follow-up)."
+                "S3 artifact backend requires 'aioboto3'. Install the extra: "
+                "`uv sync --extra s3` (or pip install 'eidan-backend[s3]')."
             ) from err
         return aioboto3.Session().client(
             "s3",

@@ -32,6 +32,12 @@ dev = [
     "ruff>=0.5",
     "asgi-lifespan>=2.1.0",
 ]
+# Optional S3-compatible artifact backend (#252). The default artifact
+# store is Postgres bytea (no extra deps); install `eidan-backend[s3]`
+# only when EIDAN_ARTIFACT_STORE=s3 (Supabase Storage / S3 / R2 / MinIO).
+s3 = [
+    "aioboto3>=13.0",
+]
 
 [project.scripts]
 eidan-backend-http = "eidan_backend.http.server:main"
