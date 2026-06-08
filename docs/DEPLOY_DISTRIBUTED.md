@@ -42,7 +42,7 @@ nodes:
       api_key: !vault | ...
     # sentry.enabled defaults to false on Fly — the Pi runs the tick
 
-  kasha:
+  raspberry:
     target: pi
     host: 192.168.1.100
     ssh_user: pi

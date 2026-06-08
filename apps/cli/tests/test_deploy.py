@@ -41,7 +41,7 @@ defaults:
   plugin_source: gh:sielay
   github_token: PAT-XXXX
 nodes:
-  kasha:
+  raspberry:
     target: pi
     host: 192.168.1.100
     ssh_user: pi
@@ -54,14 +54,14 @@ nodes:
       default_model: phi3
     bundles: [eidan-pro]
     disable: [imap]
-    node_id: pi-kasha
+    node_id: pi-raspberry
     node_type: pi
 """
 
 
-def _kasha_node(tmp_path: Path):
+def _raspberry_node(tmp_path: Path):
     topology = load_topology(_write_topology(tmp_path, _PI_NODE_YAML))
-    return topology.resolve_node("kasha")
+    return topology.resolve_node("raspberry")
 
 
 def _stub_eidan_checkout(root: Path) -> None:
@@ -102,11 +102,11 @@ def _stub_bundle_repo(bundle_dir: Path, *, plugins: list[str]) -> None:
 
 
 def test_render_inventory_includes_host_ssh_user_and_key(tmp_path: Path) -> None:
-    node = _kasha_node(tmp_path)
+    node = _raspberry_node(tmp_path)
     rendered = pi._render_inventory(node)
 
     assert "[eidan_pi]" in rendered
-    assert "kasha ansible_host=192.168.1.100 ansible_user=pi" in rendered
+    assert "raspberry ansible_host=192.168.1.100 ansible_user=pi" in rendered
     assert "ansible_ssh_private_key_file=~/.ssh/id_ed25519" in rendered
     assert "[eidan_pi:vars]" in rendered
     assert "ansible_python_interpreter=/usr/bin/python3" in rendered
@@ -154,7 +154,7 @@ def test_missing_host_raises_typed_error(tmp_path: Path) -> None:
 
 
 def test_node_to_ansible_vars_carries_required_fields(tmp_path: Path) -> None:
-    node = _kasha_node(tmp_path)
+    node = _raspberry_node(tmp_path)
     vars_dict = pi._node_to_ansible_vars(node)
 
     assert (
@@ -170,7 +170,7 @@ def test_node_to_ansible_vars_carries_required_fields(tmp_path: Path) -> None:
 
 
 def test_node_to_ansible_vars_maps_provider_and_bundles(tmp_path: Path) -> None:
-    node = _kasha_node(tmp_path)
+    node = _raspberry_node(tmp_path)
     vars_dict = pi._node_to_ansible_vars(node)
 
     assert vars_dict["eidan_provider"] == "ollama"
@@ -189,7 +189,7 @@ def test_node_to_ansible_vars_does_not_leak_pat_or_plugin_source(
     MUST NOT be plumbed into the ansible vars file rendered to
     .eidan-runtime/<node>/vars.yml — the Pi never clones a private
     repo and so never needs a PAT (slice C of #104)."""
-    node = _kasha_node(tmp_path)
+    node = _raspberry_node(tmp_path)
     vars_dict = pi._node_to_ansible_vars(node)
 
     assert "eidan_plugin_source" not in vars_dict
@@ -202,7 +202,7 @@ def test_node_to_ansible_vars_emits_sentry_defaults_when_unset(
     """The playbook expects sentry vars to exist; we default them to
     the schema defaults rather than relying on Jinja `is defined`
     guards on the ansible side."""
-    node = _kasha_node(tmp_path)
+    node = _raspberry_node(tmp_path)
     vars_dict = pi._node_to_ansible_vars(node)
 
     assert vars_dict["eidan_sentry_enabled"] == 1
@@ -217,7 +217,7 @@ def test_node_to_ansible_vars_maps_log_forward_token_shape(
     body = """
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: pi
             host: 192.168.1.100
             ssh_user: pi
@@ -230,7 +230,7 @@ def test_node_to_ansible_vars_maps_log_forward_token_shape(
               level: INFO
     """
     topology = load_topology(_write_topology(tmp_path, body))
-    vars_dict = pi._node_to_ansible_vars(topology.resolve_node("kasha"))
+    vars_dict = pi._node_to_ansible_vars(topology.resolve_node("raspberry"))
 
     # AnyUrl can normalise to a trailing slash; allow either form.
     assert (
@@ -252,7 +252,7 @@ def test_node_to_ansible_vars_maps_log_forward_headers_shape(
     body = """
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: pi
             host: 192.168.1.100
             ssh_user: pi
@@ -265,7 +265,7 @@ def test_node_to_ansible_vars_maps_log_forward_headers_shape(
                 DD-API-KEY: dd-key-XXXX
     """
     topology = load_topology(_write_topology(tmp_path, body))
-    vars_dict = pi._node_to_ansible_vars(topology.resolve_node("kasha"))
+    vars_dict = pi._node_to_ansible_vars(topology.resolve_node("raspberry"))
 
     assert (
         vars_dict["eidan_log_forward_url"]
@@ -281,7 +281,7 @@ def test_node_to_ansible_vars_omits_log_forward_when_unset(
 ) -> None:
     """No `log_forward:` on the node → no env vars emitted. Backend's
     forwarder stays off."""
-    node = _kasha_node(tmp_path)
+    node = _raspberry_node(tmp_path)
     vars_dict = pi._node_to_ansible_vars(node)
 
     assert "eidan_log_forward_url" not in vars_dict
@@ -299,7 +299,7 @@ def test_node_to_ansible_vars_carries_extra_env_passthrough(
     body = """
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: pi
             host: 192.168.1.100
             ssh_user: pi
@@ -312,7 +312,7 @@ def test_node_to_ansible_vars_carries_extra_env_passthrough(
               EIDAN_SAGE_LOOP_MAX_ITERATIONS: "5"
     """
     topology = load_topology(_write_topology(tmp_path, body))
-    vars_dict = pi._node_to_ansible_vars(topology.resolve_node("kasha"))
+    vars_dict = pi._node_to_ansible_vars(topology.resolve_node("raspberry"))
 
     assert vars_dict["eidan_extra_env"] == {
         "EIDAN_GIT_STACKS": "sage",
@@ -328,7 +328,7 @@ def test_node_to_ansible_vars_omits_extra_env_when_unset(
     template gates on `is defined`, so the rendered eidan.env stays
     clean instead of carrying a `# --- Plugin pass-through env`
     section with nothing in it."""
-    node = _kasha_node(tmp_path)
+    node = _raspberry_node(tmp_path)
     vars_dict = pi._node_to_ansible_vars(node)
     assert "eidan_extra_env" not in vars_dict
 
@@ -350,7 +350,7 @@ def test_reconcile_writes_runtime_files_and_invokes_ansible(
 
     topology_path = _write_topology(tmp_path, _PI_NODE_YAML)
     topology = load_topology(topology_path)
-    node = topology.resolve_node("kasha")
+    node = topology.resolve_node("raspberry")
 
     captured_cmd: list[str] = []
 
@@ -362,7 +362,7 @@ def test_reconcile_writes_runtime_files_and_invokes_ansible(
         code = pi.reconcile(node, topology_path=topology_path)
 
     assert code == 0
-    runtime_dir = tmp_path / ".eidan-runtime" / "kasha"
+    runtime_dir = tmp_path / ".eidan-runtime" / "raspberry"
     assert (runtime_dir / "inventory.ini").is_file()
     assert (runtime_dir / "vars.yml").is_file()
     assert "ansible-playbook" in captured_cmd[0]
@@ -381,7 +381,7 @@ def test_reconcile_writes_runtime_files_and_invokes_ansible(
 def test_reconcile_propagates_tags_and_dry_run(tmp_path: Path) -> None:
     topology_path = _write_topology(tmp_path, _PI_NODE_YAML)
     topology = load_topology(topology_path)
-    node = topology.resolve_node("kasha")
+    node = topology.resolve_node("raspberry")
 
     captured_cmd: list[str] = []
 
@@ -417,7 +417,7 @@ def test_reconcile_returns_subprocess_exit_code(
 
     topology_path = _write_topology(tmp_path, _PI_NODE_YAML)
     topology = load_topology(topology_path)
-    node = topology.resolve_node("kasha")
+    node = topology.resolve_node("raspberry")
 
     def _fake_run(cmd, **kwargs):
         return subprocess.CompletedProcess(args=cmd, returncode=2)
@@ -505,12 +505,12 @@ def test_deploy_reconciles_a_pi_node(tmp_path: Path) -> None:
     with patch.object(pi, "ensure_ansible_available"), patch.object(
         pi, "reconcile", return_value=0
     ) as mock_reconcile:
-        code = deploy.deploy(topology_path, node="kasha")
+        code = deploy.deploy(topology_path, node="raspberry")
 
     assert code == 0
     mock_reconcile.assert_called_once()
     called_node = mock_reconcile.call_args[0][0]
-    assert called_node.name == "kasha"
+    assert called_node.name == "raspberry"
 
 
 def test_deploy_unknown_target_raises_friendly_error(tmp_path: Path) -> None:

@@ -88,7 +88,7 @@ Two real-world reasons an operator pins identity by env:
 - **Multiple processes on one host.** A Pi running both a long-lived
   worker and an ad-hoc REPL would otherwise share one `node_id` and
   trample each other's heartbeats. Pin each with
-  `EIDAN_NODE_ID=pi-kasha-worker` / `EIDAN_NODE_ID=pi-kasha-repl`.
+  `EIDAN_NODE_ID=pi-raspberry-worker` / `EIDAN_NODE_ID=pi-raspberry-repl`.
 - **Reclassification.** A Fly machine functionally serving as a
   background worker (Sentry tick host, future Claude Code worker)
   can be regrouped as `EIDAN_NODE_TYPE=pi` so the dashboard puts it
@@ -204,7 +204,7 @@ line via `eidan_backend.telemetry`'s module logger with `extra=`
 fields:
 
 ```
-event=plugin.activate node_id=pi-kasha node_type=pi
+event=plugin.activate node_id=pi-raspberry node_type=pi
 conversation_id=None payload={'plugin': 'sentry', 'version': '0.1.0'}
 ```
 
@@ -250,12 +250,12 @@ used (it would open an unnecessary RLS-scoped transaction).
 {
   "nodes": [
     {
-      "node_id": "pi-kasha",
+      "node_id": "pi-raspberry",
       "node_type": "pi",
       "status": "online",
       "last_seen": "2026-05-23T22:30:00+00:00",
       "seconds_since": 7,
-      "metadata": {"hostname": "kasha", "platform": "Linux-..."},
+      "metadata": {"hostname": "raspberry", "platform": "Linux-..."},
       "created_at": "...",
       "updated_at": "..."
     },
@@ -291,10 +291,10 @@ exists, just hasn't emitted past `after_seq`.
 
 ```jsonc
 {
-  "node_id": "pi-kasha",
+  "node_id": "pi-raspberry",
   "events": [
     {
-      "id": "pi-kasha:42",            // "{node_id}:{seq}" — same as potem
+      "id": "pi-raspberry:42",            // "{node_id}:{seq}" — same as potem
       "seq": 42,
       "ts": "2026-05-23T22:30:00+00:00",
       "type": "node.boot",
@@ -370,7 +370,7 @@ One POST per log record. Body is a flat JSON object:
   "logger":  "eidan_backend.telemetry",
   "message": "telemetry: node.boot",
   "event":   "node.boot",
-  "node_id": "kasha",
+  "node_id": "raspberry",
   "node_type": "pi",
   "payload": {"plugins": ["sentry"], "tool_count": 4}
 }

@@ -90,7 +90,7 @@ def test_init_wizard_pi_path_writes_topology(
     _stub_questionary(
         monkeypatch,
         [
-            "kasha",                # node name
+            "raspberry",                # node name
             "pi",                    # target
             "192.168.1.100",         # pi host
             "pi",                    # pi ssh_user
@@ -115,7 +115,7 @@ def test_init_wizard_pi_path_writes_topology(
     assert target == tmp_path / ".eidan"
     assert key_is_new is True  # generated path
     topology = (target / "topology.yml").read_text(encoding="utf-8")
-    assert "kasha:" in topology
+    assert "raspberry:" in topology
     assert "target: pi" in topology
     assert "host: 192.168.1.100" in topology
     assert "ssh_user: pi" in topology
@@ -203,7 +203,7 @@ def test_init_wizard_url_encodes_password(
     _stub_questionary(
         monkeypatch,
         [
-            "kasha", "pi",
+            "raspberry", "pi",
             "192.168.1.100", "pi", "~/.ssh/id_ed25519",
             "127.0.0.1", "5432", "eidan", "eidan_app",
             "p@ss:word#1",          # password with three reserved chars
@@ -237,7 +237,7 @@ def test_init_wizard_reuses_existing_master_key(
     eidan_dir.mkdir()
     existing_key = "OLD-KEY-FROM-A-PREVIOUS-INIT-RUN-PRESERVE-ME-PLEASE-1234567890"
     (eidan_dir / "topology.yml").write_text(
-        "schema: 1\nnodes:\n  kasha:\n"
+        "schema: 1\nnodes:\n  raspberry:\n"
         f'    auth_master_key: "{existing_key}"\n',
         encoding="utf-8",
     )
@@ -246,7 +246,7 @@ def test_init_wizard_reuses_existing_master_key(
     _stub_questionary(
         monkeypatch,
         [
-            "kasha", "pi",
+            "raspberry", "pi",
             "192.168.1.100", "pi", "~/.ssh/id_ed25519",
             "127.0.0.1", "5432", "eidan", "eidan_app", "secret",
             "ops@example.com",
@@ -279,7 +279,7 @@ def test_init_wizard_accepts_pasted_master_key(
     _stub_questionary(
         monkeypatch,
         [
-            "kasha", "pi",
+            "raspberry", "pi",
             "192.168.1.100", "pi", "~/.ssh/id_ed25519",
             "127.0.0.1", "5432", "eidan", "eidan_app", "secret",
             "ops@example.com",

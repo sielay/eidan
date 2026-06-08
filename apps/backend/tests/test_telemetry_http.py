@@ -77,19 +77,19 @@ async def _seed(
 @pytest.mark.asyncio
 async def test_list_nodes_returns_heartbeats(telemetry_client) -> None:
     client, pool = telemetry_client
-    await _seed(pool, "pi-kasha", "pi", emit_count=0)
+    await _seed(pool, "pi-raspberry", "pi", emit_count=0)
     await _seed(pool, "m-fly-1", "fly", emit_count=0)
 
     resp = await client.get("/api/admin/nodes", headers=_auth_header())
     assert resp.status_code == 200
     body = resp.json()
     by_id = {n["node_id"]: n for n in body["nodes"]}
-    assert {"pi-kasha", "m-fly-1"} <= by_id.keys()
-    assert by_id["pi-kasha"]["node_type"] == "pi"
+    assert {"pi-raspberry", "m-fly-1"} <= by_id.keys()
+    assert by_id["pi-raspberry"]["node_type"] == "pi"
     assert by_id["m-fly-1"]["node_type"] == "fly"
-    assert by_id["pi-kasha"]["status"] == "online"
-    assert by_id["pi-kasha"]["metadata"]["hostname"] == "test"
-    assert isinstance(by_id["pi-kasha"]["seconds_since"], int)
+    assert by_id["pi-raspberry"]["status"] == "online"
+    assert by_id["pi-raspberry"]["metadata"]["hostname"] == "test"
+    assert isinstance(by_id["pi-raspberry"]["seconds_since"], int)
 
 
 @pytest.mark.asyncio

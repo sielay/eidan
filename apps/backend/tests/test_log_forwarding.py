@@ -102,7 +102,7 @@ def test_envelope_picks_up_telemetry_extras() -> None:
     record = _make_record(
         extra={
             "event": "node.boot",
-            "node_id": "kasha",
+            "node_id": "raspberry",
             "node_type": "pi",
             "conversation_id": None,  # falsy but legit — should NOT appear
             "payload": {"plugins": ["sentry"]},
@@ -110,7 +110,7 @@ def test_envelope_picks_up_telemetry_extras() -> None:
     )
     env = _format_record(record)
     assert env["event"] == "node.boot"
-    assert env["node_id"] == "kasha"
+    assert env["node_id"] == "raspberry"
     assert env["node_type"] == "pi"
     # conversation_id was None — skipped to keep the envelope terse
     assert "conversation_id" not in env
@@ -225,7 +225,7 @@ def test_telemetry_log_lands_as_json_post(
             "node.boot",
             extra={
                 "event": "node.boot",
-                "node_id": "kasha",
+                "node_id": "raspberry",
                 "node_type": "pi",
                 "payload": {"plugins": ["sentry"], "tool_count": 4},
             },
@@ -238,7 +238,7 @@ def test_telemetry_log_lands_as_json_post(
     bodies = [c["body"] for c in captured]
     boot = next((b for b in bodies if b.get("event") == "node.boot"), None)
     assert boot is not None, f"node.boot not in {bodies}"
-    assert boot["node_id"] == "kasha"
+    assert boot["node_id"] == "raspberry"
     assert boot["node_type"] == "pi"
     assert boot["payload"]["plugins"] == ["sentry"]
     assert boot["message"] == "telemetry: node.boot"
@@ -309,7 +309,7 @@ def test_exception_traceback_lands_in_post_through_queue_path(
                 "provider.failure",
                 extra={
                     "event": "provider.failure",
-                    "node_id": "kasha",
+                    "node_id": "raspberry",
                     "node_type": "pi",
                 },
             )

@@ -62,7 +62,7 @@ _VALID_NODE_TYPES = frozenset({"pi", "fly", "heroku", "k8s", "local"})
 def _short_hostname() -> str:
     """First label of the hostname.
 
-    Pi default hostnames look like ``kasha`` already; cloud machines
+    Pi default hostnames look like ``raspberry`` already; cloud machines
     often pick up FQDNs (``ip-10-0-0-1.eu-west-1.compute.internal``).
     The short form is what an operator types when they grep journald
     or look at the /api/admin/nodes list.

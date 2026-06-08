@@ -122,7 +122,7 @@ defaults:
     default_model: claude-sonnet-4-6
 
 nodes:
-  kasha:
+  raspberry:
     target: pi
     host: 192.168.1.100
     ssh_user: pi
@@ -182,7 +182,7 @@ initial migration.
 Then, from your eidan checkout:
 
 ```bash
-eidan deploy --node kasha
+eidan deploy --node raspberry
 ```
 
 The CLI auto-discovers `.eidan/topology.yml`, ssh's into the Pi,
@@ -219,10 +219,10 @@ is idempotent, so re-running reconciles whatever drifted:
 
 ```bash
 eidan deploy                              # everything
-eidan deploy --node kasha                 # one node
-eidan deploy --node kasha --tags env      # just env / unit
-eidan deploy --node kasha --tags source   # just code re-sync
-eidan deploy --node kasha --dry-run       # show planned changes
+eidan deploy --node raspberry                 # one node
+eidan deploy --node raspberry --tags env      # just env / unit
+eidan deploy --node raspberry --tags source   # just code re-sync
+eidan deploy --node raspberry --dry-run       # show planned changes
 ```
 
 To bump a release: `git pull` your eidan checkout — the tracked
@@ -240,7 +240,7 @@ or rsynced onto the Pi (Pi) on every deploy:
 
 ```yaml
 nodes:
-  kasha:
+  raspberry:
     bundles: [eidan-pro, eidan-sage]
     disable: [imap]          # baked but loader skips it on this node
 ```
@@ -249,9 +249,9 @@ Or via the CLI mutators (which round-trip the YAML preserving
 comments):
 
 ```bash
-eidan plugin disable imap --node kasha
-eidan plugin enable  imap --node kasha
-eidan deploy --node kasha
+eidan plugin disable imap --node raspberry
+eidan plugin enable  imap --node raspberry
+eidan deploy --node raspberry
 ```
 
 Changing the bundle set is a rebuild + redeploy. No in-place
@@ -262,7 +262,7 @@ Inspect the topology any time:
 
 ```bash
 eidan node list                # one row per node
-eidan node show kasha          # resolved view, defaults merged
+eidan node show raspberry          # resolved view, defaults merged
 ```
 
 ---
