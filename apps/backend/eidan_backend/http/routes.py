@@ -2182,3 +2182,65 @@ async def list_triggers_endpoint(request: Request) -> dict[str, Any]:
         )
 
     return {"triggers": triggers, "dlq_count": int(dlq_count or 0)}
+
+
+# Cap on the admin jobs listing — most-recent N. The queue is a working
+# set (terminal rows are not pruned here), so an unbounded SELECT could
+# grow without limit; 200 is plenty for the operator's "what's happening
+# now / what just failed" view.
+_ADMIN_JOBS_LIMIT = 200
+
+
+@router.get("/api/admin/jobs")
+async def list_jobs_endpoint(request: Request) -> dict[str, Any]:
+    """List recent rows from the ``eidan.jobs`` delegation queue (#251).
+
+    Newest first, capped at the most recent ``_ADMIN_JOBS_LIMIT``. The
+    operator's window onto the universal queue (#247/#248): what's
+    queued / claimed / running / done / failed, which node claimed each,
+    and why a job failed — the companion to the served-kinds advertisement
+    (#249) on the nodes pane.
+    """
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id,
+                   kind,
+                   goal,
+                   status,
+                   surface,
+                   claimed_by,
+                   claimed_at,
+                   result,
+                   error,
+                   created_at,
+                   updated_at
+              FROM eidan.jobs
+             ORDER BY created_at DESC
+             LIMIT $1
+            """,
+            _ADMIN_JOBS_LIMIT,
+        )
+    return {
+        "jobs": [
+            {
+                "id": str(r["id"]),
+                "kind": r["kind"],
+                "goal": r["goal"],
+                "status": r["status"],
+                "surface": r["surface"],
+                "claimed_by": r["claimed_by"],
+                "claimed_at": (
+                    r["claimed_at"].isoformat() if r["claimed_at"] is not None else None
+                ),
+                # Worker output (e.g. {"pr_url": ...}); decode_jsonb collapses
+                # a non-object / NULL to {}, which the UI renders as "no result".
+                "result": decode_jsonb(r["result"]),
+                "error": r["error"],
+                "created_at": r["created_at"].isoformat(),
+                "updated_at": r["updated_at"].isoformat(),
+            }
+            for r in rows
+        ]
+    }

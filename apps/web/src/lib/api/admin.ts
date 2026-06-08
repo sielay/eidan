@@ -108,3 +108,44 @@ export async function listAdminTriggers(): Promise<TriggerListResponse> {
   }
   return (await res.json()) as TriggerListResponse;
 }
+
+// Mirrors core/admin/JobList.schema.json — a recency-bounded snapshot of
+// the eidan.jobs delegation queue (#251).
+export type JobStatus =
+  | "queued"
+  | "claimed"
+  | "running"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | string;
+
+export interface JobInfo {
+  id: string;
+  kind: string;
+  goal: string;
+  status: JobStatus;
+  surface: string | null;
+  claimed_by: string | null;
+  claimed_at: string | null;
+  result: Record<string, unknown>;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface JobListResponse {
+  jobs: JobInfo[];
+}
+
+export async function listAdminJobs(): Promise<JobInfo[]> {
+  const res = await authFetch("/api/admin/jobs", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET /api/admin/jobs returned ${res.status}`);
+  }
+  const body = (await res.json()) as JobListResponse;
+  return body.jobs;
+}
