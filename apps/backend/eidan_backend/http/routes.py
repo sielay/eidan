@@ -1413,6 +1413,34 @@ async def get_conversation_messages(
         rows = await load_full_conversation_messages(
             conn, conversation_id=conversation_id
         )
+        # Artifacts produced under this conversation's messages (#255).
+        # Grouped by message_id so the UI can render a download chip on the
+        # assistant turn that produced them (`docs/014` slot / eidan#245).
+        artifact_rows = await conn.fetch(
+            """
+            SELECT id, message_id, kind, filename, mime_type, size_bytes
+            FROM eidan.artifacts
+            WHERE conversation_id = $1 AND user_id = $2 AND deleted_at IS NULL
+            ORDER BY created_at
+            """,
+            conversation_id,
+            user_uuid,
+        )
+
+    artifacts_by_message: dict[str, list[dict[str, Any]]] = {}
+    for a in artifact_rows:
+        if a["message_id"] is None:
+            continue
+        artifacts_by_message.setdefault(str(a["message_id"]), []).append(
+            {
+                "id": str(a["id"]),
+                "kind": a["kind"],
+                "filename": a["filename"],
+                "mime_type": a["mime_type"],
+                "size_bytes": a["size_bytes"],
+                "download_url": f"/api/artifacts/{a['id']}",
+            }
+        )
 
     return {
         "messages": [
@@ -1430,6 +1458,7 @@ async def get_conversation_messages(
                 "provider": row["provider"],
                 "model": row["model"],
                 "metadata": _maybe_json(row["metadata"]),
+                "artifacts": artifacts_by_message.get(str(row["id"]), []),
                 "created_at": row["created_at"].isoformat(),
             }
             for row in rows

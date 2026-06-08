@@ -136,3 +136,49 @@ async def test_download_missing_is_404(http_client) -> None:
         headers={"Authorization": f"Bearer {mint_test_token(owner)}"},
     )
     assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_messages_payload_includes_artifacts(http_client) -> None:
+    # #255 — an artifact produced under a message surfaces in the
+    # GET /api/conversations/{id}/messages payload (for the download chip).
+    client, pool = http_client
+    owner = build_identity()
+    await _seed_user(pool, UUID(owner.user_id), owner.email)
+    conv_id, msg_id = uuid4(), uuid4()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO eidan.conversations (id, user_id) VALUES ($1, $2)",
+            conv_id,
+            UUID(owner.user_id),
+        )
+        await conn.execute(
+            "INSERT INTO eidan.messages (id, user_id, conversation_id, role, content) "
+            "VALUES ($1, $2, $3, 'assistant', 'here is your deck')",
+            msg_id,
+            UUID(owner.user_id),
+            conv_id,
+        )
+
+    service = ArtifactService(pool, PostgresArtifactStore())
+    ref = await service.create(
+        owner,
+        kind="deck",
+        filename="board.pptx",
+        data=b"deck-bytes",
+        mime_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        message_id=msg_id,
+        conversation_id=conv_id,
+    )
+
+    resp = await client.get(
+        f"/api/conversations/{conv_id}/messages",
+        headers={"Authorization": f"Bearer {mint_test_token(owner)}"},
+    )
+    assert resp.status_code == 200, resp.text
+    msg = next(m for m in resp.json()["messages"] if m["id"] == str(msg_id))
+    assert len(msg["artifacts"]) == 1
+    art = msg["artifacts"][0]
+    assert art["filename"] == "board.pptx"
+    assert art["kind"] == "deck"
+    assert art["download_url"] == f"/api/artifacts/{ref.id}"
