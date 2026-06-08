@@ -59,6 +59,20 @@ class NodePluginInfo(BaseModel):
     """
 
 
+class NodeServedKind(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: str = Field(..., min_length=1)
+    """
+    A job kind this node serves from eidan.jobs (e.g. 'code').
+    """
+    capacity: int = Field(..., ge=1)
+    """
+    How many jobs of this kind the node runs concurrently — its per-kind in-flight cap.
+    """
+
+
 class NodeInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -90,6 +104,10 @@ class NodeInfo(BaseModel):
     plugins: list[NodePluginInfo]
     """
     Plugins active on this node when the heartbeat was last written (issue #52). Per-process — the Pi and a Fly machine can carry different sets after a runtime install. Empty array on nodes whose process predates the schema bump.
+    """
+    served_kinds: list[NodeServedKind] | None = None
+    """
+    Job kinds this node is built to serve from the eidan.jobs delegation queue, with per-kind capacity (issue #249). Advertised by the node's plugins at activation. Empty array on nodes that serve no queued kinds, or whose process predates the schema bump.
     """
 
 

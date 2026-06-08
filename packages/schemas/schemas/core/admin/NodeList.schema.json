@@ -60,6 +60,11 @@
           "type": "array",
           "description": "Plugins active on this node when the heartbeat was last written (issue #52). Per-process — the Pi and a Fly machine can carry different sets after a runtime install. Empty array on nodes whose process predates the schema bump.",
           "items": { "$ref": "#/$defs/NodePluginInfo" }
+        },
+        "served_kinds": {
+          "type": "array",
+          "description": "Job kinds this node is built to serve from the eidan.jobs delegation queue, with per-kind capacity (issue #249). Advertised by the node's plugins at activation. Empty array on nodes that serve no queued kinds, or whose process predates the schema bump.",
+          "items": { "$ref": "#/$defs/NodeServedKind" }
         }
       }
     },
@@ -82,6 +87,23 @@
           "type": "string",
           "enum": ["core", "pro", "commercial"],
           "description": "Which bundle the plugin ships in. Mirrors plugin.yaml's tier field."
+        }
+      }
+    },
+    "NodeServedKind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "capacity"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A job kind this node serves from eidan.jobs (e.g. 'code')."
+        },
+        "capacity": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many jobs of this kind the node runs concurrently — its per-kind in-flight cap."
         }
       }
     }

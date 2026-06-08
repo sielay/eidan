@@ -361,6 +361,72 @@ async def test_heartbeat_plugins_default_empty(eidan_db: str) -> None:
         await pool.close()
 
 
+async def test_heartbeat_persists_served_kinds(eidan_db: str) -> None:
+    """The served-kinds snapshot lands in
+    ``eidan.node_heartbeats.served_kinds`` on every UPSERT (issue #249) —
+    the companion advertisement to ``plugins`` that drives the admin
+    nodes pane's "which kinds have live capacity" display.
+    """
+    pool = await create_pool(eidan_db)
+    snapshot = [{"kind": "code", "capacity": 2}]
+    try:
+        emitter = TelemetryEmitter(
+            pool=pool,
+            identity=_identity("served-node"),
+            heartbeat_interval_seconds=3600,
+            served_kinds=snapshot,
+        )
+        await emitter.start()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT served_kinds FROM eidan.node_heartbeats "
+                    "WHERE node_id = 'served-node'"
+                )
+            assert row is not None
+            stored = (
+                row["served_kinds"]
+                if isinstance(row["served_kinds"], list)
+                else json.loads(row["served_kinds"])
+            )
+            assert stored == snapshot
+        finally:
+            await emitter.stop()
+    finally:
+        await pool.close()
+
+
+async def test_heartbeat_served_kinds_default_empty(eidan_db: str) -> None:
+    """A TelemetryEmitter constructed without served kinds writes an
+    empty array — a node that serves no delegation-queue kinds (e.g. a
+    public API node) keeps a consistent wire shape."""
+    pool = await create_pool(eidan_db)
+    try:
+        emitter = TelemetryEmitter(
+            pool=pool,
+            identity=_identity("no-served-node"),
+            heartbeat_interval_seconds=3600,
+        )
+        await emitter.start()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT served_kinds FROM eidan.node_heartbeats "
+                    "WHERE node_id = 'no-served-node'"
+                )
+            assert row is not None
+            stored = (
+                row["served_kinds"]
+                if isinstance(row["served_kinds"], list)
+                else json.loads(row["served_kinds"])
+            )
+            assert stored == []
+        finally:
+            await emitter.stop()
+    finally:
+        await pool.close()
+
+
 def test_node_id_hash_is_stable() -> None:
     """The advisory-lock key for seq allocation must be stable across
     process restarts; we encode the same node_id consistently."""

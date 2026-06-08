@@ -17,6 +17,11 @@ export interface NodePluginInfo {
   tier: "core" | "pro" | "commercial" | string;
 }
 
+export interface NodeServedKind {
+  kind: string;
+  capacity: number;
+}
+
 export interface NodeInfo {
   node_id: string;
   node_type: "pi" | "fly" | "heroku" | "k8s" | "local" | string;
@@ -25,6 +30,9 @@ export interface NodeInfo {
   seconds_since: number;
   metadata: Record<string, unknown>;
   plugins: NodePluginInfo[];
+  // Job kinds this node serves from eidan.jobs, with per-kind capacity
+  // (issue #249). Optional: legacy nodes / older backends omit it.
+  served_kinds?: NodeServedKind[];
 }
 
 interface NodeListResponse {

@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from fastapi import APIRouter
 
     from eidan_backend.behaviours import Behaviour, BehaviourResult
+    from eidan_backend.capabilities import JobCapability
     from eidan_backend.identity import Identity
     from eidan_backend.tools import Tool
 
@@ -82,6 +83,22 @@ class ToolRegistrar(Protocol):
     """
 
     def __call__(self, tools: Iterable[Tool]) -> None: ...
+
+
+@runtime_checkable
+class CapabilityRegistrar(Protocol):
+    """Callable that registers the job **kinds** this node serves with the
+    host's :class:`eidan_backend.capabilities.CapabilityRegistry`.
+
+    Plugins call this from ``on_activate`` to advertise ``{kind, capacity}``
+    — what work this node can claim from ``eidan.jobs`` (#247). The host
+    snapshots the registry after activation and the heartbeat loop writes it
+    into ``eidan.node_heartbeats.served_kinds`` (#249). ``None`` on a context
+    wired without the registry (older host / unit-test path); plugins guard
+    with ``if ctx.register_capabilities is not None``.
+    """
+
+    def __call__(self, capabilities: Iterable[JobCapability]) -> None: ...
 
 
 @runtime_checkable
@@ -248,6 +265,10 @@ class PluginContext:
     - ``register_tools``      — registers the plugin's :class:`Tool`
       instances with the host's tool registry, so the agent loop's
       primary call sees them in its ``tools=`` surface.
+    - ``register_capabilities`` — advertises the job ``kind``\\s this node
+      serves (``{kind, capacity}``) so the heartbeat publishes them into
+      ``node_heartbeats.served_kinds`` (#249). ``None`` on an older host /
+      the unit-test path; plugins guard before calling.
     - ``identity``            — ``None`` during ``on_install`` /
       ``on_uninstall``; the calling :class:`Identity` during
       ``on_activate`` and runtime invocations.
@@ -264,11 +285,13 @@ class PluginContext:
     spawn_turn: TurnInitiator | None = None
     assess_sufficiency: SufficiencyAssessor | None = None
     publish_event: EventPublisher | None = None
+    register_capabilities: CapabilityRegistrar | None = None
     identity: Identity | None = None
 
 
 __all__ = [
     "BehaviourRegistrar",
+    "CapabilityRegistrar",
     "DbAccessor",
     "EventPublisher",
     "NotificationSender",
