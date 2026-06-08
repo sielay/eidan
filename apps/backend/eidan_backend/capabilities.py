@@ -43,9 +43,27 @@ class CapabilityRegistry:
         self._caps: dict[str, JobCapability] = {}
 
     def register(self, capabilities: Iterable[JobCapability]) -> None:
-        for cap in capabilities:
+        # Two-pass so a duplicate or invalid entry partway through the
+        # iterable leaves the registry unchanged — same "rejected, not
+        # partially loaded" posture as BehaviourRegistry.register_all, and
+        # we never persist an invalid {kind, capacity} into
+        # node_heartbeats.served_kinds (the schema requires a non-empty
+        # kind and capacity >= 1). Validate everything, then mutate.
+        new = list(capabilities)
+        seen_in_batch: set[str] = set()
+        for cap in new:
+            if not cap.kind:
+                raise ValueError("capability kind must be non-empty")
+            if cap.capacity < 1:
+                raise ValueError(
+                    f"capability capacity must be >= 1 (kind {cap.kind!r})"
+                )
             if cap.kind in self._caps:
                 raise ValueError(f"capability already registered for kind: {cap.kind}")
+            if cap.kind in seen_in_batch:
+                raise ValueError(f"duplicate capability kind in batch: {cap.kind}")
+            seen_in_batch.add(cap.kind)
+        for cap in new:
             self._caps[cap.kind] = cap
 
     def is_empty(self) -> bool:

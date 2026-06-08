@@ -46,3 +46,30 @@ def test_duplicate_kind_is_a_wiring_error() -> None:
     reg.register([JobCapability(kind="code", capacity=2)])
     with pytest.raises(ValueError, match="code"):
         reg.register([JobCapability(kind="code", capacity=4)])
+
+
+def test_duplicate_kind_within_batch_raises() -> None:
+    reg = CapabilityRegistry()
+    with pytest.raises(ValueError, match="duplicate"):
+        reg.register(
+            [JobCapability(kind="code", capacity=2), JobCapability(kind="code", capacity=3)]
+        )
+
+
+def test_invalid_entry_leaves_registry_unchanged() -> None:
+    """Validation is atomic: a bad entry partway through a batch rejects
+    the whole batch rather than leaving a partial snapshot (so we never
+    persist invalid JSON into node_heartbeats.served_kinds)."""
+    reg = CapabilityRegistry()
+    with pytest.raises(ValueError, match="capacity"):
+        reg.register(
+            [JobCapability(kind="code", capacity=2), JobCapability(kind="business", capacity=0)]
+        )
+    # Neither was committed — the valid one ahead of the bad one rolled back.
+    assert reg.snapshot() == []
+
+
+def test_empty_kind_rejected() -> None:
+    reg = CapabilityRegistry()
+    with pytest.raises(ValueError, match="non-empty"):
+        reg.register([JobCapability(kind="", capacity=1)])
