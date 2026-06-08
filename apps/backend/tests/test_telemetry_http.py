@@ -55,6 +55,7 @@ async def _seed(
     node_type: str = "pi",
     emit_count: int = 0,
     plugins: list[dict[str, str]] | None = None,
+    served_kinds: list[dict] | None = None,
 ):
     """Seed a heartbeat + N events for the given node."""
     identity = NodeIdentity(
@@ -65,6 +66,7 @@ async def _seed(
         identity=identity,
         heartbeat_interval_seconds=3600,
         plugins=plugins,
+        served_kinds=served_kinds,
     )
     await emitter.start()
     for i in range(emit_count):
@@ -121,6 +123,32 @@ async def test_list_nodes_exposes_plugins(telemetry_client) -> None:
     # A node with no plugins surfaces an explicit empty array so
     # the UI doesn't have to guard for missing keys.
     assert by_id["fly-bare"]["plugins"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_nodes_exposes_served_kinds(telemetry_client) -> None:
+    """`/api/admin/nodes` surfaces each heartbeat's served-kinds
+    advertisement (issue #249) so the admin pane shows which kinds a
+    node serves from the delegation queue and with what capacity. A
+    node that serves no kinds returns an explicit empty array."""
+    client, pool = telemetry_client
+    await _seed(
+        pool,
+        "pi-coder",
+        "pi",
+        served_kinds=[{"kind": "code", "capacity": 2}],
+    )
+    await _seed(pool, "fly-api", "fly", served_kinds=[])
+
+    resp = await client.get("/api/admin/nodes", headers=_auth_header())
+    assert resp.status_code == 200
+    body = resp.json()
+    by_id = {n["node_id"]: n for n in body["nodes"]}
+    coder_kinds = by_id["pi-coder"]["served_kinds"]
+    assert {k["kind"] for k in coder_kinds} == {"code"}
+    assert next(k for k in coder_kinds if k["kind"] == "code")["capacity"] == 2
+    # A node that serves nothing surfaces an explicit empty array.
+    assert by_id["fly-api"]["served_kinds"] == []
 
 
 @pytest.mark.asyncio

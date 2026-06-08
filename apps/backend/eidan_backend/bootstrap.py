@@ -33,6 +33,7 @@ from typing import Any
 import asyncpg
 
 from .behaviours import Behaviour, BehaviourDispatcher, BehaviourRegistry
+from .capabilities import CapabilityRegistry, JobCapability
 from .memory_tools import register_memory_tools
 from .node_identity import NodeIdentity
 from .node_identity import detect as detect_node_identity
@@ -145,6 +146,7 @@ def _make_context_factory(
     default_model: str | None = None,
     behaviour_dispatcher: BehaviourDispatcher | None = None,
     telemetry_holder: list[Any] | None = None,
+    capability_registry: CapabilityRegistry | None = None,
 ) -> Any:
     """Build a :class:`ContextFactory` closed over the host's wiring.
 
@@ -210,6 +212,14 @@ def _make_context_factory(
             # BehaviourIdConflict) — same posture as the tool registry.
             behaviour_registry.register_all(behaviours)
 
+        def _register_capabilities(capabilities: Iterable[JobCapability]) -> None:
+            # Advertise the job kinds this node serves (#249). The
+            # bootstrap snapshots the registry after install_and_activate
+            # and the heartbeat loop publishes it into
+            # node_heartbeats.served_kinds. Same fail-loud posture as the
+            # tool/behaviour registries: a duplicate kind is a wiring error.
+            capability_registry.register(capabilities)
+
         return PluginContext(
             name=loaded.manifest.name,
             db=_PluginDb(pool, schema),
@@ -222,6 +232,9 @@ def _make_context_factory(
             spawn_turn=spawn_turn_callable,
             assess_sufficiency=assess_sufficiency_callable,
             publish_event=publish_event_callable,
+            register_capabilities=(
+                _register_capabilities if capability_registry is not None else None
+            ),
             identity=None,
         )
 
@@ -562,6 +575,9 @@ async def bootstrap(
     # capture by reference is safe.
     register_plugin_tools(tool_registry, plugins=plugins)
     behaviour_registry = BehaviourRegistry(tool_registry=tool_registry)
+    # Collects the job kinds plugins advertise at on_activate (#249);
+    # snapshotted into the heartbeat after install_and_activate, below.
+    capability_registry = CapabilityRegistry()
     if state_store is None:
         if not await _plugin_state_exists(pool):
             raise BootstrapNotMigratedError(
@@ -606,6 +622,7 @@ async def bootstrap(
         default_model=default_model,
         behaviour_dispatcher=dispatcher,
         telemetry_holder=telemetry_holder,
+        capability_registry=capability_registry,
     )
 
     # Validate every plugin's required ``vault[]`` keys BEFORE the
@@ -671,8 +688,16 @@ async def bootstrap(
             }
             for p in plugins
         ]
+        # The job kinds plugins advertised during on_activate (#249).
+        # Activation has already run, so the registry is complete; like
+        # ``plugins`` it's stable for this process and written verbatim
+        # into ``node_heartbeats.served_kinds`` on every UPSERT.
+        served_kinds_snapshot = capability_registry.snapshot()
         telemetry = TelemetryEmitter(
-            pool=pool, identity=node_identity, plugins=plugin_snapshot
+            pool=pool,
+            identity=node_identity,
+            plugins=plugin_snapshot,
+            served_kinds=served_kinds_snapshot,
         )
         try:
             await telemetry.start()

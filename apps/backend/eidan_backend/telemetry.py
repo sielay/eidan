@@ -108,6 +108,7 @@ class TelemetryEmitter:
         *,
         heartbeat_interval_seconds: int = HEARTBEAT_INTERVAL_SECONDS,
         plugins: list[dict[str, str]] | None = None,
+        served_kinds: list[dict] | None = None,
     ) -> None:
         self._pool = pool
         self._identity = identity
@@ -120,6 +121,12 @@ class TelemetryEmitter:
         # step today, no runtime install path). Default ``[]`` keeps
         # tests and pre-issue-52 call sites compiling.
         self._plugins: list[dict[str, str]] = list(plugins or [])
+        # Job kinds this node is built to serve (#249), advertised
+        # alongside ``plugins`` in the same UPSERT. Entries are
+        # ``{kind, capacity}`` collected from the plugins' on_activate
+        # capability registrations; static for the process, same as
+        # plugins. Default ``[]`` for nodes that serve no queued kinds.
+        self._served_kinds: list[dict] = list(served_kinds or [])
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
 
@@ -216,19 +223,22 @@ class TelemetryEmitter:
             await conn.execute(
                 """
                 INSERT INTO eidan.node_heartbeats
-                  (node_id, node_type, status, last_seen, metadata, plugins)
-                VALUES ($1, $2, 'online', NOW(), $3::jsonb, $4::jsonb)
+                  (node_id, node_type, status, last_seen, metadata, plugins,
+                   served_kinds)
+                VALUES ($1, $2, 'online', NOW(), $3::jsonb, $4::jsonb, $5::jsonb)
                 ON CONFLICT (node_id) DO UPDATE
-                  SET status    = 'online',
-                      last_seen = NOW(),
-                      metadata  = EXCLUDED.metadata,
-                      node_type = EXCLUDED.node_type,
-                      plugins   = EXCLUDED.plugins
+                  SET status       = 'online',
+                      last_seen    = NOW(),
+                      metadata     = EXCLUDED.metadata,
+                      node_type    = EXCLUDED.node_type,
+                      plugins      = EXCLUDED.plugins,
+                      served_kinds = EXCLUDED.served_kinds
                 """,
                 self._identity.node_id,
                 self._identity.node_type,
                 json.dumps(self._identity.metadata),
                 json.dumps(self._plugins),
+                json.dumps(self._served_kinds),
             )
 
     async def _upsert_heartbeat(self) -> None:

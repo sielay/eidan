@@ -1522,12 +1522,13 @@ async def get_conversation_llm_calls(
     }
 
 
-def _decode_plugins_jsonb(value: Any) -> list[dict[str, Any]]:
-    """Decode the ``eidan.node_heartbeats.plugins`` JSONB array.
+def _decode_jsonb_array(value: Any) -> list[dict[str, Any]]:
+    """Decode a JSONB-array column on ``eidan.node_heartbeats`` (e.g.
+    ``plugins`` #52, ``served_kinds`` #249).
 
     ``persistence.decode_jsonb`` assumes the column holds an object
-    and collapses anything else to ``{}``; this column is a JSON
-    array, so we do the string/list dance inline and default to
+    and collapses anything else to ``{}``; these columns are JSON
+    arrays, so we do the string/list dance inline and default to
     ``[]`` for any unexpected shape (legacy rows, NULLs, codec
     surprises).
     """
@@ -1913,6 +1914,7 @@ async def list_nodes_endpoint(request: Request) -> dict[str, Any]:
                                               AS seconds_since,
                    metadata,
                    plugins,
+                   served_kinds,
                    created_at,
                    updated_at
               FROM eidan.node_heartbeats
@@ -1933,7 +1935,11 @@ async def list_nodes_endpoint(request: Request) -> dict[str, Any]:
                 # collapses non-dict JSONB to ``{}``; this column
                 # is a JSON array, so decode the raw value directly
                 # and fall through to ``[]`` for legacy rows.
-                "plugins": _decode_plugins_jsonb(r["plugins"]),
+                "plugins": _decode_jsonb_array(r["plugins"]),
+                # Job kinds this node serves from eidan.jobs, with
+                # per-kind capacity (issue #249) — same JSONB-array
+                # treatment as plugins; ``[]`` on legacy/serve-nothing rows.
+                "served_kinds": _decode_jsonb_array(r["served_kinds"]),
                 "created_at": r["created_at"].isoformat(),
                 "updated_at": r["updated_at"].isoformat(),
             }

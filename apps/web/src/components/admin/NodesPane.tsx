@@ -118,6 +118,7 @@ export function NodesPane(): React.ReactElement {
       {selected ? (
         <>
           <NodePlugins plugins={selected.plugins} />
+          <NodeServedKinds servedKinds={selected.served_kinds ?? []} />
           <section className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
             <header className="flex items-baseline justify-between gap-3">
               <h2 className="font-mono text-xs font-medium text-foreground">
@@ -181,6 +182,54 @@ function NodePlugins({
                 )}
               >
                 {p.tier}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Job kinds the selected node is built to serve from the eidan.jobs
+ * delegation queue, with per-kind capacity (issue #249). Sourced from
+ * `eidan.node_heartbeats.served_kinds`, advertised by the node's
+ * plugins at activation — the companion to the plugin list above, so
+ * an operator can see where live capacity for a kind (e.g. `code`)
+ * exists across the fleet.
+ */
+function NodeServedKinds({
+  servedKinds,
+}: {
+  servedKinds: NonNullable<NodeInfo["served_kinds"]>;
+}): React.ReactElement {
+  return (
+    <section className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
+      <header className="flex items-baseline justify-between gap-3">
+        <h2 className="font-mono text-xs font-medium text-foreground">
+          served kinds · {servedKinds.length}
+        </h2>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          as of last heartbeat
+        </span>
+      </header>
+      {servedKinds.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          This node serves no delegation-queue kinds — it runs no work
+          claimer, or its process predates the schema bump that added
+          the served-kinds column.
+        </p>
+      ) : (
+        <ul className="flex flex-col">
+          {servedKinds.map((k) => (
+            <li
+              key={k.kind}
+              className="flex items-center gap-3 border-b border-border py-1 text-xs last:border-b-0"
+            >
+              <span className="font-mono text-foreground">{k.kind}</span>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                capacity {k.capacity}
               </span>
             </li>
           ))}
