@@ -20,6 +20,12 @@ dependencies = [
     "PyYAML>=6.0",
     "aiosmtplib>=3.0",
     "packaging>=23.0",
+    # AG-UI (Agent-User Interaction Protocol) — eidan's agent↔frontend
+    # wire of record (#263). Provides the event types (`ag_ui.core`) and
+    # the SSE `EventEncoder` (`ag_ui.encoder`). These event types are the
+    # source of truth for the AG-UI envelope and are deliberately NOT
+    # codegen'd through `eidan-schemas` (carve-out documented in docs/004).
+    "ag-ui-protocol>=0.1.19",
     "eidan-schemas",
 ]
 

@@ -16,6 +16,21 @@ The rule is: **JSON Schema is the single source of truth.** Zod and
 Pydantic models are generated artefacts. Neither runtime hand-writes
 the shape; both consume what codegen produced.
 
+> **Carve-out — the AG-UI event envelope.** eidan's agent↔frontend
+> event stream is [AG-UI](https://github.com/ag-ui-protocol/ag-ui)
+> (the protocol of record, `docs` AG-UI spec + #263). Its event types
+> are consumed directly from the official SDKs — `ag_ui.core`
+> (Pydantic) on the backend, `@ag-ui/core` (Zod) on the web — and are
+> deliberately **not** codegen'd through `@eidan/schemas`. For that one
+> envelope the SDK is the source of truth, because owning a parallel
+> hand-maintained copy of an external standard's 30+ event types would
+> drift against the spec. eidan's *own* cross-boundary DTOs (including
+> the `/api/turn` **request** body `TurnInput`) stay codegen'd and
+> snake_case. The AG-UI wire is additionally **camelCase** (`messageId`,
+> `toolCallId`) — an intentional exception to the snake_case rule,
+> scoped strictly to the AG-UI envelope, because the SDK serialises
+> with `by_alias=True`.
+
 ---
 
 ## 1. Why JSON Schema as the source

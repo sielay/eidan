@@ -922,10 +922,14 @@ Structured logs carry the same identifiers:
 
 Deliberately out of scope, to be specified in follow-ups:
 
-- **Streaming protocol between backend and UI**: chunk shape,
-  back-pressure, mid-stream errors, the exact wire format for
-  "rewrite" replacements. Lives in `004_SCHEMAS.md` once the
-  schemas are stable.
+- **Streaming protocol between backend and UI**: now pinned —
+  eidan speaks [AG-UI](https://github.com/ag-ui-protocol/ag-ui) as
+  its protocol of record (#263). `run_turn`'s event stream is mapped
+  onto AG-UI events (`RUN_STARTED` / `TEXT_MESSAGE_*` / `TOOL_CALL_*`
+  / `RUN_FINISHED`) and streamed via the SDK's SSE `EventEncoder`. The
+  mapping table, back-pressure, mid-stream errors, and the two
+  carve-outs (SDK-as-source-of-truth, camelCase wire — see
+  `004_SCHEMAS.md`) are specified in the dedicated AG-UI protocol doc.
 - **Background-only turns** (cron triggers, schedule triggers): a
   turn with no inbound user message. The same pipeline applies
   with the user-message step replaced by a synthetic system
