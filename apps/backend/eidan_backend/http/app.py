@@ -90,6 +90,17 @@ def _resolve_plugins_dir(app_state_value: object | None) -> Path:
     return _DEFAULT_PLUGINS_DIR
 
 
+def _include_routers(app: FastAPI) -> None:
+    """Mount every core HTTP router.
+
+    Shared by both app builders (:func:`create_app` for tests/injection
+    and :func:`create_app_from_env` for production) so the route surface
+    can never drift between them — a router added here reaches both paths.
+    """
+    app.include_router(router)
+    app.include_router(artifacts_router)
+
+
 def create_app(
     *,
     pool: asyncpg.Pool,
@@ -148,8 +159,7 @@ def create_app(
     # added runs first inbound, last outbound" — so adding this
     # after AuthMiddleware places it on the outside of the chain.
     app.add_middleware(SecurityHeadersMiddleware)
-    app.include_router(router)
-    app.include_router(artifacts_router)
+    _include_routers(app)
 
     return app
 
@@ -356,7 +366,7 @@ def create_app_from_env() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(router)
+    _include_routers(app)
     return app
 
 

@@ -43,7 +43,9 @@ def test_s3_key_is_user_scoped() -> None:
     )
     user_id = str(uuid4())
     art_id = uuid4()
-    assert store.storage_key(user_id=user_id, artifact_id=art_id) == f"{user_id}/{art_id}"
+    assert (
+        store.storage_key(user_id=user_id, artifact_id=art_id) == f"{user_id}/{art_id}"
+    )
 
 
 @pytest.mark.asyncio
@@ -66,3 +68,16 @@ def test_unknown_backend_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EIDAN_ARTIFACT_STORE", "ftp")
     with pytest.raises(RuntimeError, match="unknown EIDAN_ARTIFACT_STORE"):
         make_artifact_store()
+
+
+def test_include_routers_mounts_artifact_download_route() -> None:
+    # Both create_app() (tests) and create_app_from_env() (production) mount
+    # routers via _include_routers, so testing the shared helper guarantees
+    # the download route reaches prod — guards the drift Copilot caught.
+    from eidan_backend.http.app import _include_routers
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    _include_routers(app)
+    paths = {getattr(r, "path", None) for r in app.routes}
+    assert "/api/artifacts/{artifact_id}" in paths

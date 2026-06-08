@@ -126,6 +126,11 @@ class ArtifactService:
         policy is present). v1 reads the whole object into memory — fine
         for decks/PDFs; large-object streaming with a held-open connection
         is a later refinement.
+
+        For a DB-backed store the byte read shares the metadata read's
+        transaction; for an object store (S3/R2/MinIO) the bytes are
+        fetched *after* the pooled connection is released, so a network
+        round-trip never holds a DB connection open.
         """
         async with acquire(self._pool, identity) as conn:
             row = await conn.fetchrow(
@@ -139,12 +144,14 @@ class ArtifactService:
             )
             if row is None:
                 return None
-            data = await self._store.read(row["storage_key"], conn=conn)
-        meta = ArtifactMeta(
-            id=row["id"],
-            filename=row["filename"],
-            mime_type=row["mime_type"],
-            size_bytes=row["size_bytes"],
-            storage_key=row["storage_key"],
-        )
-        return meta, data
+            meta = ArtifactMeta(
+                id=row["id"],
+                filename=row["filename"],
+                mime_type=row["mime_type"],
+                size_bytes=row["size_bytes"],
+                storage_key=row["storage_key"],
+            )
+            if self._store.requires_conn:
+                return meta, await self._store.read(meta.storage_key, conn=conn)
+        # Object store: read bytes outside the DB transaction.
+        return meta, await self._store.read(meta.storage_key)

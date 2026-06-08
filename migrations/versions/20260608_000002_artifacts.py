@@ -49,7 +49,7 @@ def upgrade() -> None:
             -- opaque key the storage backend resolves. For the postgres
             -- backend this is the artifact id; for S3 it's '{user_id}/{id}'.
             storage_key     text        NOT NULL,
-            metadata        jsonb       NOT NULL DEFAULT '{}',
+            metadata        jsonb       NOT NULL DEFAULT '{}'::jsonb,
             created_by      text        NOT NULL DEFAULT 'agent'
                             CHECK (created_by IN ('user','agent')),
             created_at      timestamptz NOT NULL DEFAULT now(),
@@ -62,7 +62,7 @@ def upgrade() -> None:
     # path), live rows only — partial on the soft-delete predicate (003 §1.3).
     op.execute(
         """
-        CREATE INDEX artifacts_user_recent_idx
+        CREATE INDEX idx_artifacts_user_recent
             ON eidan.artifacts (user_id, created_at DESC)
             WHERE deleted_at IS NULL
         """
@@ -70,7 +70,7 @@ def upgrade() -> None:
     # "What did this message produce?" — the download-chip lookup.
     op.execute(
         """
-        CREATE INDEX artifacts_message_idx
+        CREATE INDEX idx_artifacts_message
             ON eidan.artifacts (message_id)
             WHERE deleted_at IS NULL
         """

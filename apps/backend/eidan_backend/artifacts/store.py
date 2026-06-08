@@ -35,6 +35,11 @@ class ArtifactStore(Protocol):
     """Bytes in, bytes out, addressed by an opaque ``storage_key``."""
 
     backend: str
+    # True for DB-backed stores whose byte I/O must share the caller's
+    # transaction (Postgres). False for object stores that do their own
+    # network I/O — the service then reads bytes *outside* the DB txn so a
+    # pooled connection isn't held open during the round-trip.
+    requires_conn: bool
 
     def storage_key(self, *, user_id: str, artifact_id: UUID) -> str:
         """The key under which this backend will address the bytes."""
@@ -64,6 +69,7 @@ class PostgresArtifactStore:
     """
 
     backend = "postgres"
+    requires_conn = True
 
     def storage_key(self, *, user_id: str, artifact_id: UUID) -> str:
         # For the DB backend the key *is* the artifact id; user scoping is
@@ -125,6 +131,7 @@ class S3ArtifactStore:
     """
 
     backend = "s3"
+    requires_conn = False
 
     def __init__(
         self,

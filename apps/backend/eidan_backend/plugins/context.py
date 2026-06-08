@@ -237,12 +237,16 @@ class ArtifactCreator(Protocol):
     ``await ctx.artifacts.create(...)``; the host writes a user-scoped
     ``eidan.artifacts`` row, stores the bytes in the configured backend
     (Postgres bytea / S3 / R2 / MinIO), and returns a ref carrying a
-    ``download_url`` to surface as a download chip. The host binds the
-    calling :class:`Identity`, so plugins never pass it.
+    ``download_url`` to surface as a download chip. The host resolves the
+    calling :class:`Identity` from the ambient turn context, so plugins
+    never pass it — and ``create()`` raises if invoked with no active
+    identity (i.e. outside a turn), rather than returning ``None``.
 
-    ``None`` when the host wires a context without an artifact service (the
-    unit-test / degraded path); plugins guard with
-    ``if ctx.artifacts is not None``.
+    The bootstrap context factory **always** wires this accessor, so plugin
+    tool code does not need an ``if ctx.artifacts is not None`` guard. The
+    field is typed ``| None`` only for the degraded path where a
+    :class:`PluginContext` is constructed directly without an artifact
+    service (some unit tests); real installs always have it.
     """
 
     async def create(
