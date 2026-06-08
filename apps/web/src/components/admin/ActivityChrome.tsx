@@ -6,18 +6,24 @@ import Link from "next/link";
 import { useAuth } from "@/components/providers/auth-provider";
 import * as React from "react";
 
-import { listAdminNodes, listAdminTriggers } from "@/lib/api/admin";
+import { listAdminJobs, listAdminNodes, listAdminTriggers } from "@/lib/api/admin";
 import { listConversations } from "@/lib/api/conversations";
 import { cn } from "@/lib/utils";
 
+const ACTIVE_JOB_STATUSES = new Set(["queued", "claimed", "running"]);
+
 /**
- * Tab + counter chrome around the three /admin/activity panes.
+ * Tab + counter chrome around the /admin/activity panes
+ * (conversations / nodes / triggers / jobs / live).
  *
  * Owns the live polling that drives the banner counts ("X nodes
- * online · Y conversations · Z triggers") so the numbers stay
- * accurate regardless of which tab is in front — a pattern lifted
- * from sibling job-dashboard surfaces where per-pane polling
- * leaves stale counts behind when the user clicks a sibling tab.
+ * online · Y conversations · Z triggers · N jobs active") so the
+ * numbers stay accurate regardless of which tab is in front — a
+ * pattern lifted from sibling job-dashboard surfaces where per-pane
+ * polling leaves stale counts behind when the user clicks a sibling
+ * tab. Each count pulls its pane's full list (the over-fetch is cheap
+ * at Phase-1 scale); a rolled-up summary endpoint is a future
+ * optimisation across all counts, not just jobs.
  *
  * 15 s cadence: matches the 30 s heartbeat in `docs/024 §3` (two
  * polls per beat is enough to render the freshness dot reliably)
@@ -28,7 +34,7 @@ export function ActivityChrome({
   activeTab,
   children,
 }: {
-  activeTab: "conversations" | "nodes" | "triggers" | "live";
+  activeTab: "conversations" | "nodes" | "triggers" | "jobs" | "live";
   children: React.ReactNode;
 }): React.ReactElement {
   const { user } = useAuth();
@@ -39,6 +45,7 @@ export function ActivityChrome({
   );
   const [triggersCount, setTriggersCount] = React.useState<number | null>(null);
   const [dlqCount, setDlqCount] = React.useState<number | null>(null);
+  const [jobsActive, setJobsActive] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     if (!user) return;
@@ -68,6 +75,14 @@ export function ActivityChrome({
           setDlqCount(body.dlq_count);
         })
         .catch(() => {});
+      void listAdminJobs()
+        .then((rows) => {
+          if (cancelled) return;
+          setJobsActive(
+            rows.filter((j) => ACTIVE_JOB_STATUSES.has(j.status)).length,
+          );
+        })
+        .catch(() => {});
     }
 
     load();
@@ -90,6 +105,8 @@ export function ActivityChrome({
           <span>{conversationsCount ?? "—"} conversations</span>
           <span>·</span>
           <span>{triggersCount ?? "—"} triggers</span>
+          <span>·</span>
+          <span>{jobsActive ?? "—"} jobs active</span>
           {dlqCount !== null && dlqCount > 0 ? (
             <span className="rounded bg-red-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-red-800">
               {dlqCount} dlq
@@ -99,7 +116,7 @@ export function ActivityChrome({
       </header>
 
       <nav className="flex items-center gap-1.5 text-xs" role="tablist">
-        {(["conversations", "nodes", "triggers", "live"] as const).map((tab) => (
+        {(["conversations", "nodes", "triggers", "jobs", "live"] as const).map((tab) => (
           <Link
             key={tab}
             href={`/admin/activity/${tab}`}

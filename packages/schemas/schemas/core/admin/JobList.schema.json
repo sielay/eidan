@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.eidan.dev/core/admin/JobList/v1.json",
+  "title": "JobList",
+  "description": "Response shape of GET /api/admin/jobs (#251). The operator's window onto the universal delegation queue eidan.jobs (#247/#248): recent rows newest-first, capped server-side. The queue is a working set (terminal rows are not pruned here), so this is a recency-bounded snapshot, not the full history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["jobs"],
+  "properties": {
+    "jobs": {
+      "type": "array",
+      "description": "Recent jobs, newest first (by created_at), capped at the server's most-recent limit.",
+      "items": { "$ref": "#/$defs/JobInfo" }
+    }
+  },
+  "$defs": {
+    "JobInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "goal",
+        "status",
+        "surface",
+        "claimed_by",
+        "claimed_at",
+        "result",
+        "error",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Job UUID (eidan.jobs.id)."
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The capability kind this job needs (e.g. 'code'). Routing is by kind, never by node."
+        },
+        "goal": {
+          "type": "string",
+          "description": "Human-readable task / brief the worker acts on."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["queued", "claimed", "running", "done", "failed", "cancelled"],
+          "description": "Lifecycle state, matching the CHECK on eidan.jobs.status."
+        },
+        "surface": {
+          "type": ["string", "null"],
+          "description": "Where the delegation originated ('web' | 'slack' | 'telegram' | 'agent' | …). Null when unrecorded."
+        },
+        "claimed_by": {
+          "type": ["string", "null"],
+          "description": "node_id of the node that claimed the job. Null until claimed."
+        },
+        "claimed_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "When the job was claimed. Null until claimed."
+        },
+        "result": {
+          "type": "object",
+          "description": "Worker output (e.g. {\"pr_url\": \"…\"}). Empty object when the job has no result yet or carried none."
+        },
+        "error": {
+          "type": ["string", "null"],
+          "description": "Failure detail when status is 'failed'; null otherwise."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the job was enqueued."
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last state change."
+        }
+      }
+    }
+  }
+}
