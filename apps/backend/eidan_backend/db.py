@@ -10,6 +10,7 @@ work on day one of an install with zero core-side change.
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -27,11 +28,30 @@ async def create_pool(database_url: str) -> asyncpg.Pool:
     """Open the process-wide connection pool.
 
     Caller owns the lifecycle: `await pool.close()` on shutdown.
+
+    **Pool size is env-configurable** (``EIDAN_DB_POOL_MIN_SIZE`` /
+    ``EIDAN_DB_POOL_MAX_SIZE``, defaults 1 / 10). A node sharing a
+    connection-capped pooler with other nodes can run a small pool
+    (e.g. ``EIDAN_DB_POOL_MAX_SIZE=3``) so it doesn't exhaust the budget.
+
+    ``statement_cache_size=0`` lets the pool work through a **transaction-
+    mode pooler** (Supabase Supavisor :6543 / PgBouncer): those multiplex
+    many clients onto few server connections and can't persist asyncpg's
+    per-connection prepared statements across them. Disabling the cache is
+    safe in every mode (negligible cost) and removes the session-mode
+    client cap. The runtime is transaction-scoped (``SET LOCAL`` in
+    :func:`acquire`, ``FOR UPDATE SKIP LOCKED``, ``pg_advisory_xact_lock``),
+    so it is transaction-pooler-compatible. **Migrations** use a session
+    advisory lock and must run on the direct connection — see
+    ``migrations/env.py`` (``EIDAN_DATABASE_DIRECT_URL``).
     """
+    min_size = int(os.environ.get("EIDAN_DB_POOL_MIN_SIZE", "1"))
+    max_size = int(os.environ.get("EIDAN_DB_POOL_MAX_SIZE", "10"))
     return await asyncpg.create_pool(
         _strip_sqlalchemy_prefix(database_url),
-        min_size=1,
-        max_size=10,
+        min_size=min_size,
+        max_size=max_size,
+        statement_cache_size=0,
         server_settings={"search_path": "eidan, public"},
     )
 

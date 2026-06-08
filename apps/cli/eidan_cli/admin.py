@@ -76,6 +76,17 @@ def db_migrate() -> int:
     plugin failure aborts the run.
     """
     database_url = _need_database_url()
+    # Migrations take a SESSION-level advisory lock (plugin host-schema
+    # serialisation) which a transaction-mode pooler (Supabase :6543) would
+    # break by routing the lock/unlock across multiplexed connections. So
+    # run the whole migration on a direct (:5432) connection when one is
+    # configured — the alembic subprocess inherits the env and
+    # ``migrations/env.py`` prefers ``EIDAN_DATABASE_DIRECT_URL``.
+    migration_url = (
+        os.environ.get("EIDAN_DATABASE_DIRECT_URL")
+        or os.environ.get("DIRECT_URL")
+        or database_url
+    )
     rc = subprocess.call(
         ["alembic", "-c", str(ALEMBIC_INI), "upgrade", "head"],
         cwd=str(_REPO_ROOT),
@@ -89,7 +100,7 @@ def db_migrate() -> int:
     from eidan_backend.plugins import run_plugin_migrations_sync
 
     try:
-        run_plugin_migrations_sync(PLUGINS_DIR, database_url)
+        run_plugin_migrations_sync(PLUGINS_DIR, migration_url)
     except Exception as exc:  # noqa: BLE001 — surface any plugin-runner failure as exit code
         print(f"plugin migrations failed: {exc}", file=sys.stderr)
         return 1

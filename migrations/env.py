@@ -18,13 +18,22 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 config = context.config
 
-# Pull DATABASE_URL from the environment. The CLI / `eidan admin db migrate`
-# sets this on its own; this module does not load .env files.
-database_url = os.environ.get("DATABASE_URL")
+# Resolve the migration connection from the environment. Migrations take a
+# *session-level* advisory lock (plugin host-schema serialisation), which a
+# transaction-mode pooler (Supabase :6543) would route across multiplexed
+# connections and break. So prefer an explicit direct (:5432) URL when set,
+# falling back to DATABASE_URL for the common single-connection setup.
+# The CLI / `eidan admin db migrate` sets these; this module loads no .env.
+database_url = (
+    os.environ.get("EIDAN_DATABASE_DIRECT_URL")
+    or os.environ.get("DIRECT_URL")
+    or os.environ.get("DATABASE_URL")
+)
 if not database_url:
     raise RuntimeError(
-        "DATABASE_URL is not set. The eidan migrations runner reads it from "
-        "the environment; `eidan admin db migrate` sets it for you."
+        "No migration DB URL set. Set EIDAN_DATABASE_DIRECT_URL (a direct "
+        ":5432 connection, recommended when DATABASE_URL is a transaction "
+        "pooler) or DATABASE_URL. `eidan admin db migrate` sets it for you."
     )
 
 config.set_main_option("sqlalchemy.url", database_url)
