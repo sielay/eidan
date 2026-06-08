@@ -33,7 +33,13 @@ from eidan_backend.bootstrap import BootstrapNotMigratedError, bootstrap, shutdo
 from eidan_backend.config import load_backend_settings
 from eidan_backend.db import acquire, create_pool
 from eidan_backend.identity import Identity
-from eidan_backend.loop import TurnComplete, TurnContext, run_turn
+from eidan_backend.loop import (
+    AssistantChunk,
+    ToolCallStart,
+    TurnComplete,
+    TurnContext,
+    run_turn,
+)
 from eidan_backend.persistence import create_conversation, upsert_user
 from eidan_backend.providers import AnthropicProvider
 from rich.console import Console
@@ -63,6 +69,7 @@ def _resolve_user_tz() -> str:
     except Exception:  # noqa: BLE001 — refuse to crash on a missing tzdata
         return "UTC"
 
+
 _console = Console()
 
 
@@ -71,9 +78,7 @@ async def _last_call_stats(provider: Any) -> str:
         result = await provider.last_call_result()
     except Exception:
         return ""
-    latency_ms = int(
-        (result.finished_at - result.started_at).total_seconds() * 1000
-    )
+    latency_ms = int((result.finished_at - result.started_at).total_seconds() * 1000)
     return (
         f"[dim](in {result.input_tokens}t / out {result.output_tokens}t / "
         f"${result.cost_usd:.6f} / {latency_ms}ms)[/dim]"
@@ -83,9 +88,7 @@ async def _last_call_stats(provider: Any) -> str:
 async def _run_in_process() -> int:
     auth = load_auth()
     if not auth:
-        _console.print(
-            "[red]not signed in.[/red] Run [cyan]eidan login[/cyan] first."
-        )
+        _console.print("[red]not signed in.[/red] Run [cyan]eidan login[/cyan] first.")
         return 1
 
     backend = load_backend_settings()
@@ -122,9 +125,7 @@ async def _run_in_process() -> int:
         native = verify_access_token(auth.access_token, public_pem=public_pem)
     except InvalidToken as exc:
         _console.print(f"[red]auth: invalid token[/red] {exc}")
-        _console.print(
-            "Run [cyan]eidan login[/cyan] again to mint a fresh access JWT."
-        )
+        _console.print("Run [cyan]eidan login[/cyan] again to mint a fresh access JWT.")
         await pool.close()
         return 1
 
@@ -216,8 +217,20 @@ async def _run_in_process() -> int:
                         _console.print(stats)
                     else:
                         _console.print()
-                else:
+                elif isinstance(event, AssistantChunk):
                     _console.print(event.text, end="", soft_wrap=True)
+                    sys.stdout.flush()
+                elif isinstance(event, ToolCallStart):
+                    # Tool-call boundaries now stream from the runner
+                    # (#265); surface the call inline so a tool-using
+                    # turn shows work instead of a silent pause. The
+                    # args/end/result events are not rendered in this
+                    # text-only view.
+                    _console.print(
+                        f"\n[dim]⚙ {event.tool_name}…[/dim] ",
+                        end="",
+                        soft_wrap=True,
+                    )
                     sys.stdout.flush()
     finally:
         try:
@@ -234,34 +247,35 @@ async def _run_in_process() -> int:
 # -----------------------------------------------------------------------------
 
 
-def _parse_sse(buffer: str) -> tuple[list[tuple[str, str]], str]:
-    """Split a buffer into completed SSE frames + the trailing partial.
+def _parse_sse(buffer: str) -> tuple[list[dict], str]:
+    """Split a buffer into completed AG-UI events + the trailing partial.
 
-    Frames end on a blank line (``\\n\\n``). Each frame's name comes from
-    its ``event:`` field and its payload from concatenated ``data:``
-    lines. Anything else is ignored — the SSE spec also allows ``id:``
-    and ``retry:`` but the host does not emit them.
+    The backend speaks AG-UI (#263): each SSE frame ends on a blank line
+    (``\\n\\n``) and carries one ``data:`` JSON payload whose ``type`` is
+    the event name — there is no named ``event:`` line, and payload keys
+    are camelCase. Frames without a parseable ``data:`` payload (SSE
+    comments / keep-alives) are dropped.
     """
-    frames: list[tuple[str, str]] = []
+    events: list[dict] = []
     while "\n\n" in buffer:
         raw, buffer = buffer.split("\n\n", 1)
-        event = "message"
         data_lines: list[str] = []
         for line in raw.split("\n"):
-            if line.startswith("event:"):
-                event = line[len("event:") :].strip()
-            elif line.startswith("data:"):
+            if line.startswith("data:"):
                 data_lines.append(line[len("data:") :].lstrip())
-        frames.append((event, "\n".join(data_lines)))
-    return frames, buffer
+        if not data_lines:
+            continue
+        try:
+            events.append(json.loads("\n".join(data_lines)))
+        except json.JSONDecodeError:
+            continue
+    return events, buffer
 
 
 async def _run_http(backend_url: str) -> int:
     auth = load_auth()
     if not auth:
-        _console.print(
-            "[red]not signed in.[/red] Run [cyan]eidan login[/cyan] first."
-        )
+        _console.print("[red]not signed in.[/red] Run [cyan]eidan login[/cyan] first.")
         return 1
 
     base = backend_url.rstrip("/")
@@ -326,20 +340,31 @@ async def _run_http(backend_url: str) -> int:
                     continue
                 async for chunk in stream.aiter_text():
                     buffer += chunk
-                    frames, buffer = _parse_sse(buffer)
-                    for event, data in frames:
-                        if event == "chunk":
-                            try:
-                                payload = json.loads(data)
-                            except json.JSONDecodeError:
-                                continue
+                    events, buffer = _parse_sse(buffer)
+                    for event in events:
+                        etype = event.get("type")
+                        if etype == "TEXT_MESSAGE_CONTENT":
                             _console.print(
-                                payload.get("text", ""),
+                                event.get("delta", ""),
                                 end="",
                                 soft_wrap=True,
                             )
                             sys.stdout.flush()
-                        elif event == "complete":
+                        elif etype == "TOOL_CALL_START":
+                            # Surface tool calls inline so the REPL shows
+                            # the agent working, not a silent pause.
+                            _console.print(
+                                f"\n[dim]⚙ {event.get('toolCallName', 'tool')}…[/dim] ",
+                                end="",
+                                soft_wrap=True,
+                            )
+                            sys.stdout.flush()
+                        elif etype == "RUN_ERROR":
+                            _console.print(
+                                f"\n[red]error:[/red] "
+                                f"{event.get('message', 'run failed')}"
+                            )
+                        elif etype == "RUN_FINISHED":
                             _console.print()
             # End of stream; loop for next prompt.
 
