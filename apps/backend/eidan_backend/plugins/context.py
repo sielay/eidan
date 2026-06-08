@@ -229,6 +229,39 @@ class TopicNotifier(Protocol):
     ) -> Any: ...
 
 
+@runtime_checkable
+class ArtifactCreator(Protocol):
+    """Create a downloadable artifact from a plugin tool (#252).
+
+    A tool that produces *bytes* (a rendered deck, a PDF, an export) calls
+    ``await ctx.artifacts.create(...)``; the host writes a user-scoped
+    ``eidan.artifacts`` row, stores the bytes in the configured backend
+    (Postgres bytea / S3 / R2 / MinIO), and returns a ref carrying a
+    ``download_url`` to surface as a download chip. The host resolves the
+    calling :class:`Identity` from the ambient turn context, so plugins
+    never pass it — and ``create()`` raises if invoked with no active
+    identity (i.e. outside a turn), rather than returning ``None``.
+
+    The bootstrap context factory **always** wires this accessor, so plugin
+    tool code does not need an ``if ctx.artifacts is not None`` guard. The
+    field is typed ``| None`` only for the degraded path where a
+    :class:`PluginContext` is constructed directly without an artifact
+    service (some unit tests); real installs always have it.
+    """
+
+    async def create(
+        self,
+        *,
+        kind: str,
+        filename: str,
+        data: bytes,
+        mime_type: str,
+        message_id: Any | None = None,
+        conversation_id: Any | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any: ...
+
+
 @dataclass(frozen=True, slots=True)
 class PluginContext:
     """The host surface a :class:`PluginBase` subclass receives.
@@ -286,10 +319,12 @@ class PluginContext:
     assess_sufficiency: SufficiencyAssessor | None = None
     publish_event: EventPublisher | None = None
     register_capabilities: CapabilityRegistrar | None = None
+    artifacts: ArtifactCreator | None = None
     identity: Identity | None = None
 
 
 __all__ = [
+    "ArtifactCreator",
     "BehaviourRegistrar",
     "CapabilityRegistrar",
     "DbAccessor",
