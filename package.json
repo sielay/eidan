@@ -8,6 +8,7 @@
     "dev": "turbo run dev --filter=@eidan/backend --filter=@eidan/web",
     "dev:web": "pnpm --filter @eidan/web dev",
     "dev:backend": "pnpm --filter @eidan/backend dev",
+    "migrate": "pnpm --filter @eidan/backend migrate",
     "build": "pnpm --filter @eidan/schemas gen:ts && pnpm --filter @eidan/web build",
     "lint": "pnpm --filter @eidan/web lint",
     "typecheck": "pnpm --filter @eidan/schemas gen:ts && pnpm --filter @eidan/web typecheck",
