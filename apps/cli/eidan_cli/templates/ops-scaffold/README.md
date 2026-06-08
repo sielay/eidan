@@ -50,15 +50,15 @@ track your nodes, encrypted secrets, and any operator notes.
 eidan deploy
 
 # One node at a time:
-eidan deploy --node kasha
+eidan deploy --node raspberry
 
 # Enable / disable a plugin on a node:
-eidan plugin disable imap --node kasha
-eidan plugin enable  imap --node kasha
+eidan plugin disable imap --node raspberry
+eidan plugin enable  imap --node raspberry
 
 # Inspect:
 eidan node list
-eidan node show kasha
+eidan node show raspberry
 ```
 
 ## Backups

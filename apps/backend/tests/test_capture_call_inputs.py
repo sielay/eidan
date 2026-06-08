@@ -144,14 +144,14 @@ def test_stashes_node_identity_from_env(
     """When ``EIDAN_NODE_ID`` / ``EIDAN_NODE_TYPE`` are set, the
     capture helper stashes them in metadata so the introspection
     panel can render a chip for which node executed the turn (#169)."""
-    monkeypatch.setenv("EIDAN_NODE_ID", "kasha")
+    monkeypatch.setenv("EIDAN_NODE_ID", "raspberry")
     monkeypatch.setenv("EIDAN_NODE_TYPE", "pi")
     out = capture_call_inputs(
         _bare_call(),
         system_prompt="sys",
         user_text="hi",
     )
-    assert out.metadata["node_id"] == "kasha"
+    assert out.metadata["node_id"] == "raspberry"
     assert out.metadata["node_type"] == "pi"
 
 

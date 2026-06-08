@@ -432,8 +432,8 @@ def test_node_id_hash_is_stable() -> None:
     process restarts; we encode the same node_id consistently."""
     from eidan_backend.telemetry import _node_id_hash
 
-    assert _node_id_hash("kasha") == _node_id_hash("kasha")
-    assert _node_id_hash("kasha") != _node_id_hash("kashb")
+    assert _node_id_hash("raspberry") == _node_id_hash("raspberry")
+    assert _node_id_hash("raspberry") != _node_id_hash("kashb")
     # Fits in signed int32 range (asyncpg int4 placeholder).
     h = _node_id_hash("a-very-long-fly-machine-id-1234567890")
     assert -(2**31) <= h < 2**31

@@ -74,7 +74,7 @@ a turn-bound event includes it as a UUID string)::
       "logger":  "eidan_backend.telemetry",
       "message": "telemetry: node.boot",
       "event":   "node.boot",           # from extra=
-      "node_id": "kasha",               # from extra=
+      "node_id": "raspberry",               # from extra=
       "node_type": "pi",                # from extra=
       "payload": {...}                  # from extra=
     }

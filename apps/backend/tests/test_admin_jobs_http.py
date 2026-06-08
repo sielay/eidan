@@ -76,7 +76,7 @@ async def test_list_jobs_surfaces_rows_newest_first(jobs_client) -> None:
             VALUES
                 ('code', 'older queued', 'queued', 'web', NULL, NULL,
                  NULL, NULL, now() - interval '2 minutes'),
-                ('code', 'done one', 'done', 'agent', 'kasha',
+                ('code', 'done one', 'done', 'agent', 'raspberry',
                  now() - interval '1 minute', $1::jsonb, NULL,
                  now() - interval '1 minute'),
                 ('code', 'failed one', 'failed', 'slack', 'fly',
@@ -105,7 +105,7 @@ async def test_list_jobs_surfaces_rows_newest_first(jobs_client) -> None:
 
     done = by_goal["done one"]
     assert done["status"] == "done"
-    assert done["claimed_by"] == "kasha"
+    assert done["claimed_by"] == "raspberry"
     assert done["claimed_at"] is not None
     assert done["result"] == {"pr_url": "https://example/pr/1"}
 

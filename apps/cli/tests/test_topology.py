@@ -42,7 +42,7 @@ def _write(tmp_path: Path, body: str, name: str = "topology.yml") -> Path:
 _MINIMAL_PI = """
 schema: 1
 nodes:
-  kasha:
+  raspberry:
     target: pi
     database_url: postgresql+asyncpg://eidan:eidan@127.0.0.1:5432/eidan
     auth_master_key: KEY-AT-LEAST-32-CHARS-LONG-YES-INDEED
@@ -57,11 +57,11 @@ def test_load_minimal_topology(tmp_path: Path) -> None:
 
     assert isinstance(topology, Topology)
     assert topology.schema_version == 1
-    assert topology.node_names() == ["kasha"]
+    assert topology.node_names() == ["raspberry"]
 
-    node = topology.resolve_node("kasha")
+    node = topology.resolve_node("raspberry")
     assert isinstance(node, ResolvedNode)
-    assert node.name == "kasha"
+    assert node.name == "raspberry"
     assert node.target.value == "pi"
     assert (
         node.database_url
@@ -86,7 +86,7 @@ def test_missing_required_field_raises_validation_error(tmp_path: Path) -> None:
     body = """
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: pi
             database_url: postgresql+asyncpg://...
             auth_allowed_email: you@example.com
@@ -102,7 +102,7 @@ def test_unknown_field_rejected_by_additional_properties(
     body = """
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: pi
             database_url: postgresql+asyncpg://...
             auth_master_key: KEY-AT-LEAST-32-CHARS-LONG-YES-INDEED
@@ -120,7 +120,7 @@ def test_extra_env_accepts_uppercase_keys(tmp_path: Path) -> None:
     body = """
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: pi
             database_url: postgresql+asyncpg://eidan@127.0.0.1/eidan
             auth_master_key: KEY-AT-LEAST-32-CHARS-LONG-YES-INDEED
@@ -130,7 +130,7 @@ def test_extra_env_accepts_uppercase_keys(tmp_path: Path) -> None:
               EIDAN_SAGE_LOOP_MAX_ITERATIONS: "5"
     """
     topology = load_topology(_write(tmp_path, body))
-    node = topology.resolve_node("kasha")
+    node = topology.resolve_node("raspberry")
     assert node.extra_env == {
         "EIDAN_GIT_STACKS": "sage",
         "EIDAN_SAGE_LOOP_MAX_ITERATIONS": "5",
@@ -145,7 +145,7 @@ def test_extra_env_rejects_lowercase_keys(tmp_path: Path) -> None:
     body = """
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: pi
             database_url: postgresql+asyncpg://eidan@127.0.0.1/eidan
             auth_master_key: KEY-AT-LEAST-32-CHARS-LONG-YES-INDEED
@@ -174,7 +174,7 @@ def test_unknown_target_rejected(tmp_path: Path) -> None:
     body = """
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: rapsberry          # ← typo
             database_url: postgresql+asyncpg://...
             auth_master_key: KEY-AT-LEAST-32-CHARS-LONG-YES-INDEED
@@ -199,7 +199,7 @@ defaults:
     enabled: true
     tick_interval: PT5M
 nodes:
-  kasha:
+  raspberry:
     target: pi
     database_url: postgresql+asyncpg://eidan:eidan@127.0.0.1:5432/eidan
     auth_master_key: KEY-AT-LEAST-32-CHARS-LONG-YES-INDEED
@@ -238,19 +238,19 @@ def test_node_overrides_defaults_at_field_level(tmp_path: Path) -> None:
     node redeclared."""
     topology = load_topology(_write(tmp_path, _WITH_DEFAULTS))
 
-    kasha = topology.resolve_node("kasha")
-    assert kasha.plugin_source == "gh:sielay"          # inherited
-    assert kasha.provider is not None
-    assert kasha.provider.name.value == "ollama"       # node-set
-    assert kasha.provider.default_model == "phi3"      # node-set
+    raspberry = topology.resolve_node("raspberry")
+    assert raspberry.plugin_source == "gh:sielay"          # inherited
+    assert raspberry.provider is not None
+    assert raspberry.provider.name.value == "ollama"       # node-set
+    assert raspberry.provider.default_model == "phi3"      # node-set
 
 
 def test_resolve_node_is_memoised(tmp_path: Path) -> None:
     """Repeated resolves return the same :class:`ResolvedNode` so
     reconcilers can share state without re-doing the merge."""
     topology = load_topology(_write(tmp_path, _WITH_DEFAULTS))
-    first = topology.resolve_node("kasha")
-    second = topology.resolve_node("kasha")
+    first = topology.resolve_node("raspberry")
+    second = topology.resolve_node("raspberry")
     assert first is second
 
 
@@ -260,7 +260,7 @@ def test_resolve_unknown_node_lists_known_nodes(tmp_path: Path) -> None:
     with pytest.raises(TopologyUnknownNode) as exc:
         topology.resolve_node("kahsa")
     assert "fly-prod" in str(exc.value)
-    assert "kasha" in str(exc.value)
+    assert "raspberry" in str(exc.value)
 
 
 def test_iter_nodes_yields_in_sorted_order(tmp_path: Path) -> None:
@@ -268,7 +268,7 @@ def test_iter_nodes_yields_in_sorted_order(tmp_path: Path) -> None:
     deploy progress are deterministic across runs."""
     topology = load_topology(_write(tmp_path, _WITH_DEFAULTS))
     names = [n.name for n in topology.iter_nodes()]
-    assert names == ["fly-prod", "kasha"]
+    assert names == ["fly-prod", "raspberry"]
 
 
 # ---------- file-shape errors --------------------------------------------
@@ -286,7 +286,7 @@ def test_vault_tagged_value_raises_typed_error(tmp_path: Path) -> None:
     body = """
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: pi
             database_url: !vault |
                 $ANSIBLE_VAULT;1.1;AES256

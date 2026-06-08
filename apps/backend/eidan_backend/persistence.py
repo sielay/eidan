@@ -529,7 +529,7 @@ USER_TEXT_EXCERPT_LIMIT = 240
 def _node_identity_for_metadata() -> dict[str, str]:
     """Resolve the node identity that should ride on every per-call
     metadata blob so the introspection panel (#169) can show
-    "this turn ran on kasha" without scraping logs.
+    "this turn ran on raspberry" without scraping logs.
 
     Reads ``EIDAN_NODE_ID`` / ``EIDAN_NODE_TYPE`` set by the deploy
     pipeline (topology.yml → pi.py / fly.py). Keys are omitted when

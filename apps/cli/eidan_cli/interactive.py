@@ -202,7 +202,7 @@ def _ask_pi_fields() -> dict[str, Any]:
     schema so the caller can splat the dict into the node dict."""
     host = _ask(
         questionary.text(
-            "Pi hostname or IP (e.g. 192.168.1.100 or kasha.local):",
+            "Pi hostname or IP (e.g. 192.168.1.100 or raspberry.local):",
             validate=lambda s: bool(s.strip())
             or "hostname is required",
         )

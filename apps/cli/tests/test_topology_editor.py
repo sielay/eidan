@@ -40,7 +40,7 @@ defaults:
   github_token: PAT-XXXX
 
 nodes:
-  kasha:
+  raspberry:
     target: pi
     host: 192.168.1.100
     ssh_user: pi
@@ -72,11 +72,11 @@ def _write(tmp_path: Path, body: str = _TOPOLOGY) -> Path:
 def test_disable_plugin_adds_to_disable_list(tmp_path: Path) -> None:
     path = _write(tmp_path)
 
-    changed = disable_plugin(path, node_name="kasha", plugin="sentry")
+    changed = disable_plugin(path, node_name="raspberry", plugin="sentry")
 
     assert changed is True
     loaded = load_topology(path)
-    node = loaded.resolve_node("kasha")
+    node = loaded.resolve_node("raspberry")
     disabled = [d.root if hasattr(d, "root") else str(d) for d in node.disable]
     assert "imap" in disabled
     assert "sentry" in disabled
@@ -88,7 +88,7 @@ def test_disable_plugin_is_idempotent(tmp_path: Path) -> None:
     path = _write(tmp_path)
     before = path.read_text(encoding="utf-8")
 
-    changed = disable_plugin(path, node_name="kasha", plugin="imap")
+    changed = disable_plugin(path, node_name="raspberry", plugin="imap")
 
     assert changed is False
     assert path.read_text(encoding="utf-8") == before
@@ -113,11 +113,11 @@ def test_disable_plugin_creates_disable_list_if_missing(tmp_path: Path) -> None:
 def test_enable_plugin_removes_from_disable_list(tmp_path: Path) -> None:
     path = _write(tmp_path)
 
-    changed = enable_plugin(path, node_name="kasha", plugin="imap")
+    changed = enable_plugin(path, node_name="raspberry", plugin="imap")
 
     assert changed is True
     loaded = load_topology(path)
-    node = loaded.resolve_node("kasha")
+    node = loaded.resolve_node("raspberry")
     disabled = [d.root if hasattr(d, "root") else str(d) for d in (node.disable or [])]
     assert "imap" not in disabled
 
@@ -128,7 +128,7 @@ def test_enable_plugin_noop_when_not_disabled(tmp_path: Path) -> None:
     path = _write(tmp_path)
     before = path.read_text(encoding="utf-8")
 
-    changed = enable_plugin(path, node_name="kasha", plugin="sentry")
+    changed = enable_plugin(path, node_name="raspberry", plugin="sentry")
 
     assert changed is False
     assert path.read_text(encoding="utf-8") == before
@@ -154,7 +154,7 @@ def test_round_trip_preserves_comments(tmp_path: Path) -> None:
     strip them; ruamel.yaml round-trip preserves them."""
     path = _write(tmp_path)
 
-    disable_plugin(path, node_name="kasha", plugin="sentry")
+    disable_plugin(path, node_name="raspberry", plugin="sentry")
     after = path.read_text(encoding="utf-8")
 
     assert "operator's hand-authored topology" in after
@@ -169,7 +169,7 @@ def test_round_trip_preserves_vault_tag(tmp_path: Path) -> None:
         """\
         schema: 1
         nodes:
-          kasha:
+          raspberry:
             target: pi
             host: 192.168.1.100
             ssh_user: pi
@@ -184,7 +184,7 @@ def test_round_trip_preserves_vault_tag(tmp_path: Path) -> None:
     )
     path = _write(tmp_path, body)
 
-    disable_plugin(path, node_name="kasha", plugin="sentry")
+    disable_plugin(path, node_name="raspberry", plugin="sentry")
     after = path.read_text(encoding="utf-8")
 
     assert "!vault" in after
@@ -212,7 +212,7 @@ def test_render_node_list_prints_every_node(tmp_path: Path) -> None:
     render_node_list(loaded, console=console)
     out = console.export_text()
 
-    assert "kasha" in out
+    assert "raspberry" in out
     assert "fly-prod" in out
     assert "eidan-pro" in out  # bundles column
     assert "imap" in out  # disabled column
@@ -221,13 +221,13 @@ def test_render_node_list_prints_every_node(tmp_path: Path) -> None:
 def test_render_node_show_renders_resolved_view(tmp_path: Path) -> None:
     path = _write(tmp_path)
     loaded = load_topology(path)
-    node = loaded.resolve_node("kasha")
+    node = loaded.resolve_node("raspberry")
 
     console = Console(record=True, width=200)
     render_node_show(node, console=console)
     out = console.export_text()
 
-    assert "kasha" in out
+    assert "raspberry" in out
     assert "pi@192.168.1.100" in out
     assert "eidan-pro" in out
     assert "auth_master_key" in out
