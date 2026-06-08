@@ -12,14 +12,15 @@ Coverage:
 - A missing ``Authorization`` header returns 401 with
   ``auth.missing_token`` per ``docs/011 §10.2``.
 - A bad token returns 401 with ``auth.invalid_signature``.
-- ``POST /api/turn`` streams SSE ``chunk`` / ``complete`` frames and
-  persists the same rows the in-process loop writes.
+- ``POST /api/turn`` streams AG-UI events (#263) over ``text/event-stream``
+  and persists the same rows the in-process loop writes.
 - ``GET /api/conversations`` and ``/api/conversations/{id}/messages``
   read back what the turn just wrote.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from uuid import UUID
 
@@ -34,6 +35,28 @@ from .conftest import (
     build_identity,
     mint_test_token,
 )
+
+
+async def _consume_agui(stream) -> list[dict]:
+    """Decode an AG-UI SSE response into a list of event dicts.
+
+    AG-UI frames are a single ``data: {json}\\n\\n`` per event (the SDK
+    ``EventEncoder`` shape) — no named ``event:`` line; the event name
+    lives in the JSON ``type`` field, and payload keys are camelCase.
+    """
+    events: list[dict] = []
+    buffer = ""
+    async for piece in stream.aiter_text():
+        buffer += piece
+        while "\n\n" in buffer:
+            raw, buffer = buffer.split("\n\n", 1)
+            data = ""
+            for line in raw.split("\n"):
+                if line.startswith("data:"):
+                    data += line[len("data:") :].lstrip()
+            if data:
+                events.append(json.loads(data))
+    return events
 
 
 async def _build_app(pool, provider):
@@ -523,9 +546,7 @@ async def test_get_plugin_returns_manifest_and_readme(
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver"
         ) as client:
-            resp = await client.get(
-                "/api/plugins/demo-plugin", headers=headers
-            )
+            resp = await client.get("/api/plugins/demo-plugin", headers=headers)
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["name"] == "demo-plugin"
@@ -563,9 +584,7 @@ async def test_post_turn_streams_sse_and_persists(http_client) -> None:
     assert resp.status_code == 200, resp.text
     conversation_id = resp.json()["id"]
 
-    # Drive a turn and consume the SSE frames.
-    chunks: list[str] = []
-    complete: dict | None = None
+    # Drive a turn and consume the AG-UI event stream.
     async with client.stream(
         "POST",
         "/api/turn",
@@ -581,29 +600,24 @@ async def test_post_turn_streams_sse_and_persists(http_client) -> None:
     ) as stream:
         assert stream.status_code == 200
         assert stream.headers["content-type"].startswith("text/event-stream")
-        buffer = ""
-        async for piece in stream.aiter_text():
-            buffer += piece
-            while "\n\n" in buffer:
-                raw, buffer = buffer.split("\n\n", 1)
-                event = "message"
-                data = ""
-                for line in raw.split("\n"):
-                    if line.startswith("event:"):
-                        event = line[len("event:") :].strip()
-                    elif line.startswith("data:"):
-                        data = line[len("data:") :].lstrip()
-                if event == "chunk":
-                    import json
-                    chunks.append(json.loads(data)["text"])
-                elif event == "complete":
-                    import json
-                    complete = json.loads(data)
+        events = await _consume_agui(stream)
 
-    assert complete is not None
+    # AG-UI wire (#263): a well-formed run brackets RUN_STARTED … RUN_FINISHED.
+    types = [e["type"] for e in events]
+    assert types[0] == "RUN_STARTED"
+    assert types[-1] == "RUN_FINISHED"
+    # Assistant text arrives as TEXT_MESSAGE_CONTENT deltas between a
+    # START/END pair carrying a shared camelCase ``messageId``.
+    chunks = [e["delta"] for e in events if e["type"] == "TEXT_MESSAGE_CONTENT"]
+    starts = [e for e in events if e["type"] == "TEXT_MESSAGE_START"]
+    ends = [e for e in events if e["type"] == "TEXT_MESSAGE_END"]
+    assert len(starts) == len(ends) >= 1
+    assert starts[0]["messageId"] == ends[0]["messageId"]
+    assert "hi from the http surface" in "".join(chunks)
+    # The persisted ids ride out on RUN_FINISHED.result for reconciliation.
+    complete = events[-1]["result"]
     assert "user_message_id" in complete
     assert "assistant_message_id" in complete
-    assert "hi from the http surface" in "".join(chunks)
 
     # Persistence shape — one user row + one assistant row, both keyed
     # to this user / conversation.
@@ -797,21 +811,9 @@ async def test_cost_summary_after_turn_matches_direct_sum(http_client) -> None:
         },
     ) as stream:
         assert stream.status_code == 200
-        buffer = ""
-        async for piece in stream.aiter_text():
-            buffer += piece
-            while "\n\n" in buffer:
-                raw, buffer = buffer.split("\n\n", 1)
-                event = "message"
-                data = ""
-                for line in raw.split("\n"):
-                    if line.startswith("event:"):
-                        event = line[len("event:") :].strip()
-                    elif line.startswith("data:"):
-                        data = line[len("data:") :].lstrip()
-                if event == "complete":
-                    import json
-                    user_message_id = json.loads(data)["user_message_id"]
+        events = await _consume_agui(stream)
+        run_finished = next(e for e in events if e["type"] == "RUN_FINISHED")
+        user_message_id = run_finished["result"]["user_message_id"]
 
     assert user_message_id is not None
 

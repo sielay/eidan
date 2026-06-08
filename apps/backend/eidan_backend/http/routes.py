@@ -30,6 +30,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
+from ag_ui.encoder import EventEncoder
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -81,7 +82,7 @@ from ..persistence import (
     update_conversation_title,
     upsert_user,
 )
-from ..providers.base import AssistantChunk
+from .agui import AguiEmitter
 from .rate_limit import (
     RateLimitExceeded,
     extract_client_ip,
@@ -249,13 +250,13 @@ async def post_verify(
     pool = request.app.state.pool
     async with pool.acquire() as conn:
         try:
-            consumed = await consume_magic_link(
-                conn, token=body.token, code=body.code
-            )
+            consumed = await consume_magic_link(conn, token=body.token, code=body.code)
         except MagicLinkNotFound as exc:
             raise HTTPException(status_code=404, detail="invalid token") from exc
         except MagicLinkExpired as exc:
-            raise HTTPException(status_code=410, detail="token expired or already used") from exc
+            raise HTTPException(
+                status_code=410, detail="token expired or already used"
+            ) from exc
 
         # First-login mints a fresh UUID; subsequent logins resolve to
         # the existing row.
@@ -429,9 +430,7 @@ async def get_agent(request: Request) -> dict[str, Any]:
 
     async with acquire(pool, identity) as conn:
         await upsert_user(conn, user_id=user_uuid, email=identity.email)
-        agent_id, persona = await ensure_default_agent_context(
-            conn, user_id=user_uuid
-        )
+        agent_id, persona = await ensure_default_agent_context(conn, user_id=user_uuid)
         row = await conn.fetchrow(
             """
             SELECT id, agent_slug, display_name, description, enabled,
@@ -447,9 +446,7 @@ async def get_agent(request: Request) -> dict[str, Any]:
 
 
 @router.put("/api/agent")
-async def put_agent(
-    request: Request, body: AgentPersonaBody
-) -> dict[str, Any]:
+async def put_agent(request: Request, body: AgentPersonaBody) -> dict[str, Any]:
     """Write ``user_overrides.system_prompt`` for the authenticated user's
     default agent.
 
@@ -474,9 +471,7 @@ async def put_agent(
 
     async with acquire(pool, identity) as conn:
         await upsert_user(conn, user_id=user_uuid, email=identity.email)
-        agent_id, _ = await ensure_default_agent_context(
-            conn, user_id=user_uuid
-        )
+        agent_id, _ = await ensure_default_agent_context(conn, user_id=user_uuid)
         if persona is None:
             await conn.execute(
                 """
@@ -552,9 +547,7 @@ class _McpToolCallBody(BaseModel):
 
 
 @router.post("/api/mcp/tools/call")
-async def mcp_call_tool(
-    request: Request, body: _McpToolCallBody
-) -> dict[str, Any]:
+async def mcp_call_tool(request: Request, body: _McpToolCallBody) -> dict[str, Any]:
     """Dispatch an MCP ``tools/call`` against the host's registry.
 
     External callers may only invoke tools whose
@@ -562,9 +555,7 @@ async def mcp_call_tool(
     ``{"isError": true, ...}`` envelopes per `docs/013 §4.1`.
     """
     registry = request.app.state.tool_registry
-    return await call_inbound_tool(
-        registry, name=body.name, arguments=body.arguments
-    )
+    return await call_inbound_tool(registry, name=body.name, arguments=body.arguments)
 
 
 # -----------------------------------------------------------------------------
@@ -633,9 +624,7 @@ async def list_knowledge(
 
 
 @router.get("/api/knowledge/{knowledge_id}")
-async def get_knowledge_row(
-    request: Request, knowledge_id: UUID
-) -> dict[str, Any]:
+async def get_knowledge_row(request: Request, knowledge_id: UUID) -> dict[str, Any]:
     """One knowledge row, body included. Used by the browser's
     detail panel and by the seance / continuation paths."""
     identity = request.state.identity
@@ -671,9 +660,7 @@ async def get_knowledge_row(
 
 
 @router.patch("/api/knowledge/{knowledge_id}")
-async def update_knowledge_row(
-    request: Request, knowledge_id: UUID
-) -> dict[str, Any]:
+async def update_knowledge_row(request: Request, knowledge_id: UUID) -> dict[str, Any]:
     """Partial update of one knowledge row from the UI (`docs/014 §5`).
 
     Body shape is pinned by ``KnowledgeUpdate`` in
@@ -766,9 +753,7 @@ async def update_knowledge_row(
 
 
 @router.delete("/api/knowledge/{knowledge_id}", status_code=204)
-async def delete_knowledge_row(
-    request: Request, knowledge_id: UUID
-) -> None:
+async def delete_knowledge_row(request: Request, knowledge_id: UUID) -> None:
     """Soft-delete a knowledge row from the UI (`docs/014 §5`).
 
     Sets ``deleted_at = now()`` per the soft-delete convention
@@ -897,9 +882,7 @@ _ESCALATION_STATUS_VALUES: frozenset[str] = frozenset(
 def _serialise_escalation(row: Any) -> dict[str, Any]:
     return {
         "id": str(row.id),
-        "conversation_id": (
-            str(row.conversation_id) if row.conversation_id else None
-        ),
+        "conversation_id": (str(row.conversation_id) if row.conversation_id else None),
         "agent_id": str(row.agent_id) if row.agent_id else None,
         "severity": row.severity,
         "reason_class": row.reason_class,
@@ -909,9 +892,7 @@ def _serialise_escalation(row: Any) -> dict[str, Any]:
         "status": row.status,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
-        "resolved_at": (
-            row.resolved_at.isoformat() if row.resolved_at else None
-        ),
+        "resolved_at": (row.resolved_at.isoformat() if row.resolved_at else None),
     }
 
 
@@ -938,9 +919,7 @@ async def list_escalations_endpoint(
     through ``acknowledged`` → ``resolved``.
     """
     if status not in _ESCALATION_STATUS_VALUES:
-        raise HTTPException(
-            status_code=400, detail=f"unknown status filter: {status}"
-        )
+        raise HTTPException(status_code=400, detail=f"unknown status filter: {status}")
     identity = request.state.identity
     user_uuid = UUID(identity.user_id)
     pool = request.app.state.pool
@@ -991,9 +970,7 @@ async def resolve_escalation_endpoint(
             conn, escalation_id=escalation_id, user_id=user_uuid
         )
     if not moved:
-        raise HTTPException(
-            status_code=404, detail="escalation not found"
-        )
+        raise HTTPException(status_code=404, detail="escalation not found")
     return {"ok": True}
 
 
@@ -1140,9 +1117,7 @@ async def get_plugin(request: Request, name: str) -> dict[str, Any]:
 
     manifest = loaded.manifest
     tier = (
-        manifest.tier.value
-        if hasattr(manifest.tier, "value")
-        else str(manifest.tier)
+        manifest.tier.value if hasattr(manifest.tier, "value") else str(manifest.tier)
     )
     authors = (
         [
@@ -1227,9 +1202,7 @@ async def get_conversations(request: Request) -> dict[str, Any]:
 
 
 @router.get("/api/conversations/{conversation_id}")
-async def get_conversation(
-    request: Request, conversation_id: UUID
-) -> dict[str, Any]:
+async def get_conversation(request: Request, conversation_id: UUID) -> dict[str, Any]:
     """Fetch a single conversation row by id.
 
     The list endpoint already returns title + timestamps, but the
@@ -1376,9 +1349,7 @@ async def post_regenerate_conversation_title(
         )
         # Surface a typed 502 so the UI can render a retry rather than a
         # generic 500 swallowing the cause.
-        raise HTTPException(
-            status_code=502, detail="title generation failed"
-        ) from exc
+        raise HTTPException(status_code=502, detail="title generation failed") from exc
 
     async with acquire(pool, identity) as conn:
         stored = await update_conversation_title(
@@ -1521,9 +1492,7 @@ async def get_conversation_llm_calls(
             {
                 "id": str(row["id"]),
                 "message_id": (
-                    str(row["message_id"])
-                    if row["message_id"] is not None
-                    else None
+                    str(row["message_id"]) if row["message_id"] is not None else None
                 ),
                 "role": row["role"],
                 "provider": row["provider"],
@@ -1586,11 +1555,6 @@ class TurnRequestBody(BaseModel):
     user_tz: str = Field(min_length=1)
 
 
-def _sse_event(name: str, data: dict[str, Any]) -> str:
-    """Format an SSE frame. Trailing blank line terminates the frame."""
-    return f"event: {name}\ndata: {json.dumps(data)}\n\n"
-
-
 async def _auto_title_first_turn(
     *,
     pool: Any,
@@ -1631,9 +1595,7 @@ async def _auto_title_first_turn(
             )
             if existing_title is not None:
                 return
-            pair = await first_turn_pair(
-                conn, conversation_id=conversation_id
-            )
+            pair = await first_turn_pair(conn, conversation_id=conversation_id)
         if pair is None:
             return
         user_text, assistant_text = pair
@@ -1660,9 +1622,7 @@ async def _auto_title_first_turn(
 
 
 @router.post("/api/turn")
-async def post_turn(
-    request: Request, body: TurnRequestBody
-) -> StreamingResponse:
+async def post_turn(request: Request, body: TurnRequestBody) -> StreamingResponse:
     """Drive one turn and stream chunks back as ``text/event-stream``.
 
     Per ``docs/005 §5.1`` the runner is authoritative: it persists every
@@ -1703,9 +1663,7 @@ async def post_turn(
 
         if max_daily_cost is not None and max_daily_cost > 0:
             since = datetime.now(tz=UTC) - timedelta(hours=24)
-            day_summary = await cost_summary_since(
-                conn, user_id=user_uuid, since=since
-            )
+            day_summary = await cost_summary_since(conn, user_id=user_uuid, since=since)
             day_cost = float(day_summary.get("cost_usd") or 0.0)
             if day_cost >= max_daily_cost:
                 # 402 Payment Required is the closest HTTP-spec'd code
@@ -1734,7 +1692,16 @@ async def post_turn(
 
     async def _stream() -> AsyncIterator[bytes]:
         telemetry = getattr(request.app.state, "telemetry", None)
+        # The turn's events are mapped onto AG-UI (#263) and framed by the
+        # SDK encoder (single ``data:`` line per event, camelCase — the
+        # documented carve-out in ``docs/004``). The emitter is a pure
+        # stateful map; this handler keeps the disconnect check, the
+        # auto-title hook, and the error beacon.
+        emitter = AguiEmitter(thread_id=str(body.conversation_id))
+        encoder = EventEncoder()
         try:
+            for ag_event in emitter.start():
+                yield encoder.encode(ag_event).encode("utf-8")
             async for event in run_turn(
                 pool=pool,
                 provider=provider,
@@ -1749,18 +1716,9 @@ async def post_turn(
             ):
                 if await request.is_disconnected():
                     break
-                if isinstance(event, AssistantChunk):
-                    yield _sse_event("chunk", {"text": event.text}).encode("utf-8")
-                elif isinstance(event, TurnComplete):
-                    yield _sse_event(
-                        "complete",
-                        {
-                            "user_message_id": str(event.user_message_id),
-                            "assistant_message_id": str(
-                                event.assistant_message_id
-                            ),
-                        },
-                    ).encode("utf-8")
+                for ag_event in emitter.map(event):
+                    yield encoder.encode(ag_event).encode("utf-8")
+                if isinstance(event, TurnComplete):
                     # Fire-and-forget auto-title hook (issue #48). The
                     # call is gated on ``title IS NULL`` inside
                     # ``_auto_title_first_turn`` — a second turn on a
@@ -1780,8 +1738,12 @@ async def post_turn(
             # Client disconnect — propagate so the provider call unwinds.
             raise
         except Exception as exc:  # noqa: BLE001 — telemetry error must not crash
-            # Non-tool exceptions bubble here. Emit the error beacon before
-            # re-raising so the live feed (#172) logs the failure.
+            # Non-tool exceptions bubble here. Surface a terminal AG-UI
+            # ``RUN_ERROR`` frame so the client closes the run cleanly,
+            # emit the error beacon for the live feed (#172), then
+            # re-raise.
+            for ag_event in emitter.error(exc):
+                yield encoder.encode(ag_event).encode("utf-8")
             if telemetry is not None:
                 try:
                     await telemetry.emit_event(
@@ -1844,9 +1806,7 @@ def _format_summary(summary: dict) -> dict[str, Any]:
 @router.get("/api/cost/summary")
 async def get_cost_summary(
     request: Request,
-    scope: Annotated[
-        str, Query(description="One of: turn, session, day.")
-    ],
+    scope: Annotated[str, Query(description="One of: turn, session, day.")],
     message_id: Annotated[UUID | None, Query()] = None,
 ) -> dict[str, Any]:
     """Aggregate token spend for the authenticated user.
@@ -1860,9 +1820,7 @@ async def get_cost_summary(
     24h-ago for ``session`` / ``day``).
     """
     if scope not in _COST_SCOPES:
-        raise HTTPException(
-            status_code=400, detail=f"unknown scope: {scope}"
-        )
+        raise HTTPException(status_code=400, detail=f"unknown scope: {scope}")
 
     identity = request.state.identity
     user_uuid = UUID(identity.user_id)
@@ -1870,9 +1828,7 @@ async def get_cost_summary(
 
     async with acquire(pool, identity) as conn:
         if scope == "turn":
-            anchor = message_id or await latest_user_message_id(
-                conn, user_id=user_uuid
-            )
+            anchor = message_id or await latest_user_message_id(conn, user_id=user_uuid)
             if anchor is None:
                 return {
                     "scope": scope,
@@ -1895,16 +1851,12 @@ async def get_cost_summary(
             iat = _iat_to_datetime(identity.raw_claims) or (
                 datetime.now(tz=UTC) - timedelta(hours=24)
             )
-            summary = await cost_summary_since(
-                conn, user_id=user_uuid, since=iat
-            )
+            summary = await cost_summary_since(conn, user_id=user_uuid, since=iat)
             return {"scope": scope, **_format_summary(summary)}
 
         # scope == "day"
         since = datetime.now(tz=UTC) - timedelta(hours=24)
-        summary = await cost_summary_since(
-            conn, user_id=user_uuid, since=since
-        )
+        summary = await cost_summary_since(conn, user_id=user_uuid, since=since)
         return {"scope": scope, **_format_summary(summary)}
 
 
