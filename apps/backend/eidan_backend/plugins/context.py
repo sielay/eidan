@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
     from eidan_backend.behaviours import Behaviour, BehaviourResult
     from eidan_backend.capabilities import JobCapability
+    from eidan_backend.escalations import EscalationReason, EscalationSeverity
     from eidan_backend.identity import Identity
     from eidan_backend.tools import Tool
 
@@ -262,6 +263,44 @@ class ArtifactCreator(Protocol):
     ) -> Any: ...
 
 
+@runtime_checkable
+class EscalationWriter(Protocol):
+    """Escalation-inbox accessor handed to a plugin via ``ctx.escalate``.
+
+    Plugins / autonomous behaviours that hit a blocker they can't resolve
+    call ``await ctx.escalate(user_id=..., severity=..., reason_class=...)``
+    to write one row to ``eidan.escalations`` (`docs/022`), landing the
+    blocker in the operator inbox (``GET /api/escalations``) instead of
+    only the plugin's own schema + an out-of-band nudge. Returns the new
+    escalation id.
+
+    ``user_id`` is **required and caller-supplied** — the host does not
+    invent an operator. A caller running autonomous work (no inbound JWT)
+    passes the user_id that originated the work, e.g. the originating
+    ``eidan.jobs.user_id``. The inbox is user-scoped, so a caller with no
+    originating user must fall back to ``notify_topic`` rather than
+    escalate; passing ``user_id=None`` raises rather than writing an
+    unowned row.
+
+    ``None`` only on the degraded path where a :class:`PluginContext` is
+    built without a pool (some unit tests); real installs always wire it,
+    mirroring ``ctx.artifacts``.
+    """
+
+    async def __call__(
+        self,
+        *,
+        user_id: Any,
+        severity: EscalationSeverity,
+        reason_class: EscalationReason,
+        suggested_action: str | None = None,
+        evidence: tuple[str, ...] = (),
+        conversation_id: Any | None = None,
+        agent_id: Any | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any: ...
+
+
 @dataclass(frozen=True, slots=True)
 class PluginContext:
     """The host surface a :class:`PluginBase` subclass receives.
@@ -302,6 +341,10 @@ class PluginContext:
       serves (``{kind, capacity}``) so the heartbeat publishes them into
       ``node_heartbeats.served_kinds`` (#249). ``None`` on an older host /
       the unit-test path; plugins guard before calling.
+    - ``escalate``            — write an ``eidan.escalations`` row so a
+      blocker an autonomous behaviour can't resolve lands in the operator
+      inbox (`docs/022`). Caller supplies ``user_id`` (e.g. the originating
+      job's). ``None`` only on the pool-less unit-test path.
     - ``identity``            — ``None`` during ``on_install`` /
       ``on_uninstall``; the calling :class:`Identity` during
       ``on_activate`` and runtime invocations.
@@ -320,6 +363,7 @@ class PluginContext:
     publish_event: EventPublisher | None = None
     register_capabilities: CapabilityRegistrar | None = None
     artifacts: ArtifactCreator | None = None
+    escalate: EscalationWriter | None = None
     identity: Identity | None = None
 
 
@@ -328,6 +372,7 @@ __all__ = [
     "BehaviourRegistrar",
     "CapabilityRegistrar",
     "DbAccessor",
+    "EscalationWriter",
     "EventPublisher",
     "NotificationSender",
     "TopicNotifier",

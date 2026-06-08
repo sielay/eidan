@@ -35,6 +35,12 @@ import asyncpg
 from .artifacts import ArtifactService, make_artifact_store
 from .behaviours import Behaviour, BehaviourDispatcher, BehaviourRegistry
 from .capabilities import CapabilityRegistry, JobCapability
+from .escalations import (
+    Escalation,
+    EscalationReason,
+    EscalationSeverity,
+    record_escalation,
+)
 from .identity import get_current_identity
 from .memory_tools import register_memory_tools
 from .node_identity import NodeIdentity
@@ -179,6 +185,58 @@ class _ArtifactCreator:
         )
 
 
+class _EscalationWriter:
+    """``ctx.escalate`` adapter (#271).
+
+    Writes one ``eidan.escalations`` row via :func:`record_escalation` so a
+    plugin / autonomous behaviour that hits a blocker it can't resolve lands
+    in the operator inbox (``docs/022``) instead of only its own schema + an
+    out-of-band nudge. Unlike :class:`_ArtifactCreator`, ``user_id`` is
+    caller-supplied (autonomous work has no ambient identity) — the host
+    does not invent an operator. Built once per host wiring; the escalation
+    is per-call.
+    """
+
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self._pool = pool
+
+    async def __call__(
+        self,
+        *,
+        user_id: Any,
+        severity: EscalationSeverity,
+        reason_class: EscalationReason,
+        suggested_action: str | None = None,
+        evidence: tuple[str, ...] = (),
+        conversation_id: Any | None = None,
+        agent_id: Any | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        if user_id is None:
+            # The inbox is user-scoped (user_id NOT NULL). A caller with no
+            # originating user must fall back to notify_topic rather than
+            # write an unowned row — surface that as an actionable error,
+            # not a raw NotNullViolation from the INSERT.
+            raise ValueError(
+                "ctx.escalate() requires a user_id — the escalations inbox is "
+                "user-scoped. Autonomous callers pass the originating user "
+                "(e.g. the job's user_id); when there is none, fall back to "
+                "ctx.notify_topic instead of escalating."
+            )
+        escalation = Escalation(
+            severity=severity,
+            reason_class=reason_class,
+            user_id=user_id,
+            suggested_action=suggested_action,
+            evidence=tuple(evidence),
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            metadata=metadata or {},
+        )
+        async with self._pool.acquire() as conn:
+            return await record_escalation(conn, escalation=escalation)
+
+
 def _make_context_factory(
     pool: asyncpg.Pool,
     tool_registry: ToolRegistry,
@@ -209,6 +267,7 @@ def _make_context_factory(
     """
     secret_accessor = make_secret_accessor(pool)
     artifact_creator = _ArtifactCreator(ArtifactService(pool, make_artifact_store()))
+    escalation_writer = _EscalationWriter(pool)
     notify_callable = _make_notify_callable(notification_router)
     route_resolver = make_route_resolver(notification_router)
     notify_topic_callable = route_resolver.emit if route_resolver is not None else None
@@ -277,6 +336,7 @@ def _make_context_factory(
                 _register_capabilities if capability_registry is not None else None
             ),
             artifacts=artifact_creator,
+            escalate=escalation_writer,
             identity=None,
         )
 
