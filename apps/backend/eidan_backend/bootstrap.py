@@ -308,7 +308,13 @@ def _make_context_factory(
                     name,
                 )
                 return
-            prefix = f"/plugins/{name}"
+            # Honour the manifest's backend.routes_prefix when declared
+            # (docs/001 §2.2); otherwise default to /plugins/<name>.
+            backend_cfg = getattr(loaded.manifest, "backend", None)
+            declared = (
+                getattr(backend_cfg, "routes_prefix", None) if backend_cfg else None
+            )
+            prefix = declared or f"/plugins/{name}"
             mounted = getattr(app.state, "mounted_plugin_prefixes", None)
             if mounted is None:
                 mounted = set()
