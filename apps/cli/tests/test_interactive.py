@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from eidan_cli import interactive
 
 
@@ -184,8 +185,17 @@ def test_init_wizard_fly_path_collects_app_and_region(
     # forms by checking the bare origin appears + the slashed
     # form doesn't.
     assert "cors_origins:" in topology
-    assert "https://e.sielay.com" in topology
-    assert "https://e.sielay.com/" not in topology
+    # Assert on the parsed cors_origins list (exact membership), not a file
+    # substring — the no-trailing-slash guarantee is an exact compare, and it
+    # avoids CodeQL's incomplete-url-substring-sanitization heuristic.
+    parsed = yaml.safe_load(topology)
+    origins = [
+        origin
+        for node in (parsed.get("nodes") or {}).values()
+        for origin in (node.get("cors_origins") or [])
+    ]
+    assert "https://e.sielay.com" in origins
+    assert "https://e.sielay.com/" not in origins
     assert "postgresql+asyncpg://eidan_app:fly-secret@db.example.com:5432/eidan" in topology
     assert "name: anthropic" in topology
     assert "api_key:" in topology
