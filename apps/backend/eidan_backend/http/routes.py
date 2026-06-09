@@ -2227,3 +2227,186 @@ async def list_jobs_endpoint(request: Request) -> dict[str, Any]:
             for r in rows
         ]
     }
+
+
+# Job lifecycle states that are still "live" (can be cancelled) vs. settled
+# (can be retried). Kept here next to the action routes so the two stay in
+# step — the read endpoint above is status-agnostic.
+_JOB_CANCELLABLE = ("queued", "claimed", "running")
+_JOB_RETRYABLE = ("failed", "cancelled", "done")
+
+
+@router.post("/api/admin/jobs/{job_id}/cancel")
+async def cancel_job_endpoint(request: Request, job_id: UUID) -> dict[str, Any]:
+    """Cancel a live ``eidan.jobs`` row (operator action on the jobs pane).
+
+    Only ``queued``/``claimed``/``running`` rows are cancellable — a
+    settled job is left untouched and its current status returned, so the
+    call is idempotent (clicking cancel on an already-cancelled job is a
+    no-op, not an error). 404 only when the id is unknown.
+
+    Note this flips the row's status; a node already mid-run won't be
+    pre-empted (no cooperative cancel signal yet) but won't re-claim, and
+    the queue won't hand the job out again.
+    """
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE eidan.jobs
+               SET status = 'cancelled', updated_at = now()
+             WHERE id = $1
+               AND status = ANY($2::text[])
+            RETURNING id
+            """,
+            job_id,
+            list(_JOB_CANCELLABLE),
+        )
+        if row is not None:
+            return {"id": str(job_id), "status": "cancelled"}
+        current = await conn.fetchval(
+            "SELECT status FROM eidan.jobs WHERE id = $1", job_id
+        )
+    if current is None:
+        raise HTTPException(status_code=404, detail="unknown job")
+    # Already terminal — idempotent no-op, report where it landed.
+    return {"id": str(job_id), "status": current}
+
+
+@router.post("/api/admin/jobs/{job_id}/retry")
+async def retry_job_endpoint(request: Request, job_id: UUID) -> dict[str, Any]:
+    """Re-queue a settled ``eidan.jobs`` row so a serving node claims it again.
+
+    Clears the claim (``claimed_by``/``claimed_at``) and the prior
+    ``error`` and flips the row back to ``queued``. Only terminal rows
+    (``failed``/``cancelled``/``done``) are retryable — a still-live job
+    returns 409 rather than yanking it out from under a running node.
+    """
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE eidan.jobs
+               SET status = 'queued',
+                   claimed_by = NULL,
+                   claimed_at = NULL,
+                   error = NULL,
+                   updated_at = now()
+             WHERE id = $1
+               AND status = ANY($2::text[])
+            RETURNING id
+            """,
+            job_id,
+            list(_JOB_RETRYABLE),
+        )
+        if row is not None:
+            return {"id": str(job_id), "status": "queued"}
+        exists = await conn.fetchval(
+            "SELECT 1 FROM eidan.jobs WHERE id = $1", job_id
+        )
+    if exists is None:
+        raise HTTPException(status_code=404, detail="unknown job")
+    raise HTTPException(
+        status_code=409, detail="job is still live — cancel it before retrying"
+    )
+
+
+# Buckets for the activity summary: window → (Postgres interval, bucket
+# width). A 1 h window wants fine 5-minute buckets; longer windows roll up
+# to the hour so the sparkline stays a readable length.
+_SUMMARY_WINDOWS: dict[str, tuple[str, str]] = {
+    "1h": ("1 hour", "5 minutes"),
+    "24h": ("24 hours", "1 hour"),
+    "7d": ("7 days", "6 hours"),
+}
+
+
+@router.get("/api/admin/summary")
+async def admin_summary_endpoint(
+    request: Request,
+    window: Annotated[str, Query()] = "24h",
+) -> dict[str, Any]:
+    """Aggregates for the activity dashboard — all from core tables.
+
+    Three rollups over ``eidan.jobs`` (status + kind tallies, all-time —
+    the queue is a working set, not history) and ``eidan.node_events``
+    (agent-turn volume bucketed across ``window``, plus completed/errored
+    turn totals and summed cost). Plugin-specific loop stats are NOT here:
+    those come from the per-plugin ``/summary`` panels (see
+    ``/api/admin/panels``) so core stays decoupled from any bundle.
+    """
+    interval, bucket = _SUMMARY_WINDOWS.get(window, _SUMMARY_WINDOWS["24h"])
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        status_rows = await conn.fetch(
+            "SELECT status, count(*) AS n FROM eidan.jobs GROUP BY status"
+        )
+        kind_rows = await conn.fetch(
+            "SELECT kind, count(*) AS n FROM eidan.jobs GROUP BY kind"
+        )
+        bucket_rows = await conn.fetch(
+            """
+            SELECT date_bin($2::interval, ts, date_trunc('hour', now())) AS bucket,
+                   count(*) FILTER (WHERE type LIKE 'agent.turn%') AS turns,
+                   count(*) FILTER (WHERE type = 'agent.turn.error') AS errors
+              FROM eidan.node_events
+             WHERE ts > now() - $1::interval
+             GROUP BY bucket
+             ORDER BY bucket
+            """,
+            interval,
+            bucket,
+        )
+        totals = await conn.fetchrow(
+            """
+            SELECT
+              count(*) FILTER (WHERE type = 'agent.turn.complete') AS complete,
+              count(*) FILTER (WHERE type = 'agent.turn.error')    AS error,
+              COALESCE(
+                SUM((payload->>'cost_usd')::numeric)
+                  FILTER (WHERE type = 'agent.turn.complete'), 0
+              ) AS cost_usd
+              FROM eidan.node_events
+             WHERE ts > now() - $1::interval
+            """,
+            interval,
+        )
+    return {
+        "window": window if window in _SUMMARY_WINDOWS else "24h",
+        "jobs_by_status": {r["status"]: r["n"] for r in status_rows},
+        "jobs_by_kind": {r["kind"]: r["n"] for r in kind_rows},
+        "events_by_bucket": [
+            {
+                "ts": r["bucket"].isoformat(),
+                "turns": r["turns"],
+                "errors": r["errors"],
+            }
+            for r in bucket_rows
+        ],
+        "turn_totals": {
+            "complete": totals["complete"],
+            "error": totals["error"],
+            # numeric → float for JSON; 0 stays 0.
+            "cost_usd": float(totals["cost_usd"]),
+        },
+    }
+
+
+@router.get("/api/admin/panels")
+async def admin_panels_endpoint(request: Request) -> dict[str, Any]:
+    """Plugin-contributed admin panels mounted on this host.
+
+    Reports each plugin that has mounted a FastAPI router (core #284),
+    as ``{plugin, prefix}``. The web admin discovers cursor/summary panels
+    generically by walking these prefixes and probing the conventional
+    ``<prefix>/cursors`` + ``<prefix>/summary`` sub-routes — so core
+    renders any bundle's loop panel without naming the bundle. Empty on a
+    host with no plugin routers (or an older bootstrap).
+    """
+    mounted = getattr(request.app.state, "mounted_plugin_prefixes", None) or {}
+    return {
+        "panels": sorted(
+            ({"plugin": plugin, "prefix": prefix} for prefix, plugin in mounted.items()),
+            key=lambda p: p["plugin"],
+        )
+    }
