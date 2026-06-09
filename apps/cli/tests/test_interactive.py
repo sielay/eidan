@@ -194,8 +194,10 @@ def test_init_wizard_fly_path_collects_app_and_region(
         for node in (parsed.get("nodes") or {}).values()
         for origin in (node.get("cors_origins") or [])
     ]
-    assert "https://e.sielay.com" in origins
-    assert "https://e.sielay.com/" not in origins
+    # Exact list equality (not a URL-in-string check): the wizard writes
+    # exactly the one origin, no trailing slash. Equality avoids CodeQL's
+    # incomplete-url-substring-sanitization heuristic entirely.
+    assert origins == ["https://e.sielay.com"]
     assert "postgresql+asyncpg://eidan_app:fly-secret@db.example.com:5432/eidan" in topology
     assert "name: anthropic" in topology
     assert "api_key:" in topology
