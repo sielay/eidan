@@ -18,6 +18,12 @@ the FastAPI middleware (``auth.AuthMiddleware``) and the CLI's
 
 from __future__ import annotations
 
+from .api_keys import (
+    APIKeyExpired,
+    APIKeyNotFound,
+    provision_api_key,
+    validate_api_key,
+)
 from .jwt_native import (
     InvalidToken,
     NativeIdentity,
@@ -34,6 +40,8 @@ from .vault_crypto import (
 )
 
 __all__ = [
+    "APIKeyExpired",
+    "APIKeyNotFound",
     "InvalidToken",
     "KeypairUnavailable",
     "MasterKeyMissing",
@@ -45,5 +53,7 @@ __all__ = [
     "load_public_pem",
     "master_key_configured",
     "mint_refresh_token",
+    "provision_api_key",
+    "validate_api_key",
     "verify_access_token",
 ]
