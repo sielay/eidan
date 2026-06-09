@@ -247,6 +247,7 @@ def _make_context_factory(
     behaviour_dispatcher: BehaviourDispatcher | None = None,
     telemetry_holder: list[Any] | None = None,
     capability_registry: CapabilityRegistry | None = None,
+    app: Any | None = None,
 ) -> Any:
     """Build a :class:`ContextFactory` closed over the host's wiring.
 
@@ -293,14 +294,51 @@ def _make_context_factory(
                 # silently overwriting one plugin's tool with another's.
                 tool_registry.register(tool)
 
-        def _register_router(_router: Any) -> None:
-            # FastAPI router mounting against the manifest's
-            # ``routes_prefix`` lands in a follow-up — the FastAPI app
-            # owns the include_router call shape.
-            logger.warning(
-                "[bootstrap] plugin %s tried to register a router; "
-                "router mounting not yet wired",
-                loaded.manifest.name,
+        def _register_router(router_obj: Any) -> None:
+            # Mount the plugin's FastAPI router under /plugins/<name>
+            # (#284). bootstrap runs inside the lifespan — after the app
+            # is constructed — so routes added here are served once
+            # startup completes. The OpenAPI cache is invalidated so a
+            # late mount still shows in /openapi.json + /docs.
+            name = loaded.manifest.name
+            if app is None:
+                logger.warning(
+                    "[bootstrap] plugin %s registered a router but no host "
+                    "app is wired (test / degraded boot); skipping mount",
+                    name,
+                )
+                return
+            # Honour the manifest's backend.routes_prefix when declared
+            # (docs/001 §2.2); otherwise default to /plugins/<name>.
+            backend_cfg = getattr(loaded.manifest, "backend", None)
+            declared = (
+                getattr(backend_cfg, "routes_prefix", None) if backend_cfg else None
+            )
+            prefix = declared or f"/plugins/{name}"
+            # Track prefix -> owning plugin so we can tell an idempotent
+            # re-mount of the SAME plugin (a bootstrap re-run) apart from a
+            # genuine collision (two plugins claiming one prefix), which we
+            # surface loudly rather than silently dropping the second's routes.
+            mounted = getattr(app.state, "mounted_plugin_prefixes", None)
+            if mounted is None:
+                mounted = {}
+                app.state.mounted_plugin_prefixes = mounted
+            owner = mounted.get(prefix)
+            if owner is not None:
+                if owner != name:
+                    logger.warning(
+                        "[bootstrap] plugin %s wants routes prefix %s already "
+                        "mounted by plugin %s — skipping to avoid clobbering. "
+                        "Give one a distinct backend.routes_prefix.",
+                        name, prefix, owner,
+                    )
+                # Same plugin → idempotent re-run; different → skip (warned).
+                return
+            app.include_router(router_obj, prefix=prefix)
+            mounted[prefix] = name
+            app.openapi_schema = None
+            logger.info(
+                "[bootstrap] mounted plugin %s routes at %s", name, prefix
             )
 
         def _register_behaviours(behaviours: Iterable[Behaviour]) -> None:
@@ -614,6 +652,7 @@ async def bootstrap(
     start_telemetry: bool = True,
     provider: Any | None = None,
     default_model: str | None = None,
+    app: Any | None = None,
 ) -> BootstrapResult:
     """Load and activate every plugin under ``plugins_dir``.
 
@@ -725,6 +764,7 @@ async def bootstrap(
         behaviour_dispatcher=dispatcher,
         telemetry_holder=telemetry_holder,
         capability_registry=capability_registry,
+        app=app,
     )
 
     # Validate every plugin's required ``vault[]`` keys BEFORE the
