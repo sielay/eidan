@@ -179,24 +179,167 @@ async def _read_per_agent_override(
     return value if isinstance(value, str) and value else None
 
 
-def make_secret_accessor(pool: asyncpg.Pool) -> Any:
-    """Build the ``SecretAccessor`` the bootstrap hands to every
-    plugin context (`docs/012`).
+async def _audit(
+    conn: Any, *, user_id: Any, scope: str, key: str, action: str, actor: str | None
+) -> None:
+    """Append a row to ``eidan.secrets_audit`` (`docs/012` §8).
 
-    Returns a coroutine ``(key: str) -> str | None`` that walks the
-    three tiers in order. The pool is captured by closure so the
-    per-agent override path has a connection to read from; the
-    ``current_agent_id`` contextvar (set by the loop at turn start
-    via :mod:`eidan_backend.identity`) tells the accessor whose
-    overrides to consult.
+    Best-effort — an audit failure must never sink the operation it
+    records, so callers wrap this in their own try/except where the
+    write itself already committed.
     """
-    # Local import to avoid a circular dep at module-import time.
-    from .identity import get_current_agent_id
+    await conn.execute(
+        """
+        INSERT INTO eidan.secrets_audit (user_id, scope, key, action, actor)
+        VALUES ($1, $2, $3, $4, $5)
+        """,
+        user_id,
+        scope,
+        key,
+        action,
+        actor,
+    )
 
-    async def _secret(key: str) -> str | None:
+
+async def write(
+    pool: asyncpg.Pool,
+    key: str,
+    value: str,
+    *,
+    user_id: Any | None = None,
+    ttl_seconds: int | None = None,
+    actor: str | None = None,
+) -> None:
+    """Encrypt ``value`` and upsert it into the native vault (`docs/012` §5.2).
+
+    ``user_id=None`` is an instance/system secret (the historic behaviour);
+    a non-null ``user_id`` is that user's own credential — the per-user
+    dimension docs/031 adds. Fernet output is non-deterministic, so two
+    writes of the same plaintext differ. ``ttl_seconds`` sets ``expires_at``;
+    ``None`` means no expiry.
+    """
+    from .auth_native.vault_crypto import encrypt_value  # lazy: see _read_native_vault
+
+    scope, subkey = split_secret_key(key)
+    ciphertext = encrypt_value(value.encode("utf-8"))
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO eidan.secrets_vault (user_id, scope, key, value_enc, expires_at)
+            VALUES (
+                $1, $2, $3, $4,
+                CASE WHEN $5::bigint IS NULL THEN NULL
+                     ELSE now() + make_interval(secs => $5) END
+            )
+            ON CONFLICT (user_id, scope, key) DO UPDATE
+            SET value_enc = EXCLUDED.value_enc,
+                expires_at = EXCLUDED.expires_at,
+                updated_at = now()
+            """,
+            user_id,
+            scope,
+            subkey,
+            ciphertext,
+            ttl_seconds,
+        )
+        await _audit(
+            conn, user_id=user_id, scope=scope, key=subkey, action="write", actor=actor
+        )
+
+
+async def delete(
+    pool: asyncpg.Pool,
+    key: str,
+    *,
+    user_id: Any | None = None,
+    actor: str | None = None,
+) -> None:
+    """Idempotent hard delete of a vault row (`docs/012` §5.3).
+
+    ``user_id IS NOT DISTINCT FROM $1`` so a ``None`` (instance) row and a
+    per-user row are addressed unambiguously. A missing row is a no-op.
+    """
+    scope, subkey = split_secret_key(key)
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            DELETE FROM eidan.secrets_vault
+            WHERE user_id IS NOT DISTINCT FROM $1 AND scope = $2 AND key = $3
+            """,
+            user_id,
+            scope,
+            subkey,
+        )
+        await _audit(
+            conn, user_id=user_id, scope=scope, key=subkey, action="delete", actor=actor
+        )
+
+
+async def read(
+    pool: asyncpg.Pool, key: str, *, user_id: Any | None = None
+) -> str | None:
+    """Read + decrypt a single vault value for ``(user_id, scope, key)``.
+
+    Honours ``expires_at`` (a row past its TTL reads as ``None``; the sweep
+    deletes it later). This is the *vault-tier* read with an explicit user
+    — distinct from the tiered accessor (:func:`make_secret_accessor`),
+    which the agentic loop uses to resolve a key across override/env/vault.
+    """
+    scope, subkey = split_secret_key(key)
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT value_enc FROM eidan.secrets_vault
+            WHERE user_id IS NOT DISTINCT FROM $1 AND scope = $2 AND key = $3
+              AND (expires_at IS NULL OR expires_at > now())
+            """,
+            user_id,
+            scope,
+            subkey,
+        )
+    if row is None:
+        return None
+    try:
+        from .auth_native.vault_crypto import decrypt_value
+
+        return decrypt_value(bytes(row["value_enc"])).decode("utf-8")
+    except Exception as exc:  # noqa: BLE001 — never raise on bad ciphertext
+        logger.warning("[secrets] read decrypt failed for %s.%s: %s", scope, subkey, exc)
+        return None
+
+
+def _current_user_id() -> Any | None:
+    """The acting user's id from the turn's identity, or ``None`` (host work)."""
+    from .identity import get_current_identity
+
+    ident = get_current_identity()
+    if ident is None or not getattr(ident, "user_id", None):
+        return None
+    try:
+        return UUID(str(ident.user_id))
+    except (ValueError, TypeError):  # pragma: no cover — defensive
+        return None
+
+
+class _SecretAccessor:
+    """Concrete ``SecretAccessor`` (`docs/012` §5–6) handed to every plugin.
+
+    Callable for the tiered read (override → env → vault); ``write`` /
+    ``delete`` mutate the native vault scoped to the **current user** (or
+    instance scope outside a turn). The pool is captured so all three
+    paths share the host connection pool.
+    """
+
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self._pool = pool
+
+    async def __call__(self, key: str) -> str | None:
+        # Local import to avoid a circular dep at module-import time.
+        from .identity import get_current_agent_id
+
         agent_id = get_current_agent_id()
         if agent_id is not None:
-            override = await _read_per_agent_override(pool, agent_id, key)
+            override = await _read_per_agent_override(self._pool, agent_id, key)
             if override is not None:
                 return override
 
@@ -204,9 +347,28 @@ def make_secret_accessor(pool: asyncpg.Pool) -> Any:
         if env_value is not None:
             return env_value
 
-        return await _read_native_vault(pool, key)
+        return await _read_native_vault(self._pool, key)
 
-    return _secret
+    async def write(self, key: str, value: str, *, ttl_seconds: int | None = None) -> None:
+        await write(
+            self._pool, key, value,
+            user_id=_current_user_id(), ttl_seconds=ttl_seconds, actor="ctx",
+        )
+
+    async def delete(self, key: str) -> None:
+        await delete(self._pool, key, user_id=_current_user_id(), actor="ctx")
+
+
+def make_secret_accessor(pool: asyncpg.Pool) -> Any:
+    """Build the ``SecretAccessor`` the bootstrap hands to every plugin
+    context (`docs/012`).
+
+    Returns a :class:`_SecretAccessor` — callable ``(key) -> str | None``
+    for the three-tier read (per-agent override → env → vault, the
+    ``current_agent_id`` contextvar selecting whose overrides apply), plus
+    ``write`` / ``delete`` that mutate the native vault for the current user.
+    """
+    return _SecretAccessor(pool)
 
 
 class MissingRequiredSecret(Exception):
@@ -261,6 +423,9 @@ async def validate_required_secrets(
 
 __all__ = [
     "MissingRequiredSecret",
+    "delete",
     "make_secret_accessor",
+    "read",
     "validate_required_secrets",
+    "write",
 ]

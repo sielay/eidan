@@ -30,16 +30,22 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class SecretAccessor(Protocol):
-    """Vault accessor handed to a plugin via ``ctx.secret``.
+    """Vault accessor handed to a plugin via ``ctx.secret`` (`docs/012` §5–6).
 
-    Phase 4 stubs the surface; the full Vault wiring lands in
-    ``docs/012``. Calls to keys the manifest did not declare will
-    raise :class:`UndeclaredAccessError` once the loader enforces
-    that — for now an implementation MAY return ``None`` for
-    unknown keys.
+    Callable for the tiered read; ``write`` / ``delete`` mutate the native
+    vault scoped to the current user (`docs/031`). Calls to keys the manifest
+    did not declare will raise :class:`UndeclaredAccessError` once the loader
+    enforces that — for now an implementation MAY return ``None`` for unknown
+    keys.
     """
 
     async def __call__(self, key: str) -> str | None: ...
+
+    async def write(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> None: ...
+
+    async def delete(self, key: str) -> None: ...
 
 
 @runtime_checkable
