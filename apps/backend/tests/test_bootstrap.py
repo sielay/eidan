@@ -458,6 +458,40 @@ def test_register_router_without_app_is_safe_noop() -> None:
     ctx.register_router(APIRouter())  # must not raise
 
 
+def test_register_router_skips_on_prefix_collision_with_other_plugin() -> None:
+    """A prefix already owned by a DIFFERENT plugin is a collision: skip
+    (don't clobber) rather than silently treat it as an idempotent re-run."""
+    from fastapi import APIRouter, FastAPI
+
+    app = FastAPI()
+    # Pre-seed the prefix as owned by someone else.
+    app.state.mounted_plugin_prefixes = {"/plugins/example-core": "someone-else"}
+    factory = _make_context_factory(
+        _FakePool(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        BehaviourRegistry(),
+        app=app,
+    )
+    loaded = LoadedPlugin(
+        manifest=load_manifest(_EXAMPLE_CORE_DIR),
+        plugin=_StubPluginBase(),  # type: ignore[arg-type]
+        plugin_dir=_EXAMPLE_CORE_DIR,
+    )
+    ctx = factory(loaded)
+    r = APIRouter()
+
+    @r.get("/x")
+    def _x() -> dict:
+        return {}
+
+    ctx.register_router(r)
+    # Not mounted (collision skipped), and the original owner is preserved.
+    assert "/plugins/example-core/x" not in {
+        route.path for route in app.routes  # type: ignore[attr-defined]
+    }
+    assert app.state.mounted_plugin_prefixes["/plugins/example-core"] == "someone-else"
+
+
 # ---------- EIDAN_DISABLED_PLUGINS env parsing --------------------------------
 
 

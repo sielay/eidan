@@ -315,15 +315,27 @@ def _make_context_factory(
                 getattr(backend_cfg, "routes_prefix", None) if backend_cfg else None
             )
             prefix = declared or f"/plugins/{name}"
+            # Track prefix -> owning plugin so we can tell an idempotent
+            # re-mount of the SAME plugin (a bootstrap re-run) apart from a
+            # genuine collision (two plugins claiming one prefix), which we
+            # surface loudly rather than silently dropping the second's routes.
             mounted = getattr(app.state, "mounted_plugin_prefixes", None)
             if mounted is None:
-                mounted = set()
+                mounted = {}
                 app.state.mounted_plugin_prefixes = mounted
-            if prefix in mounted:
-                # Idempotent: a bootstrap re-run must not double-mount.
+            owner = mounted.get(prefix)
+            if owner is not None:
+                if owner != name:
+                    logger.warning(
+                        "[bootstrap] plugin %s wants routes prefix %s already "
+                        "mounted by plugin %s — skipping to avoid clobbering. "
+                        "Give one a distinct backend.routes_prefix.",
+                        name, prefix, owner,
+                    )
+                # Same plugin → idempotent re-run; different → skip (warned).
                 return
             app.include_router(router_obj, prefix=prefix)
-            mounted.add(prefix)
+            mounted[prefix] = name
             app.openapi_schema = None
             logger.info(
                 "[bootstrap] mounted plugin %s routes at %s", name, prefix
