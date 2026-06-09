@@ -303,8 +303,12 @@ async def read(
         from .auth_native.vault_crypto import decrypt_value
 
         return decrypt_value(bytes(row["value_enc"])).decode("utf-8")
-    except Exception as exc:  # noqa: BLE001 — never raise on bad ciphertext
-        logger.warning("[secrets] read decrypt failed for %s.%s: %s", scope, subkey, exc)
+    except Exception:  # noqa: BLE001 — never raise on bad ciphertext
+        # Log only the scope (a namespace). Neither the key name nor the
+        # exception is logged: both can carry secret-derived data
+        # (CodeQL: clear-text logging). Scope is enough to flag a likely
+        # stale-master-key rotation in a given area.
+        logger.warning("[secrets] a vault value in scope %r failed to decrypt", scope)
         return None
 
 
