@@ -118,11 +118,10 @@ class A2AVaultManager:
 
         try:
             credential_json = await self.secret_accessor(vault_key)
-        except Exception as exc:  # noqa: BLE001 — don't block delegation on vault errors
-            logger.warning(
-                "[a2a_vault] failed to retrieve credential for %s: %s",
+        except Exception:  # noqa: BLE001 — don't block delegation on vault errors
+            logger.exception(
+                "[a2a_vault] failed to retrieve credential for %s",
                 agent_id,
-                exc,
             )
             return None
 

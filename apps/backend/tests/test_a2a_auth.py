@@ -21,7 +21,6 @@ from eidan_backend.http.a2a_auth import (
     A2AAuthError,
     a2a_jsonrpc_error_response,
     authenticate_a2a_request,
-    validate_a2a_api_key,
 )
 
 
@@ -162,27 +161,27 @@ async def test_a2a_authenticate_bearer_token_success():
 async def test_a2a_authenticate_api_key_success():
     """Valid API key returns Identity with aal='a2a'."""
     user_id = str(uuid4())
-    email = "remote-agent@example.com"
 
     request = MagicMock()
-    request.headers.get.return_value = "Bearer test-api-key-value"
+    request.headers.get.return_value = "ApiKey test-api-key-value"
 
-    async def mock_validator(api_key, secret_accessor):
-        return user_id, email
+    secret_accessor = AsyncMock(
+        return_value=json.dumps({
+            "key_id": "test-key",
+            "user_id": user_id,
+            "scope": "remote",
+            "created_at": "2026-01-01T00:00:00+00:00",
+        })
+    )
 
-    with patch(
-        "eidan_backend.http.a2a_auth.validate_a2a_api_key",
-        side_effect=mock_validator,
-    ):
-        secret_accessor = AsyncMock()
-        identity = await authenticate_a2a_request(
-            request,
-            public_pem=None,
-            secret_accessor=secret_accessor,
-        )
+    identity = await authenticate_a2a_request(
+        request,
+        public_pem=None,
+        secret_accessor=secret_accessor,
+    )
 
     assert identity.user_id == user_id
-    assert identity.email == email
+    assert identity.email is None
     assert identity.aal == "a2a"
     assert identity.raw_claims["auth_method"] == "api_key"
 
@@ -388,30 +387,20 @@ async def test_a2a_auth_via_api_key_then_vault_credential():
     request = MagicMock()
     request.headers.get.return_value = "ApiKey test-key"
 
-    # Mock API key validation
-    async def mock_api_key_validator(key, secret_accessor):
-        return user_id, "test@example.com"
+    secret_accessor = AsyncMock(
+        return_value=json.dumps({
+            "key_id": "test-key",
+            "user_id": user_id,
+            "scope": "remote",
+            "created_at": "2026-01-01T00:00:00+00:00",
+        })
+    )
 
-    outbound_credential_data = {
-        "agent_name": "code-reviewer",
-        "base_url": "https://review.internal",
-        "auth_method": "bearer",
-        "auth_value": "outbound-token",
-    }
-
-    secret_accessor = AsyncMock()
-
-    # First call validates the inbound API key
-    # Subsequent calls would retrieve outbound credentials
-    with patch(
-        "eidan_backend.http.a2a_auth.validate_a2a_api_key",
-        side_effect=mock_api_key_validator,
-    ):
-        identity = await authenticate_a2a_request(
-            request,
-            public_pem=None,
-            secret_accessor=secret_accessor,
-        )
+    identity = await authenticate_a2a_request(
+        request,
+        public_pem=None,
+        secret_accessor=secret_accessor,
+    )
 
     assert identity.user_id == user_id
     assert identity.aal == "a2a"

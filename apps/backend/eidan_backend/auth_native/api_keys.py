@@ -30,6 +30,7 @@ usage logging — those are operator concerns handled via vault updates.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -73,15 +74,14 @@ async def validate_api_key(
     if not api_key or not isinstance(api_key, str):
         raise APIKeyNotFound("invalid API key")
 
-    # Try to look up the key in vault. For now, use the key itself as the
-    # lookup ID. A production system might hash the key instead for extra
-    # security (hashing on the client side before transmission).
-    vault_key = f"{scope}.keys.{api_key[:16]}"  # Use first 16 chars as ID
+    # Hash the API key to derive a fixed-size, non-reversible lookup ID.
+    api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    vault_key = f"{scope}.keys.{api_key_hash}"
 
     try:
         key_metadata = await secret_accessor(vault_key)
     except Exception as exc:  # noqa: BLE001
-        logger.debug("[api_keys] vault lookup failed for %s: %s", vault_key, exc)
+        logger.exception("[api_keys] vault lookup failed for %s", vault_key)
         raise APIKeyNotFound("API key not found or inaccessible") from exc
 
     if not key_metadata:
@@ -125,7 +125,8 @@ async def provision_api_key(
     """Provision a new API key and store it in the vault.
 
     This is typically called by operators via a management CLI or dashboard,
-    not by user code. The key is encrypted before storage.
+    not by user code. The key is encrypted before storage. The raw key is
+    returned only at creation time and never stored in plaintext.
 
     Args:
         user_id: The user this key authorizes.
@@ -145,8 +146,12 @@ async def provision_api_key(
     # Generate a cryptographically secure key
     api_key = secrets.token_urlsafe(32)
 
-    # Metadata to store in vault
+    # Hash the API key for vault lookup (never store the plaintext key)
+    api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+
+    # Metadata to store in vault (includes key_id for reference)
     metadata = {
+        "key_id": key_id,
         "user_id": user_id,
         "scope": role_scope,
         "created_at": datetime.now(tz=UTC).isoformat(),
@@ -158,7 +163,7 @@ async def provision_api_key(
     ciphertext = encrypt_value(metadata_json)
 
     vault_scope = scope
-    vault_key = f"keys.{key_id}"
+    vault_key = f"keys.{api_key_hash}"
 
     try:
         async with pool.acquire() as conn:
@@ -181,10 +186,9 @@ async def provision_api_key(
         )
         return api_key
     except Exception as exc:
-        logger.error(
-            "[api_keys] failed to provision key %s: %s",
+        logger.exception(
+            "[api_keys] failed to provision key %s",
             key_id,
-            exc,
         )
         raise
 

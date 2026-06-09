@@ -15,13 +15,17 @@ authenticated remote agent's user identity, not the remote agent itself).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING, Any
 
 from ..identity import AuthError, Identity
 from ..auth_native import InvalidToken, verify_access_token
+from ..auth_native.api_keys import APIKeyNotFound, APIKeyExpired, validate_api_key
 
 if TYPE_CHECKING:
     from fastapi import Request
+
+logger = logging.getLogger(__name__)
 
 
 class A2AAuthError(AuthError):
@@ -50,71 +54,18 @@ def _extract_bearer_token(auth_header: str | None) -> str | None:
 def _extract_api_key(auth_header: str | None) -> str | None:
     """Extract API key from Authorization header.
 
-    Supports: ``Authorization: ApiKey <key>`` or ``Authorization: Bearer <key>``
-    when the bearer token is actually an API key (stateless validation fails).
-    Returns the key string or None if missing.
+    Supports: ``Authorization: ApiKey <key>``
+    Returns the key string or None if missing/malformed.
     """
     if not auth_header:
         return None
     parts = auth_header.split(" ", 1)
-    if len(parts) != 2:
-        return None
-    scheme = parts[0].lower()
-    if scheme not in ("apikey", "bearer"):
+    if len(parts) != 2 or parts[0].lower() != "apikey":
         return None
     token = parts[1].strip()
     return token or None
 
 
-async def validate_a2a_api_key(
-    api_key: str,
-    *,
-    secret_accessor: callable,
-) -> tuple[str, str]:
-    """Validate an API key against stored credentials in vault.
-
-    Returns (user_id, email) on success.
-    Raises A2AAuthError on validation failure.
-
-    The vault is scoped to ``a2a.{key_id}`` to support multiple API keys,
-    each mapping to a user_id. Format:
-        Vault key: ``a2a.<key_id>``
-        Vault value: JSON ``{"user_id": "uuid", "email": "..."}``
-    """
-    if not api_key:
-        raise A2AAuthError(401, "missing or empty API key")
-
-    # Try to look up the key in vault (scoped to a2a namespace)
-    # The operator stores: EIDAN_A2A_<KEYID>=<keyvalue> in env or vault
-    # and we validate against that.
-    # For now, support validation against env vars: EIDAN_A2A_KEY_ID=...
-    # In production, these come from vault storage.
-    try:
-        key_info = await secret_accessor(f"a2a.key_{api_key[:8]}_credentials")
-    except Exception:
-        key_info = None
-
-    if not key_info:
-        raise A2AAuthError(
-            401,
-            "invalid or unknown API key",
-        )
-
-    # Parse the stored credentials (should be JSON with user_id + email)
-    import json
-
-    try:
-        creds = json.loads(key_info) if isinstance(key_info, str) else key_info
-        user_id = creds.get("user_id")
-        email = creds.get("email")
-        if not user_id:
-            raise ValueError("missing user_id in API key credentials")
-        return user_id, email or None
-    except (json.JSONDecodeError, ValueError, KeyError) as exc:
-        raise A2AAuthError(
-            500,
-            f"invalid API key credentials in vault: {str(exc)[:50]}",
-        ) from exc
 
 
 async def authenticate_a2a_request(
@@ -181,24 +132,25 @@ async def authenticate_a2a_request(
             )
 
         try:
-            user_id, email = await validate_a2a_api_key(
+            user_id, role_scope = await validate_api_key(
                 api_key,
+                scope="a2a",
                 secret_accessor=secret_accessor,
             )
-        except A2AAuthError:
-            raise
+        except (APIKeyNotFound, APIKeyExpired) as exc:
+            raise A2AAuthError(401, str(exc)) from exc
 
         # Successful API key validation — return eidan Identity
         return Identity(
             user_id=user_id,
-            email=email,
+            email=None,
             session_id=None,
             aal="a2a",
             raw_claims={
                 "sub": user_id,
-                "email": email,
                 "a2a": True,
                 "auth_method": "api_key",
+                "scope": role_scope,
             },
         )
 
@@ -228,5 +180,4 @@ __all__ = [
     "A2AAuthError",
     "a2a_jsonrpc_error_response",
     "authenticate_a2a_request",
-    "validate_a2a_api_key",
 ]
