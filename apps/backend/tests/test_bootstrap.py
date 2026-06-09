@@ -422,10 +422,16 @@ def test_register_router_mounts_plugin_routes_under_prefix() -> None:
     def _ping() -> dict:
         return {"ok": True}
 
+    # Prime the OpenAPI cache first — FastAPI() starts with
+    # openapi_schema=None, so without priming the post-mount assertion
+    # would be vacuous. app.openapi() generates + caches the schema.
+    app.openapi()
+    assert app.openapi_schema is not None
+
     ctx.register_router(r)
     want = f"/plugins/{name}/ping"
     assert want in {route.path for route in app.routes}  # type: ignore[attr-defined]
-    assert app.openapi_schema is None  # cache invalidated for late mount
+    assert app.openapi_schema is None  # mount invalidated the primed cache
 
     # Idempotent: a second mount of the same plugin doesn't double-add.
     ctx.register_router(r)
