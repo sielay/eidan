@@ -33,9 +33,9 @@ into the conversation.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import httpx
 
@@ -59,7 +59,7 @@ class AgentCard:
     base_url: str
 
 
-async def fetch_agent_card(base_url: str, timeout: float = 10.0) -> AgentCard:
+async def fetch_agent_card(base_url: str, timeout: float = 10.0) -> AgentCard:  # noqa: ASYNC109 — forwarded to httpx.AsyncClient(timeout=...)
     """Fetch and validate a remote agent's card.
 
     Raises httpx.RequestError / httpx.TimeoutException on network
@@ -149,8 +149,12 @@ def register_a2a_tools(
             f"A2A client for {agent_name} has no callable — cannot register tools"
         )
 
-    # For now, one tool per remote agent: "delegate_to_<name>".
-    tool_name = f"delegate_to_{agent_name}"
+    # One tool per remote agent: "delegate_to_<name>". The agent name is
+    # sanitised to a valid tool identifier (e.g. "remote-sage" ->
+    # "delegate_to_remote_sage") so a hyphen/dot in the agent name can't
+    # produce an invalid or surprising tool name.
+    safe_name = "".join(c if (c.isalnum() or c == "_") else "_" for c in agent_name)
+    tool_name = f"delegate_to_{safe_name}"
     description = (
         f"Delegate a task to the remote agent '{agent_name}'. "
         f"Input: a dict with 'prompt' (str) describing the work. "
@@ -230,7 +234,7 @@ async def a2a_http_call(
     args: dict[str, Any],
     *,
     auth_token: str | None = None,
-    timeout: float = 30.0,
+    timeout: float = 30.0,  # noqa: ASYNC109 — forwarded to httpx.AsyncClient(timeout=...)
 ) -> dict[str, Any]:
     """Execute an A2A method call via HTTP JSON-RPC.
 

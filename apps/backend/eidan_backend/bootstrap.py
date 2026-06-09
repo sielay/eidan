@@ -32,6 +32,7 @@ from typing import Any
 
 import asyncpg
 
+from .a2a import A2AClient, a2a_http_call, register_a2a_tools
 from .artifacts import ArtifactService, make_artifact_store
 from .behaviours import Behaviour, BehaviourDispatcher, BehaviourRegistry
 from .capabilities import CapabilityRegistry, JobCapability
@@ -41,7 +42,6 @@ from .escalations import (
     EscalationSeverity,
     record_escalation,
 )
-from .a2a import A2AClient, a2a_http_call, register_a2a_tools
 from .identity import get_current_identity
 from .memory_tools import register_memory_tools
 from .node_identity import NodeIdentity

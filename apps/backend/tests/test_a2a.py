@@ -8,7 +8,6 @@ calling turn. Tests use a mock A2A server.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
@@ -16,7 +15,6 @@ from eidan_backend.a2a import (
     A2AClient,
     AgentCard,
     a2a_http_call,
-    fetch_agent_card,
     register_a2a_tools,
 )
 from eidan_backend.tools import ToolError, ToolRegistry
