@@ -6,7 +6,13 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from eidan_cli.build_context import assemble_plugin_frontends
+import pytest
+
+from eidan_cli.build_context import (
+    _normalize_component,
+    assemble_plugin_frontends,
+)
+from eidan_cli.targets import TargetReconcileError
 
 
 def _write(p: Path, text: str) -> None:
@@ -70,3 +76,29 @@ def test_assemble_plugin_frontends_empty_when_no_frontends(tmp_path: Path) -> No
     assert "export const pluginRoutes: PluginRoute[] = [" in txt
     assert "export const pluginSlots: PluginSlotEntry[] = [" in txt
     assert "import(" not in txt
+
+
+def test_normalize_component_strips_dot_slash_and_rejects_traversal() -> None:
+    assert _normalize_component("p", "./Board") == "Board"
+    assert _normalize_component("p", "components/Board") == "components/Board"
+    assert _normalize_component("p", "Board.tsx") == "Board.tsx"
+    for bad in ("../x", "a/../../b", "/abs"):
+        with pytest.raises(TargetReconcileError):
+            _normalize_component("p", bad)
+
+
+def test_assemble_rejects_frontend_package_escaping_plugin_dir(
+    tmp_path: Path,
+) -> None:
+    context = tmp_path / "ctx"
+    (context / "apps" / "web" / "src").mkdir(parents=True)
+    _write(
+        context / "plugins" / "evil" / "plugin.yaml",
+        """
+        name: evil
+        frontend:
+          package: ../../../../etc
+        """,
+    )
+    with pytest.raises(TargetReconcileError):
+        assemble_plugin_frontends(context)

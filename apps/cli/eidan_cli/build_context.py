@@ -403,7 +403,16 @@ def assemble_plugin_frontends(context: Path) -> Path:
         if not pkg_rel:
             continue
         name = str(data.get("name") or plugin_dir.name)
+        plugin_root = plugin_dir.resolve()
         pkg_src = (plugin_dir / pkg_rel).resolve()
+        # Guard against a package path escaping the plugin dir (e.g.
+        # "../../etc") — assembly copies trusted operator repos, but a
+        # traversal would silently pull files from outside the plugin.
+        if not pkg_src.is_relative_to(plugin_root):
+            raise TargetReconcileError(
+                f"plugin {name!r}: frontend.package {pkg_rel!r} resolves outside "
+                f"the plugin dir ({pkg_src}); it must stay within {plugin_root}."
+            )
         if not pkg_src.is_dir():
             raise TargetReconcileError(
                 f"plugin {name!r}: frontend.package {pkg_rel!r} not found at "
@@ -413,15 +422,35 @@ def assemble_plugin_frontends(context: Path) -> Path:
             pkg_src, web_plugins / name, ignore=BUILD_CONTEXT_IGNORE
         )
         for r in frontend.get("routes") or []:
-            comp = str(r.get("component") or "").lstrip("./")
+            comp = _normalize_component(name, str(r.get("component") or ""))
             routes.append((name, str(r.get("path")), f"@/plugins/{name}/{comp}"))
         for c in frontend.get("components") or []:
-            comp = str(c.get("component") or "").lstrip("./")
+            comp = _normalize_component(name, str(c.get("component") or ""))
             slots.append((name, str(c.get("slot")), f"@/plugins/{name}/{comp}"))
 
     registry = web_plugins / "registry.generated.ts"
     registry.write_text(_render_frontend_registry(routes, slots), encoding="utf-8")
     return registry
+
+
+def _normalize_component(plugin: str, raw: str) -> str:
+    """Normalise a manifest component path to a package-relative module
+    spec, rejecting traversal/absolute paths (#284 review).
+
+    Strips a single leading ``./`` (only the prefix — ``lstrip("./")``
+    wrongly eats any leading ``.``/``/`` chars), and refuses ``..``
+    segments or a leading ``/`` so the generated ``@/plugins/<name>/...``
+    import can't escape the plugin's web package.
+    """
+    comp = raw.strip()
+    if comp.startswith("./"):
+        comp = comp[2:]
+    if comp.startswith("/") or ".." in Path(comp).parts:
+        raise TargetReconcileError(
+            f"plugin {plugin!r}: frontend component {raw!r} must be a relative "
+            "path within the package (no leading '/' and no '..')."
+        )
+    return comp
 
 
 def _render_frontend_registry(

@@ -25,8 +25,10 @@ export function PluginSlot({ name }: { name: string }) {
   }
   return (
     <>
-      {entries.map((entry) => {
-        const key = `${entry.plugin}:${entry.slot}`;
+      {entries.map((entry, index) => {
+        // Include the index: a plugin may register several distinct
+        // components for one slot, so plugin:slot alone would alias them.
+        const key = `${entry.plugin}::${entry.slot}::${index}`;
         let Component = slotCache.get(key);
         if (!Component) {
           Component = React.lazy(entry.load);
