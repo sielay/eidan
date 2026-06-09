@@ -180,7 +180,6 @@ async def authenticate_a2a_request(
                 "sub": user_id,
                 "a2a": True,
                 "auth_method": "api_key",
-                "scope": role_scope,
             },
         )
 

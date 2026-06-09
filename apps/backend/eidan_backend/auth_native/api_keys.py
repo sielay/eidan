@@ -106,7 +106,7 @@ async def validate_api_key(
         # is synchronized and trusted (e.g., via NTP).
         expires_at_str = metadata.get("expires_at")
         if expires_at_str:
-            expires_at = datetime.fromisoformat(expires_at_str)
+            expires_at = datetime.fromisoformat(expires_at_str).astimezone(UTC)
             if datetime.now(tz=UTC) > expires_at:
                 raise APIKeyExpired(f"API key expired at {expires_at_str}")
 
