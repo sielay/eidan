@@ -149,3 +149,160 @@ export async function listAdminJobs(): Promise<JobInfo[]> {
   const body = (await res.json()) as JobListResponse;
   return body.jobs;
 }
+
+/**
+ * Cancel a live job or re-queue a settled one. Both POST to
+ * `/api/admin/jobs/{id}/{action}` and return the job's resulting status.
+ * The backend is idempotent on cancel and 409s a retry of a live job, so
+ * the caller can surface the message and refetch.
+ */
+export async function jobAction(
+  jobId: string,
+  action: "cancel" | "retry",
+): Promise<{ id: string; status: string }> {
+  const path = `/api/admin/jobs/${encodeURIComponent(jobId)}/${action}`;
+  const res = await authFetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (body.detail) detail = body.detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(`POST ${path} failed: ${detail}`);
+  }
+  return (await res.json()) as { id: string; status: string };
+}
+
+// ---------------------------------------------------------------------------
+// Activity dashboard summary (#core admin) — aggregates over eidan.jobs +
+// eidan.node_events. Plugin loop stats are fetched separately (see panels).
+// ---------------------------------------------------------------------------
+
+export type SummaryWindow = "1h" | "24h" | "7d";
+
+export interface ActivitySummary {
+  window: SummaryWindow;
+  jobs_by_status: Record<string, number>;
+  jobs_by_kind: Record<string, number>;
+  events_by_bucket: { ts: string; turns: number; errors: number }[];
+  turn_totals: { complete: number; error: number; cost_usd: number };
+}
+
+export async function getActivitySummary(
+  window: SummaryWindow = "24h",
+): Promise<ActivitySummary> {
+  const path = `/api/admin/summary?window=${window}`;
+  const res = await authFetch(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} returned ${res.status}`);
+  }
+  return (await res.json()) as ActivitySummary;
+}
+
+// ---------------------------------------------------------------------------
+// Generic plugin admin panels (#284 discovery). Core lists mounted plugin
+// route prefixes; the UI probes each for the conventional cursors/summary
+// sub-routes. No bundle is named here — any plugin exposing the shape below
+// is rendered the same way.
+// ---------------------------------------------------------------------------
+
+export interface PanelRef {
+  plugin: string;
+  prefix: string;
+}
+
+export async function listAdminPanels(): Promise<PanelRef[]> {
+  const res = await authFetch("/api/admin/panels", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET /api/admin/panels returned ${res.status}`);
+  }
+  const body = (await res.json()) as { panels: PanelRef[] };
+  return body.panels;
+}
+
+/** One row in a plugin's cursor panel — the loop state of a managed item. */
+export interface CursorItem {
+  id: string;
+  title: string;
+  url: string | null;
+  status: string;
+  paused: boolean;
+  node_id: string | null;
+  detail: Record<string, unknown>;
+  /** State-appropriate verbs the UI renders as buttons (e.g. ["pause"]). */
+  actions: string[];
+}
+
+export interface CursorPanel {
+  provider: string;
+  label: string;
+  kind: string;
+  cursors: CursorItem[];
+}
+
+export interface ProviderSummary {
+  provider: string;
+  label: string;
+  stats: { label: string; value: number }[];
+  by_status: Record<string, number>;
+}
+
+/**
+ * Probe one plugin prefix for its cursor panel. Returns null when the
+ * plugin doesn't implement the convention (404) so callers can skip it —
+ * a missing panel is not an error.
+ */
+export async function getPanelCursors(
+  prefix: string,
+): Promise<CursorPanel | null> {
+  const res = await authFetch(`${prefix}/cursors`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`GET ${prefix}/cursors returned ${res.status}`);
+  }
+  return (await res.json()) as CursorPanel;
+}
+
+export async function getPanelSummary(
+  prefix: string,
+): Promise<ProviderSummary | null> {
+  const res = await authFetch(`${prefix}/summary`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`GET ${prefix}/summary returned ${res.status}`);
+  }
+  return (await res.json()) as ProviderSummary;
+}
+
+/** Run a cursor action (pause/resume/…) on a plugin-managed cursor. */
+export async function cursorAction(
+  prefix: string,
+  cursorId: string,
+  action: string,
+): Promise<void> {
+  const path = `${prefix}/cursors/${encodeURIComponent(cursorId)}/${encodeURIComponent(action)}`;
+  const res = await authFetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`POST ${path} returned ${res.status}`);
+  }
+}
