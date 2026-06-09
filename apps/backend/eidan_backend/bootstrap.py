@@ -740,25 +740,27 @@ async def bootstrap(
         # host — answering "what plugins are loaded?" with an empty
         # list is more helpful than the agent guessing.
         register_plugin_tools(tool_registry, plugins=[])
-        _register_a2a_tools_from_env(tool_registry)
-        return BootstrapResult(plugins=[], tool_registry=tool_registry)
+    else:
+        logger.info(
+            "[bootstrap] loaded %d plugin(s): %s",
+            len(plugins),
+            ", ".join(p.manifest.name for p in plugins),
+        )
 
-    logger.info(
-        "[bootstrap] loaded %d plugin(s): %s",
-        len(plugins),
-        ", ".join(p.manifest.name for p in plugins),
-    )
+        tool_registry = _make_tool_registry_with_core_tools(pool)
+        # Register plugin-introspection tools AFTER load_plugins so the
+        # closure inside `plugins_list` / `plugins_describe` sees the
+        # final loaded set. The list doesn't mutate after this point;
+        # capture by reference is safe.
+        register_plugin_tools(tool_registry, plugins=plugins)
 
-    tool_registry = _make_tool_registry_with_core_tools(pool)
-    # Register plugin-introspection tools AFTER load_plugins so the
-    # closure inside `plugins_list` / `plugins_describe` sees the
-    # final loaded set. The list doesn't mutate after this point;
-    # capture by reference is safe.
-    register_plugin_tools(tool_registry, plugins=plugins)
     # Register A2A delegation tools from environment configuration
     # (`docs/029 §7`). Allows agents to delegate sub-tasks to remote
     # A2A agents.
     _register_a2a_tools_from_env(tool_registry)
+
+    if not plugins:
+        return BootstrapResult(plugins=[], tool_registry=tool_registry)
     behaviour_registry = BehaviourRegistry(tool_registry=tool_registry)
     # Collects the job kinds plugins advertise at on_activate (#249);
     # snapshotted into the heartbeat after install_and_activate, below.

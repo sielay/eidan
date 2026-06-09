@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..db import acquire
@@ -198,7 +198,10 @@ async def a2a_message_stream(
             break
 
     if not text_content:
-        return jsonrpc_error(400, "message must contain at least one text part")
+        raise HTTPException(
+            status_code=400,
+            detail="message must contain at least one text part",
+        )
 
     backend_settings = getattr(request.app.state, "backend_settings", None)
     max_turn_cost = (
@@ -240,14 +243,9 @@ async def a2a_message_stream(
             day_summary = await cost_summary_since(conn, user_id=user_uuid, since=since)
             day_cost = float(day_summary.get("cost_usd") or 0.0)
             if day_cost >= max_daily_cost:
-                return jsonrpc_error(
-                    402,
-                    f"daily spend ${day_cost:.4f} exceeded ceiling of ${max_daily_cost:.4f}",
-                    {
-                        "code": "budget.daily_exceeded",
-                        "cap_usd": max_daily_cost,
-                        "spent_usd": day_cost,
-                    },
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"daily spend ${day_cost:.4f} exceeded ceiling of ${max_daily_cost:.4f}",
                 )
 
     ctx = TurnContext(identity=identity, conversation_id=conversation_id)
@@ -438,7 +436,10 @@ async def a2a_tasks_resubscribe(
     """
     task_id = params.get("taskId")
     if not task_id:
-        return jsonrpc_error(400, "taskId is required")
+        raise HTTPException(
+            status_code=400,
+            detail="taskId is required",
+        )
 
     pool = request.app.state.pool
     identity = request.state.identity
@@ -460,7 +461,10 @@ async def a2a_tasks_resubscribe(
         )
 
         if not row:
-            return jsonrpc_error(404, f"task not found: {task_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"task not found: {task_id}",
+            )
 
         conversation_id = row["conversation_id"]
         created_at = row["created_at"]

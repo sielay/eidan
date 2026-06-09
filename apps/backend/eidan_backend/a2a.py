@@ -153,7 +153,7 @@ def register_a2a_tools(
     tool_name = f"delegate_to_{agent_name}"
     description = (
         f"Delegate a task to the remote agent '{agent_name}'. "
-        f"Input: a dict with 'prompt' (str) or 'task' (str) describing the work. "
+        f"Input: a dict with 'prompt' (str) describing the work. "
         f"Returns: the agent's response as a string, or raises ToolError on failure."
     )
 
@@ -163,6 +163,7 @@ def register_a2a_tools(
             "prompt": {
                 "type": "string",
                 "description": "The task/prompt to delegate to the remote agent.",
+                "minLength": 1,
             },
         },
         "required": ["prompt"],
