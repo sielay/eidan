@@ -304,11 +304,11 @@ async def read(
 
         return decrypt_value(bytes(row["value_enc"])).decode("utf-8")
     except Exception:  # noqa: BLE001 — never raise on bad ciphertext
-        # Log only the scope (a namespace). Neither the key name nor the
-        # exception is logged: both can carry secret-derived data
-        # (CodeQL: clear-text logging). Scope is enough to flag a likely
-        # stale-master-key rotation in a given area.
-        logger.warning("[secrets] a vault value in scope %r failed to decrypt", scope)
+        # Static message — the key name, scope, and exception are all derived
+        # from the lookup key, which CodeQL treats as sensitive (clear-text
+        # logging). The signal that matters (a vault value won't decrypt,
+        # usually a stale/rotated master key) needs no identifier.
+        logger.warning("[secrets] a vault value failed to decrypt (stale master key?)")
         return None
 
 
