@@ -51,3 +51,10 @@ logs/
 !/plugins/example-core/
 !/plugins/learn/
 !/plugins/sentry/
+
+# Assembled plugin frontends (#284). `eidan deploy` copies each plugin's
+# frontend.package into apps/web/src/plugins/<name>/ and regenerates the
+# registry at build-context time — operator-generated, never committed.
+# The empty registry stub IS committed so a plain dev/build works.
+/apps/web/src/plugins/*
+!/apps/web/src/plugins/registry.generated.ts
