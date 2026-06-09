@@ -228,6 +228,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             plugins_dir=plugins_dir,
             provider=app.state.provider,
             default_model=app.state.default_model,
+            app=app,
         )
         app.state.tool_registry = boot.tool_registry
         app.state.plugins = boot.plugins

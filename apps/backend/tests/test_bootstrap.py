@@ -392,6 +392,66 @@ async def test_context_factory_escalate_rejects_null_user() -> None:
         )
 
 
+# ---------- ctx.register_router (#284) ----------------------------------------
+
+
+def test_register_router_mounts_plugin_routes_under_prefix() -> None:
+    """``ctx.register_router`` MUST mount the plugin's APIRouter onto the
+    host app under ``/plugins/<name>`` (#284), and be idempotent so a
+    bootstrap re-run never double-mounts."""
+    from fastapi import APIRouter, FastAPI
+
+    app = FastAPI()
+    factory = _make_context_factory(
+        _FakePool(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        BehaviourRegistry(),
+        app=app,
+    )
+    loaded = LoadedPlugin(
+        manifest=load_manifest(_EXAMPLE_CORE_DIR),
+        plugin=_StubPluginBase(),  # type: ignore[arg-type]
+        plugin_dir=_EXAMPLE_CORE_DIR,
+    )
+    ctx = factory(loaded)
+    name = loaded.manifest.name
+
+    r = APIRouter()
+
+    @r.get("/ping")
+    def _ping() -> dict:
+        return {"ok": True}
+
+    ctx.register_router(r)
+    want = f"/plugins/{name}/ping"
+    assert want in {route.path for route in app.routes}  # type: ignore[attr-defined]
+    assert app.openapi_schema is None  # cache invalidated for late mount
+
+    # Idempotent: a second mount of the same plugin doesn't double-add.
+    ctx.register_router(r)
+    n = sum(1 for route in app.routes if getattr(route, "path", None) == want)
+    assert n == 1
+
+
+def test_register_router_without_app_is_safe_noop() -> None:
+    """Degraded / test boot with no host app wired: registering a router
+    logs and returns rather than raising."""
+    from fastapi import APIRouter
+
+    factory = _make_context_factory(
+        _FakePool(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        BehaviourRegistry(),
+    )  # no app=
+    loaded = LoadedPlugin(
+        manifest=load_manifest(_EXAMPLE_CORE_DIR),
+        plugin=_StubPluginBase(),  # type: ignore[arg-type]
+        plugin_dir=_EXAMPLE_CORE_DIR,
+    )
+    ctx = factory(loaded)
+    ctx.register_router(APIRouter())  # must not raise
+
+
 # ---------- EIDAN_DISABLED_PLUGINS env parsing --------------------------------
 
 
