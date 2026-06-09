@@ -16,11 +16,11 @@ authenticated remote agent's user identity, not the remote agent itself).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from ..identity import AuthError, Identity
 from ..auth_native import InvalidToken, verify_access_token
-from ..auth_native.api_keys import APIKeyNotFound, APIKeyExpired, validate_api_key
+from ..auth_native.api_keys import APIKeyExpired, APIKeyNotFound, validate_api_key
+from ..identity import AuthError, Identity
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -34,7 +34,7 @@ class A2AAuthError(AuthError):
     """A2A-specific auth failure. Maps to JSON-RPC error code."""
 
     def __init__(self, jsonrpc_code: int, message: str) -> None:
-        super().__init__(f"a2a.auth_failed", message)
+        super().__init__("a2a.auth_failed", message)
         self.jsonrpc_code = jsonrpc_code
 
 
@@ -109,7 +109,10 @@ async def authenticate_a2a_request(
     regular user auth, allowing route handlers to know the caller is
     a remote agent.
     """
-    auth_header = request.headers.get("authorization", "").strip()
+    # `or ""` guards a header source that returns None for a missing key
+    # (some Headers impls / test doubles do) — a missing header must reach
+    # the A2AAuthError below, not raise AttributeError on .strip().
+    auth_header = (request.headers.get("authorization") or "").strip()
 
     if not auth_header:
         raise A2AAuthError(401, "missing Authorization header")

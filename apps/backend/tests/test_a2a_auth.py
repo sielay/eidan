@@ -9,20 +9,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-
+from eidan_backend.a2a_vault import A2ACredential, A2AVaultManager
+from eidan_backend.auth_native import InvalidToken
 from eidan_backend.auth_native.api_keys import (
     APIKeyExpired,
     APIKeyNotFound,
-    provision_api_key,
     validate_api_key,
 )
-from eidan_backend.a2a_vault import A2ACredential, A2AVaultManager
 from eidan_backend.http.a2a_auth import (
     A2AAuthError,
     a2a_jsonrpc_error_response,
     authenticate_a2a_request,
 )
-
 
 # ============================================================================
 # API Key Validation Tests
@@ -211,7 +209,10 @@ async def test_a2a_authenticate_invalid_jwt():
 
     with patch(
         "eidan_backend.http.a2a_auth.verify_access_token",
-        side_effect=Exception("signature invalid"),
+        # verify_access_token raises InvalidToken on a bad signature; the
+        # mock must match that real failure mode (a bare Exception isn't
+        # what the auth path catches → it would propagate uncaught).
+        side_effect=InvalidToken("signature invalid"),
     ):
         with pytest.raises(A2AAuthError) as exc_info:
             await authenticate_a2a_request(

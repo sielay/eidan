@@ -37,7 +37,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from asyncpg import Pool
+    import asyncpg
 
 logger = logging.getLogger(__name__)
 
