@@ -224,6 +224,57 @@ async def test_a2a_authenticate_invalid_jwt():
 
 
 @pytest.mark.asyncio
+async def test_a2a_authenticate_malformed_bearer():
+    """Malformed Bearer token (no value) raises A2AAuthError (400)."""
+    request = MagicMock()
+    request.headers.get.return_value = "Bearer"  # No token value
+
+    with pytest.raises(A2AAuthError) as exc_info:
+        await authenticate_a2a_request(
+            request,
+            public_pem=b"fake-pem",
+            secret_accessor=None,
+        )
+
+    assert exc_info.value.jsonrpc_code == 400
+    assert "malformed Bearer token" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_a2a_authenticate_malformed_api_key():
+    """Malformed ApiKey header (no value) raises A2AAuthError (400)."""
+    request = MagicMock()
+    request.headers.get.return_value = "ApiKey"  # No key value
+
+    with pytest.raises(A2AAuthError) as exc_info:
+        await authenticate_a2a_request(
+            request,
+            public_pem=None,
+            secret_accessor=AsyncMock(),
+        )
+
+    assert exc_info.value.jsonrpc_code == 400
+    assert "malformed ApiKey header" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_a2a_authenticate_oversized_header():
+    """Authorization header exceeding max length raises A2AAuthError (400)."""
+    request = MagicMock()
+    request.headers.get.return_value = "Bearer " + ("x" * 9000)  # Exceeds 8192 limit
+
+    with pytest.raises(A2AAuthError) as exc_info:
+        await authenticate_a2a_request(
+            request,
+            public_pem=b"fake-pem",
+            secret_accessor=None,
+        )
+
+    assert exc_info.value.jsonrpc_code == 400
+    assert "exceeds maximum length" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
 async def test_a2a_authenticate_unsupported_scheme():
     """Unsupported Authorization scheme raises A2AAuthError."""
     request = MagicMock()
@@ -242,18 +293,36 @@ async def test_a2a_authenticate_unsupported_scheme():
 
 @pytest.mark.asyncio
 async def test_a2a_authenticate_missing_verifier():
-    """Missing JWT verifier for bearer token raises A2AAuthError."""
+    """Bearer token without JWT support raises A2AAuthError (401, not supported)."""
     request = MagicMock()
     request.headers.get.return_value = "Bearer some-token"
 
     with pytest.raises(A2AAuthError) as exc_info:
         await authenticate_a2a_request(
             request,
-            public_pem=None,  # Missing verifier
+            public_pem=None,  # JWT not supported in this deployment
             secret_accessor=None,
         )
 
-    assert exc_info.value.jsonrpc_code == 500
+    assert exc_info.value.jsonrpc_code == 401
+    assert "not supported" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_a2a_authenticate_missing_api_key_accessor():
+    """API key without vault support raises A2AAuthError (401, not supported)."""
+    request = MagicMock()
+    request.headers.get.return_value = "ApiKey some-key"
+
+    with pytest.raises(A2AAuthError) as exc_info:
+        await authenticate_a2a_request(
+            request,
+            public_pem=None,
+            secret_accessor=None,  # API key not supported in this deployment
+        )
+
+    assert exc_info.value.jsonrpc_code == 401
+    assert "not supported" in str(exc_info.value)
 
 
 # ============================================================================

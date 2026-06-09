@@ -101,6 +101,9 @@ async def validate_api_key(
         role_scope = metadata.get("scope")
 
         # Check expiry if present
+        # Note: This uses datetime.now() which is not monotonic and can be affected
+        # by system clock changes. For production deployments, ensure system clock
+        # is synchronized and trusted (e.g., via NTP).
         expires_at_str = metadata.get("expires_at")
         if expires_at_str:
             expires_at = datetime.fromisoformat(expires_at_str)

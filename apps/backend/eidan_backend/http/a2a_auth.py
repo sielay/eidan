@@ -42,30 +42,50 @@ def _extract_bearer_token(auth_header: str | None) -> str | None:
     """Extract bearer token from Authorization header.
 
     Expects: ``Authorization: Bearer <token>``
-    Returns the token string or None if missing/malformed.
+    Returns the token string, or None if the Bearer scheme is absent.
+    Raises A2AAuthError if the Bearer scheme is present but malformed.
     """
     if not auth_header:
         return None
+
+    # Validate header length to prevent processing of extremely large strings
+    if len(auth_header) > 8192:
+        raise A2AAuthError(400, "Authorization header exceeds maximum length")
+
     parts = auth_header.split(" ", 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer":
+    if parts[0].lower() != "bearer":
         return None
-    token = parts[1].strip()
-    return token or None
+
+    # If Bearer scheme is present, require a valid token
+    if len(parts) != 2 or not parts[1].strip():
+        raise A2AAuthError(400, "malformed Bearer token: missing token value")
+
+    return parts[1].strip()
 
 
 def _extract_api_key(auth_header: str | None) -> str | None:
     """Extract API key from Authorization header.
 
     Supports: ``Authorization: ApiKey <key>``
-    Returns the key string or None if missing/malformed.
+    Returns the key string, or None if the ApiKey scheme is absent.
+    Raises A2AAuthError if the ApiKey scheme is present but malformed.
     """
     if not auth_header:
         return None
+
+    # Validate header length to prevent processing of extremely large strings
+    if len(auth_header) > 8192:
+        raise A2AAuthError(400, "Authorization header exceeds maximum length")
+
     parts = auth_header.split(" ", 1)
-    if len(parts) != 2 or parts[0].lower() != "apikey":
+    if parts[0].lower() != "apikey":
         return None
-    token = parts[1].strip()
-    return token or None
+
+    # If ApiKey scheme is present, require a valid key
+    if len(parts) != 2 or not parts[1].strip():
+        raise A2AAuthError(400, "malformed ApiKey header: missing key value")
+
+    return parts[1].strip()
 
 
 
@@ -95,10 +115,14 @@ async def authenticate_a2a_request(
         raise A2AAuthError(401, "missing Authorization header")
 
     # Try bearer token first (JWT validation)
-    bearer_token = _extract_bearer_token(auth_header)
+    try:
+        bearer_token = _extract_bearer_token(auth_header)
+    except A2AAuthError:
+        raise  # Propagate malformed header errors immediately
+
     if bearer_token:
         if public_pem is None:
-            raise A2AAuthError(500, "JWT verifier not configured")
+            raise A2AAuthError(401, "bearer token not supported in this deployment")
 
         try:
             native_identity = verify_access_token(bearer_token, public_pem=public_pem)
@@ -125,12 +149,16 @@ async def authenticate_a2a_request(
         )
 
     # Try API key (vault lookup)
-    api_key = _extract_api_key(auth_header)
+    try:
+        api_key = _extract_api_key(auth_header)
+    except A2AAuthError:
+        raise  # Propagate malformed header errors immediately
+
     if api_key:
         if secret_accessor is None:
             raise A2AAuthError(
-                500,
-                "API key verification not configured",
+                401,
+                "API key authentication not supported in this deployment",
             )
 
         try:

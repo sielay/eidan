@@ -154,7 +154,7 @@ class A2AVaultManager:
         agent_id: str,
         credential: A2ACredential,
         *,
-        pool: Pool = None,
+        pool: Pool | None = None,
     ) -> None:
         """Store or update a credential in the vault.
 
