@@ -7,7 +7,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-
 from eidan_cli.build_context import (
     _normalize_component,
     assemble_plugin_frontends,
