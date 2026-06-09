@@ -25,6 +25,8 @@ from ..auth_native.api_keys import APIKeyNotFound, APIKeyExpired, validate_api_k
 if TYPE_CHECKING:
     from fastapi import Request
 
+    from ..secrets import SecretAccessor
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,7 +74,7 @@ async def authenticate_a2a_request(
     request: Request,
     *,
     public_pem: bytes | None = None,
-    secret_accessor: callable | None = None,
+    secret_accessor: SecretAccessor | None = None,
 ) -> Identity:
     """Authenticate an inbound A2A request and return an Identity.
 

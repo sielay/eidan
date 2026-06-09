@@ -34,6 +34,8 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from asyncpg import Pool
+
     from .secrets import SecretAccessor
 
 logger = logging.getLogger(__name__)
@@ -152,7 +154,7 @@ class A2AVaultManager:
         agent_id: str,
         credential: A2ACredential,
         *,
-        pool: Any = None,
+        pool: Pool = None,
     ) -> None:
         """Store or update a credential in the vault.
 

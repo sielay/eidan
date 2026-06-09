@@ -118,7 +118,7 @@ async def provision_api_key(
     *,
     scope: str,
     key_id: str,
-    pool: Pool,
+    pool: asyncpg.Pool,
     role_scope: str | None = None,
     expires_at: datetime | None = None,
 ) -> str:
