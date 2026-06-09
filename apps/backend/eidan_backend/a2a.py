@@ -35,7 +35,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 
@@ -250,7 +250,7 @@ async def a2a_http_call(
         "jsonrpc": "2.0",
         "method": method,
         "params": args,
-        "id": str(UUID(int=0)),  # Placeholder; server may ignore.
+        "id": str(uuid4()),
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:

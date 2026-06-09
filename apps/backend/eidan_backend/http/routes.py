@@ -2304,32 +2304,63 @@ async def post_rpc(request: Request) -> Any:
         # Route to handler
         if method == "message/send":
             result = await a2a_message_send(request, params)
-            return {
+            response = {
                 "jsonrpc": "2.0",
-                "result": result.get("result") if "result" in result else None,
-                "error": result.get("error") if "error" in result else None,
                 "id": request_id,
             }
+            if "error" in result:
+                response["error"] = result["error"]
+            else:
+                response["result"] = result.get("result")
+            return response
         elif method == "message/stream":
-            return await a2a_message_stream(request, params)
+            result = await a2a_message_stream(request, params)
+            if isinstance(result, dict):
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                }
+                if "error" in result:
+                    response["error"] = result["error"]
+                else:
+                    response["result"] = result.get("result")
+                return response
+            return result
         elif method == "tasks/get":
             result = await a2a_tasks_get(request, params)
-            return {
+            response = {
                 "jsonrpc": "2.0",
-                "result": result.get("result") if "result" in result else None,
-                "error": result.get("error") if "error" in result else None,
                 "id": request_id,
             }
+            if "error" in result:
+                response["error"] = result["error"]
+            else:
+                response["result"] = result.get("result")
+            return response
         elif method == "tasks/resubscribe":
-            return await a2a_tasks_resubscribe(request, params)
+            result = await a2a_tasks_resubscribe(request, params)
+            if isinstance(result, dict):
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                }
+                if "error" in result:
+                    response["error"] = result["error"]
+                else:
+                    response["result"] = result.get("result")
+                return response
+            return result
         elif method == "tasks/cancel":
             result = await a2a_tasks_cancel(request, params)
-            return {
+            response = {
                 "jsonrpc": "2.0",
-                "result": result.get("result") if "result" in result else None,
-                "error": result.get("error") if "error" in result else None,
                 "id": request_id,
             }
+            if "error" in result:
+                response["error"] = result["error"]
+            else:
+                response["result"] = result.get("result")
+            return response
         else:
             return {
                 "jsonrpc": "2.0",
