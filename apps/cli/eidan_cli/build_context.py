@@ -469,6 +469,10 @@ def _render_frontend_registry(
         "// Do not edit — regenerated from each plugin's frontend manifest.",
         'import type { ComponentType } from "react";',
         "",
+        # A plugin frontend is a dynamically-imported component of unknown prop
+        # shape — `any` is the correct type here; silence the lint rule on the
+        # generated line rather than narrowing to a wrong type.
+        "// eslint-disable-next-line @typescript-eslint/no-explicit-any",
         "export type PluginLoad = () => Promise<{ default: ComponentType<any> }>;",
         "export type PluginRoute = { plugin: string; path: string; load: PluginLoad };",
         "export type PluginSlotEntry = { plugin: string; slot: string; load: PluginLoad };",
