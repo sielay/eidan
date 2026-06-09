@@ -120,10 +120,11 @@ class A2AVaultManager:
 
         try:
             credential_json = await self.secret_accessor(vault_key)
-        except Exception:  # noqa: BLE001 — don't block delegation on vault errors
+        except (KeyError, ValueError, ConnectionError, TimeoutError) as exc:
             logger.exception(
-                "[a2a_vault] failed to retrieve credential for %s",
+                "[a2a_vault] failed to retrieve credential for %s: %s",
                 agent_id,
+                exc,
             )
             return None
 
@@ -202,7 +203,7 @@ class A2AVaultManager:
                 "[a2a_vault] credential stored for agent %s",
                 agent_id,
             )
-        except Exception as exc:
+        except (ConnectionError, TimeoutError, ValueError) as exc:
             logger.error(
                 "[a2a_vault] failed to store credential for %s: %s",
                 agent_id,

@@ -80,8 +80,8 @@ async def validate_api_key(
 
     try:
         key_metadata = await secret_accessor(vault_key)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("[api_keys] vault lookup failed for %s", vault_key)
+    except (KeyError, ValueError, ConnectionError, TimeoutError) as exc:
+        logger.exception("[api_keys] vault lookup failed for %s: %s", vault_key, exc)
         raise APIKeyNotFound("API key not found or inaccessible") from exc
 
     if not key_metadata:
@@ -130,6 +130,12 @@ async def provision_api_key(
     This is typically called by operators via a management CLI or dashboard,
     not by user code. The key is encrypted before storage. The raw key is
     returned only at creation time and never stored in plaintext.
+
+    IMPORTANT: The returned API key is ephemeral. It is generated here,
+    returned once, and never recoverable afterward. The caller (e.g., CLI
+    or dashboard) MUST capture and securely store the returned key value
+    before this function returns. If the returned key is not saved, it is
+    irrecoverably lost and the provisioning operation must be retried.
 
     Args:
         user_id: The user this key authorizes.
@@ -188,10 +194,11 @@ async def provision_api_key(
             scope,
         )
         return api_key
-    except Exception as exc:
+    except (ConnectionError, TimeoutError, ValueError) as exc:
         logger.exception(
-            "[api_keys] failed to provision key %s",
+            "[api_keys] failed to provision key %s: %s",
             key_id,
+            exc,
         )
         raise
 
