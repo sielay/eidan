@@ -9,6 +9,7 @@
 // assembled plugin frontends, which are gitignored.
 import type { ComponentType } from "react";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PluginLoad = () => Promise<{ default: ComponentType<any> }>;
 export type PluginRoute = { plugin: string; path: string; load: PluginLoad };
 export type PluginSlotEntry = { plugin: string; slot: string; load: PluginLoad };
