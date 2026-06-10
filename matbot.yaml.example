@@ -1,0 +1,34 @@
+# eidan-on-matbot host config (example). Copy to `matbot.yaml` (gitignored) and supply
+# secrets via env/vault. matbot is the runtime (vendored at external/matbot); eidan ships
+# as the plugins below. Per eidan's gitignored-config policy this `.example` is tracked;
+# the real `matbot.yaml`, `.data/`, and `.plugins/` are operator-private and gitignored.
+#
+# Boot (runs on node 22 via tsx — sidesteps matbot's node-24 ask; the pg backend doesn't
+# use node:sqlite):
+#
+#   EIDAN_DATABASE_URL=postgres://eidan_app:...@host:5432/eidan \
+#   ANTHROPIC_API_KEY=sk-ant-... \
+#   npx tsx external/matbot/apps/cli/src/index.ts repl
+#
+# EIDAN_DATABASE_URL must point at a Postgres with the eidan schema migrated (including
+# 20260610_000001) and be a NON-superuser role (e.g. eidan_app) so RLS enforces.
+
+principal: eidan-operator
+
+plugins:
+  # Storage backend FIRST: open() runs before any createStore, so eidan.* backs every store.
+  - ./packages/storage-postgres
+  # eidan relational long-term memory: EidanMemory service + remember/recall tools.
+  - ./packages/memory
+  # A matbot built-in starter (from the submodule) — optional.
+  - ./external/matbot/packages/plugins/skills-node
+
+providers:
+  claude:
+    module: ./external/matbot/packages/plugins/providers/anthropic
+    endpoint: https://api.anthropic.com
+    model: claude-sonnet-4-6
+    credentials:
+      apiKey: ${ANTHROPIC_API_KEY}
+    parameters:
+      maxTokens: 4096

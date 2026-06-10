@@ -58,3 +58,9 @@ logs/
 # The empty registry stub IS committed so a plain dev/build works.
 /apps/web/src/plugins/*
 !/apps/web/src/plugins/registry.generated.ts
+
+# matbot runtime (operator-private). The host config and its runtime state
+# live next to it; only matbot.yaml.example is tracked.
+/matbot.yaml
+/.data/
+/.plugins/

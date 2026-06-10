@@ -1,0 +1,3 @@
+[submodule "external/matbot"]
+	path = external/matbot
+	url = https://github.com/MatAtBread/matbot.git

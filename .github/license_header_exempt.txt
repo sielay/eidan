@@ -28,3 +28,9 @@ packages/schemas/eidan_schemas/generated/**/*.py
 # next-env.d.ts is fully owned by the Next.js CLI and overwritten on
 # every dev/build run.
 apps/web/next-env.d.ts
+
+# ---- vendored matbot runtime (Apache-2.0 submodule) ------------------------
+# external/matbot is MatAtBread/matbot, vendored as a git submodule and
+# licensed Apache-2.0 (its own LICENSE is preserved in-tree). It is not
+# AGPL eidan core, so its files must NOT carry the eidan header.
+external/matbot/**
