@@ -2,24 +2,9 @@
   "name": "eidan",
   "version": "0.1.0",
   "private": true,
-  "description": "Self-hosted personal agent OS — JS workspace root.",
-  "packageManager": "pnpm@9.0.0",
+  "description": "Self-hosted personal agent OS — plugins on the matbot runtime (engine vendored at external/matbot).",
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "dev": "turbo run dev --filter=@eidan/backend --filter=@eidan/web",
-    "dev:web": "pnpm --filter @eidan/web dev",
-    "dev:backend": "pnpm --filter @eidan/backend dev",
-    "migrate": "pnpm --filter @eidan/backend migrate",
-    "build": "pnpm --filter @eidan/schemas gen:ts && pnpm --filter @eidan/web build",
-    "lint": "pnpm --filter @eidan/web lint",
-    "typecheck": "pnpm --filter @eidan/schemas gen:ts && pnpm --filter @eidan/web typecheck",
-    "schemas:gen": "pnpm --filter @eidan/schemas gen",
-    "schemas:gen:ts": "pnpm --filter @eidan/schemas gen:ts",
-    "schemas:gen:py": "pnpm --filter @eidan/schemas gen:py",
-    "schemas:check": "pnpm --filter @eidan/schemas check",
-    "docs:dev": "pnpm --filter @eidan/docs-site dev",
-    "docs:build": "pnpm --filter @eidan/docs-site build"
-  },
-  "devDependencies": {
-    "turbo": "^2.3.0"
+    "typecheck": "pnpm -r run typecheck"
   }
 }

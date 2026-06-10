@@ -33,7 +33,7 @@ export class EidanStorageBackend implements StorageBackend {
   static open(_dotData: string): Promise<EidanStorageBackend> {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
     if (!url) {
-      return Promise.reject(new Error('EIDAN_DATABASE_URL (or DATABASE_URL) must be set for @eidan/storage-postgres'));
+      return Promise.reject(new Error('EIDAN_DATABASE_URL (or DATABASE_URL) must be set for @eidandev/storage-postgres'));
     }
     return Promise.resolve(new EidanStorageBackend(new Db(url)));
   }

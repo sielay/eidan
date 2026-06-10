@@ -1,7 +1,0 @@
-// AUTO-GENERATED — do not edit by hand.
-// Source: packages/schemas/schemas/**/*.schema.json
-// Run `pnpm --filter @eidan/schemas gen:ts` to refresh.
-import { z } from "zod"
-
-export const KnowledgeUpdate = z.object({ "title": z.string().min(1).max(512).describe("Display title. The underlying column is NOT NULL (`docs/003 §7`), so the empty string is rejected.").optional(), "body": z.string().min(1).max(65536).describe("Markdown body. Re-runs the `docs/017 §3` link extractor so ``knowledge_links`` stays consistent on every body change.").optional(), "skill": z.string().min(1).max(128).describe("Skill tag. Free-text per `docs/003 §7` (e.g. `coding`, `gardening`).").optional(), "expected_updated_at": z.string().datetime({ offset: true }).describe("The ``updated_at`` returned by the operator's last GET. The route compares it against the live row and returns 409 if they disagree, so concurrent agent / operator writes do not silently clobber.") }).strict().describe("Request body for PATCH /api/knowledge/{id} (docs/014 §5, docs/017 §3-§4). Partial update of an editable knowledge row from the UI; any of title / body / skill may be supplied and unsupplied fields are left untouched. The ``expected_updated_at`` field is the row's last-known ``updated_at`` from the operator's fetch and the route returns 409 when the server-side row has moved since.")
-export type KnowledgeUpdate = z.infer<typeof KnowledgeUpdate>

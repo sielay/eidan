@@ -4,29 +4,14 @@
 # Claude Code creates worktrees here for parallel branches.
 .claude/worktrees/
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.venv/
-.python-version
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# uv
-# (uv.lock is committed; .venv is not)
-
-# Local config
+# Local config / secrets
 .env
 .env.local
 ~/.eidan/
 .eidan/
 .eidan-runtime/
 
-# Fly.io — the operator's copy of fly.toml lives at the repo root
-# (see docs/DEPLOYMENT.md §4). Stays out of upstream history.
+# Fly.io — the operator's gitignored fly.toml lives at the repo root.
 /fly.toml
 
 # Node / pnpm
@@ -37,30 +22,8 @@ out/
 .turbo/
 logs/
 
-# Plugins — allowlist of plugins this repo tracks.
-# Everything under plugins/ is ignored by default; only the named
-# core plugins below are committed. Forks adding their own plugins
-# (private bundle work, experiments, local-only integrations) stay
-# invisible to git until they extend this allowlist deliberately.
-# See plugins/README.md.
-/plugins/*
-!/plugins/.gitkeep
-!/plugins/README.md
-!/plugins/capture/
-!/plugins/example-behaviour/
-!/plugins/example-core/
-!/plugins/learn/
-!/plugins/sentry/
-
-# Assembled plugin frontends (#284). `eidan deploy` copies each plugin's
-# frontend.package into apps/web/src/plugins/<name>/ and regenerates the
-# registry at build-context time — operator-generated, never committed.
-# The empty registry stub IS committed so a plain dev/build works.
-/apps/web/src/plugins/*
-!/apps/web/src/plugins/registry.generated.ts
-
-# matbot runtime (operator-private). The host config and its runtime state
-# live next to it; only matbot.yaml.example is tracked.
+# matbot runtime (operator-private). The host config + its runtime state live
+# next to it; only matbot.yaml.example is tracked.
 /matbot.yaml
 /.data/
 /.plugins/
