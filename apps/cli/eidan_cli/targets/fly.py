@@ -316,7 +316,12 @@ def _run(cmd: list[str], *, dry_run: bool) -> int:
     prints the command and returns 0 instead of executing it; useful
     for `--dry-run` testing without a Fly account."""
     if dry_run:
-        print("[dry-run]", " ".join(cmd))  # noqa: T201
+        # Replace env-assignment tokens (`KEY=VALUE`, e.g. `fly secrets set
+        # EIDAN_SMTP_PASSWORD=…`) with a constant placeholder — NOT derived
+        # from the secret value — so the dry-run echo can't leak a credential
+        # (CodeQL: clear-text logging). Flags and bare args print as-is.
+        shown = [t if (t.startswith("-") or "=" not in t) else "<redacted>" for t in cmd]
+        print("[dry-run]", " ".join(shown))  # noqa: T201
         return 0
     completed = subprocess.run(cmd, check=False)  # noqa: S603
     return completed.returncode
