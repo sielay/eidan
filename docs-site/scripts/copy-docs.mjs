@@ -30,7 +30,7 @@ function deriveTitle(filename, body) {
 
 function withFrontmatter(body, title) {
   if (body.startsWith("---\n")) return body;
-  const safeTitle = title.replace(/"/g, '\\"');
+  const safeTitle = title.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `---\ntitle: "${safeTitle}"\n---\n\n${body}`;
 }
 

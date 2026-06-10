@@ -121,22 +121,16 @@ async def _read_native_vault(
 
     try:
         plaintext = decrypt_value(bytes(row["value_enc"]))
-    except Exception as exc:  # noqa: BLE001 — never raise on bad ciphertext
-        logger.warning(
-            "[secrets] native vault decrypt failed for scope=%s key=%s: %s",
-            scope,
-            subkey,
-            exc,
-        )
+    except Exception:  # noqa: BLE001 — never raise on bad ciphertext
+        # Static message: scope/key/exc all derive from the lookup key, which
+        # CodeQL taints as sensitive (clear-text logging). The signal — a vault
+        # value won't decrypt, usually a stale master key — needs no identifier.
+        logger.warning("[secrets] a vault value failed to decrypt (stale master key?)")
         return None
     try:
         return plaintext.decode("utf-8")
     except UnicodeDecodeError:
-        logger.warning(
-            "[secrets] native vault value is not utf-8 for scope=%s key=%s",
-            scope,
-            subkey,
-        )
+        logger.warning("[secrets] a vault value is not valid utf-8")
         return None
 
 
