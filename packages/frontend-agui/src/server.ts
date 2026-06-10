@@ -12,6 +12,20 @@ declare module '@matatbread/matbot-plugin-api' {
   }
 }
 
+// The LLM cost ledger (declared by @eidandev/llm-calls; re-declared here, the matbot pattern, to
+// stay decoupled). Recorded per usage event; absent ⇒ no telemetry.
+interface LlmCall {
+  userId: string; conversationId?: string; provider: string; model: string;
+  inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number;
+  costUsd?: number; requestId?: string; role?: string;
+}
+interface LlmCalls { record(call: LlmCall): Promise<void> }
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    LlmCalls?: LlmCalls;
+  }
+}
+
 // The Next.js app on Vercel calls this cross-origin; allow it (tighten to the app origin later).
 const CORS: Record<string, string> = {
   'access-control-allow-origin': '*',
@@ -111,9 +125,20 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     req.on('close', () => ac.abort());
     try {
       const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: [{ type: 'text', text }], provider, principal });
+      const ledger = services.LlmCalls;
+      const model = services.providers.get(provider)?.model ?? '';
       for await (const ev of view.events) {
         if (ev.type === 'idle') continue;
         if ('traceId' in ev && ev.traceId !== view.traceId) continue;
+        if (ev.type === 'usage' && ledger) {
+          void ledger.record({
+            userId: principal.id, conversationId, provider, model,
+            inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
+            ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
+            ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
+            ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
+          });
+        }
         for (const a of emitter.map(ev)) sse(res, a);
         if (ev.type === 'done' || ev.type === 'error' || ev.type === 'aborted' || ev.type === 'cancelled') break;
       }
