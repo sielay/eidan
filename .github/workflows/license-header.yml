@@ -26,7 +26,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          python3 .github/scripts/check_license_headers.py \
+          node .github/scripts/check-license-headers.mjs \
             --base-sha "${BASE_SHA}" \
             --head-sha "${HEAD_SHA}" \
             --exempt-file .github/license_header_exempt.txt
