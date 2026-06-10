@@ -1,0 +1,14 @@
+{
+  "name": "@eidandev/migrate",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Apply the eidan.* schema (ordered SQL files) to Postgres — a tiny Node runner replacing Alembic.",
+  "scripts": {
+    "migrate": "node migrate.mjs",
+    "typecheck": "true"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

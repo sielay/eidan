@@ -1,0 +1,84 @@
+"use client";
+
+import * as React from "react";
+
+import { MessageBlock } from "./Message";
+
+/**
+ * One tool call paired with its matching tool result, ready to fold
+ * under the assistant turn that issued it (`docs/014 §4.2`).
+ * ``result`` is ``null`` when the pairing failed (orphan call) — the
+ * UI shows the call without a result panel in that case.
+ */
+export interface PairedToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  result: string | null;
+  is_error: boolean;
+}
+
+export interface ThreadMessage {
+  /** Backend-assigned id, or a synthetic ``pending-…`` id for in-flight rows. */
+  id: string;
+  role: "user" | "assistant" | "tool";
+  /** Null for tool-call-only assistant turns — `eidan.messages.content` is nullable. */
+  content: string | null;
+  /**
+   * Folded tool calls + paired results for this assistant turn, per
+   * `docs/014 §4.2`. Empty / undefined when the turn issued no tools.
+   */
+  tool_calls?: PairedToolCall[];
+  /** True only for the assistant row currently being streamed. */
+  streaming?: boolean;
+  /** True when the stream ended without a ``complete`` event. */
+  interrupted?: boolean;
+}
+
+export interface ThreadProps {
+  messages: ThreadMessage[];
+}
+
+/**
+ * The conversation transcript.
+ *
+ * Auto-scrolls to the newest message when the list grows or the last
+ * row's content changes (the streaming case). This keeps the active
+ * assistant chunk in view without fighting a user who has scrolled up
+ * to read history — the effect only runs when the *last* row mutates.
+ */
+export function Thread({ messages }: ThreadProps): React.ReactElement {
+  const bottomRef = React.useRef<HTMLDivElement | null>(null);
+  const lastSignature =
+    messages.length > 0
+      ? `${messages[messages.length - 1].id}:${messages[messages.length - 1].content?.length ?? 0}`
+      : "empty";
+
+  React.useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [lastSignature]);
+
+  if (messages.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No messages yet — say hi to get started.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {messages.map((m) => (
+        <MessageBlock
+          key={m.id}
+          role={m.role}
+          content={m.content}
+          toolCalls={m.tool_calls}
+          streaming={m.streaming}
+          interrupted={m.interrupted}
+        />
+      ))}
+      <div ref={bottomRef} />
+    </div>
+  );
+}
