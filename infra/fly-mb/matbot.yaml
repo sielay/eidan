@@ -1,0 +1,22 @@
+# eidan-on-matbot host config (container/deploy). No secrets — EIDAN_DATABASE_URL
+# (read by storage-postgres) and ANTHROPIC_API_KEY (vault → ${...}) arrive via env.
+principal: eidan-operator
+
+plugins:
+  # Storage backend first: open() runs before any createStore.
+  - ./packages/storage-postgres
+  # Relational long-term memory: EidanMemory service + remember/recall.
+  - ./packages/memory
+  # Web UI over HTTP+SSE (binds MATBOT_WEB_PORT). Interim surface until the
+  # AG-UI-vs-matbot-frontend decision; auth via a WebPrincipalResolver later.
+  - ./external/matbot/packages/plugins/frontend/web
+
+providers:
+  claude:
+    module: ./external/matbot/packages/plugins/providers/anthropic
+    endpoint: https://api.anthropic.com
+    model: claude-sonnet-4-6
+    credentials:
+      apiKey: ${ANTHROPIC_API_KEY}
+    parameters:
+      maxTokens: 4096

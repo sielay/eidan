@@ -11,7 +11,8 @@ export interface KnowledgeHit {
 // relies on RLS for tenant scoping (note: no user_id predicate in the SELECTs); isolation
 // is the GUC the Db helper stamps from the ambient principal.
 export class EidanMemory {
-  constructor(private readonly db: Db) {}
+  private readonly db: Db;
+  constructor(db: Db) { this.db = db; }
 
   async remember(e: { skill: string; title: string; body: string; source?: string; sourceType?: string }): Promise<string> {
     return this.db.withPrincipalTx(async (q) => {

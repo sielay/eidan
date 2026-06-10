@@ -3,29 +3,31 @@ import type { Store, FileStore, StorageBackend, FileHandle, FileEvent } from '@m
 import { Db } from './db.js';
 import { PgSessionStore, PgKvStore } from './session-store.js';
 
-const notImplemented = (): never => {
-  throw new Error(
-    'FileStore not yet implemented by @eidan/storage-postgres — Phase: back with eidan.artifacts + artifact_blobs (bytea).',
-  );
+// Until FileStore is backed by eidan.artifacts (#298): reads return empty, writes fail loudly,
+// and watch() honours the FileStore contract (yield nothing; resolve when the signal fires) so a
+// frontend's file panel boots cleanly instead of crashing the host.
+const noFileWrites = (): never => {
+  throw new Error('file storage not yet supported by @eidan/storage-postgres (#298)');
 };
 
-class UnsupportedFileStore implements FileStore {
-  put(): Promise<FileHandle> { return notImplemented(); }
-  get(): Promise<FileHandle | null> { return notImplemented(); }
-  getByName(): Promise<FileHandle | null> { return notImplemented(); }
-  delete(): Promise<void> { return notImplemented(); }
-  // eslint-disable-next-line require-yield
-  async *list(): AsyncIterable<FileHandle> { notImplemented(); }
-  putTemp(): Promise<FileHandle> { return notImplemented(); }
-  // eslint-disable-next-line require-yield
-  async *watch(): AsyncIterable<FileEvent> { notImplemented(); }
+class NullFileStore implements FileStore {
+  put(): Promise<FileHandle> { return noFileWrites(); }
+  putTemp(): Promise<FileHandle> { return noFileWrites(); }
+  async get(): Promise<FileHandle | null> { return null; }
+  async getByName(): Promise<FileHandle | null> { return null; }
+  async delete(): Promise<void> { /* nothing to delete */ }
+  async *list(): AsyncIterable<FileHandle> { /* no files */ }
+  async *watch(signal?: AbortSignal): AsyncIterable<FileEvent> {
+    if (signal) await new Promise<void>((r) => signal.addEventListener('abort', () => r(), { once: true }));
+  }
 }
 
 export class EidanStorageBackend implements StorageBackend {
-  readonly fileStore: FileStore = new UnsupportedFileStore();
+  readonly fileStore: FileStore = new NullFileStore();
   private readonly stores = new Map<string, unknown>();
+  private readonly db: Db;
 
-  constructor(private readonly db: Db) {}
+  constructor(db: Db) { this.db = db; }
 
   createStore<T extends { id: string; version: string }>(namespace: string): Store<T> {
     let s = this.stores.get(namespace);

@@ -49,7 +49,8 @@ function rowToMessage(m: MsgRow): Message {
 // upserts the conversation, then INSERTs only the messages whose id isn't already a row. That IS
 // eidan's keen append-only invariant — existing rows are never rewritten or deleted by a set.
 export class PgSessionStore implements Store<Session> {
-  constructor(private readonly db: Db) {}
+  private readonly db: Db;
+  constructor(db: Db) { this.db = db; }
 
   async get(id: string): Promise<Session | null> {
     return this.db.withPrincipalTx((q) => this.read(q, id));
@@ -147,7 +148,9 @@ export class PgSessionStore implements Store<Session> {
 
 // Generic KV store for any non-sessions namespace a plugin opens (settings, schedules, …).
 export class PgKvStore<T extends { id: string; version: string }> implements Store<T> {
-  constructor(private readonly db: Db, private readonly ns: string) {}
+  private readonly db: Db;
+  private readonly ns: string;
+  constructor(db: Db, ns: string) { this.db = db; this.ns = ns; }
 
   async get(id: string): Promise<T | null> {
     return this.db.withPrincipalTx(async (q) => {

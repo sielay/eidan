@@ -1,0 +1,18 @@
+# Example Fly config for the eidan-on-matbot host. Copy to a gitignored fly.toml and:
+#   fly secrets set EIDAN_DATABASE_URL=postgresql://... ANTHROPIC_API_KEY=sk-ant-...
+#   fly deploy --config infra/fly-mb/fly.toml --dockerfile infra/fly-mb/Dockerfile
+app = "eidan-mb"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "infra/fly-mb/Dockerfile"
+
+[env]
+  MATBOT_WEB_PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
