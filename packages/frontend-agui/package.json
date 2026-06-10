@@ -1,0 +1,21 @@
+{
+  "name": "@eidandev/frontend-agui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AG-UI frontend plugin: exposes the matbot turn stream as AG-UI over HTTP+SSE (POST /api/turn) for the eidan Next.js app. The engine-side chat surface; matbot's frontend-web stays dev/demo only.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.0"
+  }
+}
