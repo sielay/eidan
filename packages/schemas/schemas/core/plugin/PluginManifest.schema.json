@@ -143,6 +143,11 @@
             "description": "Dotted vault key the plugin reads."
           },
           "required": {"type": "boolean", "default": false},
+          "user_provided": {
+            "type": "boolean",
+            "default": false,
+            "description": "The end user supplies this key per-user via the self-serve secrets API (docs/031), not the operator. Skipped by activation-time required-secret validation; writable only through POST /me/secrets."
+          },
           "description": {"type": "string"}
         }
       },

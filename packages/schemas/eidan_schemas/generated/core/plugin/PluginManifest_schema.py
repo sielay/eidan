@@ -100,6 +100,10 @@ class VaultItem(BaseModel):
     Dotted vault key the plugin reads.
     """
     required: bool | None = False
+    user_provided: bool | None = False
+    """
+    The end user supplies this key per-user via the self-serve secrets API (docs/031), not the operator. Skipped by activation-time required-secret validation; writable only through POST /me/secrets.
+    """
     description: str | None = None
 
 

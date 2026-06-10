@@ -71,13 +71,15 @@ behaviour change to existing reads.
 - Add `secrets_audit` (§8); write a row on every read/write/delete/denied.
 - *Unblocks:* `ctx.secret.write(...)` per-user, encrypted.
 
-**Phase 2 — Self-serve API + manifest.**
-- `user_provided` manifest flag + `validate_required_secrets` skip + runtime
-  `UndeclaredAccessError` enforcement.
-- Authenticated `GET/PUT/DELETE /me/secrets` (or `/plugins/{slug}/secrets`):
+**Phase 2 — Self-serve API + manifest. ✅ built.**
+- `user_provided` manifest flag (`VaultItem.user_provided`) + `validate_required_secrets`
+  skips it at activation. (Runtime `UndeclaredAccessError` enforcement on *reads*
+  stays Phase 4 — today the accessor still degrades to `None`.)
+- Authenticated `GET/PUT/DELETE /api/me/secrets[/{key}]` (`http/secrets.py`):
   **write-only** (never returns a value), `GET` lists *metadata* (which keys are
-  set, when), `user_id` = JWT subject, gated by the `user_provided` declaration.
-  Audit every call.
+  set, when), `user_id` = JWT subject, a write gated by the `user_provided`
+  declaration across loaded plugins (`secrets.user_provided_keys`). Writes/deletes
+  audit via the canonical accessor.
 - *Unblocks:* a customer can store their own credential via the API.
 
 **Phase 3 — UI (the front door).**
