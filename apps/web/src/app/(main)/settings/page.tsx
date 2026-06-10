@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { ConnectionsSection } from "@/components/settings/ConnectionsSection";
 import { Button } from "@/components/ui/button";
 import {
   fetchAgent,
@@ -180,6 +181,8 @@ export default function SettingsPage(): React.ReactElement {
           </dl>
         </section>
       ) : null}
+
+      <ConnectionsSection />
     </div>
   );
 }

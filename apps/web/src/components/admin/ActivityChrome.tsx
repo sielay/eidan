@@ -30,11 +30,22 @@ const ACTIVE_JOB_STATUSES = new Set(["queued", "claimed", "running"]);
  * while staying cheap on a deployment with a hand-counted plugin
  * count.
  */
+const ACTIVITY_TABS = [
+  "dashboard",
+  "conversations",
+  "nodes",
+  "triggers",
+  "jobs",
+  "cursors",
+  "log",
+  "live",
+] as const;
+
 export function ActivityChrome({
   activeTab,
   children,
 }: {
-  activeTab: "conversations" | "nodes" | "triggers" | "jobs" | "live";
+  activeTab: (typeof ACTIVITY_TABS)[number];
   children: React.ReactNode;
 }): React.ReactElement {
   const { user } = useAuth();
@@ -116,7 +127,7 @@ export function ActivityChrome({
       </header>
 
       <nav className="flex items-center gap-1.5 text-xs" role="tablist">
-        {(["conversations", "nodes", "triggers", "jobs", "live"] as const).map((tab) => (
+        {ACTIVITY_TABS.map((tab) => (
           <Link
             key={tab}
             href={`/admin/activity/${tab}`}

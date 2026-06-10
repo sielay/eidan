@@ -129,7 +129,7 @@ def secrets_set(
                 """
                 INSERT INTO eidan.secrets_vault (scope, key, value_enc)
                 VALUES ($1, $2, $3)
-                ON CONFLICT ON CONSTRAINT secrets_vault_scope_key_unique
+                ON CONFLICT (user_id, scope, key)
                 DO UPDATE SET value_enc = EXCLUDED.value_enc
                 RETURNING id, value_enc
                 """,

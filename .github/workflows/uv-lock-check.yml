@@ -1,5 +1,8 @@
 name: uv-lock-check
 
+permissions:
+  contents: read
+
 # Guard against pyproject.toml ↔ uv.lock drift. PR #30 added
 # aiosmtplib to apps/backend/pyproject.toml without refreshing the
 # workspace uv.lock; the drift only surfaced at `fly deploy` time

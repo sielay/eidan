@@ -18,6 +18,7 @@ Failures map to the typed 401 / 403 envelope (``docs/011 §10.2``).
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -27,6 +28,8 @@ from starlette.responses import Response
 from ..auth_native import InvalidToken, verify_access_token
 from ..identity import Identity
 from .errors import auth_error_response
+
+logger = logging.getLogger(__name__)
 
 # Inbound header an upstream proxy may set; we honour it instead of
 # minting a fresh id so the trace id matches the proxy's logs.
@@ -124,10 +127,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
         try:
             native_identity = verify_access_token(token, public_pem=public_pem)
         except InvalidToken as exc:
+            # Don't surface the verifier's exception text to the caller
+            # (CodeQL: stack-trace exposure) — log it server-side, return a
+            # generic message.
+            logger.debug("access token verification failed: %s", exc)
             return auth_error_response(
                 request,
                 code="auth.invalid_signature",
-                message=str(exc) or "invalid token",
+                message="invalid token",
             )
 
         # Adapt :class:`NativeIdentity` → :class:`Identity` so the

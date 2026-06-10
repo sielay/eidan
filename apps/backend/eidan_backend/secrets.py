@@ -121,22 +121,16 @@ async def _read_native_vault(
 
     try:
         plaintext = decrypt_value(bytes(row["value_enc"]))
-    except Exception as exc:  # noqa: BLE001 — never raise on bad ciphertext
-        logger.warning(
-            "[secrets] native vault decrypt failed for scope=%s key=%s: %s",
-            scope,
-            subkey,
-            exc,
-        )
+    except Exception:  # noqa: BLE001 — never raise on bad ciphertext
+        # Static message: scope/key/exc all derive from the lookup key, which
+        # CodeQL taints as sensitive (clear-text logging). The signal — a vault
+        # value won't decrypt, usually a stale master key — needs no identifier.
+        logger.warning("[secrets] a vault value failed to decrypt (stale master key?)")
         return None
     try:
         return plaintext.decode("utf-8")
     except UnicodeDecodeError:
-        logger.warning(
-            "[secrets] native vault value is not utf-8 for scope=%s key=%s",
-            scope,
-            subkey,
-        )
+        logger.warning("[secrets] a vault value is not valid utf-8")
         return None
 
 
@@ -179,24 +173,247 @@ async def _read_per_agent_override(
     return value if isinstance(value, str) and value else None
 
 
-def make_secret_accessor(pool: asyncpg.Pool) -> Any:
-    """Build the ``SecretAccessor`` the bootstrap hands to every
-    plugin context (`docs/012`).
+async def _audit(
+    conn: Any, *, user_id: Any, scope: str, key: str, action: str, actor: str | None
+) -> None:
+    """Append a row to ``eidan.secrets_audit`` (`docs/012` §8).
 
-    Returns a coroutine ``(key: str) -> str | None`` that walks the
-    three tiers in order. The pool is captured by closure so the
-    per-agent override path has a connection to read from; the
-    ``current_agent_id`` contextvar (set by the loop at turn start
-    via :mod:`eidan_backend.identity`) tells the accessor whose
-    overrides to consult.
+    Best-effort — an audit failure must never sink the operation it
+    records, so callers wrap this in their own try/except where the
+    write itself already committed.
     """
-    # Local import to avoid a circular dep at module-import time.
-    from .identity import get_current_agent_id
+    await conn.execute(
+        """
+        INSERT INTO eidan.secrets_audit (user_id, scope, key, action, actor)
+        VALUES ($1, $2, $3, $4, $5)
+        """,
+        user_id,
+        scope,
+        key,
+        action,
+        actor,
+    )
 
-    async def _secret(key: str) -> str | None:
+
+async def _audit_safe(
+    conn: Any, *, user_id: Any, scope: str, key: str, action: str, actor: str | None
+) -> None:
+    """Best-effort :func:`_audit`. An audit-insert failure must never surface
+    to the caller whose write / delete / read has already happened."""
+    try:
+        await _audit(
+            conn, user_id=user_id, scope=scope, key=key, action=action, actor=actor
+        )
+    except Exception as exc:  # noqa: BLE001 — audit is best-effort
+        logger.warning("[secrets] audit insert failed (action=%s): %s", action, exc)
+
+
+async def write(
+    pool: asyncpg.Pool,
+    key: str,
+    value: str,
+    *,
+    user_id: Any | None = None,
+    ttl_seconds: int | None = None,
+    actor: str | None = None,
+) -> None:
+    """Encrypt ``value`` and upsert it into the native vault (`docs/012` §5.2).
+
+    ``user_id=None`` is an instance/system secret (the historic behaviour);
+    a non-null ``user_id`` is that user's own credential — the per-user
+    dimension docs/031 adds. Fernet output is non-deterministic, so two
+    writes of the same plaintext differ. ``ttl_seconds`` sets ``expires_at``;
+    ``None`` means no expiry.
+    """
+    from .auth_native.vault_crypto import encrypt_value  # lazy: see _read_native_vault
+
+    scope, subkey = split_secret_key(key)
+    ciphertext = encrypt_value(value.encode("utf-8"))
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO eidan.secrets_vault (user_id, scope, key, value_enc, expires_at)
+            VALUES (
+                $1, $2, $3, $4,
+                CASE WHEN $5::bigint IS NULL THEN NULL
+                     ELSE now() + make_interval(secs => $5) END
+            )
+            ON CONFLICT (user_id, scope, key) DO UPDATE
+            SET value_enc = EXCLUDED.value_enc,
+                expires_at = EXCLUDED.expires_at,
+                updated_at = now()
+            """,
+            user_id,
+            scope,
+            subkey,
+            ciphertext,
+            ttl_seconds,
+        )
+        await _audit_safe(
+            conn, user_id=user_id, scope=scope, key=subkey, action="write", actor=actor
+        )
+
+
+async def delete(
+    pool: asyncpg.Pool,
+    key: str,
+    *,
+    user_id: Any | None = None,
+    actor: str | None = None,
+) -> None:
+    """Idempotent hard delete of a vault row (`docs/012` §5.3).
+
+    ``user_id IS NOT DISTINCT FROM $1`` so a ``None`` (instance) row and a
+    per-user row are addressed unambiguously. A missing row is a no-op.
+    """
+    scope, subkey = split_secret_key(key)
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            DELETE FROM eidan.secrets_vault
+            WHERE user_id IS NOT DISTINCT FROM $1 AND scope = $2 AND key = $3
+            """,
+            user_id,
+            scope,
+            subkey,
+        )
+        await _audit_safe(
+            conn, user_id=user_id, scope=scope, key=subkey, action="delete", actor=actor
+        )
+
+
+async def read(
+    pool: asyncpg.Pool, key: str, *, user_id: Any | None = None
+) -> str | None:
+    """Read + decrypt a single vault value for ``(user_id, scope, key)``.
+
+    Honours ``expires_at`` (a row past its TTL reads as ``None``; the sweep
+    deletes it later). This is the *vault-tier* read with an explicit user
+    — distinct from the tiered accessor (:func:`make_secret_accessor`),
+    which the agentic loop uses to resolve a key across override/env/vault.
+    """
+    scope, subkey = split_secret_key(key)
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT value_enc FROM eidan.secrets_vault
+                WHERE user_id IS NOT DISTINCT FROM $1 AND scope = $2 AND key = $3
+                  AND (expires_at IS NULL OR expires_at > now())
+                """,
+                user_id,
+                scope,
+                subkey,
+            )
+            await _audit_safe(
+                conn, user_id=user_id, scope=scope, key=subkey, action="read", actor=None
+            )
+    except Exception as exc:  # noqa: BLE001 — never block a read on a DB hiccup
+        logger.warning("[secrets] vault read DB lookup failed: %s", exc)
+        return None
+    if row is None:
+        return None
+    try:
+        from .auth_native.vault_crypto import decrypt_value
+
+        return decrypt_value(bytes(row["value_enc"])).decode("utf-8")
+    except Exception:  # noqa: BLE001 — never raise on bad ciphertext
+        # Static message — the key name, scope, and exception are all derived
+        # from the lookup key, which CodeQL treats as sensitive (clear-text
+        # logging). The signal that matters (a vault value won't decrypt,
+        # usually a stale/rotated master key) needs no identifier.
+        logger.warning("[secrets] a vault value failed to decrypt (stale master key?)")
+        return None
+
+
+def user_provided_declarations(plugins: Any) -> dict[str, str]:
+    """Dotted vault keys declared ``user_provided`` across the loaded plugins
+    (docs/031), mapped to their manifest ``description``.
+
+    The catalogue the self-serve Connections UI renders, and the source of
+    truth for what a user is allowed to write via the API.
+    """
+    out: dict[str, str] = {}
+    for loaded in plugins or []:
+        manifest = getattr(loaded, "manifest", None)
+        for item in getattr(manifest, "vault", None) or []:
+            if bool(getattr(item, "user_provided", False)):
+                k = getattr(item, "key", None)
+                if isinstance(k, str) and k:
+                    out.setdefault(k, getattr(item, "description", None) or "")
+    return out
+
+
+def user_provided_keys(plugins: Any) -> set[str]:
+    """The set of dotted keys declared ``user_provided`` — the write
+    allowlist for the self-serve secrets API (a caller can't stash arbitrary
+    values in the vault).
+    """
+    return set(user_provided_declarations(plugins))
+
+
+async def list_user_secrets(
+    pool: asyncpg.Pool, *, user_id: Any
+) -> list[dict[str, Any]]:
+    """Metadata for one user's vault entries — dotted key + expiry, **never
+    the value** (`docs/012` §6.2: the self-serve API is write-only).
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT scope, key, expires_at, updated_at
+            FROM eidan.secrets_vault
+            WHERE user_id = $1
+            ORDER BY scope, key
+            """,
+            user_id,
+        )
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        scope, subkey = r["scope"], r["key"]
+        name = subkey if scope == "core" else f"{scope}.{subkey}"
+        out.append(
+            {
+                "key": name,
+                "expires_at": r["expires_at"],
+                "updated_at": r["updated_at"],
+            }
+        )
+    return out
+
+
+def _current_user_id() -> Any | None:
+    """The acting user's id from the turn's identity, or ``None`` (host work)."""
+    from .identity import get_current_identity
+
+    ident = get_current_identity()
+    if ident is None or not getattr(ident, "user_id", None):
+        return None
+    try:
+        return UUID(str(ident.user_id))
+    except (ValueError, TypeError):  # pragma: no cover — defensive
+        return None
+
+
+class _SecretAccessor:
+    """Concrete ``SecretAccessor`` (`docs/012` §5–6) handed to every plugin.
+
+    Callable for the tiered read (override → env → vault); ``write`` /
+    ``delete`` mutate the native vault scoped to the **current user** (or
+    instance scope outside a turn). The pool is captured so all three
+    paths share the host connection pool.
+    """
+
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self._pool = pool
+
+    async def __call__(self, key: str) -> str | None:
+        # Local import to avoid a circular dep at module-import time.
+        from .identity import get_current_agent_id
+
         agent_id = get_current_agent_id()
         if agent_id is not None:
-            override = await _read_per_agent_override(pool, agent_id, key)
+            override = await _read_per_agent_override(self._pool, agent_id, key)
             if override is not None:
                 return override
 
@@ -204,9 +421,28 @@ def make_secret_accessor(pool: asyncpg.Pool) -> Any:
         if env_value is not None:
             return env_value
 
-        return await _read_native_vault(pool, key)
+        return await _read_native_vault(self._pool, key)
 
-    return _secret
+    async def write(self, key: str, value: str, *, ttl_seconds: int | None = None) -> None:
+        await write(
+            self._pool, key, value,
+            user_id=_current_user_id(), ttl_seconds=ttl_seconds, actor="ctx",
+        )
+
+    async def delete(self, key: str) -> None:
+        await delete(self._pool, key, user_id=_current_user_id(), actor="ctx")
+
+
+def make_secret_accessor(pool: asyncpg.Pool) -> Any:
+    """Build the ``SecretAccessor`` the bootstrap hands to every plugin
+    context (`docs/012`).
+
+    Returns a :class:`_SecretAccessor` — callable ``(key) -> str | None``
+    for the three-tier read (per-agent override → env → vault, the
+    ``current_agent_id`` contextvar selecting whose overrides apply), plus
+    ``write`` / ``delete`` that mutate the native vault for the current user.
+    """
+    return _SecretAccessor(pool)
 
 
 class MissingRequiredSecret(Exception):
@@ -226,13 +462,17 @@ async def validate_required_secrets(
     user that may not exist yet at activation. The runtime path
     (when the loop calls the plugin's handler) does consult them.
 
+    ``user_provided`` entries are skipped (docs/031): the end user
+    supplies them per-user via the self-serve secrets API at runtime, so
+    they cannot resolve at activation even when marked ``required``.
+
     Raises :class:`MissingRequiredSecret` listing every unresolved
     required key. Empty / optional declarations are no-ops.
     """
     missing: list[str] = []
     for item in declared:
         required = bool(getattr(item, "required", False))
-        if not required:
+        if not required or bool(getattr(item, "user_provided", False)):
             continue
         key = getattr(item, "key", None)
         if not isinstance(key, str) or not key:
@@ -261,6 +501,12 @@ async def validate_required_secrets(
 
 __all__ = [
     "MissingRequiredSecret",
+    "delete",
+    "list_user_secrets",
     "make_secret_accessor",
+    "read",
+    "user_provided_declarations",
+    "user_provided_keys",
     "validate_required_secrets",
+    "write",
 ]
