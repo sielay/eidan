@@ -18,8 +18,19 @@ from eidan_backend.http import secrets as api
 from fastapi import HTTPException
 
 
-def _item(key: str, *, required: bool = False, user_provided: bool = False):
-    return SimpleNamespace(key=key, required=required, user_provided=user_provided)
+def _item(
+    key: str,
+    *,
+    required: bool = False,
+    user_provided: bool = False,
+    description: str = "",
+):
+    return SimpleNamespace(
+        key=key,
+        required=required,
+        user_provided=user_provided,
+        description=description,
+    )
 
 
 def _plugin(*vault):
@@ -128,14 +139,22 @@ async def test_set_writes_declared_key_for_the_user(patched_crypto: None) -> Non
 
 
 @pytest.mark.asyncio
-async def test_list_is_metadata_only(patched_crypto: None) -> None:
+async def test_list_returns_catalogue_metadata_only(patched_crypto: None) -> None:
+    # one declared key the user HAS set, one declared key they HAVEN'T
     conn = _Conn(
         fetch=[{"scope": "stripe", "key": "api_key", "expires_at": None, "updated_at": None}]
     )
-    req = _request(_Pool(conn), user_id=uuid.uuid4(), plugins=[])
+    plugins = [
+        _plugin(
+            _item("stripe.api_key", user_provided=True, description="Stripe key"),
+            _item("ga.token", user_provided=True, description="GA token"),
+        )
+    ]
+    req = _request(_Pool(conn), user_id=uuid.uuid4(), plugins=plugins)
     res = await api.list_my_secrets(req)
-    assert res["secrets"] == [
-        {"key": "stripe.api_key", "expires_at": None, "updated_at": None}
+    assert res["connections"] == [
+        {"key": "ga.token", "description": "GA token", "configured": False, "expires_at": None},
+        {"key": "stripe.api_key", "description": "Stripe key", "configured": True, "expires_at": None},
     ]
     assert "value_enc" not in conn.calls[0][0]  # value never selected
 

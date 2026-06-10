@@ -82,10 +82,14 @@ behaviour change to existing reads.
   audit via the canonical accessor.
 - *Unblocks:* a customer can store their own credential via the API.
 
-**Phase 3 — UI (the front door).**
-- Per-plugin "Connections / Credentials" settings slot (mounts via the plugin
-  frontend registry, #286): paste-a-key form → Phase 2 API; status chips for
-  set/expired keys. The OAuth "Connect" linking flows (§9.3) write the same way.
+**Phase 3 — UI (the front door). ✅ built.**
+- A **Connections** panel on the settings page (`ConnectionsSection`): lists
+  every `user_provided` key declared across loaded plugins, paste-a-value form
+  → Phase 2 API, "set"/"not set" chips, remove. Values never shown back.
+  (`GET /api/me/secrets` returns the catalogue: declared keys + configured/expiry.)
+- *Follow-ups:* a per-plugin slot rendering (vs the one core panel) via the #286
+  frontend registry, and the OAuth "Connect" linking flows (§9.3) writing the
+  same way.
 
 **Phase 4 — Hardening.**
 - TTL sweep (§5.4); per-tenant KEK derivation + master-key rotation (§10);

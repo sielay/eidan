@@ -326,20 +326,30 @@ async def read(
         return None
 
 
-def user_provided_keys(plugins: Any) -> set[str]:
-    """The dotted vault keys declared ``user_provided`` across the loaded
-    plugins (docs/031). The self-serve secrets API writes only keys in this
-    set, so a caller can't stash arbitrary values in the vault.
+def user_provided_declarations(plugins: Any) -> dict[str, str]:
+    """Dotted vault keys declared ``user_provided`` across the loaded plugins
+    (docs/031), mapped to their manifest ``description``.
+
+    The catalogue the self-serve Connections UI renders, and the source of
+    truth for what a user is allowed to write via the API.
     """
-    keys: set[str] = set()
+    out: dict[str, str] = {}
     for loaded in plugins or []:
         manifest = getattr(loaded, "manifest", None)
         for item in getattr(manifest, "vault", None) or []:
             if bool(getattr(item, "user_provided", False)):
                 k = getattr(item, "key", None)
                 if isinstance(k, str) and k:
-                    keys.add(k)
-    return keys
+                    out.setdefault(k, getattr(item, "description", None) or "")
+    return out
+
+
+def user_provided_keys(plugins: Any) -> set[str]:
+    """The set of dotted keys declared ``user_provided`` — the write
+    allowlist for the self-serve secrets API (a caller can't stash arbitrary
+    values in the vault).
+    """
+    return set(user_provided_declarations(plugins))
 
 
 async def list_user_secrets(
@@ -495,6 +505,7 @@ __all__ = [
     "list_user_secrets",
     "make_secret_accessor",
     "read",
+    "user_provided_declarations",
     "user_provided_keys",
     "validate_required_secrets",
     "write",
