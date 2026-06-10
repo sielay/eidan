@@ -326,6 +326,52 @@ async def read(
         return None
 
 
+def user_provided_keys(plugins: Any) -> set[str]:
+    """The dotted vault keys declared ``user_provided`` across the loaded
+    plugins (docs/031). The self-serve secrets API writes only keys in this
+    set, so a caller can't stash arbitrary values in the vault.
+    """
+    keys: set[str] = set()
+    for loaded in plugins or []:
+        manifest = getattr(loaded, "manifest", None)
+        for item in getattr(manifest, "vault", None) or []:
+            if bool(getattr(item, "user_provided", False)):
+                k = getattr(item, "key", None)
+                if isinstance(k, str) and k:
+                    keys.add(k)
+    return keys
+
+
+async def list_user_secrets(
+    pool: asyncpg.Pool, *, user_id: Any
+) -> list[dict[str, Any]]:
+    """Metadata for one user's vault entries — dotted key + expiry, **never
+    the value** (`docs/012` §6.2: the self-serve API is write-only).
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT scope, key, expires_at, updated_at
+            FROM eidan.secrets_vault
+            WHERE user_id = $1
+            ORDER BY scope, key
+            """,
+            user_id,
+        )
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        scope, subkey = r["scope"], r["key"]
+        name = subkey if scope == "core" else f"{scope}.{subkey}"
+        out.append(
+            {
+                "key": name,
+                "expires_at": r["expires_at"],
+                "updated_at": r["updated_at"],
+            }
+        )
+    return out
+
+
 def _current_user_id() -> Any | None:
     """The acting user's id from the turn's identity, or ``None`` (host work)."""
     from .identity import get_current_identity
@@ -406,13 +452,17 @@ async def validate_required_secrets(
     user that may not exist yet at activation. The runtime path
     (when the loop calls the plugin's handler) does consult them.
 
+    ``user_provided`` entries are skipped (docs/031): the end user
+    supplies them per-user via the self-serve secrets API at runtime, so
+    they cannot resolve at activation even when marked ``required``.
+
     Raises :class:`MissingRequiredSecret` listing every unresolved
     required key. Empty / optional declarations are no-ops.
     """
     missing: list[str] = []
     for item in declared:
         required = bool(getattr(item, "required", False))
-        if not required:
+        if not required or bool(getattr(item, "user_provided", False)):
             continue
         key = getattr(item, "key", None)
         if not isinstance(key, str) or not key:
@@ -442,8 +492,10 @@ async def validate_required_secrets(
 __all__ = [
     "MissingRequiredSecret",
     "delete",
+    "list_user_secrets",
     "make_secret_accessor",
     "read",
+    "user_provided_keys",
     "validate_required_secrets",
     "write",
 ]

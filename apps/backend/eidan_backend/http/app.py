@@ -41,6 +41,7 @@ from ..tools import ToolRegistry
 from .artifacts import router as artifacts_router
 from .auth import AuthMiddleware
 from .routes import router
+from .secrets import router as me_secrets_router
 from .security_headers import SecurityHeadersMiddleware
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ def _include_routers(app: FastAPI) -> None:
     """
     app.include_router(router)
     app.include_router(artifacts_router)
+    app.include_router(me_secrets_router)
 
 
 def create_app(
