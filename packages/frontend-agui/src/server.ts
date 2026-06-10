@@ -4,6 +4,14 @@ import type { MatbotServices, Session, Principal } from '@matatbread/matbot-plug
 import { runAs, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import { AguiEmitter, type AguiEvent } from './agui-emitter.js';
 
+// The per-request identity seam (same key matbot's frontend-web uses): an auth plugin registers a
+// resolver that derives the Principal from the request (e.g. a Bearer JWT). Absent ⇒ boot principal.
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    WebPrincipalResolver?: (req: IncomingMessage) => Principal | Promise<Principal>;
+  }
+}
+
 // The Next.js app on Vercel calls this cross-origin; allow it (tighten to the app origin later).
 const CORS: Record<string, string> = {
   'access-control-allow-origin': '*',
@@ -36,14 +44,32 @@ function sse(res: ServerResponse, ev: AguiEvent): void {
 // WebPrincipalResolver/JWT plugin can derive a real per-request identity later).
 export function startAguiServer(services: MatbotServices, port: number, provider: string, boot: Principal): () => void {
   const server = createServer((req, res) => {
-    const principal = tryCurrentPrincipal() ?? boot;
-    void runAs(principal, () => handle(req, res, services, provider, principal)).catch((e: unknown) => {
+    void resolveAndHandle(req, res, services, provider, boot).catch((e: unknown) => {
       if (!res.headersSent) json(res, 500, { error: e instanceof Error ? e.message : String(e) });
       else res.end();
     });
   });
   server.listen(port);
   return () => server.close();
+}
+
+// Unauthenticated preflight/health bypass auth; everything else resolves a Principal via the
+// registered WebPrincipalResolver (401 on rejection) and runs the request under it.
+async function resolveAndHandle(req: IncomingMessage, res: ServerResponse, services: MatbotServices, provider: string, boot: Principal): Promise<void> {
+  const method = req.method ?? 'GET';
+  const url = req.url ?? '/';
+  if (method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
+  if (method === 'GET' && url === '/health') { json(res, 200, { ok: true }); return; }
+
+  let principal: Principal;
+  try {
+    const resolver = services.WebPrincipalResolver;
+    principal = resolver ? await resolver(req) : (tryCurrentPrincipal() ?? boot);
+  } catch (e) {
+    json(res, 401, { error: e instanceof Error ? e.message : 'unauthorized' });
+    return;
+  }
+  await runAs(principal, () => handle(req, res, services, provider, principal));
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse, services: MatbotServices, provider: string, principal: Principal): Promise<void> {
