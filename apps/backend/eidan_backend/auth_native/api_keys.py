@@ -180,7 +180,7 @@ async def provision_api_key(
                 """
                 INSERT INTO eidan.secrets_vault (scope, key, value_enc)
                 VALUES ($1, $2, $3)
-                ON CONFLICT (scope, key) DO UPDATE
+                ON CONFLICT (user_id, scope, key) DO UPDATE
                 SET value_enc = EXCLUDED.value_enc
                 """,
                 vault_scope,
