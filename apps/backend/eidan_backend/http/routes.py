@@ -120,7 +120,7 @@ async def get_healthz() -> dict[str, str]:
 
 # -----------------------------------------------------------------------------
 # /.well-known/agent-card.json — A2A Agent Card
-# (docs/030; fetched by remote A2A clients for discovery)
+# (docs/029 agent delegation/mesh; fetched by remote A2A clients for discovery)
 # -----------------------------------------------------------------------------
 
 
@@ -2258,7 +2258,8 @@ async def list_jobs_endpoint(request: Request) -> dict[str, Any]:
 #
 # The A2A protocol uses JSON-RPC 2.0 for method calls. This single endpoint
 # dispatches message/send, message/stream, tasks/get, tasks/resubscribe, and
-# tasks/cancel methods (docs/030).
+# tasks/cancel methods (docs/029 agent delegation/mesh; docs/030 is A2A
+# security schemes).
 # ---------------------------------------------------------------------------
 
 

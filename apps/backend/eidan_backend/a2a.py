@@ -183,10 +183,14 @@ def register_a2a_tools(
         if not prompt:
             raise ToolError("prompt is required and must be non-empty")
 
-        # Call the remote agent via the A2A protocol.
-        # Format: message/send request with the prompt.
+        # Call the remote agent via the A2A protocol. message/send params are
+        # A2A-shaped — the server reads ``message.parts[].text`` (a2a_handler),
+        # so the outbound shape MUST match or the remote 400s on empty text.
         try:
-            envelope = await _call("message/send", {"prompt": prompt})
+            envelope = await _call(
+                "message/send",
+                {"message": {"parts": [{"type": "text", "text": prompt}]}},
+            )
         except Exception as exc:
             raise ToolError(f"A2A call to {_agent_name} failed: {exc}") from exc
 
@@ -245,7 +249,7 @@ async def a2a_http_call(
     Raises httpx.RequestError / httpx.TimeoutException on network issues;
     other exceptions are surfaced as-is for the handler to catch.
     """
-    url = f"{base_url.rstrip('/')}/rpc"
+    url = f"{base_url.rstrip('/')}/api/rpc"
 
     headers = {}
     if auth_token:

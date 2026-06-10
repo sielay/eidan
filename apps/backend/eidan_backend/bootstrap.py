@@ -652,12 +652,15 @@ def _register_a2a_tools_from_env(
     A2A clients are configured via environment variables:
     - ``EIDAN_A2A_AGENTS`` (comma-separated list of agent names/IDs)
     - ``EIDAN_A2A_{NAME}_BASE_URL`` (the remote agent's base URL)
-    - ``EIDAN_A2A_{NAME}_AUTH_TOKEN`` (optional bearer token from vault)
+    - ``EIDAN_A2A_{NAME}_AUTH_TOKEN`` (optional — the bearer token *value*,
+      sent verbatim as ``Authorization: Bearer <value>``; the operator may
+      source it from the vault when rendering the env, but it is not a vault
+      key path)
 
     Example:
       EIDAN_A2A_AGENTS=sage,architect
       EIDAN_A2A_SAGE_BASE_URL=http://remote-instance:8000
-      EIDAN_A2A_SAGE_AUTH_TOKEN=<vault-key-path>
+      EIDAN_A2A_SAGE_AUTH_TOKEN=<bearer-token-value>
 
     Returns the list of registered tool names. Logs and gracefully
     skips any misconfigured clients.

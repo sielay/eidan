@@ -17,6 +17,7 @@ JSON structure per the A2A JSON-RPC protocol.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -90,7 +91,7 @@ class A2AEmitter:
         ]
         return events
 
-    def map(self, event: TurnEvent) -> list[dict[str, any]]:
+    def map(self, event: TurnEvent) -> list[dict[str, Any]]:
         """Translate one runner event into its A2A events."""
         if isinstance(event, AssistantChunk):
             self._text_buffer += event.text
@@ -134,7 +135,7 @@ class A2AEmitter:
         # Unknown future event types pass silently
         return []
 
-    def error(self, exc: BaseException) -> list[dict[str, any]]:
+    def error(self, exc: BaseException) -> list[dict[str, Any]]:
         """Close a failed task with a status update."""
         if self._finished:
             return []
@@ -158,7 +159,7 @@ class A2AEmitter:
         filename: str,
         mime_type: str,
         size_bytes: int,
-    ) -> list[dict[str, any]]:
+    ) -> list[dict[str, Any]]:
         """Emit a TaskArtifactUpdateEvent for a newly-produced artifact."""
         if self._finished:
             return []
@@ -181,7 +182,7 @@ class A2AEmitter:
 
     # -- internals --------------------------------------------------------
 
-    def _on_complete(self, event: TurnComplete) -> list[dict[str, any]]:
+    def _on_complete(self, event: TurnComplete) -> list[dict[str, Any]]:
         self._finished = True
         # Emit the final assistant message
         events = []
@@ -193,7 +194,7 @@ class A2AEmitter:
                         "taskId": self.task_id,
                         "role": "assistant",
                         "content": self._text_buffer,
-                        "timestamp": "",  # Will be set by caller
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                 }
             )

@@ -16,7 +16,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..db import acquire
-from ..loop import TurnComplete, TurnContext, run_turn
+from ..loop import AssistantChunk, TurnComplete, TurnContext, run_turn
 from ..persistence import (
     cost_summary_since,
     create_conversation,
@@ -41,6 +41,16 @@ def jsonrpc_error(
             **({"data": data} if data else {}),
         }
     }
+
+
+def _sse(event: dict[str, Any]) -> bytes:
+    """Frame one event as a Server-Sent Event (``data: <json>\\n\\n``).
+
+    The streaming methods declare ``text/event-stream``, so events MUST be
+    SSE frames — not newline-delimited JSON — or standard SSE clients won't
+    parse them (and never see the terminal event).
+    """
+    return f"data: {json.dumps(event)}\n\n".encode()
 
 
 async def a2a_message_send(
@@ -141,6 +151,7 @@ async def a2a_message_send(
     # Run turn (non-streaming, collect all events)
     telemetry = getattr(request.app.state, "telemetry", None)
 
+    assistant_text = ""
     try:
         async for event in run_turn(
             pool=pool,
@@ -154,7 +165,9 @@ async def a2a_message_send(
             max_turn_cost_usd=max_turn_cost,
             telemetry=telemetry,
         ):
-            if isinstance(event, TurnComplete):
+            if isinstance(event, AssistantChunk):
+                assistant_text += event.text
+            elif isinstance(event, TurnComplete):
                 pass
     except Exception as exc:
         logger.exception("[a2a] turn failed: %s", exc)
@@ -166,6 +179,10 @@ async def a2a_message_send(
             "status": "completed",
             "createdAt": sent_at_utc.isoformat(),
             "updatedAt": datetime.now(tz=UTC).isoformat(),
+            # The assistant's reply as A2A content blocks, so one-shot
+            # message/send is actually usable — outbound clients read
+            # result.content (see a2a.register_a2a_tools).
+            "content": [{"type": "text", "text": assistant_text}],
         }
     }
 
@@ -276,7 +293,7 @@ async def a2a_message_stream(
         try:
             # Emit start events
             for event in emitter.start():
-                yield (json.dumps(event) + "\n").encode()
+                yield _sse(event)
 
             async for runner_event in run_turn(
                 pool=pool,
@@ -294,7 +311,7 @@ async def a2a_message_stream(
                     break
 
                 for a2a_event in emitter.map(runner_event):
-                    yield (json.dumps(a2a_event) + "\n").encode()
+                    yield _sse(a2a_event)
 
                 # After TurnComplete, check for artifacts
                 if isinstance(runner_event, TurnComplete):
@@ -322,7 +339,7 @@ async def a2a_message_stream(
                                 mime_type=artifact_row["mime_type"],
                                 size_bytes=artifact_row["size_bytes"],
                             ):
-                                yield (json.dumps(artifact_event) + "\n").encode()
+                                yield _sse(artifact_event)
 
         except asyncio.CancelledError:
             # Client disconnect — propagate
@@ -330,7 +347,7 @@ async def a2a_message_stream(
         except Exception as exc:  # noqa: BLE001
             logger.exception("[a2a-stream] turn failed: %s", exc)
             for error_event in emitter.error(exc):
-                yield (json.dumps(error_event) + "\n").encode()
+                yield _sse(error_event)
             raise
 
     return StreamingResponse(
@@ -491,7 +508,7 @@ async def a2a_tasks_resubscribe(
             (m for m in messages_rows if m["role"] == "user"), None
         )
         if user_msg:
-            yield json.dumps(
+            yield b"data: " + json.dumps(
                 {
                     "event": "message",
                     "data": {
@@ -505,14 +522,14 @@ async def a2a_tasks_resubscribe(
                         ),
                     },
                 }
-            ).encode() + b"\n"
+            ).encode() + b"\n\n"
 
         # Emit assistant message
         assistant_msg = next(
             (m for m in messages_rows if m["role"] == "assistant"), None
         )
         if assistant_msg:
-            yield json.dumps(
+            yield b"data: " + json.dumps(
                 {
                     "event": "message",
                     "data": {
@@ -526,7 +543,7 @@ async def a2a_tasks_resubscribe(
                         ),
                     },
                 }
-            ).encode() + b"\n"
+            ).encode() + b"\n\n"
 
         # Emit artifacts that were produced
         artifacts_by_message = {}
@@ -537,7 +554,7 @@ async def a2a_tasks_resubscribe(
 
         if assistant_msg and str(assistant_msg["id"]) in artifacts_by_message:
             for artifact in artifacts_by_message[str(assistant_msg["id"])]:
-                yield json.dumps(
+                yield b"data: " + json.dumps(
                     {
                         "event": "taskArtifactUpdate",
                         "data": {
@@ -552,10 +569,10 @@ async def a2a_tasks_resubscribe(
                             },
                         },
                     }
-                ).encode() + b"\n"
+                ).encode() + b"\n\n"
 
         # Emit final status
-        yield json.dumps(
+        yield b"data: " + json.dumps(
             {
                 "event": "taskStatusUpdate",
                 "data": {
@@ -569,7 +586,7 @@ async def a2a_tasks_resubscribe(
                     ),
                 },
             }
-        ).encode() + b"\n"
+        ).encode() + b"\n\n"
 
     return StreamingResponse(
         _stream(),
@@ -585,14 +602,21 @@ async def a2a_tasks_cancel(
     request: Request,
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    """Handle tasks/cancel: unwind an in-flight turn."""
+    """Handle tasks/cancel.
+
+    message/send runs the turn **synchronously** and only returns once it has
+    completed, so by the time a cancel could arrive the task has already
+    terminated — there is no in-flight turn to stop and no persisted task
+    status to flip. Rather than report a cancellation that never happened,
+    return an honest "not supported" error. (A cooperative-cancel signal for
+    long-running turns is future work.)
+    """
     task_id = params.get("taskId")
     if not task_id:
         return jsonrpc_error(400, "taskId is required")
 
-    return {
-        "result": {
-            "taskId": task_id,
-            "status": "cancelled",
-        }
-    }
+    return jsonrpc_error(
+        -32004,
+        "tasks/cancel is not supported: turns run synchronously and complete "
+        "before a cancel can take effect",
+    )

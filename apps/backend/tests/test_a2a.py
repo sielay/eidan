@@ -37,7 +37,9 @@ def mock_a2a_call():
 
     async def _call(method: str, args: dict[str, Any]) -> dict[str, Any]:
         if method == "message/send":
-            prompt = args.get("prompt", "")
+            # A2A-shaped params: text lives in message.parts[].text
+            parts = args.get("message", {}).get("parts", [])
+            prompt = parts[0].get("text", "") if parts else ""
             if "error" in prompt.lower():
                 return {
                     "isError": True,
@@ -216,10 +218,12 @@ class TestA2AHttpCall:
     ) -> None:
         """Verify the JSON-RPC payload shape."""
         captured_request = None
+        captured_url = None
 
         async def mock_post(self: Any, url: str, **kwargs: Any) -> Any:
-            nonlocal captured_request
+            nonlocal captured_request, captured_url
             captured_request = kwargs.get("json", {})
+            captured_url = url
 
             class MockResponse:
                 def json(self) -> dict[str, Any]:
@@ -231,7 +235,7 @@ class TestA2AHttpCall:
                         }
                     }
 
-                async def raise_for_status(self) -> None:
+                def raise_for_status(self) -> None:
                     pass
 
             class MockAsync:
@@ -263,13 +267,18 @@ class TestA2AHttpCall:
         result = await a2a_http_call(
             "http://localhost:9999",
             "message/send",
-            {"prompt": "hello"},
+            {"message": {"parts": [{"type": "text", "text": "hello"}]}},
         )
 
         assert result is not None
-        # The actual payload was captured in mock_post above.
-        # We'd verify captured_request["method"] == "message/send" if
-        # the mock worked; for now, just verify the call succeeds.
+        # The transport POSTs to /api/rpc with a JSON-RPC 2.0 envelope that
+        # carries the method + params verbatim.
+        assert captured_url.endswith("/api/rpc")
+        assert captured_request["jsonrpc"] == "2.0"
+        assert captured_request["method"] == "message/send"
+        assert captured_request["params"] == {
+            "message": {"parts": [{"type": "text", "text": "hello"}]}
+        }
 
 
 __all__: list[str] = []
@@ -286,7 +295,8 @@ class TestA2AMockServer:
         # Simulate a remote server that echoes back the prompt
         async def remote_a2a_call(method: str, args: dict[str, Any]) -> dict[str, Any]:
             if method == "message/send":
-                prompt = args.get("prompt", "")
+                parts = args.get("message", {}).get("parts", [])
+                prompt = parts[0].get("text", "") if parts else ""
                 return {
                     "content": [
                         {
