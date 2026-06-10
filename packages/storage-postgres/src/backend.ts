@@ -1,33 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { Store, FileStore, StorageBackend, FileHandle, FileEvent } from '@matatbread/matbot-plugin-api';
+import type { Store, FileStore, StorageBackend } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { PgSessionStore, PgKvStore } from './session-store.js';
-
-// Until FileStore is backed by eidan.artifacts (#298): reads return empty, writes fail loudly,
-// and watch() honours the FileStore contract (yield nothing; resolve when the signal fires) so a
-// frontend's file panel boots cleanly instead of crashing the host.
-const noFileWrites = (): never => {
-  throw new Error('file storage not yet supported by @eidan/storage-postgres (#298)');
-};
-
-class NullFileStore implements FileStore {
-  put(): Promise<FileHandle> { return noFileWrites(); }
-  putTemp(): Promise<FileHandle> { return noFileWrites(); }
-  async get(): Promise<FileHandle | null> { return null; }
-  async getByName(): Promise<FileHandle | null> { return null; }
-  async delete(): Promise<void> { /* nothing to delete */ }
-  async *list(): AsyncIterable<FileHandle> { /* no files */ }
-  async *watch(signal?: AbortSignal): AsyncIterable<FileEvent> {
-    if (signal) await new Promise<void>((r) => signal.addEventListener('abort', () => r(), { once: true }));
-  }
-}
+import { PgFileStore } from './file-store.js';
 
 export class EidanStorageBackend implements StorageBackend {
-  readonly fileStore: FileStore = new NullFileStore();
+  readonly fileStore: FileStore;
   private readonly stores = new Map<string, unknown>();
   private readonly db: Db;
 
-  constructor(db: Db) { this.db = db; }
+  constructor(db: Db) {
+    this.db = db;
+    this.fileStore = new PgFileStore(db);
+  }
 
   createStore<T extends { id: string; version: string }>(namespace: string): Store<T> {
     let s = this.stores.get(namespace);
