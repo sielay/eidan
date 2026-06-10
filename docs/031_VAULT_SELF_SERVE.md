@@ -20,7 +20,7 @@ the self-serve vault 012 describes.
 
 | 012 says | Built today | Gap |
 |---|---|---|
-| `secrets_vault(id, user_id FK users NULL=system, scope, key, value_enc, expires_at, …)`, unique `(user_id, scope, key)` (§4.1) | `secrets_vault(scope, key, value_enc)`, conflict on `(scope, key)` | **no `user_id`, no `expires_at`, no `id`** — vault is instance-global |
+| `secrets_vault(id, user_id FK users NULL=system, scope, key, value_enc, expires_at, …)`, unique `(user_id, scope, key)` (§4.1) | `secrets_vault(id, scope, key, value_enc)`, conflict on `(scope, key)` | **no `user_id`, no `expires_at`** — vault is instance-global (`id` PK already exists) |
 | `SecretAccessor` Protocol: `__call__`(read) + `write` + `delete` (§5) | Protocol declares only `__call__`; impl is a bare read coroutine ("Phase 4 stubs the surface") | **no `write`/`delete` on `ctx.secret`** |
 | `secrets.read/write/delete(pool, …)` module API (§5.1–5.3) | only private read helpers + `make_secret_accessor`; writes hand-rolled in `api_keys`/`a2a_vault`/`mfa` via `encrypt_value`+upsert | **no canonical write/delete; three copies of the upsert** |
 | `secrets_audit` read/write/delete/denied (§8) | — | **no audit trail** |
@@ -60,8 +60,9 @@ instance-global. Self-serve needs **encrypted, per-user** secrets — i.e. the
 
 **Phase 1 — Foundation (per-user vault + canonical accessor).** Pure core, no
 behaviour change to existing reads.
-- Migration: add `id`, `user_id` (FK `users`, NULL = instance), `expires_at` to
-  `secrets_vault`; switch uniqueness to `(user_id, scope, key)` per §4.1.
+- Migration: add `user_id` (FK `users`, NULL = instance) + `expires_at` to
+  `secrets_vault` (`id` PK already exists); switch uniqueness to a named
+  `(user_id, scope, key)` constraint per §4.1.
 - Implement `secrets.read/write/delete(pool, key, *, user_id=None, …)` (§5),
   wrapping `vault_crypto.encrypt_value`/`decrypt_value`. Refactor
   `api_keys`/`a2a_vault`/`mfa` onto them (kills the three upsert copies).

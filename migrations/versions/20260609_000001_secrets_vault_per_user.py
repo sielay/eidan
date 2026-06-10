@@ -7,12 +7,14 @@ per-user as 012 §4.1 specifies, so a hosted deployment can hold each
 user's own integration credentials, encrypted and isolated.
 
 - `user_id` (FK users, NULL = instance/system scope) + `expires_at` (TTL).
-- Uniqueness becomes `(user_id, scope, key)`. Postgres 17, so the index
-  uses `NULLS NOT DISTINCT`: instance rows (NULL user) stay unique on
-  `(scope, key)` exactly as before, while per-user rows are unique per
-  user. The old `(scope, key)` constraint is dropped — the two writers
-  that targeted it (`a2a_vault`, `api_keys`) are updated in lockstep to
-  the new conflict target.
+  (`secrets_vault.id` already exists as the UUID PK — unchanged here.)
+- Uniqueness becomes `(user_id, scope, key)` as a NAMED unique constraint
+  with `NULLS NOT DISTINCT` (Postgres 15+) — a named constraint, not a bare
+  index, so `ON CONFLICT ON CONSTRAINT` callers keep working. NULL user_ids
+  collide, so instance rows stay unique on `(scope, key)` exactly as before,
+  while per-user rows are unique per user. The old `(scope, key)` constraint
+  is dropped — the three writers that targeted it (`a2a_vault`, `api_keys`,
+  and the `eidan admin secrets` CLI) move to the new constraint in lockstep.
 - `secrets_audit` (012 §8): an append-only log of write/delete/denied.
 
 Additive for existing reads: every current row gets `user_id = NULL`
@@ -42,16 +44,18 @@ def upgrade() -> None:
     )
 
     # --- swap instance-global uniqueness for per-user uniqueness ----------
-    # NULLS NOT DISTINCT (PG15+) makes NULL user_ids collide, so instance
-    # rows keep their old (scope, key) uniqueness while per-user rows are
-    # distinct per user.
+    # A NAMED constraint (not a bare unique index) so callers using
+    # `ON CONFLICT ON CONSTRAINT …` keep working. NULLS NOT DISTINCT (PG15+)
+    # makes NULL user_ids collide, so instance rows keep their old
+    # (scope, key) uniqueness while per-user rows are distinct per user.
     op.execute(
         "ALTER TABLE eidan.secrets_vault "
         "DROP CONSTRAINT secrets_vault_scope_key_unique"
     )
     op.execute(
-        "CREATE UNIQUE INDEX secrets_vault_user_scope_key_unique "
-        "ON eidan.secrets_vault (user_id, scope, key) NULLS NOT DISTINCT"
+        "ALTER TABLE eidan.secrets_vault "
+        "ADD CONSTRAINT secrets_vault_user_scope_key_unique "
+        "UNIQUE NULLS NOT DISTINCT (user_id, scope, key)"
     )
     op.execute(
         "CREATE INDEX secrets_vault_expires_at_idx "
@@ -82,7 +86,11 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS eidan.secrets_audit")
     op.execute("DROP INDEX IF EXISTS eidan.secrets_vault_expires_at_idx")
-    op.execute("DROP INDEX IF EXISTS eidan.secrets_vault_user_scope_key_unique")
+    # Drop the per-user constraint before the user_id column it spans.
+    op.execute(
+        "ALTER TABLE eidan.secrets_vault "
+        "DROP CONSTRAINT IF EXISTS secrets_vault_user_scope_key_unique"
+    )
     op.execute(
         "ALTER TABLE eidan.secrets_vault "
         "ADD CONSTRAINT secrets_vault_scope_key_unique UNIQUE (scope, key)"

@@ -130,3 +130,34 @@ async def test_accessor_delete_instance_scoped_without_identity(
     acc = secrets_mod.make_secret_accessor(_Pool(conn))  # type: ignore[arg-type]
     await acc.delete("zoho.token")
     assert conn.calls[0][1][0] is None  # instance scope when no user in context
+
+
+@pytest.mark.asyncio
+async def test_read_emits_audit_row(patched_crypto: None) -> None:
+    conn = _Conn(fetchrow={"value_enc": b"CIPHER:v"})
+    assert await secrets_mod.read(_Pool(conn), "core.foo") == "v"
+    audits = [c for c in conn.calls if "eidan.secrets_audit" in c[0]]
+    assert audits and audits[0][1][3] == "read"
+
+
+@pytest.mark.asyncio
+async def test_read_db_error_returns_none(patched_crypto: None) -> None:
+    class _Boom(_Conn):
+        async def fetchrow(self, sql: str, *args: object) -> dict | None:
+            raise RuntimeError("db down")
+
+    assert await secrets_mod.read(_Pool(_Boom()), "core.foo") is None
+
+
+@pytest.mark.asyncio
+async def test_audit_failure_does_not_raise(patched_crypto: None) -> None:
+    class _AuditFails(_Conn):
+        async def execute(self, sql: str, *args: object) -> str:
+            if "eidan.secrets_audit" in sql:
+                raise RuntimeError("audit table gone")
+            return await super().execute(sql, *args)
+
+    conn = _AuditFails()
+    # write must still succeed even though the audit insert raises
+    await secrets_mod.write(_Pool(conn), "core.foo", "v", actor="t")
+    assert any("INSERT INTO eidan.secrets_vault" in c[0] for c in conn.calls)

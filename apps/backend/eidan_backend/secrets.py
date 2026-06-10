@@ -195,6 +195,19 @@ async def _audit(
     )
 
 
+async def _audit_safe(
+    conn: Any, *, user_id: Any, scope: str, key: str, action: str, actor: str | None
+) -> None:
+    """Best-effort :func:`_audit`. An audit-insert failure must never surface
+    to the caller whose write / delete / read has already happened."""
+    try:
+        await _audit(
+            conn, user_id=user_id, scope=scope, key=key, action=action, actor=actor
+        )
+    except Exception as exc:  # noqa: BLE001 — audit is best-effort
+        logger.warning("[secrets] audit insert failed (action=%s): %s", action, exc)
+
+
 async def write(
     pool: asyncpg.Pool,
     key: str,
@@ -236,7 +249,7 @@ async def write(
             ciphertext,
             ttl_seconds,
         )
-        await _audit(
+        await _audit_safe(
             conn, user_id=user_id, scope=scope, key=subkey, action="write", actor=actor
         )
 
@@ -264,7 +277,7 @@ async def delete(
             scope,
             subkey,
         )
-        await _audit(
+        await _audit_safe(
             conn, user_id=user_id, scope=scope, key=subkey, action="delete", actor=actor
         )
 
@@ -280,17 +293,24 @@ async def read(
     which the agentic loop uses to resolve a key across override/env/vault.
     """
     scope, subkey = split_secret_key(key)
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT value_enc FROM eidan.secrets_vault
-            WHERE user_id IS NOT DISTINCT FROM $1 AND scope = $2 AND key = $3
-              AND (expires_at IS NULL OR expires_at > now())
-            """,
-            user_id,
-            scope,
-            subkey,
-        )
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT value_enc FROM eidan.secrets_vault
+                WHERE user_id IS NOT DISTINCT FROM $1 AND scope = $2 AND key = $3
+                  AND (expires_at IS NULL OR expires_at > now())
+                """,
+                user_id,
+                scope,
+                subkey,
+            )
+            await _audit_safe(
+                conn, user_id=user_id, scope=scope, key=subkey, action="read", actor=None
+            )
+    except Exception as exc:  # noqa: BLE001 — never block a read on a DB hiccup
+        logger.warning("[secrets] vault read DB lookup failed: %s", exc)
+        return None
     if row is None:
         return None
     try:
