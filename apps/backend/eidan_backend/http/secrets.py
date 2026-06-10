@@ -58,12 +58,28 @@ def _require_user_provided(request: Request, key: str) -> None:
 
 @router.get("/api/me/secrets")
 async def list_my_secrets(request: Request) -> dict[str, Any]:
-    """List the caller's stored secret keys (metadata only — no values)."""
+    """The caller's connections catalogue — every ``user_provided`` key a
+    loaded plugin declares, each marked configured/not + its expiry. Metadata
+    only; values are never returned (`docs/012` §6.2).
+    """
     user_id = _user_uuid(request)
-    rows = await secrets_mod.list_user_secrets(
+    declared = secrets_mod.user_provided_declarations(
+        getattr(request.app.state, "plugins", []) or []
+    )
+    set_rows = await secrets_mod.list_user_secrets(
         request.app.state.pool, user_id=user_id
     )
-    return {"secrets": rows}
+    set_map = {r["key"]: r for r in set_rows}
+    connections = [
+        {
+            "key": key,
+            "description": declared[key],
+            "configured": key in set_map,
+            "expires_at": (set_map.get(key) or {}).get("expires_at"),
+        }
+        for key in sorted(declared)
+    ]
+    return {"connections": connections}
 
 
 @router.put("/api/me/secrets/{key}")
