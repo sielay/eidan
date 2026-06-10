@@ -32,6 +32,7 @@ from typing import Any
 
 import asyncpg
 
+from .a2a import A2AClient, a2a_http_call, register_a2a_tools
 from .artifacts import ArtifactService, make_artifact_store
 from .behaviours import Behaviour, BehaviourDispatcher, BehaviourRegistry
 from .capabilities import CapabilityRegistry, JobCapability
@@ -643,6 +644,86 @@ def _make_tool_registry_with_core_tools(
     return registry
 
 
+def _register_a2a_tools_from_env(
+    registry: ToolRegistry,
+) -> list[str]:
+    """Load and register A2A clients from environment configuration.
+
+    A2A clients are configured via environment variables:
+    - ``EIDAN_A2A_AGENTS`` (comma-separated list of agent names/IDs)
+    - ``EIDAN_A2A_{NAME}_BASE_URL`` (the remote agent's base URL)
+    - ``EIDAN_A2A_{NAME}_AUTH_TOKEN`` (optional — the bearer token *value*,
+      sent verbatim as ``Authorization: Bearer <value>``; the operator may
+      source it from the vault when rendering the env, but it is not a vault
+      key path)
+
+    Example:
+      EIDAN_A2A_AGENTS=sage,architect
+      EIDAN_A2A_SAGE_BASE_URL=http://remote-instance:8000
+      EIDAN_A2A_SAGE_AUTH_TOKEN=<bearer-token-value>
+
+    Returns the list of registered tool names. Logs and gracefully
+    skips any misconfigured clients.
+    """
+    registered: list[str] = []
+    agents_str = os.environ.get("EIDAN_A2A_AGENTS", "").strip()
+    if not agents_str:
+        return registered
+
+    agent_names = [name.strip() for name in agents_str.split(",") if name.strip()]
+    for agent_name in agent_names:
+        # Read the agent's configuration from environment.
+        # Variable names are UPPER_SNAKE_CASE.
+        env_name_base = f"EIDAN_A2A_{agent_name.upper()}"
+        base_url = os.environ.get(f"{env_name_base}_BASE_URL", "").strip()
+        auth_token = os.environ.get(f"{env_name_base}_AUTH_TOKEN", "").strip()
+
+        if not base_url:
+            logger.warning(
+                "[a2a] skipping agent %r: %s_BASE_URL not set",
+                agent_name,
+                env_name_base,
+            )
+            continue
+
+        # Create the A2A client with an HTTP transport.
+        async def make_call(
+            method: str,
+            args: dict[str, Any],
+            _url: str = base_url,
+            _token: str = auth_token,
+        ) -> dict[str, Any]:
+            return await a2a_http_call(
+                _url, method, args, auth_token=_token if _token else None
+            )
+
+        client = A2AClient(
+            agent_name=agent_name,
+            card=None,  # Card fetch is deferred; can be done on first call if needed
+            call=make_call,
+        )
+
+        try:
+            tool_names = register_a2a_tools(
+                registry, client=client, agent_name=agent_name
+            )
+            registered.extend(tool_names)
+            logger.info(
+                "[a2a] registered %d tool(s) for agent %r from %s",
+                len(tool_names),
+                agent_name,
+                base_url,
+            )
+        except Exception as exc:
+            logger.error(
+                "[a2a] failed to register agent %r: %s",
+                agent_name,
+                exc,
+            )
+
+    return registered
+
+
 async def bootstrap(
     *,
     pool: asyncpg.Pool,
@@ -701,20 +782,27 @@ async def bootstrap(
         # host — answering "what plugins are loaded?" with an empty
         # list is more helpful than the agent guessing.
         register_plugin_tools(tool_registry, plugins=[])
+    else:
+        logger.info(
+            "[bootstrap] loaded %d plugin(s): %s",
+            len(plugins),
+            ", ".join(p.manifest.name for p in plugins),
+        )
+
+        tool_registry = _make_tool_registry_with_core_tools(pool)
+        # Register plugin-introspection tools AFTER load_plugins so the
+        # closure inside `plugins_list` / `plugins_describe` sees the
+        # final loaded set. The list doesn't mutate after this point;
+        # capture by reference is safe.
+        register_plugin_tools(tool_registry, plugins=plugins)
+
+    # Register A2A delegation tools from environment configuration
+    # (`docs/029 §7`). Allows agents to delegate sub-tasks to remote
+    # A2A agents.
+    _register_a2a_tools_from_env(tool_registry)
+
+    if not plugins:
         return BootstrapResult(plugins=[], tool_registry=tool_registry)
-
-    logger.info(
-        "[bootstrap] loaded %d plugin(s): %s",
-        len(plugins),
-        ", ".join(p.manifest.name for p in plugins),
-    )
-
-    tool_registry = _make_tool_registry_with_core_tools(pool)
-    # Register plugin-introspection tools AFTER load_plugins so the
-    # closure inside `plugins_list` / `plugins_describe` sees the
-    # final loaded set. The list doesn't mutate after this point;
-    # capture by reference is safe.
-    register_plugin_tools(tool_registry, plugins=plugins)
     behaviour_registry = BehaviourRegistry(tool_registry=tool_registry)
     # Collects the job kinds plugins advertise at on_activate (#249);
     # snapshotted into the heartbeat after install_and_activate, below.

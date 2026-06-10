@@ -119,6 +119,30 @@ async def get_healthz() -> dict[str, str]:
 
 
 # -----------------------------------------------------------------------------
+# /.well-known/agent-card.json — A2A Agent Card
+# (docs/029 agent delegation/mesh; fetched by remote A2A clients for discovery)
+# -----------------------------------------------------------------------------
+
+
+@router.get("/.well-known/agent-card.json")
+async def get_agent_card() -> dict[str, Any]:
+    """Return this eidan instance's Agent Card for A2A discovery.
+
+    Public, unauthenticated. Remote A2A agents fetch this to learn
+    what capabilities this host exposes (streaming, etc.) before
+    attempting to delegate tasks.
+    """
+    return {
+        "id": "eidan",
+        "name": "eidan",
+        "description": "Personal agent host with tool-use and streaming",
+        "capabilities": {
+            "streaming": True,
+        },
+    }
+
+
+# -----------------------------------------------------------------------------
 # /api/auth/config
 # -----------------------------------------------------------------------------
 
@@ -2227,6 +2251,131 @@ async def list_jobs_endpoint(request: Request) -> dict[str, Any]:
             for r in rows
         ]
     }
+
+
+# ---------------------------------------------------------------------------
+# /api/rpc — A2A JSON-RPC 2.0 dispatcher
+#
+# The A2A protocol uses JSON-RPC 2.0 for method calls. This single endpoint
+# dispatches message/send, message/stream, tasks/get, tasks/resubscribe, and
+# tasks/cancel methods (docs/029 agent delegation/mesh; docs/030 is A2A
+# security schemes).
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/rpc")
+async def post_rpc(request: Request) -> Any:
+    """Dispatch A2A JSON-RPC 2.0 calls.
+
+    The body is a single JSON-RPC 2.0 request or array of requests.
+    Each method maps to a handler in a2a_handler. Streaming methods
+    return StreamingResponse; non-streaming methods return JSON-RPC
+    result/error envelopes.
+    """
+    from .a2a_handler import (
+        a2a_message_send,
+        a2a_message_stream,
+        a2a_tasks_cancel,
+        a2a_tasks_get,
+        a2a_tasks_resubscribe,
+    )
+
+    try:
+        body = await request.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"invalid JSON: {exc}"
+        ) from exc
+
+    # Single request (not batch)
+    if isinstance(body, dict):
+        req = body
+        method = req.get("method")
+        params = req.get("params", {})
+        request_id = req.get("id")
+
+        # Validate it's a valid JSON-RPC request
+        if not method:
+            return {
+                "jsonrpc": "2.0",
+                "error": {"code": -32600, "message": "Invalid Request"},
+                "id": request_id,
+            }
+
+        # Route to handler
+        if method == "message/send":
+            result = await a2a_message_send(request, params)
+            response = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+            }
+            if "error" in result:
+                response["error"] = result["error"]
+            else:
+                response["result"] = result.get("result")
+            return response
+        elif method == "message/stream":
+            result = await a2a_message_stream(request, params)
+            if isinstance(result, dict):
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                }
+                if "error" in result:
+                    response["error"] = result["error"]
+                else:
+                    response["result"] = result.get("result")
+                return response
+            return result
+        elif method == "tasks/get":
+            result = await a2a_tasks_get(request, params)
+            response = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+            }
+            if "error" in result:
+                response["error"] = result["error"]
+            else:
+                response["result"] = result.get("result")
+            return response
+        elif method == "tasks/resubscribe":
+            result = await a2a_tasks_resubscribe(request, params)
+            if isinstance(result, dict):
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                }
+                if "error" in result:
+                    response["error"] = result["error"]
+                else:
+                    response["result"] = result.get("result")
+                return response
+            return result
+        elif method == "tasks/cancel":
+            result = await a2a_tasks_cancel(request, params)
+            response = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+            }
+            if "error" in result:
+                response["error"] = result["error"]
+            else:
+                response["result"] = result.get("result")
+            return response
+        else:
+            return {
+                "jsonrpc": "2.0",
+                "error": {"code": -32601, "message": "Method not found"},
+                "id": request_id,
+            }
+
+    # Batch requests — not yet supported
+    if isinstance(body, list):
+        raise HTTPException(
+            status_code=400, detail="batch requests not yet supported"
+        )
+
+    raise HTTPException(status_code=400, detail="invalid request")
 
 
 # Job lifecycle states that are still "live" (can be cancelled) vs. settled

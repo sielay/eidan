@@ -38,7 +38,8 @@ _REQUEST_ID_HEADER = "x-request-id"
 # Paths that bypass auth entirely (`docs/011 §4.2`). The native
 # auth endpoints accept unauthenticated traffic by design — they
 # either issue or exchange credentials, so requiring a credential
-# to call them would be circular.
+# to call them would be circular. The agent card is also public —
+# remote A2A agents fetch it for discovery before sending requests.
 UNAUTHENTICATED_PATHS: frozenset[str] = frozenset(
     {
         "/api/auth/config",
@@ -49,6 +50,7 @@ UNAUTHENTICATED_PATHS: frozenset[str] = frozenset(
         "/api/healthz",
         "/api/readyz",
         "/api/version",
+        "/.well-known/agent-card.json",
     }
 )
 
