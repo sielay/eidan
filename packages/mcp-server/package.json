@@ -1,0 +1,21 @@
+{
+  "name": "@eidandev/mcp-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Inbound MCP server: exposes a curated set of eidan tools over the Model Context Protocol (JSON-RPC/HTTP) so external agents (Claude Code, other MCP clients) can use eidan memory. Pattern ported from potem apps/glue-web.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.0"
+  }
+}
