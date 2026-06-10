@@ -1,0 +1,21 @@
+{
+  "name": "@eidandev/notify",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Topology-driven outbound notifications: routes topics (node.startup/job.update/amygdala/…) to channels (slack/telegram) via EIDAN_NOTIFY_ROUTES. Ported from eidan notify_routes.py + potem channel senders.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.0"
+  }
+}
