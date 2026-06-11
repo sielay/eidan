@@ -39,6 +39,7 @@ The plugins:
 | `@eidandev/a2a-server` | inbound A2A agent (expose eidan to other agents) |
 | `@eidandev/notify` | topic-routed outbound notifications (slack/telegram) |
 | `@eidandev/llm-calls` | per-call cost/token ledger → `eidan.llm_calls` |
+| `@eidandev/procedures` | sandboxed agent-authored procedures: run JS that composes an allowlisted tool subset in an isolated-vm, ephemeral or promoted to the knowledge graph |
 
 ## The plugin & service model
 

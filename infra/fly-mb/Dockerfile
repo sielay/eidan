@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # eidan-on-matbot host image. Runs the matbot CLI in server mode with the full eidan core plugin
 # set (storage-postgres, llm-calls, memory, auth, notify, jobs, frontend-agui, mcp-server,
-# a2a-server). Node 24 runs the TypeScript sources directly (native type-stripping) — no build step.
+# a2a-server, procedures). Node 24 runs the TypeScript sources directly (native type-stripping).
 # One image deploys to every node; per-node env (EIDAN_JOB_KINDS, ports, routes) tunes the role.
 FROM node:24-slim
 
@@ -11,6 +11,12 @@ WORKDIR /app
 # 1) matbot runtime (vendored submodule) — install its own pnpm workspace.
 COPY external/matbot/ ./external/matbot/
 RUN cd external/matbot && pnpm install --config.engine-strict=false
+
+# isolated-vm (used by @eidandev/procedures for the sandbox) is a native addon — when no prebuilt
+# binary matches the platform, building it needs a C++ toolchain. (Follow-on: multi-stage build to
+# keep these out of the final image.)
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
 
 # 2) eidan core plugins (+ the migrate runner) — pg + symlinks to the vendored plugin-api.
 COPY packages/ ./packages/
