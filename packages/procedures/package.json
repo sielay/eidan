@@ -1,0 +1,24 @@
+{
+  "name": "@eidandev/procedures",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sandboxed agent-authored procedures: run JS that composes an allowlisted subset of eidan tools inside an isolated-vm, ephemeral or promoted to the knowledge graph.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "isolated-vm": "^5.0.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

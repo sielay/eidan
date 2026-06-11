@@ -27,6 +27,7 @@ plugins:
   - ./packages/frontend-agui # AG-UI turn stream + conversation REST (:8090)
   - ./packages/mcp-server # inbound MCP (JSON-RPC) (:8091)
   - ./packages/a2a-server # inbound A2A agent card + message/send (:8095)
+  - ./packages/procedures # sandboxed agent-authored procedures (isolated-vm); compose set via EIDAN_PROCEDURE_TOOLS (default: remember,recall)
   # Paid bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
 
 providers:
