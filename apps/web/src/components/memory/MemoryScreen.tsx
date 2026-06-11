@@ -10,10 +10,17 @@ import {
   Pencil,
   Pin,
   Search,
-  Sparkles,
 } from "lucide-react";
 
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 import { authFetch } from "@/lib/auth";
+import {
+  getKnowledgeRow,
+  updateKnowledgeRow,
+  type KnowledgeDetail as KnowledgeRow,
+} from "@/lib/api/knowledge";
 
 /**
  * Memory browser (UI_DESIGN_BRIEF §7, Core): Notes · Events · Knowledge,
@@ -480,29 +487,59 @@ function KnowledgeList({ onSelect }: { onSelect: (id: string) => void }): React.
   );
 }
 
+// Fetches the FULL knowledge row (not the list summary), renders the body as markdown, and edits it
+// inline (PATCH /api/knowledge/[id]).
 function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): React.ReactElement {
   const { topics } = useMem();
-  let k: Knowledge | null = null;
-  let topic = "";
-  for (const g of topics) {
-    for (const it of g.items) {
-      if (it.id === id) {
-        k = it;
-        topic = g.topic;
-      }
+  const topic = topics.find((g) => g.items.some((it) => it.id === id))?.topic ?? "";
+
+  const [row, setRow] = React.useState<KnowledgeRow | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [mode, setMode] = React.useState<"preview" | "edit">("preview");
+  const [draft, setDraft] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getKnowledgeRow(id)
+      .then((d) => {
+        if (cancelled) return;
+        setRow(d);
+        setDraft(d.body);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "failed to load");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  async function save(): Promise<void> {
+    if (!row || draft === row.body) {
+      setMode("preview");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await updateKnowledgeRow(row.id, { body: draft, expected_updated_at: row.updated_at });
+      setRow(updated);
+      setDraft(updated.body);
+      setMode("preview");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to save");
+    } finally {
+      setSaving(false);
     }
   }
-  if (!k) {
-    return (
-      <div className="content">
-        <div className="mem-detail">
-          <DetailBar label="Knowledge" onBack={onBack} />
-          <EmptyArea what="knowledge" />
-        </div>
-      </div>
-    );
-  }
-  const b = k.body;
+
   return (
     <div className="content">
       <div className="mem-detail">
@@ -511,23 +548,62 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): Re
             <ChevronLeft className="i-sm" aria-hidden />
             Knowledge
           </button>
-          <span className="pill pill--neutral">
-            <Sparkles className="i-sm" aria-hidden />
-            Learned · read-only
-          </span>
-        </div>
-        <div className="memtag" style={{ marginBottom: "var(--s2)" }}>{topic}</div>
-        <h1 className="mem-detail__title">{k.title}</h1>
-        <div className="md">
-          <h3>{b.h}</h3>
-          {b.p.map((p, i) => <p key={i}>{p}</p>)}
-          {b.list ? (
-            <ul>
-              {b.list.map((l, i) => <li key={i}>{l}</li>)}
-            </ul>
+          {row ? (
+            mode === "preview" ? (
+              <button type="button" className="iconbtn" onClick={() => setMode("edit")}>
+                <Pencil className="i-sm" aria-hidden />
+                Edit
+              </button>
+            ) : (
+              <div className="erow" style={{ gap: 8 }}>
+                <button
+                  type="button"
+                  className="iconbtn"
+                  onClick={() => {
+                    setDraft(row.body);
+                    setMode("preview");
+                  }}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  style={{ minHeight: 36 }}
+                  onClick={() => void save()}
+                  disabled={saving || draft === row.body}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            )
           ) : null}
-          {b.code ? <code className="md-code">{b.code}</code> : null}
         </div>
+        {topic ? <div className="memtag" style={{ marginBottom: "var(--s2)" }}>{topic}</div> : null}
+        <h1 className="mem-detail__title">{row?.title ?? (loading ? "Loading…" : "Knowledge")}</h1>
+        {loading ? (
+          <p className="onb-lede">Loading…</p>
+        ) : !row ? (
+          <EmptyArea what="knowledge" />
+        ) : mode === "edit" ? (
+          <textarea
+            className="input mem-textarea"
+            style={{ minHeight: 300, width: "100%", fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: "var(--fs-14)" }}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            autoFocus
+          />
+        ) : (
+          <div className="md">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.body}</ReactMarkdown>
+          </div>
+        )}
+        {error ? (
+          <p className="login-err is-on" role="alert" style={{ marginTop: "var(--s3)" }}>
+            {error}
+          </p>
+        ) : null}
       </div>
     </div>
   );
