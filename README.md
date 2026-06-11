@@ -36,8 +36,9 @@ packages/
   a2a-server/           # inbound A2A agent (expose eidan as an agent to other agents)
   notify/               # topic-routed outbound notifications (slack / telegram)
   llm-calls/            # per-call cost/token ledger -> eidan.llm_calls
-migrations/             # the eidan.* Postgres schema (DDL)
-infra/fly-mb/           # the deployable host image (Fly / any container)
+apps/web/               # reference Next.js UI: chat over AG-UI + dashboards over Postgres
+migrations/             # the eidan.* Postgres schema (SQL baseline + a Node migrate runner)
+infra/fly-mb/           # the deployable host image (Fly / Pi / any container)
 ```
 
 Memory lives in Postgres under the `eidan` schema (conversations, messages, events, knowledge,
@@ -47,8 +48,10 @@ through `@eidandev/storage-postgres` with **keen, append-only** persistence — 
 **Interop on three open protocols:** MCP (tools — in *and* out), AG-UI (the chat wire to your UI),
 and A2A (agent-to-agent). Eidan speaks all three.
 
-**The UI is your own.** matbot is a headless engine. Build (or bring) a Next.js app that talks to
-`frontend-agui` over AG-UI for chat and reads Postgres directly for dashboards.
+**The UI is your own.** matbot is a headless engine. This repo ships a reference Next.js app
+(`apps/web`) as the single same-origin front door: it proxies chat + auth through to the engine
+(AG-UI over `frontend-agui`) and reads Postgres directly for the dashboards (RLS-scoped). Swap it
+for your own — the engine doesn't care.
 
 ## Quick start
 
@@ -56,31 +59,38 @@ and A2A (agent-to-agent). Eidan speaks all three.
 git clone --recurse-submodules https://github.com/sielay/eidan.git && cd eidan
 ( cd external/matbot && pnpm install )   # the runtime
 pnpm install                             # the eidan plugins
-cp infra/fly-mb/matbot.yaml ./matbot.yaml   # host config (gitignored)
+cp matbot.yaml.example ./matbot.yaml     # host config (the real matbot.yaml is gitignored)
+EIDAN_DATABASE_URL=postgres://eidan_app:...@host/eidan pnpm --filter @eidandev/migrate migrate
 ```
 
 Run the host (Node 24+ runs the TypeScript directly — no build step):
 
 ```bash
 EIDAN_DATABASE_URL=postgres://eidan_app:...@host/eidan \
-ANTHROPIC_API_KEY=sk-ant-... \
-node --import ./external/matbot/apps/cli/register.js external/matbot/apps/cli/src/index.ts start
+ANTHROPIC_API_KEY=sk-ant-... EIDAN_AUTH_JWT_SECRET=... MATBOT_PRINCIPAL=<eidan.users-uuid> \
+node --import ./external/matbot/apps/cli/register.js \
+     external/matbot/apps/cli/src/index.ts start --config ./matbot.yaml
 ```
 
-`EIDAN_DATABASE_URL` points at a Postgres with the `eidan` schema applied (`migrations/`), via a
-**non-superuser** role so RLS enforces. Reach it on the AG-UI surface (`:8090`), the MCP server
-(`:8091`), or the A2A agent (`:8095`).
+`EIDAN_DATABASE_URL` points at a Postgres with the `eidan` schema applied (`pnpm --filter
+@eidandev/migrate migrate`), via a **non-superuser** role so RLS enforces. Reach it on the AG-UI
+surface (`:8090`), the MCP server (`:8091`), or the A2A agent (`:8095`). The reference UI runs with
+`cd apps/web && pnpm install && pnpm dev` (set `NEXT_PUBLIC_EIDAN_BACKEND_URL=` empty + `EIDAN_ENGINE_URL`
+to the host so it's the same-origin front door).
 
 ### Deploy (Fly / container)
 
-`infra/fly-mb/Dockerfile` builds the host image; `infra/fly-mb/fly.toml.example` is the Fly config.
-`fly secrets set EIDAN_DATABASE_URL=… ANTHROPIC_API_KEY=…`, then `fly deploy`.
+`infra/fly-mb/Dockerfile` builds the host image — see **[infra/fly-mb/README.md](infra/fly-mb/README.md)**
+for the full guide (required env, ports, `migrate`/update flow, and how a deploy vendors a paid
+bundle). In short: `fly secrets set EIDAN_DATABASE_URL=… ANTHROPIC_API_KEY=…`, then `fly deploy`.
 
 ## Plugins & paid bundles
 
 A plugin is one TypeScript module exporting a `MatbotPlugin` (`export const plugin`). Core ships
 the packages above (AGPL). Pre-packaged paid bundles (coding, business, lifestyle) live in
-standalone private sibling repos and drop in as more plugins — see [eidan.dev](https://eidan.dev).
+standalone private sibling repos and are **vendored into the host image at deploy time** as more
+plugins — they plug into core purely through the string-keyed service registry (e.g. a coding
+bundle registers a `'code'` job handler), never editing core. See [eidan.dev](https://eidan.dev).
 
 ## Licensing
 

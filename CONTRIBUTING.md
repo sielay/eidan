@@ -24,7 +24,9 @@ AGPL for everyone else, or relicense core out of AGPL (`CLA.md §7`).
 1. Open an issue first for anything non-trivial. Big-bang PRs are usually not merged.
 2. Branch from `main`, keep commits focused.
 3. Push and open the PR; the CLA bot asks you to sign on first contribution.
-4. CI must pass (the license-header check + CLA). Run `pnpm -r run typecheck` locally first.
+4. CI must pass — the license-header check, the forbidden-string gate, CodeQL, and the CLA. Run
+   `pnpm -r run typecheck` locally first (the `apps/web` UI installs + typechecks standalone:
+   `cd apps/web && pnpm install && pnpm typecheck`).
 
 ## License header on new source files
 

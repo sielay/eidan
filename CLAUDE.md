@@ -20,8 +20,9 @@ plugin/service interface.
 ```
 external/matbot/      # the agent runtime (Apache-2.0 git submodule). Don't edit; contribute upstream.
 packages/<name>/      # eidan plugins (AGPL). One TypeScript module each, exporting `const plugin`.
-migrations/           # the eidan.* Postgres schema (DDL).
-infra/fly-mb/         # the deployable host image (Dockerfile + fly config).
+apps/web/             # reference Next.js UI (front door): proxy for chat/auth + Next->Postgres dashboards.
+migrations/           # the eidan.* schema as ordered SQL + a Node migrate runner (@eidandev/migrate).
+infra/fly-mb/         # the deployable host image (Dockerfile + fly config + deploy README).
 matbot.yaml.example   # host config template (the real matbot.yaml is gitignored).
 ```
 
@@ -89,10 +90,10 @@ append-only rows. Plugin-private data goes in a `plugin_<name>` schema the plugi
 `matbotRuntime: ["node"]`, `exports: { ".": "./src/index.ts" }`, link `@matatbread/matbot-plugin-api`),
 a strict `tsconfig.json`, and `src/index.ts` exporting `const plugin`. List it in `matbot.yaml`.
 
-**Add / change a core memory table** — add a migration under `migrations/versions/` (additive;
-`created_at`/`updated_at`, soft-delete + partial indexes for user-visible rows). The matbot backend
-reads the new columns. *(Porting the Alembic runner to a TS/SQL runner is an open item; the DDL is
-the record.)*
+**Add / change a core memory table** — drop a new `migrations/sql/NNNN_name.sql` (additive;
+`created_at`/`updated_at`, soft-delete + partial indexes for user-visible rows) and apply it with
+`pnpm --filter @eidandev/migrate migrate` (idempotent; tracked in `eidan._migrations`). The matbot
+backend reads the new columns.
 
 **Expose a capability to other plugins** — `await services.register('YourService', impl)`, augment
 `MatbotServices` with `YourService?: YourService`, consume via `services.YourService?.…`. Name the
