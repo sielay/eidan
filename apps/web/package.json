@@ -1,5 +1,5 @@
 {
-  "name": "@eidan/web",
+  "name": "@eidandev/web",
   "version": "0.1.0",
   "private": true,
   "description": "Eidan host UI (Next.js App Router).",
