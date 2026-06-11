@@ -28,11 +28,17 @@ export async function withPrincipal<R>(principal: Principal | undefined, fn: (q:
     const q: Q = (text, params) => client.query(text, params as unknown[]);
     const r = await fn(q);
     await client.query('commit');
+    client.release();
     return r;
   } catch (e) {
-    await client.query('rollback');
+    // Guard the rollback: on a broken connection it throws and would mask the original error.
+    try {
+      await client.query('rollback');
+    } catch {
+      /* tx/connection already broken — keep the original error */
+    }
+    // Destroy a possibly-dirty connection (open tx) rather than return it to the pool.
+    client.release(e instanceof Error ? e : true);
     throw e;
-  } finally {
-    client.release();
   }
 }

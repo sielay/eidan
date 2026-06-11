@@ -45,7 +45,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!sess) return new Response("unauthorized", { status: 401 });
   const { id } = await ctx.params;
 
-  let payload: { title?: string; body?: string; skill?: string };
+  let payload: { title?: string; body?: string; skill?: string; expected_updated_at?: string };
   try {
     payload = (await req.json()) as typeof payload;
   } catch {
@@ -53,22 +53,35 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   try {
-    const row = await withUser(sess.userId, async (c) => {
-      // coalesce keeps unset fields unchanged (last-write-wins; the body_tsv generated column follows body).
+    const result = await withUser(sess.userId, async (c) => {
+      // Optimistic concurrency: when the client sends expected_updated_at, only update if the row
+      // hasn't changed since they loaded it. Compare at millisecond precision (the ISO the GET
+      // returns), so a clean round-trip matches but a concurrent edit (newer updated_at) does not.
+      const params: unknown[] = [id, sess.userId, payload.title ?? null, payload.body ?? null, payload.skill ?? null];
+      let guard = "";
+      if (payload.expected_updated_at) {
+        params.push(payload.expected_updated_at);
+        guard = ` and date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', $6::timestamptz)`;
+      }
       const r = await c.query(
         `update eidan.knowledge
             set title = coalesce($3, title),
                 body  = coalesce($4, body),
                 skill = coalesce($5, skill),
                 updated_at = now()
-          where id=$1 and user_id=$2 and deleted_at is null
+          where id=$1 and user_id=$2 and deleted_at is null${guard}
           returning ${COLS}`,
-        [id, sess.userId, payload.title ?? null, payload.body ?? null, payload.skill ?? null],
+        params,
       );
-      return r.rows[0] as Record<string, unknown> | undefined;
+      const row = r.rows[0] as Record<string, unknown> | undefined;
+      if (row) return { row };
+      // 0 rows updated: distinguish a stale-edit conflict (row still exists) from a deleted row.
+      const exists = await c.query("select 1 from eidan.knowledge where id=$1 and user_id=$2 and deleted_at is null", [id, sess.userId]);
+      return { conflict: (exists.rowCount ?? 0) > 0 };
     });
-    if (!row) return new Response("not found", { status: 404 });
-    return Response.json({ knowledge: detail(row) });
+    if ("row" in result && result.row) return Response.json({ knowledge: detail(result.row) });
+    if ("conflict" in result && result.conflict) return new Response("conflict", { status: 409 });
+    return new Response("not found", { status: 404 });
   } catch (e) {
     return new Response(e instanceof Error ? e.message : "update failed", { status: 400 });
   }

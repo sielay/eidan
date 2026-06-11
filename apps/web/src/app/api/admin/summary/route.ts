@@ -46,11 +46,18 @@ export async function GET(req: NextRequest): Promise<Response> {
          from eidan.node_events where ts >= now() - interval '${interval}'
          group by b order by b`,
     );
+    // A "turn" is one request_id (a trace), which may issue several llm_calls; count distinct
+    // turns (errored if ANY call in the turn errored), not raw call rows, and sum cost over all calls.
     const totals = await c.query(
-      `select count(*) filter (where error is null)::int as complete,
-              count(*) filter (where error is not null)::int as error,
-              coalesce(sum(cost_usd), 0) as cost
-         from eidan.llm_calls where user_id=$1 and started_at >= now() - interval '${interval}'`,
+      `select count(*) filter (where not has_error)::int as complete,
+              count(*) filter (where has_error)::int as error,
+              coalesce(sum(cost), 0) as cost
+         from (
+           select request_id, bool_or(error is not null) as has_error, sum(cost_usd) as cost
+             from eidan.llm_calls
+            where user_id=$1 and started_at >= now() - interval '${interval}' and request_id is not null
+            group by request_id
+         ) t`,
       [sess.userId],
     );
     return { byStatus: byStatus.rows, byKind: byKind.rows, buckets: buckets.rows, totals: totals.rows[0] };

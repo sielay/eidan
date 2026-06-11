@@ -19,6 +19,7 @@ import { authFetch } from "@/lib/auth";
 import {
   getKnowledgeRow,
   updateKnowledgeRow,
+  KnowledgeConflictError,
   type KnowledgeDetail as KnowledgeRow,
 } from "@/lib/api/knowledge";
 
@@ -60,12 +61,15 @@ interface Knowledge {
 }
 
 /* ---------------- Data (live) ---------------- */
-interface MemData {
+interface MemDataRows {
   notes: Note[];
   events: EventItem[];
   topics: { topic: string; items: Knowledge[] }[];
 }
-const MemoryContext = React.createContext<MemData>({ notes: [], events: [], topics: [] });
+interface MemData extends MemDataRows {
+  reload: () => void;
+}
+const MemoryContext = React.createContext<MemData>({ notes: [], events: [], topics: [], reload: () => {} });
 function useMem(): MemData {
   return React.useContext(MemoryContext);
 }
@@ -77,7 +81,7 @@ interface KRow {
   summary: string;
 }
 
-async function loadMemory(): Promise<MemData> {
+async function loadMemory(): Promise<MemDataRows> {
   const [nRes, eRes, kRes] = await Promise.all([
     authFetch("/api/notes"),
     authFetch("/api/events"),
@@ -111,22 +115,19 @@ const TABS: { id: Area; label: string }[] = [
 ];
 
 export function MemoryScreen(): React.ReactElement {
-  const [data, setData] = React.useState<MemData>({ notes: [], events: [], topics: [] });
-  React.useEffect(() => {
-    let cancelled = false;
+  const [data, setData] = React.useState<MemDataRows>({ notes: [], events: [], topics: [] });
+  const reload = React.useCallback(() => {
     loadMemory()
-      .then((d) => {
-        if (!cancelled) setData(d);
-      })
+      .then(setData)
       .catch(() => {
-        /* leave empty on failure */
+        /* leave previous data on failure */
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
   return (
-    <MemoryContext.Provider value={data}>
+    <MemoryContext.Provider value={{ ...data, reload }}>
       <MemoryScreenInner />
     </MemoryContext.Provider>
   );
@@ -306,45 +307,83 @@ function NoteDetail({
 }
 
 function NoteEdit({ id, onDone }: { id: string; onDone: () => void }): React.ReactElement {
-  const { notes } = useMem();
-  const n = notes.find((x) => x.id === id) ?? notes[0];
-  if (!n) {
-    return (
-      <div className="content">
-        <div className="mem-detail">
-          <DetailBar label="Cancel" onBack={onDone} />
-          <EmptyArea what="note" />
-        </div>
-      </div>
-    );
+  const { notes, reload } = useMem();
+  const n = notes.find((x) => x.id === id);
+  const [content, setContent] = React.useState("");
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // Load the raw note content (the list only carries a split/snippet form).
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    authFetch(`/api/notes/${id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`load failed (${r.status})`))))
+      .then((j: { note: { content: string } }) => {
+        if (!cancelled) setContent(j.note.content ?? "");
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "failed to load");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  async function save(): Promise<void> {
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await authFetch(`/api/notes/${id}`, { method: "PATCH", body: JSON.stringify({ content }) });
+      if (!r.ok) throw new Error(`save failed (${r.status})`);
+      reload();
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to save");
+    } finally {
+      setSaving(false);
+    }
   }
+
   return (
     <div className="content">
       <div className="mem-detail">
         <div className="mem-detail__bar">
-          <button type="button" className="iconbtn mem-backbtn" onClick={onDone}>
+          <button type="button" className="iconbtn mem-backbtn" onClick={onDone} disabled={saving}>
             <ChevronLeft className="i-sm" aria-hidden />
             Cancel
           </button>
-          <button type="button" className="btn btn--primary" style={{ minHeight: 38 }} onClick={onDone}>
-            Save
+          <button
+            type="button"
+            className="btn btn--primary"
+            style={{ minHeight: 38 }}
+            onClick={() => void save()}
+            disabled={saving || loading}
+          >
+            {saving ? "Saving…" : "Save"}
           </button>
         </div>
-        <div className="field" style={{ marginBottom: "var(--s4)" }}>
-          <span className="field__label">Title</span>
-          <div className="input" style={{ fontWeight: 600 }}>{n.title}</div>
-        </div>
-        <div className="field" style={{ marginBottom: "var(--s4)" }}>
-          <span className="field__label">Note</span>
-          <div className="input mem-textarea">{n.body.join("\n\n")}</div>
-        </div>
+        {n ? <h1 className="mem-detail__title">{n.title}</h1> : null}
         <div className="field">
-          <span className="field__label">Tags</span>
-          <div className="erow">
-            {n.tags.map((t) => <span key={t} className="chip chip--selected">{t}</span>)}
-            <span className="chip">+ Add</span>
-          </div>
+          <span className="field__label">Note</span>
+          <textarea
+            className="input mem-textarea"
+            style={{ minHeight: 280, width: "100%", fontSize: "var(--fs-15)" }}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            disabled={loading || saving}
+            autoFocus
+          />
         </div>
+        {error ? (
+          <p className="login-err is-on" role="alert" style={{ marginTop: "var(--s3)" }}>
+            {error}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -490,7 +529,7 @@ function KnowledgeList({ onSelect }: { onSelect: (id: string) => void }): React.
 // Fetches the FULL knowledge row (not the list summary), renders the body as markdown, and edits it
 // inline (PATCH /api/knowledge/[id]).
 function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): React.ReactElement {
-  const { topics } = useMem();
+  const { topics, reload } = useMem();
   const topic = topics.find((g) => g.items.some((it) => it.id === id))?.topic ?? "";
 
   const [row, setRow] = React.useState<KnowledgeRow | null>(null);
@@ -504,6 +543,7 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): Re
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setMode("preview"); // re-targeting the detail must not keep a stale edit textarea
     getKnowledgeRow(id)
       .then((d) => {
         if (cancelled) return;
@@ -533,8 +573,21 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): Re
       setRow(updated);
       setDraft(updated.body);
       setMode("preview");
+      reload(); // refresh the list so its title/summary aren't stale
     } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to save");
+      if (e instanceof KnowledgeConflictError) {
+        // Someone (or the agent) edited this row since we loaded it — refetch so the operator sees
+        // the current text and a retry sends a fresh expected_updated_at.
+        try {
+          const fresh = await getKnowledgeRow(row.id);
+          setRow(fresh);
+          setError("This entry changed since you opened it — it's been refreshed. Re-apply your edit.");
+        } catch {
+          setError("This entry changed since you opened it.");
+        }
+      } else {
+        setError(e instanceof Error ? e.message : "failed to save");
+      }
     } finally {
       setSaving(false);
     }

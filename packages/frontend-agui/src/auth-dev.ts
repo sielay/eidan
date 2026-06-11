@@ -4,7 +4,7 @@
 // (config / magic-link / verify / refresh / logout) and mints HS256 tokens the @eidandev/auth
 // WebPrincipalResolver verifies with the same EIDAN_AUTH_JWT_SECRET. In production the Next app
 // owns real magic-link email auth — this file is never loaded there.
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 function b64url(buf: Buffer | string): string {
@@ -19,11 +19,21 @@ function signHs256(claims: Record<string, unknown>, secret: string): string {
   return `${header}.${payload}.${sig}`;
 }
 
-function decode(token: string): Record<string, unknown> | null {
-  const p = token.split('.')[1];
-  if (!p) return null;
-  try { return JSON.parse(Buffer.from(p.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) as Record<string, unknown>; }
+// Verify a token we minted: recompute the HMAC, constant-time compare, check exp. Returns the
+// claims only on a valid signature (NOT a bare base64 decode — that would accept forged tokens).
+function verifyHs256(token: string, secret: string): Record<string, unknown> | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [h, p, sig] = parts;
+  if (!h || !p || !sig) return null;
+  const expected = createHmac('sha256', secret).update(`${h}.${p}`).digest();
+  const actual = Buffer.from(sig.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
+  let claims: Record<string, unknown>;
+  try { claims = JSON.parse(Buffer.from(p.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) as Record<string, unknown>; }
   catch { return null; }
+  if (typeof claims.exp === 'number' && claims.exp * 1000 < Date.now()) return null;
+  return claims;
 }
 
 function nowSec(): number { return Math.floor(Date.now() / 1000); }
@@ -110,7 +120,7 @@ export async function handleDevAuth(req: IncomingMessage, res: ServerResponse, p
     let body: { token?: string; code?: string };
     try { body = JSON.parse(await readBody(req)) as typeof body; } catch { send(res, 400, { error: 'invalid JSON' }, {}, cors); return true; }
     const okCode = typeof body.code === 'string' && body.code === c.code;
-    const okToken = typeof body.token === 'string' && (decode(body.token)?.['sub'] === c.userId);
+    const okToken = typeof body.token === 'string' && verifyHs256(body.token, c.secret)?.['sub'] === c.userId;
     if (!okCode && !okToken) { send(res, 401, { error: 'invalid code or token' }, {}, cors); return true; }
     const headers: Record<string, string> = {};
     setRefreshCookie(headers, c);
@@ -120,7 +130,7 @@ export async function handleDevAuth(req: IncomingMessage, res: ServerResponse, p
 
   if (method === 'POST' && pathname === '/api/auth/refresh') {
     const cookie = readCookie(req, 'eidan_refresh');
-    if (!cookie || decode(cookie)?.['sub'] !== c.userId) { send(res, 401, { error: 'no refresh session' }, {}, cors); return true; }
+    if (!cookie || verifyHs256(cookie, c.secret)?.['sub'] !== c.userId) { send(res, 401, { error: 'no refresh session' }, {}, cors); return true; }
     send(res, 200, { access_token: accessToken(c), user: { id: c.userId, email: c.email } }, {}, cors);
     return true;
   }

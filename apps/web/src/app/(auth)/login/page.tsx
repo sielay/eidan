@@ -14,7 +14,7 @@ import {
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
-import { requestMagicLink, verifyMagicLink } from "@/lib/auth";
+import { requestMagicLink, verifyMagicLink, refreshAccessToken } from "@/lib/auth";
 
 /**
  * Magic-link sign-in — implements the Login.html design (Claude Design handoff)
@@ -122,6 +122,21 @@ export default function LoginPage(): React.ReactElement {
     },
     [],
   );
+
+  // "I've clicked the link" in production (no dev code): the email link may have been opened in
+  // another tab/device, setting the refresh cookie — pick it up rather than leaving a dead button.
+  const recheck = React.useCallback(async (): Promise<void> => {
+    setError(null);
+    setStage("verifying");
+    const slot = await refreshAccessToken();
+    if (slot) {
+      setStage("done");
+      setTimeout(() => window.location.assign("/"), 500);
+    } else {
+      setStage("sent");
+      setError("We haven't seen the sign-in yet — open the link in your email.");
+    }
+  }, []);
 
   // Email-link landing: /login?token=… → auto-verify.
   React.useEffect(() => {
@@ -305,9 +320,7 @@ export default function LoginPage(): React.ReactElement {
           <div className="login-actions">
             <button
               className="btn btn--primary btn--block btn--lg"
-              onClick={() => runVerify(devCode ? { code: devCode } : {})}
-              disabled={!devCode}
-              title={devCode ? undefined : "Click the link in your email to continue"}
+              onClick={() => void (devCode ? runVerify({ code: devCode }) : recheck())}
             >
               I&apos;ve clicked the link
               <ArrowRight className="i i-sm" aria-hidden />

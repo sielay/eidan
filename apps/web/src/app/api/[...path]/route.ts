@@ -39,7 +39,9 @@ async function proxy(req: NextRequest, path: string[]): Promise<Response> {
   const upstream = await fetch(url, init);
 
   const resHeaders = new Headers();
-  for (const h of ["content-type", "cache-control"]) {
+  // Forward Location/WWW-Authenticate/Retry-After so redirects (3xx) and auth challenges from the
+  // engine survive the proxy — copying only content-type/cache-control would strip them.
+  for (const h of ["content-type", "cache-control", "location", "www-authenticate", "retry-after"]) {
     const v = upstream.headers.get(h);
     if (v) resHeaders.set(h, v);
   }

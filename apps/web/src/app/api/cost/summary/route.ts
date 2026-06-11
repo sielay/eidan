@@ -18,6 +18,10 @@ export async function GET(req: NextRequest): Promise<Response> {
   const raw = req.nextUrl.searchParams.get("scope") ?? "day";
   const scope = SCOPES.has(raw) ? raw : "day";
   const messageId = req.nextUrl.searchParams.get("message_id");
+  // Without a message_id, `message_id = NULL` matches nothing and would return a misleading $0.
+  if (scope === "turn" && !messageId) {
+    return new Response("scope=turn requires message_id", { status: 400 });
+  }
 
   const row = await withUser(sess.userId, async (c) => {
     const params: unknown[] = [sess.userId];

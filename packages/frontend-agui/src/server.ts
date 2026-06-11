@@ -87,11 +87,21 @@ async function route(req: IncomingMessage, res: ServerResponse, services: Matbot
   // Public, unauthenticated identity endpoints (dev-only; no-op when EIDAN_DEV_AUTH≠1).
   if (await handleDevAuth(req, res, pathname, cors)) return;
 
-  // Authenticated: resolve the per-request principal (or boot if no resolver registered).
+  // Authenticated: resolve the per-request principal. If an auth plugin registered a resolver, it
+  // is authoritative (throws → 401). With NO resolver we fail CLOSED in production — falling back to
+  // the boot principal is opt-in (headless/dev), so a failed/absent auth plugin can't silently serve
+  // every request as the boot user.
   let principal: Principal;
   try {
     const resolver = services.WebPrincipalResolver;
-    principal = resolver ? await resolver(req) : (tryCurrentPrincipal() ?? boot);
+    if (resolver) {
+      principal = await resolver(req);
+    } else if (process.env['EIDAN_DEV_AUTH'] === '1' || process.env['EIDAN_ALLOW_BOOT_PRINCIPAL'] === '1') {
+      principal = tryCurrentPrincipal() ?? boot;
+    } else {
+      json(res, 401, { error: 'authentication not configured' }, cors);
+      return;
+    }
   } catch (e) {
     json(res, 401, { error: e instanceof Error ? e.message : 'unauthorized' }, cors);
     return;

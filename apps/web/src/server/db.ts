@@ -22,12 +22,18 @@ export async function withUser<R>(userId: string, fn: (c: PoolClient) => Promise
     await client.query("select set_config('eidan.current_user_id', $1, true)", [userId]);
     const r = await fn(client);
     await client.query("commit");
+    client.release();
     return r;
   } catch (e) {
-    await client.query("rollback");
+    // Guard the rollback so a broken connection can't mask the original error.
+    try {
+      await client.query("rollback");
+    } catch {
+      /* tx/connection already broken */
+    }
+    // Destroy a possibly-dirty connection rather than return it to the pool.
+    client.release(e instanceof Error ? e : true);
     throw e;
-  } finally {
-    client.release();
   }
 }
 

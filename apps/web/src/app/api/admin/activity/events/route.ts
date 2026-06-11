@@ -28,9 +28,34 @@ export async function GET(req: NextRequest): Promise<Response> {
   const enc = new TextEncoder();
   let lastSeq = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let closed = false;
+  const stop = (): void => {
+    closed = true;
+    if (timer) clearInterval(timer);
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      // Register the abort handler BEFORE any await — a client that disconnects during the initial
+      // query would otherwise miss the abort (a listener added after a fired signal never runs),
+      // leaking the polling interval. Guard against a disconnect that already happened.
+      req.signal.addEventListener("abort", () => {
+        stop();
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+      });
+      if (req.signal.aborted) {
+        stop();
+        try {
+          controller.close();
+        } catch {
+          /* noop */
+        }
+        return;
+      }
       controller.enqueue(enc.encode(": stream-open\n\n"));
       try {
         const rows = await withUser(sess.userId, async (c) => {
@@ -48,6 +73,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       }
 
       timer = setInterval(() => {
+        if (closed) return;
         void (async () => {
           try {
             const rows = await withUser(sess.userId, async (c) => {
@@ -57,6 +83,7 @@ export async function GET(req: NextRequest): Promise<Response> {
               );
               return r.rows as Array<Record<string, unknown>>;
             });
+            if (closed) return; // disconnected while the query was in flight
             for (const r of rows) {
               lastSeq = Math.max(lastSeq, Number(r.seq));
               controller.enqueue(enc.encode(frame(r)));
@@ -67,18 +94,9 @@ export async function GET(req: NextRequest): Promise<Response> {
           }
         })();
       }, 3000);
-
-      req.signal.addEventListener("abort", () => {
-        if (timer) clearInterval(timer);
-        try {
-          controller.close();
-        } catch {
-          /* already closed */
-        }
-      });
     },
     cancel() {
-      if (timer) clearInterval(timer);
+      stop();
     },
   });
 

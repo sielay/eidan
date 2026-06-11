@@ -67,6 +67,10 @@ export class AguiEmitter {
         return this.error(ev.error);
       case 'aborted':
         return this.error(`aborted: ${ev.reason}`);
+      case 'cancelled':
+        // A queued submission dropped before it ran — still emit a terminal so the client
+        // reconciles the run instead of spinning forever.
+        return this.error('cancelled');
       default:
         return [];
     }
