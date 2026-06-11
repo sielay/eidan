@@ -37,6 +37,17 @@ export async function withUser<R>(userId: string, fn: (c: PoolClient) => Promise
   }
 }
 
+// Plain query (no RLS GUC) for system tables that aren't user-scoped — the auth flow
+// (auth_magic_links / auth_sessions / users) runs before a user principal exists.
+export async function query(text: string, params?: unknown[]): Promise<import("pg").QueryResult> {
+  const client = await getPool().connect();
+  try {
+    return await client.query(text, params as unknown[]);
+  } finally {
+    client.release();
+  }
+}
+
 export function iso(v: unknown): string {
   return v instanceof Date ? v.toISOString() : String(v ?? "");
 }
