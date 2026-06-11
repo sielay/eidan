@@ -1,0 +1,72 @@
+# eidan — self-host stack. Postgres + the matbot engine + the Next UI, wired together.
+#   cp .env.compose.example .env  &&  edit it  &&  docker compose up -d   →   http://localhost:3001
+#
+# Images default to the published multi-arch builds (work on a Pi or a server); `docker compose
+# build` rebuilds them locally. Paid/extra bundles are baked into the engine image at build time by
+# `eidan-deploy assemble` (see deploy/), never into this file.
+name: eidan
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: eidan
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eidan}
+      POSTGRES_DB: eidan
+    volumes:
+      - eidan-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eidan -d eidan"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: apply the eidan.* schema, then exit.
+  migrate:
+    image: ${EIDAN_ENGINE_IMAGE:-ghcr.io/sielay/eidan-engine:latest}
+    build: { context: ., dockerfile: infra/fly-mb/Dockerfile }
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      EIDAN_DATABASE_URL: ${EIDAN_DATABASE_URL:-postgres://eidan:eidan@postgres:5432/eidan}
+    command: ["node", "migrations/migrate.mjs"]
+    restart: "no"
+
+  engine:
+    image: ${EIDAN_ENGINE_IMAGE:-ghcr.io/sielay/eidan-engine:latest}
+    build: { context: ., dockerfile: infra/fly-mb/Dockerfile }
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    environment:
+      EIDAN_DATABASE_URL: ${EIDAN_DATABASE_URL:-postgres://eidan:eidan@postgres:5432/eidan}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      EIDAN_AUTH_JWT_SECRET: ${EIDAN_AUTH_JWT_SECRET}
+      MATBOT_PRINCIPAL: ${MATBOT_PRINCIPAL:-}
+      EIDAN_JOB_KINDS: ${EIDAN_JOB_KINDS:-chat}
+      EIDAN_NOTIFY_ROUTES: ${EIDAN_NOTIFY_ROUTES:-}
+    expose: ["8090", "8091", "8095"] # internal; the web app reaches it at http://engine:8090
+    restart: unless-stopped
+
+  web:
+    image: ${EIDAN_WEB_IMAGE:-ghcr.io/sielay/eidan-web:latest}
+    build: { context: ./apps/web }
+    depends_on: [engine]
+    environment:
+      EIDAN_ENGINE_URL: http://engine:8090
+      EIDAN_DATABASE_URL: ${EIDAN_DATABASE_URL:-postgres://eidan:eidan@postgres:5432/eidan}
+      EIDAN_AUTH_JWT_SECRET: ${EIDAN_AUTH_JWT_SECRET}
+      EIDAN_AUTH_ALLOWED_EMAIL: ${EIDAN_AUTH_ALLOWED_EMAIL}
+      EIDAN_PUBLIC_ORIGIN: ${EIDAN_PUBLIC_ORIGIN:-http://localhost:3001}
+      EIDAN_SMTP_HOST: ${EIDAN_SMTP_HOST:-}
+      EIDAN_SMTP_PORT: ${EIDAN_SMTP_PORT:-587}
+      EIDAN_SMTP_SECURE: ${EIDAN_SMTP_SECURE:-}
+      EIDAN_SMTP_USER: ${EIDAN_SMTP_USER:-}
+      EIDAN_SMTP_PASS: ${EIDAN_SMTP_PASS:-}
+      EIDAN_SMTP_FROM: ${EIDAN_SMTP_FROM:-}
+    ports:
+      - "${EIDAN_WEB_PORT:-3001}:3001"
+    restart: unless-stopped
+
+volumes:
+  eidan-pgdata:

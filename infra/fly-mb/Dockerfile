@@ -12,8 +12,9 @@ WORKDIR /app
 COPY external/matbot/ ./external/matbot/
 RUN cd external/matbot && pnpm install --config.engine-strict=false
 
-# 2) eidan core plugins — pg + symlinks to the submodule's plugin-api (link: deps).
+# 2) eidan core plugins (+ the migrate runner) — pg + symlinks to the vendored plugin-api.
 COPY packages/ ./packages/
+COPY migrations/ ./migrations/
 COPY infra/fly-mb/host-package.json ./package.json
 COPY infra/fly-mb/host-pnpm-workspace.yaml ./pnpm-workspace.yaml
 RUN pnpm install --config.engine-strict=false
