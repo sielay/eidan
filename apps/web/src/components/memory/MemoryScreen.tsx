@@ -13,14 +13,16 @@ import {
   Sparkles,
 } from "lucide-react";
 
+import { authFetch } from "@/lib/auth";
+
 /**
  * Memory browser (UI_DESIGN_BRIEF §7, Core): Notes · Events · Knowledge,
  * each a calm list → detail (notes also edit).
  *
- * This is the design implementation pass with the handoff's sample
- * content. Wiring the tabs to real data — the live `GET /api/knowledge`
- * for Knowledge, and the notes/events stores once their APIs land — is
- * the follow-up; the screen shapes + states are the deliverable here.
+ * Wired to real data: Notes ← `GET /api/notes` (eidan.notes), Events ←
+ * `GET /api/events` (eidan.events), Knowledge ← `GET /api/knowledge`
+ * (eidan.knowledge) grouped by skill. The list→detail design and states
+ * are unchanged; only the data source moved from sample content to the DB.
  */
 
 type Zone = "good" | "info" | "warn" | "alert";
@@ -50,35 +52,50 @@ interface Knowledge {
   body: { h: string; p: string[]; list?: string[]; code?: string };
 }
 
-const NOTES: Note[] = [
-  { id: "n1", title: "Garden planting plan", snippet: "Tomatoes after last frost (~mid-May). Basil alongside…", tags: ["Home", "Seasonal"], updated: "2 days ago", pinned: true, body: ["Tomatoes go in after the last frost — around mid-May here.", "Companion planting: basil alongside tomatoes, marigolds on the border to keep pests down.", "Order seeds by end of February so the seedlings have time indoors."] },
-  { id: "n2", title: "Tax deadlines 25/26", snippet: "Self-assessment 31 Jan · VAT quarterly · payment on account…", tags: ["Finance"], updated: "1 week ago", pinned: true, body: ["Self-assessment filing & balancing payment: 31 January.", "Payments on account: 31 January and 31 July.", "VAT returns: quarterly, one month + 7 days after quarter end."] },
-  { id: "n3", title: "Books I want to read", snippet: "12 items · fiction & a couple on systems thinking", tags: ["Personal"], updated: "3 weeks ago", pinned: false, body: ["A running list — no pressure, just capture.", "Currently 12 items, mostly fiction with a couple on systems thinking."] },
-  { id: "n4", title: "Flat handover checklist", snippet: "Meter readings, keys ×3, forward post, cancel broadband…", tags: ["Home", "Admin"], updated: "a month ago", pinned: false, body: ["Meter readings (gas, electric, water) with photos.", "Keys: 3 sets to agent.", "Forward post, cancel broadband, final bills."] },
-];
+/* ---------------- Data (live) ---------------- */
+interface MemData {
+  notes: Note[];
+  events: EventItem[];
+  topics: { topic: string; items: Knowledge[] }[];
+}
+const MemoryContext = React.createContext<MemData>({ notes: [], events: [], topics: [] });
+function useMem(): MemData {
+  return React.useContext(MemoryContext);
+}
 
-const EVENTS: EventItem[] = [
-  { id: "e1", title: "Renew passport", when: "in 3 weeks", zone: "warn", status: "due", note: "Photos done. Need to book a check-and-send appointment." },
-  { id: "e2", title: "Call dad", when: "today", zone: "info", status: "today", note: "It's his birthday on Thursday." },
-  { id: "e3", title: "Dentist check-up", when: "overdue · 5 days", zone: "alert", status: "due", note: "Reschedule — missed the last slot." },
-  { id: "e4", title: "Submit VAT return", when: "in 12 days", zone: "info", status: "pending", note: "Quarter to 31 May. eidan can draft the figures." },
-  { id: "e5", title: "Pay deposit · holiday", when: "in 2 days", zone: "warn", status: "pending", note: "£200 to secure the booking." },
-  { id: "e6", title: "Annual review notes", when: "done · yesterday", zone: "good", status: "done", note: "Sent to manager." },
-];
+interface KRow {
+  id: string;
+  title: string | null;
+  skill: string | null;
+  summary: string;
+}
 
-const TOPICS: { topic: string; items: Knowledge[] }[] = [
-  { topic: "Finance", items: [
-    { id: "k1", title: "How my pension is structured", summary: "Workplace + SIPP, target allocation", body: { h: "Pension structure", p: ["Two pots: a workplace scheme (auto-enrolled, employer match to 5%) and a self-invested personal pension (SIPP)."], list: ["Target allocation: 80% global equities, 20% bonds, rebalanced yearly.", "SIPP provider fee: 0.25% capped."], code: "review: every April" } },
-    { id: "k2", title: "Emergency fund target", summary: "6 months of essentials, held in premium bonds", body: { h: "Emergency fund", p: ["Target is six months of essential spend, kept liquid."], list: ["Held in premium bonds + an easy-access saver.", "Top up first whenever a windfall lands."] } },
-  ] },
-  { topic: "Health", items: [
-    { id: "k3", title: "Sleep routine that works for me", summary: "Wind-down at 22:30, no screens, magnesium", body: { h: "Sleep routine", p: ["Consistency matters more than duration for how I feel."], list: ["Wind-down starts 22:30 — lights down, no screens.", "Magnesium most nights.", "Hard cut-off on caffeine after 14:00."] } },
-    { id: "k4", title: "Training split", summary: "Push / Pull / Legs, 4 days", body: { h: "Training split", p: ["Push / Pull / Legs over four days, with the 4th day floating."], list: ["Progressive overload, log every set.", "Deload every 6th week."] } },
-  ] },
-  { topic: "Home", items: [
-    { id: "k5", title: "Boiler & heating notes", summary: "Serviced annually, pressure 1.2–1.5 bar", body: { h: "Boiler & heating", p: ["Serviced every autumn before the cold sets in."], list: ["Healthy pressure: 1.2–1.5 bar cold.", "Repressurise via the filling loop under the boiler."] } },
-  ] },
-];
+async function loadMemory(): Promise<MemData> {
+  const [nRes, eRes, kRes] = await Promise.all([
+    authFetch("/api/notes"),
+    authFetch("/api/events"),
+    authFetch("/api/knowledge"),
+  ]);
+  const notes = nRes.ok ? ((await nRes.json()) as { notes: Note[] }).notes : [];
+  const events = eRes.ok ? ((await eRes.json()) as { events: EventItem[] }).events : [];
+  const krows = kRes.ok ? ((await kRes.json()) as { knowledge: KRow[] }).knowledge : [];
+
+  const byTopic = new Map<string, Knowledge[]>();
+  for (const k of krows) {
+    const topic = k.skill || "General";
+    const item: Knowledge = {
+      id: k.id,
+      title: k.title || "(untitled)",
+      summary: k.summary || "",
+      body: { h: k.title || "Knowledge", p: k.summary ? [k.summary] : [] },
+    };
+    const arr = byTopic.get(topic) ?? [];
+    arr.push(item);
+    byTopic.set(topic, arr);
+  }
+  const topics = [...byTopic.entries()].map(([topic, items]) => ({ topic, items }));
+  return { notes, events, topics };
+}
 
 const TABS: { id: Area; label: string }[] = [
   { id: "notes", label: "Notes" },
@@ -87,6 +104,28 @@ const TABS: { id: Area; label: string }[] = [
 ];
 
 export function MemoryScreen(): React.ReactElement {
+  const [data, setData] = React.useState<MemData>({ notes: [], events: [], topics: [] });
+  React.useEffect(() => {
+    let cancelled = false;
+    loadMemory()
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        /* leave empty on failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return (
+    <MemoryContext.Provider value={data}>
+      <MemoryScreenInner />
+    </MemoryContext.Provider>
+  );
+}
+
+function MemoryScreenInner(): React.ReactElement {
   const [area, setArea] = React.useState<Area>("notes");
   const [selected, setSelected] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState(false);
@@ -148,6 +187,14 @@ export function MemoryScreen(): React.ReactElement {
   );
 }
 
+function EmptyArea({ what }: { what: string }): React.ReactElement {
+  return (
+    <div className="empty" style={{ padding: "24px 0" }}>
+      <div className="empty__body">No {what} yet.</div>
+    </div>
+  );
+}
+
 /* ---------------- Notes ---------------- */
 function NoteRow({ n, onSelect }: { n: Note; onSelect: (id: string) => void }): React.ReactElement {
   return (
@@ -171,11 +218,13 @@ function NoteRow({ n, onSelect }: { n: Note; onSelect: (id: string) => void }): 
 }
 
 function NotesList({ onSelect }: { onSelect: (id: string) => void }): React.ReactElement {
-  const pinned = NOTES.filter((n) => n.pinned);
-  const rest = NOTES.filter((n) => !n.pinned);
+  const { notes } = useMem();
+  if (notes.length === 0) return <EmptyArea what="notes" />;
+  const pinned = notes.filter((n) => n.pinned);
+  const rest = notes.filter((n) => !n.pinned);
   return (
     <div className="mem-list">
-      <div className="mem-group">Pinned</div>
+      {pinned.length > 0 ? <div className="mem-group">Pinned</div> : null}
       {pinned.map((n) => <NoteRow key={n.id} n={n} onSelect={onSelect} />)}
       <div className="mem-group">All notes</div>
       {rest.map((n) => <NoteRow key={n.id} n={n} onSelect={onSelect} />)}
@@ -212,7 +261,18 @@ function NoteDetail({
   onBack: () => void;
   onEdit: () => void;
 }): React.ReactElement {
-  const n = NOTES.find((x) => x.id === id) ?? NOTES[0];
+  const { notes } = useMem();
+  const n = notes.find((x) => x.id === id);
+  if (!n) {
+    return (
+      <div className="content">
+        <div className="mem-detail">
+          <DetailBar label="Memory" onBack={onBack} />
+          <EmptyArea what="note" />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="content">
       <div className="mem-detail">
@@ -239,7 +299,18 @@ function NoteDetail({
 }
 
 function NoteEdit({ id, onDone }: { id: string; onDone: () => void }): React.ReactElement {
-  const n = NOTES.find((x) => x.id === id) ?? NOTES[0];
+  const { notes } = useMem();
+  const n = notes.find((x) => x.id === id) ?? notes[0];
+  if (!n) {
+    return (
+      <div className="content">
+        <div className="mem-detail">
+          <DetailBar label="Cancel" onBack={onDone} />
+          <EmptyArea what="note" />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="content">
       <div className="mem-detail">
@@ -282,12 +353,13 @@ function EventsList({
   setFilter: (f: string) => void;
   onSelect: (id: string) => void;
 }): React.ReactElement {
+  const { events } = useMem();
   const filters = ["All", "Today", "Due", "Pending"];
   const map: Record<string, EventItem["status"]> = { Today: "today", Due: "due", Pending: "pending" };
   const shown =
     filter === "All"
-      ? EVENTS
-      : EVENTS.filter((e) => e.status === map[filter] || (filter === "Due" && e.zone === "alert"));
+      ? events
+      : events.filter((e) => e.status === map[filter] || (filter === "Due" && e.zone === "alert"));
   return (
     <div>
       <div className="erow" style={{ marginBottom: "var(--s4)" }}>
@@ -332,8 +404,19 @@ function EventsList({
 }
 
 function EventDetail({ id, onBack }: { id: string; onBack: () => void }): React.ReactElement {
-  const e = EVENTS.find((x) => x.id === id) ?? EVENTS[0];
+  const { events } = useMem();
+  const e = events.find((x) => x.id === id);
   const zLabel: Record<Zone, string> = { alert: "Overdue", warn: "Due soon", info: "Scheduled", good: "Done" };
+  if (!e) {
+    return (
+      <div className="content">
+        <div className="mem-detail">
+          <DetailBar label="Events" onBack={onBack} />
+          <EmptyArea what="event" />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="content">
       <div className="mem-detail">
@@ -372,9 +455,11 @@ function EventDetail({ id, onBack }: { id: string; onBack: () => void }): React.
 
 /* ---------------- Knowledge ---------------- */
 function KnowledgeList({ onSelect }: { onSelect: (id: string) => void }): React.ReactElement {
+  const { topics } = useMem();
+  if (topics.length === 0) return <EmptyArea what="knowledge" />;
   return (
     <div className="mem-list">
-      {TOPICS.map((grp) => (
+      {topics.map((grp) => (
         <div key={grp.topic}>
           <div className="mem-group">{grp.topic}</div>
           {grp.items.map((k) => (
@@ -396,9 +481,10 @@ function KnowledgeList({ onSelect }: { onSelect: (id: string) => void }): React.
 }
 
 function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): React.ReactElement {
+  const { topics } = useMem();
   let k: Knowledge | null = null;
   let topic = "";
-  for (const g of TOPICS) {
+  for (const g of topics) {
     for (const it of g.items) {
       if (it.id === id) {
         k = it;
@@ -407,8 +493,14 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): Re
     }
   }
   if (!k) {
-    k = TOPICS[0].items[0];
-    topic = TOPICS[0].topic;
+    return (
+      <div className="content">
+        <div className="mem-detail">
+          <DetailBar label="Knowledge" onBack={onBack} />
+          <EmptyArea what="knowledge" />
+        </div>
+      </div>
+    );
   }
   const b = k.body;
   return (

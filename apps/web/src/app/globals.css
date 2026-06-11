@@ -409,3 +409,54 @@ svg.i-lg { width: 26px; height: 26px; }
   .skel::after { display: none; }
   .stream-caret { animation: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Login screen (Claude Design · Login.html). Page chrome + magic-link card.
+   --------------------------------------------------------------------------- */
+.onb-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--s6) var(--s4); position: relative; }
+.onb-page::before { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 60% at 50% -10%, var(--accent-tint), transparent 60%); pointer-events: none; }
+.onb-toolbar { position: fixed; top: var(--s4); right: var(--s4); display: flex; gap: var(--s2); z-index: 10; }
+.onb-footnote { margin-top: var(--s6); font-size: var(--fs-13); color: var(--faint); display: flex; align-items: center; gap: 6px; }
+
+.login-shell { width: 100%; max-width: 420px; margin: 0 auto; }
+.login-card { padding: var(--s10) var(--s6) var(--s8); }
+.login-mark { width: 56px; height: 56px; border-radius: 17px; }
+
+.login-form { width: 100%; display: flex; flex-direction: column; gap: var(--s4); text-align: left; }
+
+.login-input { display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s4); transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease); }
+.login-input__ic { color: var(--faint); flex: none; }
+.login-input input { flex: 1; min-width: 0; border: none; background: none; outline: none; font-family: inherit; font-size: var(--fs-17); color: var(--text); letter-spacing: inherit; padding: 0; height: 44px; }
+.login-input input::placeholder { color: var(--faint); }
+.login-input input:focus-visible { box-shadow: none; }
+.login-input:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
+.login-input.is-error { border-color: var(--alert); }
+.login-input.is-error:focus-within { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--alert); }
+.login-input.is-error .login-input__ic { color: var(--alert); }
+
+.login-err { display: flex; align-items: center; gap: 6px; min-height: 18px; font-size: var(--fs-13); color: var(--alert); margin-top: var(--s2); opacity: 0; transition: opacity var(--dur-1) var(--ease); }
+.login-err.is-on { opacity: 1; }
+.login-err .i { flex: none; }
+
+.login-shield { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: var(--s5); }
+.login-shield .i { color: var(--faint); }
+
+.login-sent { transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease); }
+.login-sent--good { background: var(--good-tint); color: var(--good); }
+.login-sent--busy { background: var(--accent-tint); color: var(--accent-link); }
+.login-emailref { color: var(--text); font-weight: 600; }
+.login-actions { width: 100%; display: flex; flex-direction: column; gap: var(--s3); }
+.login-actions .btn { white-space: nowrap; }
+.login-back { margin-top: var(--s4); }
+.login-tip { margin-top: var(--s4); }
+.login-chev { transform: rotate(180deg); }
+
+/* dev panel — surfaced only when the backend returns a log-only magic link/code */
+.login-dev { width: 100%; margin-top: var(--s2); padding: var(--s3) var(--s4); border: 1px solid var(--accent-tint); border-radius: var(--r3, 12px); background: var(--accent-tint); color: var(--accent-link); font-size: var(--fs-13); text-align: left; }
+.login-dev__h { font-weight: 600; margin: 0 0 4px; }
+.login-dev__link { color: var(--accent-link); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+
+.login-spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; display: inline-block; animation: login-rot 0.7s linear infinite; }
+.login-spin--lg { width: 26px; height: 26px; border-width: 2.5px; }
+@keyframes login-rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .login-spin { animation-duration: 1.4s; } }

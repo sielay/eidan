@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { AppShell } from "@/components/shell/AppShell";
 import { CommandPalette } from "@/components/shell/CommandPalette";
+import { AuthGate } from "@/components/providers/auth-gate";
 
 /**
  * The authenticated app's layout (`docs/014 §2`).
@@ -16,9 +17,9 @@ export default function MainLayout({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <>
+    <AuthGate>
       <AppShell>{children}</AppShell>
       <CommandPalette />
-    </>
+    </AuthGate>
   );
 }
