@@ -116,7 +116,8 @@ export async function handleRest(
       json(res, 404, { error: 'not found' }, cors);
       return true;
     }
-    json(res, 200, { name: p.name, display_name: p.name, tier: 'core', version: '', description: null, enabled: true, author: null, commands: [] }, cors);
+    // PluginDetail shape: license + authors[] + readme (not author/enabled).
+    json(res, 200, { name: p.name, display_name: p.name, tier: 'core', version: '', description: null, license: 'AGPL-3.0-or-later', authors: [], readme: null }, cors);
     return true;
   }
 

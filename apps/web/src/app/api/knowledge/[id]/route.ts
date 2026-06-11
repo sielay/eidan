@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// GET /api/knowledge/[id] — a single knowledge row with its body (docs/014 §5).
+// GET / PATCH / DELETE /api/knowledge/[id] — read a knowledge row (with body), edit it, or
+// soft-delete it. The Memory/Knowledge browser renders the body as markdown and edits it inline.
 import type { NextRequest } from "next/server";
 
 import { verifyBearer } from "@/server/auth";
@@ -8,41 +9,83 @@ import { withUser, iso } from "@/server/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-): Promise<Response> {
+function detail(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: row.id,
+    slug: row.slug ?? null,
+    title: row.title ?? null,
+    skill: row.skill ?? null,
+    body: row.body ?? "",
+    source: row.source ?? null,
+    created_at: iso(row.created_at),
+    updated_at: iso(row.updated_at),
+  };
+}
+
+const COLS = "id, slug, title, skill, body, source, created_at, updated_at";
+
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
+  const sess = verifyBearer(req);
+  if (!sess) return new Response("unauthorized", { status: 401 });
+  const { id } = await ctx.params;
+  try {
+    const row = await withUser(sess.userId, async (c) => {
+      const r = await c.query(`select ${COLS} from eidan.knowledge where id=$1 and user_id=$2 and deleted_at is null`, [id, sess.userId]);
+      return r.rows[0] as Record<string, unknown> | undefined;
+    });
+    if (!row) return new Response("not found", { status: 404 });
+    return Response.json({ knowledge: detail(row) });
+  } catch {
+    return new Response("not found", { status: 404 });
+  }
+}
+
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   const sess = verifyBearer(req);
   if (!sess) return new Response("unauthorized", { status: 401 });
   const { id } = await ctx.params;
 
-  let row: Record<string, unknown> | undefined;
+  let payload: { title?: string; body?: string; skill?: string };
   try {
-    row = await withUser(sess.userId, async (c) => {
+    payload = (await req.json()) as typeof payload;
+  } catch {
+    return new Response("invalid JSON", { status: 400 });
+  }
+
+  try {
+    const row = await withUser(sess.userId, async (c) => {
+      // coalesce keeps unset fields unchanged (last-write-wins; the body_tsv generated column follows body).
       const r = await c.query(
-        `select id, slug, title, skill, body, source, created_at, updated_at
-           from eidan.knowledge where id = $1 and user_id = $2 and deleted_at is null`,
-        [id, sess.userId],
+        `update eidan.knowledge
+            set title = coalesce($3, title),
+                body  = coalesce($4, body),
+                skill = coalesce($5, skill),
+                updated_at = now()
+          where id=$1 and user_id=$2 and deleted_at is null
+          returning ${COLS}`,
+        [id, sess.userId, payload.title ?? null, payload.body ?? null, payload.skill ?? null],
       );
       return r.rows[0] as Record<string, unknown> | undefined;
     });
+    if (!row) return new Response("not found", { status: 404 });
+    return Response.json({ knowledge: detail(row) });
+  } catch (e) {
+    return new Response(e instanceof Error ? e.message : "update failed", { status: 400 });
+  }
+}
+
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
+  const sess = verifyBearer(req);
+  if (!sess) return new Response("unauthorized", { status: 401 });
+  const { id } = await ctx.params;
+  try {
+    const n = await withUser(sess.userId, async (c) => {
+      const r = await c.query("update eidan.knowledge set deleted_at=now() where id=$1 and user_id=$2 and deleted_at is null", [id, sess.userId]);
+      return r.rowCount ?? 0;
+    });
+    if (n === 0) return new Response("not found", { status: 404 });
+    return new Response(null, { status: 204 });
   } catch {
-    // malformed id (e.g. not a uuid) — treat as not found rather than 500
     return new Response("not found", { status: 404 });
   }
-
-  if (!row) return new Response("not found", { status: 404 });
-
-  return Response.json({
-    knowledge: {
-      id: row.id,
-      slug: row.slug ?? null,
-      title: row.title ?? null,
-      skill: row.skill ?? null,
-      body: row.body ?? "",
-      source: row.source ?? null,
-      created_at: iso(row.created_at),
-      updated_at: iso(row.updated_at),
-    },
-  });
 }
