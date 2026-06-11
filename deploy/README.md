@@ -30,7 +30,7 @@ node deploy/eidan-deploy.mjs deploy kesha      # a Raspberry Pi over ssh (arm64)
   "bundles": [{ "name": "sage", "path": "../eidan-sage/packages/sage", "kind": "code" }],
   "targets": {
     "local": { "type": "compose" },
-    "fly":   { "type": "fly", "app": "eidan-mb", "config": "fly.toml" },
+    "fly":   { "type": "fly", "app": "your-eidan", "config": "fly.toml" },
     "kesha": { "type": "compose-ssh", "host": "192.168.1.100", "user": "pi",
                "registry": "ghcr.io/sielay", "platform": "linux/arm64" }
   }

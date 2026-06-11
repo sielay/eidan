@@ -18,7 +18,7 @@
     },
     "fly": {
       "type": "fly",
-      "app": "eidan-mb",
+      "app": "your-eidan",
       "config": "fly.toml"
     },
     "kesha": {

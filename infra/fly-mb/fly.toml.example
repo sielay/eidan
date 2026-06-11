@@ -2,7 +2,7 @@
 #   fly secrets set EIDAN_DATABASE_URL=postgresql://... ANTHROPIC_API_KEY=sk-ant-... \
 #                   EIDAN_AUTH_JWT_SECRET=... MATBOT_PRINCIPAL=<eidan.users-uuid>
 #   fly deploy --config infra/fly-mb/fly.toml --dockerfile infra/fly-mb/Dockerfile
-app = "eidan-mb"
+app = "your-eidan" # your Fly app name (globally unique) — `fly apps create <name>` then put it here
 primary_region = "lhr"
 
 [build]
