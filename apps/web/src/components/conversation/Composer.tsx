@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
 import * as React from "react";
-
-import { Button } from "@/components/ui/button";
+import { Paperclip, Send } from "lucide-react";
 
 export interface ComposerProps {
   /**
@@ -16,8 +16,9 @@ export interface ComposerProps {
 }
 
 /**
- * Single textarea + send button. ``Enter`` submits, ``Shift+Enter``
- * inserts a newline. Empty / whitespace-only submissions are dropped.
+ * The chat composer (UI_DESIGN_BRIEF §6): attach · auto-growing input ·
+ * send. ``Enter`` submits, ``Shift+Enter`` inserts a newline. Empty /
+ * whitespace-only submissions are dropped.
  */
 export function Composer({
   onSubmit,
@@ -29,6 +30,14 @@ export function Composer({
 
   const isDisabled = disabled === true || submitting;
 
+  // Grow the textarea with its content up to the CSS max-height.
+  const autosize = React.useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, []);
+
   const submit = React.useCallback(async () => {
     const text = value.trim();
     if (!text || isDisabled) return;
@@ -36,15 +45,19 @@ export function Composer({
     try {
       await onSubmit(text);
       setValue("");
-      // Restore focus on the next tick so the textarea is editable
-      // again immediately after the in-flight lock releases.
-      requestAnimationFrame(() => taRef.current?.focus());
+      requestAnimationFrame(() => {
+        const ta = taRef.current;
+        if (ta) {
+          ta.style.height = "auto";
+          ta.focus();
+        }
+      });
     } finally {
       setSubmitting(false);
     }
   }, [value, isDisabled, onSubmit]);
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void submit();
@@ -53,25 +66,42 @@ export function Composer({
 
   return (
     <form
-      className="flex items-end gap-2"
+      className="composer"
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
     >
+      <button
+        type="button"
+        className="iconbtn composer__attach"
+        aria-label="Attach (coming soon)"
+        title="Attachments coming soon"
+        disabled
+      >
+        <Paperclip className="i" aria-hidden />
+      </button>
       <textarea
         ref={taRef}
-        className="min-h-[44px] flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-        placeholder="Reply…"
-        rows={2}
+        className="composer__input"
+        placeholder="Ask eidan anything…"
+        rows={1}
         value={value}
         disabled={isDisabled}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setValue(e.target.value);
+          autosize();
+        }}
         onKeyDown={onKeyDown}
       />
-      <Button type="submit" disabled={isDisabled || value.trim() === ""}>
-        Send
-      </Button>
+      <button
+        type="submit"
+        className="btn btn--primary composer__send"
+        aria-label="Send"
+        disabled={isDisabled || value.trim() === ""}
+      >
+        <Send className="i" aria-hidden />
+      </button>
     </form>
   );
 }

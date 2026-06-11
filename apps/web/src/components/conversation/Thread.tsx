@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
 import * as React from "react";
@@ -60,14 +61,18 @@ export function Thread({ messages }: ThreadProps): React.ReactElement {
 
   if (messages.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No messages yet — say hi to get started.
-      </p>
+      <div className="empty">
+        <div className="empty__title">A calm, capable assistant</div>
+        <div className="empty__body">
+          Ask anything — eidan remembers what matters and can act on your
+          behalf. Say hi to get started.
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="thread">
       {messages.map((m) => (
         <MessageBlock
           key={m.id}

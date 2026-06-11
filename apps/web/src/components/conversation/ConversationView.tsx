@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
 import * as React from "react";
@@ -195,18 +196,16 @@ export function ConversationView({
 
   if (loading) {
     return (
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-10">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+      <div className="content">
+        <p className="screen-sub">Loading…</p>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-10">
-        <p className="text-sm text-muted-foreground">
-          Sign in to view this conversation.
-        </p>
+      <div className="content">
+        <p className="screen-sub">Sign in to view this conversation.</p>
       </div>
     );
   }
@@ -218,52 +217,43 @@ export function ConversationView({
   });
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col px-6 py-6">
-      <header className="mb-4 flex flex-col gap-1">
-        <div className="flex items-baseline justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <ConversationTitle
-              conversationId={conversationId}
-              title={title}
-              onChange={setTitle}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => setTraceOpen((v) => !v)}
-            aria-pressed={traceOpen}
-            title="Show per-call LLM trace"
-            className={
-              traceOpen
-                ? "rounded-md border border-primary bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary"
-                : "rounded-md border border-border bg-background/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
-            }
-          >
-            inspect
-          </button>
-          <span className="font-mono text-xs text-muted-foreground">
-            {conversationId.slice(0, 8)}…
-          </span>
+    <div className="chat-screen">
+      <header className="chat-head">
+        <div className="chat-head__title">
+          <ConversationTitle
+            conversationId={conversationId}
+            title={title}
+            onChange={setTitle}
+          />
+          <CostCounter
+            lastMessageId={lastUserMessageId}
+            turnRefreshKey={turnRefreshKey}
+          />
         </div>
+        <button
+          type="button"
+          onClick={() => setTraceOpen((v) => !v)}
+          aria-pressed={traceOpen}
+          title="Show per-call LLM trace"
+          className={traceOpen ? "chip chip--selected" : "chip"}
+          style={{ height: 32, fontSize: "var(--fs-13)" }}
+        >
+          inspect
+        </button>
       </header>
 
-      <div className="mb-3 border-b border-border pb-2">
-        <CostCounter
-          lastMessageId={lastUserMessageId}
-          turnRefreshKey={turnRefreshKey}
-        />
-      </div>
-
-      <div className="flex-1 overflow-y-auto pb-4">
+      <div className="chat-thread">
         {history === null && historyError === null ? (
-          <p className="text-sm text-muted-foreground">Loading history…</p>
+          <p className="screen-sub">Loading history…</p>
         ) : historyError !== null ? (
-          <p className="text-sm text-red-600">{historyError}</p>
+          <p className="screen-sub" style={{ color: "var(--alert)" }}>
+            {historyError}
+          </p>
         ) : (
           <Thread messages={messages} />
         )}
         {traceOpen ? (
-          <div className="mt-6 border-t border-border pt-4">
+          <div style={{ marginTop: "var(--s5)", borderTop: "1px solid var(--border)", paddingTop: "var(--s4)" }}>
             <LlmCallTrace
               conversationId={conversationId}
               refreshKey={turnRefreshKey}
@@ -272,9 +262,7 @@ export function ConversationView({
         ) : null}
       </div>
 
-      <div className="border-t border-border pt-3">
-        <Composer onSubmit={onSubmit} disabled={inFlight} />
-      </div>
+      <Composer onSubmit={onSubmit} disabled={inFlight} />
     </div>
   );
 }
