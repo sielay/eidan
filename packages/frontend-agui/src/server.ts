@@ -3,6 +3,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { MatbotServices, Session, Principal } from '@matatbread/matbot-plugin-api';
 import { runAs, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import { AguiEmitter, type AguiEvent } from './agui-emitter.js';
+import { handleDevAuth } from './auth-dev.js';
+import { handleRest } from './rest.js';
 
 // The per-request identity seam (same key matbot's frontend-web uses): an auth plugin registers a
 // resolver that derives the Principal from the request (e.g. a Bearer JWT). Absent ⇒ boot principal.
@@ -26,12 +28,19 @@ declare module '@matatbread/matbot-plugin-api' {
   }
 }
 
-// The Next.js app on Vercel calls this cross-origin; allow it (tighten to the app origin later).
-const CORS: Record<string, string> = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-headers': 'content-type, authorization',
-  'access-control-allow-methods': 'GET, POST, OPTIONS',
-};
+// Credentialed CORS for the cross-origin Next app: echo the request Origin (a literal `*` is
+// rejected by browsers once credentials:'include' is set) and allow credentials so the refresh
+// cookie + Authorization header flow.
+function corsFor(req: IncomingMessage): Record<string, string> {
+  const origin = req.headers['origin'];
+  return {
+    'access-control-allow-origin': typeof origin === 'string' && origin ? origin : '*',
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-headers': 'content-type, authorization',
+    'access-control-allow-methods': 'GET, POST, PATCH, OPTIONS',
+    vary: 'Origin',
+  };
+}
 
 function newSession(id: string, ownerId: string): Session {
   const now = new Date().toISOString();
@@ -46,20 +55,20 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on('error', reject);
   });
 }
-function json(res: ServerResponse, code: number, obj: unknown): void {
-  res.writeHead(code, { 'content-type': 'application/json', ...CORS });
+function json(res: ServerResponse, code: number, obj: unknown, cors: Record<string, string>): void {
+  res.writeHead(code, { 'content-type': 'application/json', ...cors });
   res.end(JSON.stringify(obj));
 }
 function sse(res: ServerResponse, ev: AguiEvent): void {
   res.write(`data: ${JSON.stringify(ev)}\n\n`);
 }
 
-// Starts the AG-UI HTTP server. Each request runs under its principal (boot for now; a
-// WebPrincipalResolver/JWT plugin can derive a real per-request identity later).
+// Starts the AG-UI + REST HTTP server. Public routes (health, /api/auth/*) bypass auth; everything
+// else resolves a Principal (boot if no resolver) and runs under it.
 export function startAguiServer(services: MatbotServices, port: number, provider: string, boot: Principal): () => void {
   const server = createServer((req, res) => {
-    void resolveAndHandle(req, res, services, provider, boot).catch((e: unknown) => {
-      if (!res.headersSent) json(res, 500, { error: e instanceof Error ? e.message : String(e) });
+    void route(req, res, services, provider, boot).catch((e: unknown) => {
+      if (!res.headersSent) json(res, 500, { error: e instanceof Error ? e.message : String(e) }, corsFor(req));
       else res.end();
     });
   });
@@ -67,57 +76,49 @@ export function startAguiServer(services: MatbotServices, port: number, provider
   return () => server.close();
 }
 
-// Unauthenticated preflight/health bypass auth; everything else resolves a Principal via the
-// registered WebPrincipalResolver (401 on rejection) and runs the request under it.
-async function resolveAndHandle(req: IncomingMessage, res: ServerResponse, services: MatbotServices, provider: string, boot: Principal): Promise<void> {
+async function route(req: IncomingMessage, res: ServerResponse, services: MatbotServices, provider: string, boot: Principal): Promise<void> {
+  const cors = corsFor(req);
   const method = req.method ?? 'GET';
-  const url = req.url ?? '/';
-  if (method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
-  if (method === 'GET' && url === '/health') { json(res, 200, { ok: true }); return; }
+  const pathname = (req.url ?? '/').split('?')[0] ?? '/';
 
+  if (method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return; }
+  if (method === 'GET' && pathname === '/health') { json(res, 200, { ok: true }, cors); return; }
+
+  // Public, unauthenticated identity endpoints (dev-only; no-op when EIDAN_DEV_AUTH≠1).
+  if (await handleDevAuth(req, res, pathname, cors)) return;
+
+  // Authenticated: resolve the per-request principal (or boot if no resolver registered).
   let principal: Principal;
   try {
     const resolver = services.WebPrincipalResolver;
     principal = resolver ? await resolver(req) : (tryCurrentPrincipal() ?? boot);
   } catch (e) {
-    json(res, 401, { error: e instanceof Error ? e.message : 'unauthorized' });
+    json(res, 401, { error: e instanceof Error ? e.message : 'unauthorized' }, cors);
     return;
   }
-  await runAs(principal, () => handle(req, res, services, provider, principal));
+  await runAs(principal, () => handle(req, res, services, provider, principal, cors, pathname));
 }
 
-async function handle(req: IncomingMessage, res: ServerResponse, services: MatbotServices, provider: string, principal: Principal): Promise<void> {
-  const url = req.url ?? '/';
+async function handle(req: IncomingMessage, res: ServerResponse, services: MatbotServices, provider: string, principal: Principal, cors: Record<string, string>, pathname: string): Promise<void> {
   const method = req.method ?? 'GET';
-  if (method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
-  if (method === 'GET' && url === '/health') { json(res, 200, { ok: true }); return; }
-
-  const sessions = services.sessions;
-  const run = services.run;
-  if (!sessions || !run) { json(res, 500, { error: 'runner/sessions unavailable' }); return; }
-
-  // POST /api/conversations — create a session, return { id }. (Non-LLM; the Next app may also
-  // do this read/write directly against Postgres — this is here so the engine is testable standalone.)
-  if (method === 'POST' && url === '/api/conversations') {
-    const session = newSession(crypto.randomUUID(), principal.id);
-    await sessions.set(session.id, session);
-    json(res, 201, { id: session.id });
-    return;
-  }
 
   // POST /api/turn — run a turn on conversation_id and stream AG-UI events (the chat surface).
-  if (method === 'POST' && url === '/api/turn') {
+  if (method === 'POST' && pathname === '/api/turn') {
+    const sessions = services.sessions;
+    const run = services.run;
+    if (!sessions || !run) { json(res, 500, { error: 'runner/sessions unavailable' }, cors); return; }
+
     let body: { conversation_id?: string; text?: string };
     try { body = JSON.parse(await readBody(req)) as typeof body; }
-    catch { json(res, 400, { error: 'invalid JSON' }); return; }
+    catch { json(res, 400, { error: 'invalid JSON' }, cors); return; }
     const conversationId = body.conversation_id;
     const text = body.text;
-    if (!conversationId || typeof text !== 'string') { json(res, 400, { error: 'conversation_id and text required' }); return; }
+    if (!conversationId || typeof text !== 'string') { json(res, 400, { error: 'conversation_id and text required' }, cors); return; }
 
     let session = await sessions.get(conversationId);
     if (!session) { session = newSession(conversationId, principal.id); await sessions.set(conversationId, session); }
 
-    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', ...CORS });
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', ...cors });
     const emitter = new AguiEmitter(conversationId);
     for (const e of emitter.start()) sse(res, e);
 
@@ -149,5 +150,9 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     return;
   }
 
-  json(res, 404, { error: 'not found' });
+  // Conversation CRUD + message history (plain REST reads, RLS-scoped).
+  const parts = pathname.replace(/^\/+|\/+$/g, '').split('/');
+  if (await handleRest(req, res, parts, services, principal, cors)) return;
+
+  json(res, 404, { error: 'not found' }, cors);
 }

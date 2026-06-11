@@ -27,3 +27,8 @@ logs/
 /matbot.yaml
 /.data/
 /.plugins/
+
+# local dev (not for the repo)
+matbot.local.yaml
+/dev-up.sh
+/dev-down.sh
