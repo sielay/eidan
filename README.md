@@ -53,7 +53,31 @@ and A2A (agent-to-agent). Eidan speaks all three.
 (AG-UI over `frontend-agui`) and reads Postgres directly for the dashboards (RLS-scoped). Swap it
 for your own — the engine doesn't care.
 
-## Quick start
+## Self-host with Docker (recommended)
+
+The whole thing — Postgres, the engine, and the UI — in one command. Works on a Raspberry Pi, a
+server, or a NAS (multi-arch images):
+
+```bash
+git clone --recurse-submodules https://github.com/sielay/eidan.git && cd eidan
+cp .env.compose.example .env      # set ANTHROPIC_API_KEY, EIDAN_AUTH_JWT_SECRET, EIDAN_AUTH_ALLOWED_EMAIL
+docker compose up -d              # → http://localhost:3001  (sign in with the magic link)
+```
+
+Updates are `docker compose pull && docker compose up -d`; your data is the Postgres volume. To use
+an external database (Supabase/Neon), set `EIDAN_DATABASE_URL` and drop the `postgres` service.
+
+**Shipping to a server/Pi, or including paid bundles?** Use the deploy CLI — one command to any
+target, with bundles vendored into the build (see [deploy/README.md](deploy/README.md)):
+
+```bash
+cp deploy/eidan.deploy.example.json eidan.deploy.json   # edit: bundles + targets
+node deploy/eidan-deploy.mjs deploy fly      # or: local · kesha (a Pi over ssh)
+```
+
+## Develop (run from source)
+
+For hacking on the code (Node 24+ runs the TypeScript directly — no build step):
 
 ```bash
 git clone --recurse-submodules https://github.com/sielay/eidan.git && cd eidan
@@ -63,7 +87,7 @@ cp matbot.yaml.example ./matbot.yaml     # host config (the real matbot.yaml is 
 EIDAN_DATABASE_URL=postgres://eidan_app:...@host/eidan pnpm --filter @eidandev/migrate migrate
 ```
 
-Run the host (Node 24+ runs the TypeScript directly — no build step):
+Run the host:
 
 ```bash
 EIDAN_DATABASE_URL=postgres://eidan_app:...@host/eidan \

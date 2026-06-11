@@ -41,3 +41,4 @@ packages/charlotte/
 
 # operator deploy config (per-deploy; targets + bundle paths)
 eidan.deploy.json
+.env.compose
