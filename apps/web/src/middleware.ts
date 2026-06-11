@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import { NextResponse, type NextRequest } from "next/server";
+
+// Server-side login gate — the pattern potem uses. The session is the HttpOnly
+// `eidan_refresh` cookie minted by /api/auth/verify; its presence means "has a
+// session" (the route handlers + AuthProvider still validate it against the DB).
+// No cookie → bounce to /login (pages) or 401 (api). The login page and the
+// public /api/auth/* endpoints (config / magic-link / verify / refresh / logout)
+// are the only unauthenticated surfaces. This runs on Vercel's edge — no DB here,
+// just a cookie presence check, so a stale cookie still reaches the route which
+// then does the real validation and clears it.
+export function middleware(request: NextRequest): NextResponse {
+  const { pathname } = request.nextUrl;
+
+  // CORS preflight is unauthenticated by spec — let the route's OPTIONS answer.
+  if (request.method === "OPTIONS" && pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
+  // Always-public surfaces: the login page + the unauthenticated auth endpoints.
+  if (pathname === "/login" || pathname.startsWith("/api/auth/")) {
+    return NextResponse.next();
+  }
+
+  if (!request.cookies.has("eidan_refresh")) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  // Run on everything except Next internals + static assets.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
+};

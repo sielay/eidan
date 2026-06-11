@@ -20,9 +20,12 @@
  *     <60s remain, refresh first.
  */
 
-const BACKEND_BASE: string = (
-  process.env.NEXT_PUBLIC_EIDAN_BACKEND_URL ?? ""
-).replace(/\/+$/, "");
+// The Next app is the same-origin front door: the browser ALWAYS calls its own
+// origin — /api/auth/* is handled locally and chat is proxied to the engine
+// server-side (EIDAN_ENGINE_URL). Hardcoded "" on purpose so NO env (project,
+// committed .env, or a team-shared var) can send the browser cross-origin to the
+// engine, which would fail-closed with 401. Do not reintroduce a NEXT_PUBLIC read.
+const BACKEND_BASE = "";
 
 interface AccessTokenSlot {
   token: string;
