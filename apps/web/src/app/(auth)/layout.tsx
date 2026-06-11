@@ -1,18 +1,15 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Auth layout (`docs/014 §2`).
  *
- * Deliberately renders no nav chrome — the operator cannot navigate
- * elsewhere without an authenticated session. The shell's header and
- * sidebar are reserved for the `(main)` group.
+ * Deliberately renders no nav chrome — the operator cannot navigate elsewhere
+ * without an authenticated session. The auth screens (e.g. the Login design)
+ * own their own full-viewport layout (`.onb-page`), so this is a pass-through.
  */
 export default function AuthLayout({
   children,
 }: {
   children: React.ReactNode;
 }): React.ReactElement {
-  return (
-    <div className="flex h-full w-full items-center justify-center bg-background p-6">
-      {children}
-    </div>
-  );
+  return <>{children}</>;
 }

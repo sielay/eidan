@@ -1,0 +1,7 @@
+{
+  "name": "eidan-mb-host",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Container root for the eidan-on-matbot host: installs the eidan plugins (pg + link to the vendored matbot plugin-api)."
+}

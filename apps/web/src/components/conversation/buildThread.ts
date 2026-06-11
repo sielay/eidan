@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MessageRow } from "@/lib/api/conversations";
 
 import type { PairedToolCall, ThreadMessage } from "./Thread";

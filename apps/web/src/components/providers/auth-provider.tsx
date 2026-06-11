@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
 import * as React from "react";
@@ -25,7 +26,8 @@ interface AuthContextValue {
   user: AuthUser | null;
   /** `true` while either the config or the initial refresh resolve. */
   loading: boolean;
-  /** Set when /api/auth/config could not be fetched. */
+  /** Legacy field — config failures now fall back to defaults, so this stays
+   * null. Kept for compatibility with existing consumers. */
   configError: string | null;
   /** Sign out and clear the in-memory access token. */
   signOut: () => Promise<void>;
@@ -49,7 +51,9 @@ export function AuthProvider({
   const [config, setConfig] = React.useState<AuthConfig | null>(null);
   const [user, setUser] = React.useState<AuthUser | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [configError, setConfigError] = React.useState<string | null>(null);
+  // Always null now — config failures fall back to defaults instead of blocking
+  // the login form (the server middleware is the real gate).
+  const [configError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -63,23 +67,31 @@ export function AuthProvider({
 
     (async () => {
       try {
-        const cfg = await fetchAuthConfig();
+        // Config is informational — the provider is always magic-link. A failed
+        // or host-gated /api/auth/config must never replace the login form, so
+        // fall back to the default. The server middleware is the real gate.
+        let cfg: AuthConfig;
+        try {
+          cfg = await fetchAuthConfig();
+        } catch {
+          cfg = {
+            provider: "magic-link",
+            providers: ["magic-link"],
+            tos_url: null,
+            privacy_url: null,
+          };
+        }
         if (cancelled) return;
         setConfig(cfg);
-        // Silent refresh: if the operator has a valid refresh
-        // cookie, this lights up the in-memory access token + the
-        // onAuthStateChange listener above flips `user`.
+        // Silent refresh: if the operator has a valid refresh cookie, this
+        // lights up the in-memory access token + the onAuthStateChange listener
+        // above flips `user`. Never throws — null just means logged out.
         await refreshAccessToken();
         if (cancelled) return;
         const slot = currentAccessToken();
         if (slot !== null) {
           setUser({ id: slot.userId, email: slot.email });
         }
-      } catch (err) {
-        if (cancelled) return;
-        setConfigError(
-          err instanceof Error ? err.message : "auth config unavailable",
-        );
       } finally {
         if (!cancelled) setLoading(false);
       }

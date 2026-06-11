@@ -1,0 +1,33 @@
+{
+  "//": "Copy to eidan.deploy.json (gitignored) and edit. Bundles are private sibling repos vendored into the build; targets are where you ship.",
+
+  "bundles": [
+    {
+      "name": "sage",
+      "path": "../eidan-sage/packages/sage",
+      "kind": "code",
+      "//": "or fetch from git instead of a local path:",
+      "//git": "sielay/eidan-sage#matbot-port",
+      "//subdir": "packages/sage"
+    }
+  ],
+
+  "targets": {
+    "local": {
+      "type": "compose"
+    },
+    "fly": {
+      "type": "fly",
+      "app": "eidan-mb",
+      "config": "fly.toml"
+    },
+    "kesha": {
+      "type": "compose-ssh",
+      "host": "192.168.1.100",
+      "user": "pi",
+      "dir": "eidan",
+      "registry": "ghcr.io/sielay",
+      "platform": "linux/arm64"
+    }
+  }
+}

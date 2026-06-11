@@ -1,0 +1,23 @@
+{
+  "name": "@eidandev/memory",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "eidan relational long-term memory as a matbot plugin: the EidanMemory service (knowledge + notes over eidan.*, RLS-scoped) plus the remember/recall tools.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

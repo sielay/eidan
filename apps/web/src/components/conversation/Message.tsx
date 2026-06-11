@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -20,25 +19,22 @@ export interface MessageBlockProps {
   toolCalls?: PairedToolCall[];
   /** Append-only marker shown when a stream was interrupted (`docs/014 §4.6`). */
   interrupted?: boolean;
-  /** Streaming chips render a soft pulse on the assistant body. */
+  /** Streaming rows render a soft caret on the assistant bubble. */
   streaming?: boolean;
 }
 
-const roleLabel: Record<MessageRole, string> = {
-  user: "You",
-  assistant: "Assistant",
-  tool: "Tool",
-};
-
 /**
- * One rendered message row.
+ * One rendered message row as a chat bubble (UI_DESIGN_BRIEF §6).
  *
- * The shape is one DB row → one block per `docs/014 §4.2`, with one
- * exception: tool rows fold under their issuing assistant via
- * ``toolCalls``, rendered by :class:`ToolDisclosure`. OFFER chips,
- * turn-cost chips, and failure markers are still deferred — the row
- * carries only what the streaming-MVP issue requires plus the §4.2
- * tool disclosure.
+ * - **user** → an indigo bubble, right-aligned.
+ * - **assistant** → a quiet surface bubble, left-aligned, with markdown.
+ *   Tool calls fold beneath it via {@link ToolDisclosure} — the
+ *   user-facing surface of the keen-save promise (`docs/014 §4.2`,
+ *   `docs/003 §3`).
+ * - **tool** (orphan rows) → a muted inline line.
+ *
+ * Alignment is by `align-self` from the `.bubble--*` classes within the
+ * `.thread` flex column; the assistant wrapper stacks bubble + disclosure.
  */
 export function MessageBlock({
   role,
@@ -49,107 +45,51 @@ export function MessageBlock({
 }: MessageBlockProps): React.ReactElement {
   const hasBody = content !== null && content.length > 0;
   const hasToolCalls = toolCalls !== undefined && toolCalls.length > 0;
-  const tone =
-    role === "user"
-      ? "border-primary/20 bg-primary/5"
-      : role === "tool"
-        ? "border-dashed border-border/60 bg-muted/40"
-        : "border-border bg-background";
 
-  return (
-    <div
-      className={cn("rounded-md border px-4 py-3 text-sm", tone)}
-      data-role={role}
-    >
-      <div className="mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        <span>{roleLabel[role]}</span>
-        {streaming ? (
-          <span className="inline-flex items-center gap-1 text-muted-foreground">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
-            streaming…
-          </span>
-        ) : null}
-        {hasBody && role !== "tool" ? (
-          <CopyMessageButton content={content!} role={role} />
-        ) : null}
+  if (role === "user") {
+    return (
+      <div className="bubble bubble--user" data-role="user">
+        <span className="whitespace-pre-wrap">{content}</span>
       </div>
-      <div className="break-words text-foreground">
-        {hasBody &&
-          (role === "assistant" ? (
-            <MarkdownBody content={content!} />
-          ) : (
-            <span className="whitespace-pre-wrap">{content}</span>
-          ))}
-        {!hasBody && !hasToolCalls && (
-          <span className="text-xs italic text-muted-foreground">
-            (no content)
-          </span>
+    );
+  }
+
+  if (role === "tool") {
+    return (
+      <div className="msg-tool" data-role="tool">
+        {hasToolCalls ? (
+          <ToolDisclosure calls={toolCalls!} />
+        ) : (
+          <span className="costchip">tool</span>
         )}
-        {interrupted ? (
-          <span className="ml-2 text-xs font-medium text-red-600">
-            [interrupted]
-          </span>
-        ) : null}
-        {hasToolCalls && <ToolDisclosure calls={toolCalls!} />}
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-function CopyMessageButton({
-  content,
-  role,
-}: {
-  content: string;
-  role: MessageRole;
-}): React.ReactElement {
-  const [copied, setCopied] = useState(false);
-  // Hold a single reset timer so rapid clicks reuse the slot instead of
-  // queueing N flashes that fire after unmount.
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== null) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  const onClick = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      if (timerRef.current !== null) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard write can fail in insecure contexts or when permission
-      // is denied. Silent no-op is the right shape here — the user can
-      // still select-and-copy the message body manually.
-    }
-  }, [content]);
-
-  const label =
-    role === "user" ? "Copy prompt" : role === "assistant" ? "Copy response" : "Copy";
-
+  // assistant
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={copied ? "Copied" : label}
-      title={copied ? "Copied" : label}
-      className={cn(
-        "ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5",
-        "text-[10px] font-medium uppercase tracking-wider",
-        "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
-        "transition-colors",
-      )}
-    >
-      {copied ? (
-        <Check className="h-3 w-3" aria-hidden />
-      ) : (
-        <Copy className="h-3 w-3" aria-hidden />
-      )}
-      <span>{copied ? "Copied" : "Copy"}</span>
-    </button>
+    <div className="msg-asst" data-role="assistant">
+      {hasBody ? (
+        <div className="bubble bubble--asst">
+          <MarkdownBody content={content!} />
+          {interrupted ? (
+            <span className="ml-2" style={{ color: "var(--alert)", fontSize: "var(--fs-13)" }}>
+              [interrupted]
+            </span>
+          ) : null}
+          {streaming ? <span className="stream-caret" aria-hidden /> : null}
+        </div>
+      ) : !hasToolCalls ? (
+        <div className="bubble bubble--asst">
+          {streaming ? (
+            <span className="stream-caret" aria-hidden />
+          ) : (
+            <span style={{ color: "var(--muted)", fontStyle: "italic" }}>(no content)</span>
+          )}
+        </div>
+      ) : null}
+      {hasToolCalls ? <ToolDisclosure calls={toolCalls!} /> : null}
+    </div>
   );
 }
 
@@ -168,8 +108,8 @@ function MarkdownBody({ content }: { content: string }): React.ReactElement {
         "[&_li]:my-0.5",
         "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs",
         "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[0.9em]",
-        "[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2",
-        "[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-muted-foreground",
+        "[&_a]:underline [&_a]:underline-offset-2",
+        "[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:italic",
         "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse",
         "[&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium",
         "[&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1",

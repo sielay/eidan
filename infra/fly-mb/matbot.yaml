@@ -1,0 +1,26 @@
+# eidan-on-matbot host config (container/deploy). The full core plugin set. No secrets —
+# EIDAN_DATABASE_URL (storage), ANTHROPIC_API_KEY (provider), EIDAN_AUTH_JWT_SECRET (auth),
+# EIDAN_JOB_KINDS / EIDAN_NOTIFY_ROUTES, etc. all arrive via env (vault → ${...}).
+principal: eidan-operator # overridden by MATBOT_PRINCIPAL env (a real eidan.users UUID)
+
+plugins:
+  - ./packages/storage-postgres # storage backend first (open() before any createStore)
+  - ./packages/llm-calls # LLM cost ledger (eidan.llm_calls)
+  - ./packages/memory # EidanMemory + remember/recall
+  - ./packages/auth # WebPrincipalResolver: Bearer JWT (HS256) -> per-request Principal (RLS)
+  - ./packages/notify # topic->channel routing (Slack/Telegram); dry-run unless EIDAN_NOTIFY_ROUTES
+  - ./packages/jobs # delegation work-queue worker (eidan.jobs); bundles add kind handlers
+  - ./packages/frontend-agui # AG-UI turn stream + conversation REST (:8090)
+  - ./packages/mcp-server # inbound MCP (JSON-RPC) (:8091)
+  - ./packages/a2a-server # inbound A2A agent card + message/send (:8095)
+  # Paid bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
+
+providers:
+  claude:
+    module: ./external/matbot/packages/plugins/providers/anthropic
+    endpoint: https://api.anthropic.com
+    model: claude-sonnet-4-6
+    credentials:
+      apiKey: ${ANTHROPIC_API_KEY}
+    parameters:
+      maxTokens: 4096

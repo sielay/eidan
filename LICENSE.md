@@ -17,12 +17,10 @@ What this means in practice:
   (employees of your own company do not count), AGPL §13 requires
   you to offer those users the source of your modifications under
   AGPL-compatible terms.
-- Plugins that link into core (importing `eidan.*`, subclassing
-  `PluginBase`, integrating via `PluginContext`) are derivative
-  works of core. When distributed, they must be released under
-  AGPL-compatible terms. See
-  [`docs/020_LICENSING_AND_CLA.md`](docs/020_LICENSING_AND_CLA.md)
-  for the full reasoning.
+- Plugins that link into core (importing the `@eidandev/*` packages,
+  or integrating through core's registered services on matbot's
+  service registry) are derivative works of core. When distributed,
+  they must be released under AGPL-compatible terms.
 
 Full text of the licence: <https://www.gnu.org/licenses/agpl-3.0.txt>.
 
@@ -31,8 +29,8 @@ Full text of the licence: <https://www.gnu.org/licenses/agpl-3.0.txt>.
 Sielay Ltd publishes proprietary plugin bundles that sit on top of
 AGPL core. These bundles are **not** in this repository and **not**
 covered by the AGPL release of core. They are sold via the eidan
-landing site (separate repo). The distribution model is pinned in
-[`docs/018_DISTRIBUTION_AND_BUNDLES.md`](docs/018_DISTRIBUTION_AND_BUNDLES.md).
+landing site (separate repo). Bundles are vendored into the deploy
+image as additional matbot plugins and never live in this repo.
 
 ## Bespoke enterprise plugins
 

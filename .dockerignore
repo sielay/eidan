@@ -1,0 +1,18 @@
+# Keep build contexts small + reproducible: rebuild deps in-image, never copy host state.
+**/node_modules
+.git
+.data
+.plugins
+.next
+out
+.turbo
+*.log
+.venv
+__pycache__
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+matbot.yaml
+.env
+.DS_Store

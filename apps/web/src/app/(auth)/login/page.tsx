@@ -1,226 +1,387 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
 import * as React from "react";
+import {
+  Mail,
+  Shield,
+  Check,
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+} from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
-import { requestMagicLink, verifyMagicLink } from "@/lib/auth";
+import { ThemeToggle } from "@/components/shell/ThemeToggle";
+import { requestMagicLink, verifyMagicLink, refreshAccessToken } from "@/lib/auth";
 
 /**
- * Native magic-link login (`docs/011 §14`).
+ * Magic-link sign-in — implements the Login.html design (Claude Design handoff)
+ * wired to the real `/api/auth/*` flow. Five calm stages, one clear action each:
  *
- * The flow:
+ *   enter → sending → sent → verifying → done
  *
- *   1. Operator enters their email. Submit → POST /api/auth/magic-link.
- *   2. Backend sends an email with a click-through URL + a 6-digit
- *      code. In dev, the response body also echoes both so the
- *      operator doesn't need Mailpit running.
- *   3. The form switches to "check your email" mode and exposes a
- *      code field for the paste-back path.
- *   4. Clicking the email URL lands on `/login?token=<token>` →
- *      this page auto-verifies and redirects home.
- *   5. Submitting the code → POST /api/auth/verify with `code` →
- *      same redirect on success.
- *
- * No third-party JS. State is local to this component plus the
- * `useAuth()` provider context (which refreshes once a token lands).
+ * No password. The "sent" stage surfaces the dev magic-link + code when the
+ * backend runs log-only delivery (EIDAN_DEV_AUTH); in production the operator
+ * clicks the emailed link, which lands on `/login?token=…` and auto-verifies.
  */
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RESEND_SECONDS = 30;
+
+type Stage = "enter" | "sending" | "sent" | "verifying" | "done";
+
+function LoginMark(): React.ReactElement {
+  return (
+    <span className="onb-mark login-mark">
+      <BookOpen className="i" aria-hidden />
+    </span>
+  );
+}
+
+function Spinner({ cls = "" }: { cls?: string }): React.ReactElement {
+  return <span className={"login-spin " + cls} aria-hidden />;
+}
+
+function ComfortToggle(): React.ReactElement {
+  const [relaxed, setRelaxed] = React.useState(false);
+  return (
+    <button
+      type="button"
+      className="iconbtn"
+      aria-pressed={relaxed}
+      onClick={() => {
+        const next = !relaxed;
+        setRelaxed(next);
+        document.documentElement.setAttribute(
+          "data-comfort",
+          next ? "relaxed" : "default",
+        );
+      }}
+    >
+      Relaxed
+    </button>
+  );
+}
+
+function Page({ children }: { children: React.ReactNode }): React.ReactElement {
+  return (
+    <div className="onb-page">
+      <div className="onb-toolbar">
+        <ComfortToggle />
+        <ThemeToggle />
+      </div>
+      <div className="login-shell">{children}</div>
+      <div className="onb-footnote">
+        <Shield className="i i-sm" aria-hidden />
+        Self-hosted · your data stays on your server
+      </div>
+    </div>
+  );
+}
+
 export default function LoginPage(): React.ReactElement {
   const { configError } = useAuth();
 
+  const [stage, setStage] = React.useState<Stage>("enter");
   const [email, setEmail] = React.useState("");
-  const [phase, setPhase] = React.useState<"enter-email" | "await-verify">(
-    "enter-email",
-  );
-  const [code, setCode] = React.useState("");
-  const [devMagicLink, setDevMagicLink] = React.useState<string | null>(null);
+  const [touched, setTouched] = React.useState(false);
+  const [cooldown, setCooldown] = React.useState(0);
+  const [devLink, setDevLink] = React.useState<string | null>(null);
   const [devCode, setDevCode] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
 
-  // The login form is intentionally not pre-filled from the backend.
-  // `/api/auth/config` is public + unauthenticated and must not
-  // leak the operator's pinned email; browser form autofill
-  // remembers it after first login.
+  const valid = EMAIL_RE.test(email.trim());
+  const showError = touched && email.trim() !== "" && !valid;
 
-  // Handle the email-link landing case: /login?token=...
+  React.useEffect(() => {
+    if (stage === "enter") inputRef.current?.focus();
+  }, [stage]);
+
+  // resend cooldown ticker
+  React.useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  const runVerify = React.useCallback(
+    async (args: { token?: string; code?: string }): Promise<void> => {
+      setError(null);
+      setStage("verifying");
+      try {
+        await verifyMagicLink(args);
+        setStage("done");
+        setTimeout(() => window.location.assign("/"), 700);
+      } catch (e) {
+        setStage("sent");
+        setError(e instanceof Error ? e.message : "Could not verify — try again.");
+      }
+    },
+    [],
+  );
+
+  // "I've clicked the link" in production (no dev code): the email link may have been opened in
+  // another tab/device, setting the refresh cookie — pick it up rather than leaving a dead button.
+  const recheck = React.useCallback(async (): Promise<void> => {
+    setError(null);
+    setStage("verifying");
+    const slot = await refreshAccessToken();
+    if (slot) {
+      setStage("done");
+      setTimeout(() => window.location.assign("/"), 500);
+    } else {
+      setStage("sent");
+      setError("We haven't seen the sign-in yet — open the link in your email.");
+    }
+  }, []);
+
+  // Email-link landing: /login?token=… → auto-verify.
   React.useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     const token = url.searchParams.get("token");
     if (!token) return;
-    (async () => {
-      setBusy(true);
-      try {
-        await verifyMagicLink({ token });
-        // Strip the token from the URL so a refresh doesn't replay.
-        url.searchParams.delete("token");
-        window.history.replaceState({}, "", url.toString());
-        window.location.assign("/");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "verify failed");
-      } finally {
-        setBusy(false);
-      }
-    })();
-  }, []);
+    url.searchParams.delete("token");
+    window.history.replaceState({}, "", url.toString());
+    void runVerify({ token });
+  }, [runVerify]);
 
-  async function handleRequestLink(
-    event: React.FormEvent<HTMLFormElement>,
-  ): Promise<void> {
-    event.preventDefault();
+  async function send(e?: React.FormEvent): Promise<void> {
+    if (e) e.preventDefault();
+    setTouched(true);
     setError(null);
-    setBusy(true);
+    if (!valid) {
+      inputRef.current?.focus();
+      return;
+    }
+    setStage("sending");
     try {
-      const res = await requestMagicLink(email);
-      setPhase("await-verify");
-      if (res.magic_link) setDevMagicLink(res.magic_link);
-      if (res.code) setDevCode(res.code);
+      const res = await requestMagicLink(email.trim());
+      setDevLink(res.magic_link ?? null);
+      setDevCode(res.code ?? null);
+      setStage("sent");
+      setCooldown(RESEND_SECONDS);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "request failed");
-    } finally {
-      setBusy(false);
+      setStage("enter");
+      setError(err instanceof Error ? err.message : "Could not send the link.");
     }
   }
 
-  async function handleSubmitCode(
-    event: React.FormEvent<HTMLFormElement>,
-  ): Promise<void> {
-    event.preventDefault();
+  async function resend(): Promise<void> {
+    if (cooldown > 0) return;
+    setCooldown(RESEND_SECONDS);
     setError(null);
-    setBusy(true);
     try {
-      await verifyMagicLink({ code });
-      window.location.assign("/");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "verify failed");
-    } finally {
-      setBusy(false);
+      const res = await requestMagicLink(email.trim());
+      setDevLink(res.magic_link ?? null);
+      setDevCode(res.code ?? null);
+    } catch {
+      // keep the cooldown; the next explicit action surfaces any error
     }
   }
 
+  function restart(): void {
+    setStage("enter");
+    setTouched(false);
+    setCooldown(0);
+    setError(null);
+    setDevLink(null);
+    setDevCode(null);
+  }
+
+  // Backend /api/auth/config unreachable — keep the user oriented inside the same shell.
   if (configError) {
     return (
-      <main className="mx-auto mt-16 max-w-md p-6">
-        <h1 className="mb-2 text-xl font-semibold">Auth config unavailable</h1>
-        <p className="text-sm text-muted-foreground">
-          The backend did not return <code>/api/auth/config</code>. Check
-          that the host is running and that{" "}
-          <code>NEXT_PUBLIC_EIDAN_BACKEND_URL</code> points at it.
-        </p>
-        <p className="mt-3 text-xs text-muted-foreground">{configError}</p>
-      </main>
+      <Page>
+        <div className="onb-card onb-center login-card">
+          <LoginMark />
+          <h1 className="onb-title">Can&apos;t reach the server</h1>
+          <p className="onb-lede">
+            The backend didn&apos;t return <code>/api/auth/config</code>. Check the host
+            is running and <code>NEXT_PUBLIC_EIDAN_BACKEND_URL</code> points at it.
+          </p>
+          <p className="onb-fine">{configError}</p>
+        </div>
+      </Page>
     );
   }
 
-  return (
-    <main className="mx-auto mt-16 max-w-md p-6">
-      <h1 className="mb-4 text-2xl font-semibold">Sign in to Eidan</h1>
-
-      {phase === "enter-email" && (
-        <form onSubmit={handleRequestLink} className="space-y-4">
-          <label className="block text-sm font-medium" htmlFor="email">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-            placeholder="you@example.com"
-            disabled={busy}
-          />
-          <button
-            type="submit"
-            disabled={busy || !email}
-            className="w-full rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-          >
-            {busy ? "Sending…" : "Send magic link"}
-          </button>
-          <p className="text-xs text-muted-foreground">
-            We&apos;ll email you a link. The link expires in 15 minutes.
+  if (stage === "enter" || stage === "sending") {
+    const sending = stage === "sending";
+    return (
+      <Page>
+        <div className="onb-card onb-center login-card">
+          <LoginMark />
+          <h1 className="onb-title">Sign in to eidan</h1>
+          <p className="onb-lede">
+            No password to remember. Enter your email and we&apos;ll send a one-time
+            sign-in link.
           </p>
-        </form>
-      )}
+          <form className="login-form" onSubmit={send} noValidate>
+            <div className="field onb-field" style={{ marginBottom: 0 }}>
+              <label className="field__label" htmlFor="login-email">
+                Email
+              </label>
+              <div className={"input login-input" + (showError ? " is-error" : "")}>
+                <Mail className="i i-sm login-input__ic" aria-hidden />
+                <input
+                  ref={inputRef}
+                  id="login-email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  disabled={sending}
+                  aria-invalid={showError}
+                  aria-describedby={showError ? "login-email-err" : undefined}
+                  onChange={(ev) => setEmail(ev.target.value)}
+                  onBlur={() => setTouched(true)}
+                />
+              </div>
+              <span
+                id="login-email-err"
+                className={"login-err" + (showError ? " is-on" : "")}
+                role={showError ? "alert" : undefined}
+              >
+                {showError && (
+                  <>
+                    <AlertTriangle className="i i-sm" aria-hidden />
+                    Enter a valid email address
+                  </>
+                )}
+              </span>
+            </div>
+            <button
+              type="submit"
+              className="btn btn--primary btn--block btn--lg"
+              disabled={sending}
+              aria-busy={sending}
+            >
+              {sending ? (
+                <>
+                  <Spinner />
+                  Sending…
+                </>
+              ) : (
+                <>
+                  <Mail className="i i-sm" aria-hidden />
+                  Send magic link
+                </>
+              )}
+            </button>
+            {error && (
+              <span className="login-err is-on" role="alert">
+                <AlertTriangle className="i i-sm" aria-hidden />
+                {error}
+              </span>
+            )}
+          </form>
+          <p className="onb-fine login-shield">
+            <Shield className="i i-sm" aria-hidden />
+            Self-hosted on your own server. Your data never leaves it.
+          </p>
+        </div>
+      </Page>
+    );
+  }
 
-      {phase === "await-verify" && (
-        <div className="space-y-6">
-          <div className="rounded border border-border bg-muted/40 p-4 text-sm">
-            <p className="mb-2 font-medium">Check your email</p>
-            <p className="text-muted-foreground">
-              We sent a sign-in link to <strong>{email}</strong>. Click the
-              link to finish signing in.
-            </p>
+  if (stage === "sent") {
+    return (
+      <Page>
+        <div className="onb-card onb-center login-card">
+          <div className="onb-sent login-sent">
+            <Mail className="i" aria-hidden />
           </div>
-
-          {devMagicLink && (
-            <div className="rounded border border-amber-400/40 bg-amber-50 p-3 text-xs text-amber-900">
-              <p className="mb-1 font-medium">
-                Dev mode: email delivery is log-only.
-              </p>
-              <p>
-                Open the link directly:{" "}
-                <a
-                  href={devMagicLink}
-                  className="text-amber-900 underline underline-offset-2"
-                >
-                  {devMagicLink}
+          <h1 className="onb-title">Check your inbox</h1>
+          <p className="onb-lede">
+            We sent a sign-in link to{" "}
+            <strong className="login-emailref">{email.trim()}</strong>. Open it on this
+            device to continue — it expires in 15 minutes.
+          </p>
+          {(devLink || devCode) && (
+            <div className="login-dev">
+              <p className="login-dev__h">Dev mode · email delivery is log-only</p>
+              {devLink && (
+                <a className="login-dev__link" href={devLink}>
+                  Open the sign-in link
                 </a>
-              </p>
+              )}
               {devCode && (
-                <p className="mt-1">
-                  Or paste the code: <code>{devCode}</code>
+                <p>
+                  or use code <code className="num">{devCode}</code>
                 </p>
               )}
             </div>
           )}
-
-          <form onSubmit={handleSubmitCode} className="space-y-3">
-            <label className="block text-sm font-medium" htmlFor="code">
-              Or paste the 6-digit code
-            </label>
-            <input
-              id="code"
-              type="text"
-              inputMode="numeric"
-              pattern="\d{6}"
-              maxLength={6}
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              className="w-full rounded border border-input bg-background px-3 py-2 text-center text-lg tracking-widest"
-              placeholder="000000"
-              disabled={busy}
-            />
+          <div className="login-actions">
             <button
-              type="submit"
-              disabled={busy || code.length !== 6}
-              className="w-full rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              className="btn btn--primary btn--block btn--lg"
+              onClick={() => void (devCode ? runVerify({ code: devCode }) : recheck())}
             >
-              {busy ? "Verifying…" : "Sign in with code"}
+              I&apos;ve clicked the link
+              <ArrowRight className="i i-sm" aria-hidden />
             </button>
-          </form>
-
-          <button
-            type="button"
-            onClick={() => {
-              setPhase("enter-email");
-              setDevMagicLink(null);
-              setDevCode(null);
-              setError(null);
-            }}
-            className="text-xs text-muted-foreground underline underline-offset-2"
-          >
+            <button
+              className="btn btn--ghost btn--block"
+              onClick={resend}
+              disabled={cooldown > 0}
+            >
+              {cooldown > 0 ? (
+                <span className="num">Resend in {cooldown}s</span>
+              ) : (
+                "Resend link"
+              )}
+            </button>
+          </div>
+          {error && (
+            <span className="login-err is-on" role="alert">
+              <AlertTriangle className="i i-sm" aria-hidden />
+              {error}
+            </span>
+          )}
+          <button className="btn btn--quiet login-back" onClick={restart}>
+            <ArrowLeft className="i i-sm" aria-hidden />
             Use a different email
           </button>
+          <p className="onb-fine login-tip">
+            Can&apos;t find it? Check spam, or your server&apos;s mail logs.
+          </p>
         </div>
-      )}
+      </Page>
+    );
+  }
 
-      {error && (
-        <p className="mt-4 text-sm text-red-600" role="alert">
-          {error}
+  if (stage === "verifying") {
+    return (
+      <Page>
+        <div className="onb-card onb-center login-card">
+          <div className="onb-sent login-sent login-sent--busy">
+            <Spinner cls="login-spin--lg" />
+          </div>
+          <h1 className="onb-title">Signing you in</h1>
+          <p className="onb-lede">Verifying your link and opening your workspace…</p>
+        </div>
+      </Page>
+    );
+  }
+
+  // done
+  return (
+    <Page>
+      <div className="onb-card onb-center login-card">
+        <div className="onb-sent login-sent login-sent--good">
+          <Check className="i" aria-hidden />
+        </div>
+        <h1 className="onb-title">You&apos;re in</h1>
+        <p className="onb-lede">
+          Signed in as <strong className="login-emailref">{email.trim()}</strong>. Taking
+          you to eidan…
         </p>
-      )}
-    </main>
+      </div>
+    </Page>
   );
 }

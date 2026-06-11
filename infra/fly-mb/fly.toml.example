@@ -1,0 +1,27 @@
+# Example Fly config for the eidan-on-matbot host. Copy to a gitignored fly.toml and:
+#   fly secrets set EIDAN_DATABASE_URL=postgresql://... ANTHROPIC_API_KEY=sk-ant-... \
+#                   EIDAN_AUTH_JWT_SECRET=... MATBOT_PRINCIPAL=<eidan.users-uuid>
+#   fly deploy --config infra/fly-mb/fly.toml --dockerfile infra/fly-mb/Dockerfile
+app = "eidan-mb"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "infra/fly-mb/Dockerfile"
+
+[env]
+  # AG-UI (the Next app's backend) is the public HTTP surface on this node.
+  MATBOT_AGUI_PORT = "8090"
+  MATBOT_MCP_PORT = "8091"
+  MATBOT_A2A_PORT = "8095"
+  # Worker kinds this node claims from eidan.jobs (add bundle kinds, e.g. "chat,code").
+  EIDAN_JOB_KINDS = "chat"
+
+[http_service]
+  internal_port = 8090
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+# MCP (:8091) and A2A (:8095) are additional inbound surfaces. Expose them with extra
+# [[services]] blocks if this node should serve them publicly; otherwise keep them internal.

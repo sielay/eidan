@@ -1,0 +1,21 @@
+{
+  "name": "@eidandev/a2a-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Inbound A2A server: exposes eidan as an A2A agent (agent card + message/send, JSON-RPC/HTTP) so other agents can delegate to it. The 3rd interop boundary after MCP + AG-UI.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.0"
+  }
+}

@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
 import { EventType } from "@ag-ui/core";
-import { TurnInput } from "@eidan/schemas";
+import { TurnInput } from "@/lib/schemas";
 
 import { authFetch } from "@/lib/auth";
 

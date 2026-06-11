@@ -1,0 +1,40 @@
+# eidan-on-matbot host config (example). Copy to `matbot.yaml` (gitignored) and supply secrets via
+# env/vault. matbot is the runtime (vendored at external/matbot); eidan ships as the plugins below.
+# Per eidan's gitignored-config policy this `.example` is tracked; the real `matbot.yaml`, `.data/`,
+# and `.plugins/` are operator-private and gitignored.
+#
+# Boot (Node 24+ runs the TypeScript directly — native type-stripping, no build step):
+#
+#   EIDAN_DATABASE_URL=postgres://eidan_app:...@host:5432/eidan \
+#   ANTHROPIC_API_KEY=sk-ant-... \
+#   EIDAN_AUTH_JWT_SECRET=... \
+#   MATBOT_PRINCIPAL=<a-real-eidan.users-uuid> \
+#   node --import ./external/matbot/apps/cli/register.js \
+#        ./external/matbot/apps/cli/src/index.ts start --config ./matbot.yaml
+#
+# EIDAN_DATABASE_URL must point at a Postgres with the eidan schema applied (`pnpm --filter
+# @eidandev/migrate migrate`) via a NON-superuser role (e.g. eidan_app) so RLS enforces.
+
+principal: eidan-operator # overridden by MATBOT_PRINCIPAL env (a real eidan.users UUID)
+
+plugins:
+  - ./packages/storage-postgres # storage backend FIRST (open() before any createStore)
+  - ./packages/llm-calls # LLM cost ledger (eidan.llm_calls)
+  - ./packages/memory # EidanMemory + remember/recall
+  - ./packages/auth # WebPrincipalResolver: Bearer JWT (HS256) -> per-request Principal (RLS)
+  - ./packages/notify # topic->channel routing (Slack/Telegram); dry-run unless EIDAN_NOTIFY_ROUTES
+  - ./packages/jobs # delegation work-queue worker (eidan.jobs); bundles add kind handlers
+  - ./packages/frontend-agui # AG-UI turn stream + conversation REST (:8090)
+  - ./packages/mcp-server # inbound MCP (JSON-RPC) (:8091)
+  - ./packages/a2a-server # inbound A2A agent card + message/send (:8095)
+  # Paid bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
+
+providers:
+  claude:
+    module: ./external/matbot/packages/plugins/providers/anthropic
+    endpoint: https://api.anthropic.com
+    model: claude-sonnet-4-6
+    credentials:
+      apiKey: ${ANTHROPIC_API_KEY}
+    parameters:
+      maxTokens: 4096
