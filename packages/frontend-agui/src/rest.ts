@@ -2,6 +2,8 @@
 // Plain CRUD read surface the Next app uses alongside the AG-UI turn stream: conversation list,
 // a single conversation, its message history, title edit/regenerate. Reads eidan.* directly
 // (RLS-scoped via the ambient principal + an explicit user_id filter). Runs under runAs(principal).
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { MatbotServices, Principal, Session, MessageContent } from '@matatbread/matbot-plugin-api';
 import { withPrincipal } from './db.js';
@@ -48,6 +50,31 @@ function newSession(id: string, ownerId: string): Session {
   return { id, version: '0', ownerPrincipalId: ownerId, status: 'active', contexts: [], messages: [], createdAt: now, updatedAt: now };
 }
 
+// The live loaded-plugin set, parsed from the host config (services.configPath) — what the running
+// engine actually loaded, not a DB snapshot. Minimal block parse of the YAML `plugins:` list.
+function loadedPlugins(configPath: string | undefined): { name: string; spec: string }[] {
+  if (!configPath) return [];
+  let text: string;
+  try {
+    text = readFileSync(configPath, 'utf8');
+  } catch {
+    return [];
+  }
+  const out: { name: string; spec: string }[] = [];
+  let inPlugins = false;
+  for (const raw of text.split('\n')) {
+    if (/^plugins:\s*$/.test(raw)) {
+      inPlugins = true;
+      continue;
+    }
+    if (!inPlugins) continue;
+    if (/^\S/.test(raw)) break; // a new top-level key ends the list
+    const m = raw.match(/^\s*-\s*([^#\s]+)/);
+    if (m && m[1]) out.push({ spec: m[1], name: basename(m[1].replace(/\/+$/, '')) });
+  }
+  return out;
+}
+
 // Returns true if it owned the route. `parts` is the path split on '/', e.g. ['api','conversations','<id>','messages'].
 export async function handleRest(
   req: IncomingMessage,
@@ -59,6 +86,39 @@ export async function handleRest(
 ): Promise<boolean> {
   const method = req.method ?? 'GET';
   const uid = principal.id;
+
+  // /api/commands — the live tool registry (a matbot tool is the host's notion of a command).
+  if (parts.length === 2 && parts[0] === 'api' && parts[1] === 'commands' && method === 'GET') {
+    const tools = services.tools?.list() ?? [];
+    json(
+      res,
+      200,
+      { commands: tools.map((t) => ({ name: t.name, description: t.description ?? '', plugin: t.pluginName ?? null, idempotent: false })) },
+      cors,
+    );
+    return true;
+  }
+
+  // /api/plugins (+ /:name) — the live loaded-plugin set parsed from the host config.
+  if (parts.length >= 2 && parts[0] === 'api' && parts[1] === 'plugins' && method === 'GET') {
+    const plugins = loadedPlugins(services.configPath);
+    if (parts.length === 2) {
+      json(
+        res,
+        200,
+        { node: null, plugins: plugins.map((p) => ({ name: p.name, display_name: p.name, tier: 'core', version: '', description: null, enabled: true })) },
+        cors,
+      );
+      return true;
+    }
+    const p = plugins.find((x) => x.name === (parts[2] ?? ''));
+    if (!p) {
+      json(res, 404, { error: 'not found' }, cors);
+      return true;
+    }
+    json(res, 200, { name: p.name, display_name: p.name, tier: 'core', version: '', description: null, enabled: true, author: null, commands: [] }, cors);
+    return true;
+  }
 
   // /api/conversations
   if (parts.length === 2 && parts[0] === 'api' && parts[1] === 'conversations') {
