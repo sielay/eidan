@@ -32,3 +32,9 @@ logs/
 matbot.local.yaml
 /dev-up.sh
 /dev-down.sh
+
+# vendored paid bundles (private; deploy copies them in, never committed to core)
+packages/sage/
+packages/pro/
+packages/charles/
+packages/charlotte/

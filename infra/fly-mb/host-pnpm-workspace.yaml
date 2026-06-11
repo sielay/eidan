@@ -1,3 +1,2 @@
 packages:
-  - packages/storage-postgres
-  - packages/memory
+  - packages/*
