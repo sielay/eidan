@@ -15,9 +15,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import type { NavIconKey } from "@/lib/shell/nav";
-
-const MAP: Record<NavIconKey, LucideIcon> = {
+// Keyed by string so plugins can contribute their own icon names; unknown keys
+// fall back to MessageSquare.
+const MAP: Record<string, LucideIcon> = {
   chat: MessageSquare,
   memory: BookOpen,
   inbox: Inbox,
@@ -41,7 +41,7 @@ export function NavIcon({
   name,
   className = "i",
 }: {
-  name: NavIconKey;
+  name: string;
   className?: string;
 }): React.ReactElement {
   const Cmp = MAP[name] ?? MessageSquare;

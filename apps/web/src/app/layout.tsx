@@ -5,6 +5,8 @@ import { IBM_Plex_Mono, Lexend } from "next/font/google";
 import { AuthProvider } from "@/components/providers/auth-provider";
 
 import "./globals.css";
+// Plugin-contributed stylesheets (empty in base; the deploy assembly fills it).
+import "@/plugins/bundles.generated.css";
 
 // Lexend (UI) + IBM Plex Mono (numerals/data) per the design system.
 // Exposed as CSS variables the eidan tokens reference (`--font-ui`,
