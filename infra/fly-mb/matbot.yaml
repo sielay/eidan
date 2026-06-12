@@ -5,6 +5,7 @@ principal: eidan-operator # overridden by MATBOT_PRINCIPAL env (a real eidan.use
 
 plugins:
   - ./packages/storage-postgres # storage backend first (open() before any createStore)
+  - ./packages/vault-postgres # encrypted secrets vault (register('Vault')); EidanSecrets service. Early, so ${NAME} resolves from the DB vault for all later plugins
   - ./packages/llm-calls # LLM cost ledger (eidan.llm_calls)
   - ./packages/memory # EidanMemory + remember/recall
   - ./packages/auth # WebPrincipalResolver: Bearer JWT (HS256) -> per-request Principal (RLS)
@@ -13,6 +14,7 @@ plugins:
   - ./packages/frontend-agui # AG-UI turn stream + conversation REST (:8090)
   - ./packages/mcp-server # inbound MCP (JSON-RPC) (:8091)
   - ./packages/a2a-server # inbound A2A agent card + message/send (:8095)
+  - ./packages/secrets-api # secure secrets HTTP API (:8092): LLM-free write path for the Settings UI (needs vault-postgres + auth)
   # Paid bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
 
 providers:

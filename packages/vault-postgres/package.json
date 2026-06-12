@@ -1,0 +1,23 @@
+{
+  "name": "@eidandev/vault-postgres",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "eidan encrypted secrets vault as a matbot Vault backend: ${NAME} resolution + self-serve write/delete over eidan.secrets_vault, Fernet-at-rest (HKDF from EIDAN_AUTH_MASTER_KEY), per-user via the ambient Principal.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}
