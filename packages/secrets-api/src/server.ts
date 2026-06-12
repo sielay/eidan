@@ -30,8 +30,11 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-function cors(res: ServerResponse, origin: string | undefined): void {
-  if (origin) {
+function cors(res: ServerResponse, origin: string | undefined, allowed: string | undefined): void {
+  // Only echo the origin for credentialed CORS when it matches the configured web origin — never
+  // reflect an arbitrary request origin (that's a credential-leak vuln on a secrets API:
+  // js/cors-misconfiguration-for-credentials). No allowlist match -> no CORS origin header.
+  if (origin && allowed && origin === allowed) {
     res.setHeader('access-control-allow-origin', origin);
     res.setHeader('access-control-allow-credentials', 'true');
     res.setHeader('vary', 'origin');
@@ -61,8 +64,8 @@ function parsePath(url: string): { kind: 'root' | 'catalog' | 'name'; name?: str
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse, services: MatbotServices, opts: SecretsApiOpts): Promise<void> {
-  const origin = typeof req.headers.origin === 'string' ? req.headers.origin : opts.webOrigin;
-  cors(res, origin);
+  const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
+  cors(res, origin, opts.webOrigin);
   const method = req.method ?? 'GET';
   if (method === 'OPTIONS') { res.writeHead(204).end(); return; }
 
