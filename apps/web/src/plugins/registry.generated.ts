@@ -8,6 +8,7 @@
 // sibling `apps/web/src/plugins/<name>/` dirs) with the operator's
 // assembled plugin frontends, which are gitignored.
 import type { ComponentType } from "react";
+import type { NavContribution } from "@/lib/shell/nav";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PluginLoad = () => Promise<{ default: ComponentType<any> }>;
@@ -17,3 +18,8 @@ export type PluginSlotEntry = { plugin: string; slot: string; load: PluginLoad }
 export const pluginRoutes: PluginRoute[] = [];
 
 export const pluginSlots: PluginSlotEntry[] = [];
+
+// Nav sections contributed by installed plugins (design §4 "dynamic-by-bundle").
+// Empty in the base build; assembly appends one entry per plugin frontend that
+// declares a nav contribution, so its sections appear in the rail + bottom bar.
+export const pluginNav: NavContribution[] = [];

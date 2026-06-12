@@ -107,7 +107,10 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
 export function startSecretsApi(services: MatbotServices, opts: SecretsApiOpts): () => void {
   const server = createServer((req, res) => {
     void handle(req, res, services, opts).catch((e: unknown) => {
-      if (!res.headersSent) send(res, 500, { error: e instanceof Error ? e.message : String(e) });
+      // Don't leak exception detail to the client on a secrets API — log it server-side,
+      // return a generic 500 (avoids stack-trace / info exposure).
+      console.error('[secrets-api] request failed:', e instanceof Error ? e.message : String(e));
+      if (!res.headersSent) send(res, 500, { error: 'internal error' });
       else res.end();
     });
   });

@@ -33,7 +33,9 @@ export type NavIconKey =
 export interface NavSection {
   id: string;
   label: string;
-  icon: NavIconKey;
+  // Core keys autocomplete; plugins may contribute their own icon name (NavIcon
+  // falls back to a generic glyph for an unknown key).
+  icon: NavIconKey | (string & {});
   href: string;
   /** Lower = promoted to the mobile bottom bar sooner; null = More/rail only. */
   mobileHome: number | null;
