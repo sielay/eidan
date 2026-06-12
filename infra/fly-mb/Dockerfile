@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # eidan-on-matbot host image. Runs the matbot CLI in server mode with the full eidan core plugin
-# set (storage-postgres, llm-calls, memory, auth, notify, jobs, frontend-agui, mcp-server,
-# a2a-server, procedures). Node 24 runs the TypeScript sources directly (native type-stripping).
+# set (storage-postgres, vault-postgres, llm-calls, memory, auth, notify, jobs, frontend-agui,
+# mcp-server, a2a-server, procedures, secrets-api). Node 24 runs the TypeScript sources directly.
 # One image deploys to every node; per-node env (EIDAN_JOB_KINDS, ports, routes) tunes the role.
 FROM node:24-slim
 
@@ -28,7 +28,8 @@ RUN pnpm install --config.engine-strict=false
 # 3) host config (plugins + provider; secrets arrive via env: EIDAN_DATABASE_URL, ANTHROPIC_API_KEY).
 COPY infra/fly-mb/matbot.yaml ./matbot.yaml
 
-# AG-UI :8090, inbound MCP :8091, inbound A2A :8095. A worker-only node needs none of these exposed.
-ENV MATBOT_AGUI_PORT=8090 MATBOT_MCP_PORT=8091 MATBOT_A2A_PORT=8095
-EXPOSE 8090 8091 8095
+# AG-UI :8090, inbound MCP :8091, secure secrets API :8092, inbound A2A :8095. A worker-only node
+# needs none of these exposed.
+ENV MATBOT_AGUI_PORT=8090 MATBOT_MCP_PORT=8091 MATBOT_SECRETS_PORT=8092 MATBOT_A2A_PORT=8095
+EXPOSE 8090 8091 8092 8095
 CMD ["node", "--import", "./external/matbot/apps/cli/register.js", "./external/matbot/apps/cli/src/index.ts", "start", "--config", "./matbot.yaml"]

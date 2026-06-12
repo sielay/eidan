@@ -31,6 +31,8 @@ The plugins:
 | Package | Role |
 |---|---|
 | `@eidandev/storage-postgres` | matbot StorageBackend: `Store<Session>` + `FileStore` over `eidan.*`, keen append-only, ambient-principal RLS |
+| `@eidandev/vault-postgres` | matbot `Vault` backend over `eidan.secrets_vault` (Fernet-at-rest, per-user); `EidanSecrets` service + value-free `secret` tool |
+| `@eidandev/secrets-api` | secure secrets HTTP API (`:8092`): the LLM-free write path the Settings UI calls (`GET catalog`/metadata, `PUT`/`DELETE`) |
 | `@eidandev/memory` | knowledge + notes; `EidanMemory` service + remember/recall tools |
 | `@eidandev/jobs` | delegation work-queue (`eidan.jobs`); bundles register kind handlers via `JobHandlers` |
 | `@eidandev/frontend-agui` | chat surface over AG-UI (`POST /api/turn`) for the Next.js UI |

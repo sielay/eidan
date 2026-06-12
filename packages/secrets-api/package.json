@@ -1,0 +1,22 @@
+{
+  "name": "@eidandev/secrets-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Authenticated HTTP surface for the eidan secrets vault: the secure, LLM-free write path. GET catalog/metadata + PUT/DELETE a secret by name (value enters server-side only, never a turn). Consumes the EidanSecrets service from @eidandev/vault-postgres.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "@eidandev/vault-postgres": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.0"
+  }
+}
