@@ -9,9 +9,11 @@ import { Plus, Sparkles } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { NavIcon } from "@/components/shell/NavIcon";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
+import { pluginNav } from "@/plugins/registry.generated";
 import {
   bottomTabs,
   chatSection,
+  CORE_CONTRIBUTION,
   isActive,
   moreSections,
   railGroups,
@@ -40,7 +42,11 @@ export function AppShell({
   const pathname = usePathname();
   const { user } = useAuth();
 
-  const sections = React.useMemo(() => resolveSections(), []);
+  // Core sections + whatever installed plugins contribute (design §4).
+  const sections = React.useMemo(
+    () => resolveSections([CORE_CONTRIBUTION, ...pluginNav]),
+    [],
+  );
   const chat = chatSection(sections);
   const groups = React.useMemo(() => railGroups(sections), [sections]);
   const tabs = React.useMemo(() => bottomTabs(sections), [sections]);
