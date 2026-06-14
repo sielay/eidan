@@ -22,6 +22,19 @@ export function middleware(request: NextRequest): NextResponse {
     return NextResponse.next();
   }
 
+  // Bearer-authenticated API callers (the engine, scripts, other agents) carry the
+  // HS256 access token in the Authorization header, not the first-party
+  // `eidan_refresh` cookie. Let them reach the route, whose verifyBearer does the
+  // real cryptographic validation. Without this the cookie presence-check below
+  // 401s every header-only API request before the token can be validated. (Browser
+  // calls send both cookie + header, so they pass either gate.)
+  if (pathname.startsWith("/api/")) {
+    const authz = request.headers.get("authorization");
+    if (authz && authz.startsWith("Bearer ")) {
+      return NextResponse.next();
+    }
+  }
+
   if (!request.cookies.has("eidan_refresh")) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
