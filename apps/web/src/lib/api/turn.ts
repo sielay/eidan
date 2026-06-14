@@ -47,6 +47,8 @@ export type TurnEvent =
 export interface TurnRequest {
   conversationId: string;
   text: string;
+  /** Optional matbot provider name (the chosen model). Omitted ⇒ server default. */
+  provider?: string;
   signal?: AbortSignal;
 }
 
@@ -90,6 +92,7 @@ export async function* streamTurn(
     text: req.text,
     sent_at_utc: new Date().toISOString(),
     user_tz: resolveUserTz(),
+    ...(req.provider ? { provider: req.provider } : {}),
   });
 
   const res = await authFetch("/api/turn", {

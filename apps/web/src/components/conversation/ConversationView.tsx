@@ -10,6 +10,7 @@ import {
   type MessageRow,
 } from "@/lib/api/conversations";
 import { streamTurn } from "@/lib/api/turn";
+import { loadProvider, saveProvider } from "@/lib/models";
 
 import { buildThread, type StreamingAssistant } from "./buildThread";
 import { Composer } from "./Composer";
@@ -59,6 +60,18 @@ export function ConversationView({
   const [lastUserMessageId, setLastUserMessageId] = React.useState<
     string | null
   >(null);
+  // Per-conversation model choice (a matbot provider name); persisted client-side.
+  const [provider, setProvider] = React.useState("");
+  React.useEffect(() => {
+    setProvider(loadProvider(conversationId));
+  }, [conversationId]);
+  const onProviderChange = React.useCallback(
+    (p: string) => {
+      setProvider(p);
+      saveProvider(conversationId, p);
+    },
+    [conversationId],
+  );
   const [turnRefreshKey, setTurnRefreshKey] = React.useState(0);
   const [traceOpen, setTraceOpen] = React.useState(false);
 
@@ -110,6 +123,7 @@ export function ConversationView({
         for await (const event of streamTurn({
           conversationId,
           text,
+          ...(provider ? { provider } : {}),
         })) {
           if (event.kind === "text") {
             setStreamingAssistant((prev) => {
@@ -191,7 +205,7 @@ export function ConversationView({
         setInFlight(false);
       }
     },
-    [config, conversationId, reloadHistory, reloadTitle],
+    [config, conversationId, provider, reloadHistory, reloadTitle],
   );
 
   if (loading) {
@@ -262,7 +276,12 @@ export function ConversationView({
         ) : null}
       </div>
 
-      <Composer onSubmit={onSubmit} disabled={inFlight} />
+      <Composer
+        onSubmit={onSubmit}
+        disabled={inFlight}
+        provider={provider}
+        onProviderChange={onProviderChange}
+      />
     </div>
   );
 }

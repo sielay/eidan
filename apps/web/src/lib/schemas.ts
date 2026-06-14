@@ -26,5 +26,7 @@ export const TurnInput = z.object({
   text: z.string(),
   sent_at_utc: z.string(),
   user_tz: z.string(),
+  // Optional matbot provider name (one model per provider). Omitted ⇒ server default.
+  provider: z.string().optional(),
 });
 export type TurnInput = z.infer<typeof TurnInput>;

@@ -125,12 +125,16 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     const run = services.run;
     if (!sessions || !run) { json(res, 500, { error: 'runner/sessions unavailable' }, cors); return; }
 
-    let body: { conversation_id?: string; text?: string };
+    let body: { conversation_id?: string; text?: string; provider?: string };
     try { body = JSON.parse(await readBody(req)) as typeof body; }
     catch { json(res, 400, { error: 'invalid JSON' }, cors); return; }
     const conversationId = body.conversation_id;
     const text = body.text;
     if (!conversationId || typeof text !== 'string') { json(res, 400, { error: 'conversation_id and text required' }, cors); return; }
+    // Per-turn model: the client may name a provider; honour it only if it's actually configured,
+    // else fall back to the server default (EIDAN_AGUI_PROVIDER). Each provider in matbot.yaml is
+    // one model, so selecting a provider = selecting a model.
+    const turnProvider = body.provider && services.providers.get(body.provider) ? body.provider : provider;
 
     let session = await sessions.get(conversationId);
     if (!session) { session = newSession(conversationId, principal.id); await sessions.set(conversationId, session); }
@@ -142,9 +146,9 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     const ac = new AbortController();
     req.on('close', () => ac.abort());
     try {
-      const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: [{ type: 'text', text }], provider, principal });
+      const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: [{ type: 'text', text }], provider: turnProvider, principal });
       const ledger = services.LlmCalls;
-      const model = services.providers.get(provider)?.model ?? '';
+      const model = services.providers.get(turnProvider)?.model ?? '';
       for await (const ev of view.events) {
         if (ev.type === 'idle') continue;
         if ('traceId' in ev && ev.traceId !== view.traceId) continue;
