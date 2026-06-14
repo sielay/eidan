@@ -4,6 +4,7 @@ import type { MatbotServices, Session, Principal } from '@matatbread/matbot-plug
 import { runAs, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import { AguiEmitter, type AguiEvent } from './agui-emitter.js';
 import { handleDevAuth } from './auth-dev.js';
+import { proxyToPanel } from './panel-proxy.js';
 import { handleRest } from './rest.js';
 
 // The per-request identity seam (same key matbot's frontend-web uses): an auth plugin registers a
@@ -86,6 +87,12 @@ async function route(req: IncomingMessage, res: ServerResponse, services: Matbot
 
   // Public, unauthenticated identity endpoints (dev-only; no-op when EIDAN_DEV_AUTH≠1).
   if (await handleDevAuth(req, res, pathname, cors)) return;
+
+  // Reverse-proxy registered plugin panels (the secrets-api, bundle panel servers) to their internal
+  // loopback ports. Runs BEFORE principal resolution: the target self-authenticates the Bearer via
+  // the same shared WebPrincipalResolver, so we stream the request through untouched.
+  const panel = services.PanelProxy?.match(pathname);
+  if (panel) { proxyToPanel(req, res, panel.port, cors); return; }
 
   // Authenticated: resolve the per-request principal. If an auth plugin registered a resolver, it
   // is authoritative (throws → 401). With NO resolver we fail CLOSED in production — falling back to
