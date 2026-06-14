@@ -321,6 +321,8 @@
 .composer__input { flex: 1; min-height: 44px; max-height: 160px; resize: none; padding: 11px var(--s4); border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-family: inherit; font-size: var(--fs-15); line-height: var(--lh); }
 .composer__input:focus-visible { box-shadow: var(--ring); border-color: var(--accent); }
 .composer__send, .composer__attach { height: 44px; width: 44px; min-width: 44px; padding: 0; flex: none; }
+.composer__model { flex: none; height: 44px; border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-family: inherit; font-size: var(--fs-13); padding: 0 var(--s2); cursor: pointer; }
+.composer__model:focus-visible { box-shadow: var(--ring); border-color: var(--accent); }
 
 /* ============================================================ MEMORY (core)
    Styling authored to match the system — the design bundle shipped the

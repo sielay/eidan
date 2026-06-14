@@ -4,6 +4,8 @@
 import * as React from "react";
 import { Paperclip, Send } from "lucide-react";
 
+import { MODEL_OPTIONS } from "@/lib/models";
+
 export interface ComposerProps {
   /**
    * Submit handler. The composer awaits the returned promise and
@@ -13,6 +15,9 @@ export interface ComposerProps {
   onSubmit: (text: string) => Promise<void>;
   /** Disabled while a turn is in flight (`docs/014 §4.5`). */
   disabled?: boolean;
+  /** Selected matbot provider (one model each). When `onProviderChange` is set, a picker shows. */
+  provider?: string;
+  onProviderChange?: (provider: string) => void;
 }
 
 /**
@@ -23,6 +28,8 @@ export interface ComposerProps {
 export function Composer({
   onSubmit,
   disabled,
+  provider,
+  onProviderChange,
 }: ComposerProps): React.ReactElement {
   const [value, setValue] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
@@ -81,6 +88,22 @@ export function Composer({
       >
         <Paperclip className="i" aria-hidden />
       </button>
+      {onProviderChange ? (
+        <select
+          className="composer__model"
+          aria-label="Model"
+          title="Model for this conversation"
+          value={provider ?? ""}
+          disabled={isDisabled}
+          onChange={(e) => onProviderChange(e.target.value)}
+        >
+          {MODEL_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      ) : null}
       <textarea
         ref={taRef}
         className="composer__input"
