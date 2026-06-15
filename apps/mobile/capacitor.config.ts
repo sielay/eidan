@@ -47,6 +47,25 @@ const config: CapacitorConfig = {
         // No remote URL configured: keep cleartext off, rely on webDir fallback.
         androidScheme: 'https',
       },
+
+  // Match the PWA brand tokens (manifest background_color / theme_color) so the
+  // native chrome doesn't flash a default white/black around the WebView.
+  backgroundColor: '#FBFBFA',
+  ios: {
+    // The PWA uses viewport-fit=cover; let the WebView extend under the status bar.
+    contentInset: 'always',
+  },
+
+  plugins: {
+    SplashScreen: {
+      // Brief brand splash, then hand off to the WebView (which shows its own
+      // /offline shell if the host is unreachable).
+      launchShowDuration: 600,
+      backgroundColor: '#FBFBFA',
+      showSpinner: false,
+      androidScaleType: 'CENTER_CROP',
+    },
+  },
 };
 
 export default config;
