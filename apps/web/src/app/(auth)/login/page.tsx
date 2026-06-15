@@ -98,6 +98,7 @@ export default function LoginPage(): React.ReactElement {
 
   const [stage, setStage] = React.useState<Stage>("enter");
   const [email, setEmail] = React.useState("");
+  const [code, setCode] = React.useState("");
   const [touched, setTouched] = React.useState(false);
   const [cooldown, setCooldown] = React.useState(0);
   const [devLink, setDevLink] = React.useState<string | null>(null);
@@ -202,6 +203,7 @@ export default function LoginPage(): React.ReactElement {
     setError(null);
     setDevLink(null);
     setDevCode(null);
+    setCode("");
   }
 
   // Backend /api/auth/config unreachable — keep the user oriented inside the same shell.
@@ -310,10 +312,51 @@ export default function LoginPage(): React.ReactElement {
           </div>
           <h1 className="onb-title">Check your inbox</h1>
           <p className="onb-lede">
-            We sent a sign-in link to{" "}
-            <strong className="login-emailref">{email.trim()}</strong>. Open it on this
-            device to continue — it expires in 15 minutes.
+            We sent a sign-in link and a 6-digit code to{" "}
+            <strong className="login-emailref">{email.trim()}</strong>. Enter the code
+            below, or open the link on this device — it expires in 15 minutes.
           </p>
+          {/* Code entry is the reliable path inside a wrapped webview / native app:
+              clicking the emailed link can open a different browser (e.g. Gmail's),
+              setting the session in the wrong cookie jar. Typing the code verifies
+              right here, in this WebView's context. */}
+          <form
+            className="login-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (code.length === 6) void runVerify({ code });
+            }}
+          >
+            <div className="field onb-field" style={{ marginBottom: 0 }}>
+              <label className="field__label" htmlFor="login-code">
+                Sign-in code
+              </label>
+              <div className="input login-input">
+                <Shield className="i i-sm login-input__ic" aria-hidden />
+                <input
+                  id="login-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  placeholder="123456"
+                  className="num"
+                  value={code}
+                  onChange={(ev) =>
+                    setCode(ev.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              className="btn btn--primary btn--block btn--lg"
+              disabled={code.length !== 6}
+            >
+              <Check className="i i-sm" aria-hidden />
+              Verify code
+            </button>
+          </form>
           {(devLink || devCode) && (
             <div className="login-dev">
               <p className="login-dev__h">Dev mode · email delivery is log-only</p>
@@ -331,10 +374,10 @@ export default function LoginPage(): React.ReactElement {
           )}
           <div className="login-actions">
             <button
-              className="btn btn--primary btn--block btn--lg"
+              className="btn btn--ghost btn--block"
               onClick={() => void (devCode ? runVerify({ code: devCode }) : recheck())}
             >
-              I&apos;ve clicked the link
+              I&apos;ve clicked the link instead
               <ArrowRight className="i i-sm" aria-hidden />
             </button>
             <button
