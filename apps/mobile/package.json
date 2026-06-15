@@ -1,0 +1,26 @@
+{
+  "name": "@eidandev/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capacitor native shell that wraps the Eidan web front door (apps/web). Seed/scaffold — see README.md.",
+  "scripts": {
+    "build:web": "pnpm --filter @eidandev/web build",
+    "cap": "cap",
+    "add:ios": "cap add ios",
+    "add:android": "cap add android",
+    "sync": "cap sync",
+    "open:ios": "cap open ios",
+    "open:android": "cap open android",
+    "typecheck": "node -e \"try{require.resolve('@capacitor/cli')}catch{console.log('[@eidandev/mobile] skipping typecheck: capacitor deps not installed (run pnpm install + cap add)');process.exit(0)};require('child_process').execSync('tsc --noEmit',{stdio:'inherit'})\""
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/ios": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,3 +1,6 @@
 packages:
   - packages/*
   - migrations
+  # Capacitor native shell (seed) that wraps apps/web. apps/web is intentionally NOT a
+  # workspace member (it manages its own install); only the mobile shell is added here.
+  - apps/mobile
