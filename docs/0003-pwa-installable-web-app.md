@@ -32,10 +32,14 @@ orientation:       "portrait-primary"
 background_color:  "#FBFBFA"
 theme_color:       "#4F46E5"
 icons:             /icons/icon.svg (any) + /icons/icon-maskable.svg (maskable)
+                   + PNG raster: icon-192, icon-512, icon-maskable-512, apple-touch-icon (180)
 ```
 
 Icons are SVG (`apps/web/public/icons/`), so they scale to any launcher size; the maskable
 variant insets the glyph in the safe zone so platform masks never reveal transparent corners.
+PNG raster variants are also shipped for platforms that require them (iOS home-screen / apple-
+touch-icon, some Android launchers, Lighthouse installability) — generated from the same glyph by
+`apps/mobile/scripts/gen-icons.mjs` (see `0006-native-app-wrapper.md`).
 
 ## Service worker — caching strategy
 
