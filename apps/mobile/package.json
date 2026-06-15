@@ -9,17 +9,24 @@
     "add:ios": "cap add ios",
     "add:android": "cap add android",
     "sync": "cap sync",
+    "assets": "capacitor-assets generate --assetPath assets",
     "open:ios": "cap open ios",
     "open:android": "cap open android",
+    "run:ios": "cap run ios",
+    "run:android": "cap run android",
     "typecheck": "node -e \"try{require.resolve('@capacitor/cli')}catch{console.log('[@eidandev/mobile] skipping typecheck: capacitor deps not installed (run pnpm install + cap add)');process.exit(0)};require('child_process').execSync('tsc --noEmit',{stdio:'inherit'})\""
   },
   "dependencies": {
-    "@capacitor/android": "^6.2.0",
-    "@capacitor/core": "^6.2.0",
-    "@capacitor/ios": "^6.2.0"
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/core": "^8.4.0",
+    "@capacitor/ios": "^8.4.0",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.2.0",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.4.0",
     "@types/node": "^22.7.5",
     "typescript": "^5.6.3"
   }

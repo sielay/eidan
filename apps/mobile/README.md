@@ -37,12 +37,19 @@ back to the minimal `public/index.html` placeholder so `cap sync` still succeeds
 > instead bundle those assets by pointing `webDir` at the export output and dropping
 > `server.url`. That is a future option, not the current path.
 
+Capacitor **8** (iOS uses Swift Package Manager; CocoaPods is no longer required for
+`cap add ios`). Native plugins wired: `@capacitor/app`, `@capacitor/status-bar`,
+`@capacitor/splash-screen`.
+
 ## Prerequisites
 
 - **Node + pnpm** (repo pins `pnpm@9.15.9`).
-- **iOS:** macOS, Xcode (+ command-line tools), CocoaPods (`sudo gem install cocoapods` or
-  `brew install cocoapods`).
-- **Android:** Android Studio (SDK + platform-tools), a JDK (17+).
+- **iOS:** macOS, Xcode (+ command-line tools). SPM-based, so no CocoaPods needed.
+- **Android:** Android Studio (SDK + platform-tools) and **JDK 21** (Capacitor 8 requires it;
+  Java 17 fails with `invalid source release: 21`). Android Studio bundles one — point Gradle
+  at it: `export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`.
+  Point Gradle at the SDK with `local.properties` (`sdk.dir=$HOME/Library/Android/sdk`) or
+  `ANDROID_HOME`.
 
 ## Runbook — generating and running the native projects
 
@@ -62,10 +69,13 @@ set -a && . apps/mobile/.env && set +a       # export the vars for the cap CLI
 pnpm --filter @eidandev/mobile add:ios        # macOS + Xcode only
 pnpm --filter @eidandev/mobile add:android
 
-# 3. Sync config + web assets into the native projects
+# 3. Generate app icons + splash from assets/ into both native projects
+pnpm --filter @eidandev/mobile assets         # capacitor-assets generate
+
+# 4. Sync config + web assets into the native projects
 pnpm --filter @eidandev/mobile sync           # runs `cap sync`
 
-# 4. Open in the native IDE to build/run on a simulator or device
+# 5. Open in the native IDE to build/run on a simulator or device
 pnpm --filter @eidandev/mobile open:ios
 pnpm --filter @eidandev/mobile open:android
 ```
@@ -73,17 +83,33 @@ pnpm --filter @eidandev/mobile open:android
 Re-run `cap sync` after any change to `capacitor.config.ts`, `EIDAN_MOBILE_SERVER_URL`, or
 the plugin set.
 
+### App icons & splash
+
+The eidan glyph is rasterised from SVG into the PNG sources `@capacitor/assets` consumes by
+`scripts/gen-icons.mjs` (uses the `sharp` bundled with `@capacitor/assets` — no system
+rasteriser needed). It writes both the native `assets/*.png` sources **and** refreshes the
+PWA's raster icons under `apps/web/public/icons/`. Regenerate after a glyph change:
+
+```bash
+pnpm --filter @eidandev/mobile exec node scripts/gen-icons.mjs   # sources
+pnpm --filter @eidandev/mobile assets                            # fan out to ios/android
+```
+
+The committed `assets/*.png` are the source artwork; `ios/`/`android/` icon outputs are
+gitignored with the rest of the native projects.
+
 ### What is scaffolded vs TODO
 
 | Item | Status |
 |---|---|
-| `capacitor.config.ts` (env-driven server URL) | Done (in repo) |
-| `package.json` + scripts (`add:ios/android`, `sync`, `open:*`) | Done |
+| `capacitor.config.ts` (env-driven server URL, brand splash/colours) | Done (in repo) |
+| `package.json` + scripts (`add:ios/android`, `sync`, `assets`, `open/run:*`) | Done |
+| Capacitor **8** + plugins (`app`, `status-bar`, `splash-screen`) | Done |
+| Icon pipeline (`scripts/gen-icons.mjs` + `assets/*.png` sources) | Done |
 | `tsconfig.json`, `.env.example`, `public/` fallback page | Done |
 | `.gitignore` entries for native build artifacts | Done |
-| `ios/` native project | **TODO — run `cap add ios` on macOS/Xcode** |
-| `android/` native project | **TODO — run `cap add android`** |
-| `pnpm install` to resolve `@capacitor/*` deps | **TODO — run on a dev machine** |
+| `ios/` + `android/` native projects | Generated locally (gitignored) — regenerate with `cap add` |
+| Native push → `@eidandev/notify` | **TODO** — `@capacitor/push-notifications` + APNs/FCM transport |
 | Health Connect / HealthKit plugin wiring | **Design only** — see `docs/0001-health-connect-healthkit-design.md` |
 
 ## Native artifacts are gitignored

@@ -20,6 +20,7 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#FBFBFA",
     theme_color: "#4F46E5",
     icons: [
+      // SVG scales to any launcher size on browsers that accept it (Chrome/desktop).
       {
         src: "/icons/icon.svg",
         type: "image/svg+xml",
@@ -30,6 +31,17 @@ export default function manifest(): MetadataRoute.Manifest {
         src: "/icons/icon-maskable.svg",
         type: "image/svg+xml",
         sizes: "any",
+        purpose: "maskable",
+      },
+      // Raster fallbacks for platforms/installability checks that require PNG
+      // (iOS, some Android launchers, Lighthouse). Regenerate with
+      // `pnpm --filter @eidandev/mobile exec node scripts/gen-icons.mjs`.
+      { src: "/icons/icon-192.png", type: "image/png", sizes: "192x192", purpose: "any" },
+      { src: "/icons/icon-512.png", type: "image/png", sizes: "512x512", purpose: "any" },
+      {
+        src: "/icons/icon-maskable-512.png",
+        type: "image/png",
+        sizes: "512x512",
         purpose: "maskable",
       },
     ],
