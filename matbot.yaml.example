@@ -27,7 +27,7 @@ plugins:
   - ./packages/jobs # delegation work-queue worker (eidan.jobs); bundles add kind handlers
   - ./packages/routines # recurring scheduled prompts (eidan.routines): poll loop runs each due routine as a turn (owner tz) and delivers via notify topic "routine". After notify + jobs. Tune with EIDAN_ROUTINE_POLL_MS / EIDAN_ROUTINE_GRACE_MIN
   - ./packages/frontend-agui # AG-UI turn stream + conversation REST (:8090)
-  - ./packages/frontend-telegram # inbound Telegram chat surface (long-poll getUpdates -> matbot turn). Needs ${EIDAN_TELEGRAM_BOT_TOKEN} + ${EIDAN_TELEGRAM_ALLOWLIST} (JSON {telegram_id: eidan_principal_id}) in the vault; inert if the token is absent, admits nobody if the allowlist is empty
+  - ./packages/frontend-telegram # inbound Telegram chat surface (long-poll) + potem-style account linking. Bot token from vault ${EIDAN_TELEGRAM_BOT_TOKEN} OR env EIDAN_TELEGRAM_BOT_TOKEN/TELEGRAM_BOT_TOKEN; set EIDAN_WEB_URL for the /start link. A chat binds to a user via /start -> web sign-in; ${EIDAN_TELEGRAM_ALLOWLIST} (JSON {telegram_id: principal_id}) is an optional fallback. Registers TelegramChats for outbound (routines/replies)
   - ./packages/mcp-server # inbound MCP (JSON-RPC) (:8091)
   - ./packages/a2a-server # inbound A2A agent card + message/send (:8095)
   - ./packages/procedures # sandboxed agent-authored procedures (isolated-vm); compose set via EIDAN_PROCEDURE_TOOLS (default: remember,recall)

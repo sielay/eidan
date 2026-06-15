@@ -10,11 +10,14 @@ export interface RoutinesLoopOpts {
   graceMinutes?: number;
 }
 
-// @eidandev/notify augments MatbotServices with `Notify`, but routines deliberately does not depend
-// on that package — we narrow to just the method we call. If notify isn't loaded (or has no route for
-// the topic) the optional-chained call is simply a no-op.
+// @eidandev/notify and @eidandev/frontend-telegram augment MatbotServices with `Notify` /
+// `TelegramChats`, but routines deliberately does not depend on either package — we narrow to just
+// the methods we call. Missing service / unbound user / unrouted topic ⇒ the call is a no-op.
 interface NotifyLike {
   emit(topic: string, text: string, severity?: string): Promise<void>;
+}
+interface TelegramChatsLike {
+  sendToUser(userId: string, text: string): Promise<boolean>;
 }
 
 // Detached poll loop. Every pollMs it scans all enabled routines, and for each one due in the current
@@ -31,9 +34,13 @@ export function startRoutinesLoop(services: MatbotServices, store: RoutinesStore
     try {
       const text = await runRoutineTurn(services, userId, prompt, opts.provider);
       const body = text.trim() ? text.trim() : '(routine produced no text)';
+      const message = `🔔 ${name}\n\n${body}`;
+      // Deliver to the owner's bound Telegram chat (potem-style), if any, AND emit the notify topic.
+      const tg = (services as { TelegramChats?: TelegramChatsLike }).TelegramChats;
+      const toTelegram = tg ? await tg.sendToUser(userId, message) : false;
       const notify = (services as { Notify?: NotifyLike }).Notify;
-      await notify?.emit('routine', `🔔 ${name}\n\n${body}`, 'info');
-      await store.finishRun(routineId, firedFor, 'delivered', body);
+      await notify?.emit('routine', message, 'info');
+      await store.finishRun(routineId, firedFor, 'delivered', `${toTelegram ? '[telegram] ' : ''}${body}`);
       console.log(`[routines] fired "${name}" (${routineId}) for ${firedFor}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

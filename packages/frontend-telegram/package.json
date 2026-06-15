@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Inbound Telegram chat surface: long-polls getUpdates, maps an allowlisted Telegram sender to an eidan principal, and runs each message as a matbot turn (same run path as frontend-agui), replying to the chat. Bot token + allowlist come from the vault; unknown senders are rejected.",
+  "description": "Inbound Telegram chat surface with potem-style account linking: /start → one-time web link → sign-in binds the chat to an eidan user; bound senders run each message as a matbot turn. Registers the TelegramChats service for outbound delivery.",
   "matbotRuntime": ["node"],
   "engines": {
     "node": ">=24.0.0"
@@ -16,10 +16,12 @@
     "test": "node --test src/*.test.ts"
   },
   "dependencies": {
-    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.8.0"
   }
 }
