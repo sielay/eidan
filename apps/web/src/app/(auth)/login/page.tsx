@@ -32,6 +32,18 @@ const RESEND_SECONDS = 30;
 
 type Stage = "enter" | "sending" | "sent" | "verifying" | "done";
 
+// Where to go after a successful sign-in: an optional ?next= relative path (e.g. the Telegram link
+// page), validated to a same-origin path to avoid open redirects; defaults to the app root.
+function safeNext(): string {
+  try {
+    const n = new URL(window.location.href).searchParams.get("next");
+    if (n && n.startsWith("/") && !n.startsWith("//")) return n;
+  } catch {
+    /* ignore */
+  }
+  return "/";
+}
+
 function LoginMark(): React.ReactElement {
   return (
     <span className="onb-mark login-mark">
@@ -114,7 +126,7 @@ export default function LoginPage(): React.ReactElement {
       try {
         await verifyMagicLink(args);
         setStage("done");
-        setTimeout(() => window.location.assign("/"), 700);
+        setTimeout(() => window.location.assign(safeNext()), 700);
       } catch (e) {
         setStage("sent");
         setError(e instanceof Error ? e.message : "Could not verify — try again.");
@@ -131,7 +143,7 @@ export default function LoginPage(): React.ReactElement {
     const slot = await refreshAccessToken();
     if (slot) {
       setStage("done");
-      setTimeout(() => window.location.assign("/"), 500);
+      setTimeout(() => window.location.assign(safeNext()), 500);
     } else {
       setStage("sent");
       setError("We haven't seen the sign-in yet — open the link in your email.");

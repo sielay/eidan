@@ -17,8 +17,9 @@ export function middleware(request: NextRequest): NextResponse {
     return NextResponse.next();
   }
 
-  // Always-public surfaces: the login page + the unauthenticated auth endpoints.
-  if (pathname === "/login" || pathname.startsWith("/api/auth/")) {
+  // Always-public surfaces: the login page, the Telegram account-link redemption page (it renders
+  // its own sign-in prompt + returns here via ?next), and the unauthenticated auth endpoints.
+  if (pathname === "/login" || pathname === "/telegram/link" || pathname.startsWith("/api/auth/")) {
     return NextResponse.next();
   }
 
