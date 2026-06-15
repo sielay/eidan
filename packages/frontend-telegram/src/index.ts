@@ -3,6 +3,7 @@ import type { MatbotPluginSpec, MatbotServices, Principal, Session, MessageConte
 import { PLUGIN_API_VERSION, runAs } from '@matatbread/matbot-plugin-api';
 import { loadAllowlist, resolvePrincipal, type Allowlist } from './allowlist.js';
 import { getUpdates, sendChatAction, sendMessage } from './bot.js';
+import type { PoolClient } from 'pg';
 import { Db } from './db.js';
 import { TelegramStore } from './store.js';
 import { startLinkServer } from './link-server.js';
@@ -35,10 +36,14 @@ declare module '@matatbread/matbot-plugin-api' {
 }
 
 const SESSION_KEY_PREFIX = 'chat_session:';
+// Telegram permits exactly one getUpdates long-poller per bot (a second one gets HTTP 409). This
+// app-specific session advisory lock elects a single poller across all nodes sharing the database.
+const POLL_LOCK_KEY = 0x7e1e6701;
 
 let teardownAc: AbortController | undefined;
 let stopLink: (() => void) | undefined;
 let db: Db | undefined;
+let lockClient: PoolClient | undefined;
 
 function newSession(ownerId: string, title: string): Session {
   const now = new Date().toISOString();
@@ -170,10 +175,27 @@ export const plugin: MatbotPluginSpec = {
         `👋 To link this chat to your eidan account, open:\n${link}\n\nSign in if prompted. The link expires in 30 minutes.`);
     }
 
-    // Long-poll dispatch loop — runs until teardown.
+    const sleep = (ms: number): Promise<void> => new Promise((resolve) => {
+      const t = setTimeout(resolve, ms);
+      ac.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+    });
+    let havePollLock = false;
+    // Acquire (once) the single-poller advisory lock on a held connection. Returns whether we may poll.
+    async function ensurePollLock(): Promise<boolean> {
+      if (havePollLock) return true;
+      try {
+        if (!lockClient) lockClient = await db!.pool.connect();
+        const r = await lockClient.query('select pg_try_advisory_lock($1) as ok', [POLL_LOCK_KEY]);
+        havePollLock = Boolean((r.rows[0] as { ok: boolean }).ok);
+      } catch { havePollLock = false; }
+      return havePollLock;
+    }
+
+    // Long-poll dispatch loop — runs until teardown; only the lock holder actually polls.
     void (async () => {
       let offset = 0;
       while (!ac.signal.aborted) {
+        if (!(await ensurePollLock())) { await sleep(30_000); continue; } // another node is the poller
         try {
           const updates = await getUpdates(token, offset, 30, ac.signal);
           for (const update of updates) {
@@ -207,11 +229,12 @@ export const plugin: MatbotPluginSpec = {
           }
         } catch (e) {
           if (ac.signal.aborted) break;
-          console.warn(`[frontend-telegram] poll error: ${e instanceof Error ? e.message : String(e)}`);
-          await new Promise<void>((resolve) => {
-            const t = setTimeout(resolve, 2000);
-            ac.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
-          });
+          const msg = e instanceof Error ? e.message : String(e);
+          console.warn(`[frontend-telegram] poll error: ${msg}`);
+          // 409 means another poller exists despite our lock (e.g. a node still on pre-lock code) —
+          // drop our claim and re-contend rather than hammer Telegram.
+          if (msg.includes('409')) { havePollLock = false; }
+          await sleep(2000);
         }
       }
     })();
@@ -223,6 +246,11 @@ export const plugin: MatbotPluginSpec = {
     teardownAc?.abort();
     teardownAc = undefined;
     if (stopLink) { stopLink(); stopLink = undefined; }
+    if (lockClient) {
+      try { await lockClient.query('select pg_advisory_unlock($1)', [POLL_LOCK_KEY]); } catch { /* ignore */ }
+      lockClient.release();
+      lockClient = undefined;
+    }
     if (db) { await db.close(); db = undefined; }
   },
 };
