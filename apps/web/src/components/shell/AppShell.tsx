@@ -58,6 +58,12 @@ export function AppShell({
   const [moreOpen, setMoreOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
 
+  // The quick-add FAB sits bottom-right — exactly where the chat composer's
+  // Send button is. On chat screens it both overlaps Send and is redundant
+  // (you're already in chat; its only base action is "New chat"), so hide it
+  // there and keep it on other screens for bundle-contributed quick actions.
+  const onChat = pathname === "/" || pathname.startsWith("/c/");
+
   // Close transient sheets on navigation.
   React.useEffect(() => {
     setMoreOpen(false);
@@ -128,14 +134,16 @@ export function AppShell({
             <NavIcon name="more" />
             More
           </button>
-          <button
-            type="button"
-            className="fab"
-            onClick={() => setAddOpen(true)}
-            aria-label="Quick add"
-          >
-            <Plus className="i" aria-hidden />
-          </button>
+          {!onChat ? (
+            <button
+              type="button"
+              className="fab"
+              onClick={() => setAddOpen(true)}
+              aria-label="Quick add"
+            >
+              <Plus className="i" aria-hidden />
+            </button>
+          ) : null}
         </nav>
       </div>
 
