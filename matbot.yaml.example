@@ -25,6 +25,7 @@ plugins:
   - ./packages/auth # WebPrincipalResolver: Bearer JWT (HS256) -> per-request Principal (RLS)
   - ./packages/notify # topic->channel routing (Slack/Telegram); dry-run unless EIDAN_NOTIFY_ROUTES
   - ./packages/jobs # delegation work-queue worker (eidan.jobs); bundles add kind handlers
+  - ./packages/routines # recurring scheduled prompts (eidan.routines): poll loop runs each due routine as a turn (owner tz) and delivers via notify topic "routine". After notify + jobs. Tune with EIDAN_ROUTINE_POLL_MS / EIDAN_ROUTINE_GRACE_MIN
   - ./packages/frontend-agui # AG-UI turn stream + conversation REST (:8090)
   - ./packages/frontend-telegram # inbound Telegram chat surface (long-poll getUpdates -> matbot turn). Needs ${EIDAN_TELEGRAM_BOT_TOKEN} + ${EIDAN_TELEGRAM_ALLOWLIST} (JSON {telegram_id: eidan_principal_id}) in the vault; inert if the token is absent, admits nobody if the allowlist is empty
   - ./packages/mcp-server # inbound MCP (JSON-RPC) (:8091)
