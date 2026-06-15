@@ -22,6 +22,18 @@ export function middleware(request: NextRequest): NextResponse {
     return NextResponse.next();
   }
 
+  // PWA assets must be reachable without a session, or an offline / logged-out
+  // browser can't install the app or render the offline fallback: the service
+  // worker (/sw.js), the web manifest, the app icons, and the offline page.
+  if (
+    pathname === "/sw.js" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/offline" ||
+    pathname.startsWith("/icons/")
+  ) {
+    return NextResponse.next();
+  }
+
   // Bearer-authenticated API callers (the engine, scripts, other agents) carry the
   // HS256 access token in the Authorization header, not the first-party
   // `eidan_refresh` cookie. Let them reach the route, whose verifyBearer does the
@@ -49,8 +61,9 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  // Run on everything except Next internals + static assets.
+  // Run on everything except Next internals, static assets, and PWA files
+  // (service worker, its build chunks, and the web manifest).
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|swe-worker-.*\\.js|workbox-.*\\.js|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

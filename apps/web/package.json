@@ -18,17 +18,20 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.453.0",
     "next": "^15.0.0",
+    "nodemailer": "^6.9.16",
+    "pg": "^8.13.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
     "tailwind-merge": "^2.5.4",
-    "zod": "^3.23.0",
-    "pg": "^8.13.1",
-    "nodemailer": "^6.9.16"
+    "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@serwist/next": "^9.5.11",
     "@types/node": "^22.7.5",
+    "@types/nodemailer": "^6.4.17",
+    "@types/pg": "^8.11.10",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitest/coverage-v8": "^2.1.4",
@@ -37,10 +40,9 @@
     "eslint-config-next": "^15.0.0",
     "jsdom": "^25.0.1",
     "postcss": "^8.4.47",
+    "serwist": "^9.5.11",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.4",
-    "@types/pg": "^8.11.10",
-    "@types/nodemailer": "^6.4.17"
+    "vitest": "^2.1.4"
   }
 }

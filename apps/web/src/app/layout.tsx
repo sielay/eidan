@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, Lexend } from "next/font/google";
 
 import { AuthProvider } from "@/components/providers/auth-provider";
+import { InstallPrompt } from "@/components/pwa/InstallPrompt";
+import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
 
 import "./globals.css";
 // Plugin-contributed stylesheets (empty in base; the deploy assembly fills it).
@@ -26,6 +28,26 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "eidan",
   description: "Self-hosted personal agent host.",
+  applicationName: "eidan",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "eidan",
+  },
+  icons: {
+    icon: [{ url: "/icons/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/icon.svg" }],
+  },
+};
+
+// The address-bar / standalone chrome colour tracks the theme. The browser
+// resolves the matching entry from the user's colour scheme.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#FBFBFA" },
+    { media: "(prefers-color-scheme: dark)", color: "#1D1D23" },
+  ],
 };
 
 // Resolve the persisted theme before first paint so dark mode never
@@ -48,7 +70,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="h-full" suppressHydrationWarning>
+        <ServiceWorkerRegistrar />
         <AuthProvider>{children}</AuthProvider>
+        <InstallPrompt />
       </body>
     </html>
   );
