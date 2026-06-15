@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="eidan">
+  <rect width="512" height="512" rx="112" ry="112" fill="#4F46E5"/>
+  <g fill="#FFFFFF">
+    <path d="M256 120 Q277 235 256 392 Q235 235 256 120 Z"/>
+    <path d="M120 256 Q235 277 392 256 Q235 235 120 256 Z"/>
+    <path transform="rotate(45 256 256)" d="M256 150 Q272 240 256 362 Q240 240 256 150 Z"/>
+    <path transform="rotate(45 256 256)" d="M150 256 Q240 272 362 256 Q240 240 150 256 Z"/>
+  </g>
+</svg>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="eidan">
+  <!-- Full-bleed background so platform masks (circle / squircle / rounded-rect)
+       never reveal a transparent corner. The glyph stays inside the inner ~60%
+       safe zone so it is never clipped. -->
+  <rect width="512" height="512" fill="#4F46E5"/>
+  <g fill="#FFFFFF">
+    <path d="M256 168 Q271 238 256 344 Q241 238 256 168 Z"/>
+    <path d="M168 256 Q238 271 344 256 Q238 241 168 256 Z"/>
+    <path transform="rotate(45 256 256)" d="M256 188 Q269 240 256 324 Q243 240 256 188 Z"/>
+    <path transform="rotate(45 256 256)" d="M188 256 Q240 269 324 256 Q240 243 188 256 Z"/>
+  </g>
+</svg>
