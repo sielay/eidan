@@ -61,6 +61,27 @@ switch (cmd) {
       pushMultiArch(t.registry, t.platform ?? "linux/arm64");
       sh("scp", ["docker-compose.yml", `${t.user}@${t.host}:${t.dir ?? "eidan"}/docker-compose.yml`]);
       sh("ssh", [`${t.user}@${t.host}`, `cd ${t.dir ?? "eidan"} && EIDAN_ENGINE_IMAGE=${t.registry}/eidan-engine:latest EIDAN_WEB_IMAGE=${t.registry}/eidan-web:latest docker compose pull && docker compose up -d`]);
+    } else if (t.type === "ssh-node") {
+      // A node-process deploy over ssh (e.g. a Pi running the engine under systemd, not Docker):
+      // rsync the assembled engine runtime, install deps, restart the service. We NEVER sync the
+      // node's own matbot.yaml or .env (or node_modules/.git) — the node keeps its config and decides
+      // which plugins load. Pass --dry-run to preview the file transfer without installing/restarting.
+      const host = `${t.user}@${t.host}`;
+      const dir = t.dir ?? "eidan-mb";
+      const service = t.service ?? "eidan-mb.service";
+      const dry = process.argv.includes("--dry-run") ? ["--dry-run"] : [];
+      // -R keeps each source's relative path under <dir>/. No --delete: never remove node-local files.
+      sh("rsync", [
+        "-azR", "--stats", ...dry,
+        "--exclude", "node_modules", "--exclude", ".git",
+        "packages", "migrations", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml",
+        `${host}:${dir}/`,
+      ]);
+      if (dry.length) {
+        console.log("\n(dry-run) skipped pnpm install + service restart");
+        break;
+      }
+      sh("ssh", [host, `cd ${dir} && pnpm install --prefer-offline && sudo systemctl restart ${service}`]);
     } else {
       throw new Error(`unknown target type "${t.type}" for "${targetName}"`);
     }
@@ -81,7 +102,9 @@ switch (cmd) {
 
   assemble                vendor the configured bundles + fold them into the host config
   build [--arm]           assemble + build the engine + web images locally
-  up | deploy <target>    assemble + ship to a target (compose / fly / compose-ssh)
+  up | deploy <target>    assemble + ship to a target (compose / fly / compose-ssh / ssh-node)
+                          ssh-node: rsync the runtime to a node-process host + restart its service
+                          (--dry-run previews the file transfer)
   migrate <target>        apply the eidan.* schema to a target's database
 
 Targets + bundles come from eidan.deploy.json (copy eidan.deploy.example.json).`);

@@ -28,6 +28,14 @@
       "dir": "eidan",
       "registry": "ghcr.io/sielay",
       "platform": "linux/arm64"
+    },
+    "pi-node": {
+      "//": "ssh-node: a host running the engine as a node process under systemd (no Docker). rsyncs the runtime + restarts the service; keeps the host's own matbot.yaml + .env.",
+      "type": "ssh-node",
+      "host": "192.168.1.100",
+      "user": "pi",
+      "dir": "eidan-mb",
+      "service": "eidan-mb.service"
     }
   }
 }
