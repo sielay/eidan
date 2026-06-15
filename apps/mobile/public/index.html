@@ -1,0 +1,42 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Fallback web asset for the Eidan Capacitor shell.
+
+  The Eidan front door (apps/web) is server-rendered, so the native shell normally
+  loads it from EIDAN_MOBILE_SERVER_URL (see capacitor.config.ts). This page is only
+  shown when no server URL is configured — it exists so `webDir` is non-empty and
+  `cap sync` succeeds.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Eidan</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        padding: 2rem;
+        text-align: center;
+        line-height: 1.5;
+      }
+      code { background: rgba(127,127,127,0.18); padding: 0.1em 0.35em; border-radius: 4px; }
+      .hint { opacity: 0.7; max-width: 32rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Eidan</h1>
+      <p class="hint">
+        No server URL is configured for this native shell. Set
+        <code>EIDAN_MOBILE_SERVER_URL</code> to your Eidan host and re-run
+        <code>cap sync</code>.
+      </p>
+    </main>
+  </body>
+</html>
