@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "description": "eidan engine auth: a WebPrincipalResolver deriving the per-request Principal from a Bearer JWT (HS256, shared secret). Sign-in lives in the Next.js app; the engine only verifies.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
   "dependencies": {
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
