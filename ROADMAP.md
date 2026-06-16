@@ -49,6 +49,17 @@ registers a `'code'` handler that runs the goal as an agent turn end-to-end.
   load like any plugin and route notifications through `@eidandev/notify`.
 - **Charles / Charlotte** (business / lifestyle) — greenfield, still in design.
 
+## Model routing: declarable routes + fallback chains
+
+**State today.** Provider selection is coarse — `EIDAN_PROVIDER` / per-node `extra_env`
+(Anthropic default, OpenRouter opt-in). There's no per-turn/per-task routing and no automatic
+fallback when a provider/model is unavailable.
+
+**Shape when we get to it.** A declarative way to route a turn (or a task/job kind) to a model and
+an **ordered fallback chain** across providers — config the operator supplies, not code, building on
+the existing provider seam and the `@eidandev/llm-calls` ledger. A failed/unavailable model falls
+through to the next entry rather than erroring the turn.
+
 ## Interop: A2A outbound
 
 **State today.** Inbound is done — `@eidandev/mcp-server` (MCP), `@eidandev/frontend-agui` (AG-UI),

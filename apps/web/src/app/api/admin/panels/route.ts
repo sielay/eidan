@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// GET /api/admin/panels — plugin-contributed cursor panels (managed-item loops, e.g. Sage). These
-// are plugin runtime state, not a DB table; until a plugin registers panels via the engine this is
-// empty. Returns 200 so the admin dashboard renders rather than erroring.
+// GET /api/admin/panels — plugin-contributed cursor panels (managed-item loops, e.g. a PR-review
+// loop). These are plugin runtime state, not a DB table. The operator declares which plugin route
+// prefixes expose the cursors/summary convention via the gitignored env var EIDAN_ADMIN_PANELS, so
+// core stays plugin-agnostic (no bundle named in tracked source). The UI probes each prefix and
+// silently drops any that don't implement the shape, so a stale entry is harmless.
+//
+//   EIDAN_ADMIN_PANELS="sage=/api/sage, business=/api/charles"
+//   (or bare prefixes: "/api/sage" → name derived from the last path segment)
 import type { NextRequest } from "next/server";
 
 import { verifyBearer } from "@/server/auth";
@@ -9,8 +14,27 @@ import { verifyBearer } from "@/server/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+interface PanelRef {
+  plugin: string;
+  prefix: string;
+}
+
+function parsePanels(raw: string | undefined): PanelRef[] {
+  if (!raw || !raw.trim()) return [];
+  const out: PanelRef[] = [];
+  for (const entry of raw.split(",")) {
+    const t = entry.trim();
+    if (!t) continue;
+    const eq = t.indexOf("=");
+    const plugin = eq >= 0 ? t.slice(0, eq).trim() : t.replace(/\/+$/, "").split("/").filter(Boolean).pop() ?? t;
+    const prefix = (eq >= 0 ? t.slice(eq + 1).trim() : t).replace(/\/+$/, "");
+    if (plugin && prefix.startsWith("/")) out.push({ plugin, prefix });
+  }
+  return out;
+}
+
 export async function GET(req: NextRequest): Promise<Response> {
   const sess = verifyBearer(req);
   if (!sess) return new Response("unauthorized", { status: 401 });
-  return Response.json({ panels: [] });
+  return Response.json({ panels: parsePanels(process.env.EIDAN_ADMIN_PANELS) });
 }
