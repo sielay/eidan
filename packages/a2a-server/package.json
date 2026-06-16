@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "description": "Inbound A2A server: exposes eidan as an A2A agent (agent card + message/send, JSON-RPC/HTTP) so other agents can delegate to it. The 3rd interop boundary after MCP + AG-UI.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
   "dependencies": {
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
