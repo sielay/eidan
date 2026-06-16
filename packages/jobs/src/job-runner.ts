@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { MatbotServices, Session, MessageContent, Principal } from '@matatbread/matbot-plugin-api';
+import type { MatbotServices, Session, Principal } from '@matatbread/matbot-plugin-api';
 import { runAs } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
+import { lastAssistantText } from './session-text.js';
 
 export interface Job {
   id: string;
@@ -35,17 +36,6 @@ function newSession(ownerId: string): Session {
   };
 }
 
-function lastAssistantText(s: Session): string {
-  for (let i = s.messages.length - 1; i >= 0; i--) {
-    const m = s.messages[i];
-    if (m && m.role === 'assistant') {
-      return m.content
-        .filter((c): c is Extract<MessageContent, { type: 'text' }> => c.type === 'text')
-        .map((c) => c.text).join('\n');
-    }
-  }
-  return '';
-}
 
 // The default handler for an otherwise-unhandled kind: run the job's goal as a single agent turn
 // through the runner and capture the final assistant text. Conversations are user-scoped, so it

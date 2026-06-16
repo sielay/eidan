@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "description": "eidan delegation work-queue as a matbot plugin: claims eidan.jobs by capability kind and runs them (default: as an agent turn); bundles register kind-specific handlers via the JobHandlers service.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
   "dependencies": {
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
