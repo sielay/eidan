@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // At-rest encryption for the eidan secrets vault. A byte-for-byte TS port of the Python
-// `auth_native/vault_crypto.py` (docs/011 §12 / docs/012) so ciphertext is interchangeable
+// `auth_native/vault_crypto.py` (see docs/0009-secrets-vault.md) so ciphertext is interchangeable
 // between the two stacks: the same `eidan.secrets_vault.value_enc` row decrypts on either.
 //
 // Primitive: Fernet (AES-128-CBC + HMAC-SHA256, urlsafe-base64 envelope). The key is derived
@@ -9,7 +9,7 @@
 // Verified against the live slack.bot_token row before this was committed.
 import { hkdfSync, createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
-// Fixed application-bound salt + info. Public by design (documented in docs/011); HKDF does not
+// Fixed application-bound salt + info. Public by design (see docs/0009-secrets-vault.md); HKDF does not
 // rely on the salt for entropy — the master key is already high-entropy.
 const HKDF_SALT = Buffer.from('eidan-auth-master-key/v1', 'utf8');
 const HKDF_INFO = Buffer.from('eidan vault encryption', 'utf8');
@@ -19,7 +19,7 @@ export class MasterKeyMissing extends Error {
     super(
       'EIDAN_AUTH_MASTER_KEY is not set. Generate one with ' +
         "`node -e \"console.log(require('crypto').randomBytes(36).toString('base64url'))\"` " +
-        'and add it to the deploy env. See docs/011 §12.',
+        'and add it to the deploy env. See docs/0009-secrets-vault.md.',
     );
     this.name = 'MasterKeyMissing';
   }

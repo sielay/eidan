@@ -2,15 +2,9 @@
 import pg from 'pg';
 import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 
-// `core.subkey` namespacing — the single source of truth shared by the read path and the
-// write tool, so a value set under a key is always found by the same key (mirrors the Python
-// `split_secret_key`). A flat env-style name like `EIDAN_IMAP_PASSWORD` (no dot) lands in
-// scope `core`; `slack.bot_token` -> scope `slack`, key `bot_token`.
-export function splitSecretKey(key: string): { scope: string; subkey: string } {
-  const dot = key.indexOf('.');
-  if (dot === -1) return { scope: 'core', subkey: key };
-  return { scope: key.slice(0, dot), subkey: key.slice(dot + 1) };
-}
+// `scope.subkey` namespacing lives in the pure (pg-free) ./secret-key module so it is unit-testable;
+// re-exported here since the read path + write tool import it from './db.js'.
+export { splitSecretKey } from './secret-key.js';
 
 export type SecretRow = { value_enc: Buffer; user_id: string | null };
 
@@ -51,7 +45,7 @@ export class Db {
   }
 
   // Upsert a user-scoped (or, when userId is null, instance-wide) secret. Honours the
-  // (user_id, scope, key) uniqueness from the docs/012 §4.1 schema.
+  // (user_id, scope, key) uniqueness from the eidan.secrets_vault schema (docs/0009-secrets-vault.md).
   async write(scope: string, subkey: string, valueEnc: Buffer, userId: string | null): Promise<void> {
     const client = await this.pool.connect();
     try {
