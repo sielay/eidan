@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Unit tests — pure node:test specs (packages/*/src/*.test.ts) run through matbot's TypeScript
+# loader (external/matbot/apps/cli/register.js), which strips types and resolves the .js-extension
+# import convention to the .ts sources. Current specs import only local code + node: built-ins
+# (type-only cross-package imports are erased), so no install is needed — keeping this gate fast.
+# Add a pnpm install step here when a test first needs runtime dependencies.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Run unit tests
+        run: node --import ./external/matbot/apps/cli/register.js --test "packages/*/src/*.test.ts"
