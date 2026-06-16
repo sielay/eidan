@@ -6,6 +6,6 @@
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "typecheck": "pnpm -r run typecheck",
-    "test": "node --import ./external/matbot/apps/cli/register.js --test \"packages/*/src/*.test.ts\""
+    "test": "node --import ./external/matbot/apps/cli/register.js --test \"packages/*/src/*.test.ts\" \"deploy/*.test.mjs\""
   }
 }

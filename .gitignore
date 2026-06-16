@@ -7,6 +7,8 @@
 # Local config / secrets
 .env
 .env.local
+# Secrets vault passphrase — NEVER commit. (.env.enc, the AES-256 sealed blob, IS committable.)
+.vault-pass
 ~/.eidan/
 .eidan/
 .eidan-runtime/
