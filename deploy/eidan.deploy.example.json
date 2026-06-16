@@ -30,12 +30,18 @@
       "platform": "linux/arm64"
     },
     "pi-node": {
-      "//": "ssh-node: a host running the engine as a node process under systemd (no Docker). rsyncs the runtime + restarts the service; keeps the host's own matbot.yaml + .env.",
+      "//": "ssh-node: a host running the engine as a node process under systemd (no Docker). rsyncs the runtime + restarts the service; keeps the host's own matbot.yaml + .env unless you pass --sync-config.",
       "type": "ssh-node",
       "host": "192.168.1.100",
       "user": "pi",
       "dir": "eidan-mb",
-      "service": "eidan-mb.service"
+      "service": "eidan-mb.service",
+      "//disable": "optional: plugin dir names to strip for THIS node's role (e.g. a backend-only node: [\"sage\",\"frontend-telegram\"]). Used by `check` and `deploy --sync-config`.",
+      "disable": [],
+      "//env_keys": "optional: env key NAMES this node must have, for `check` env drift (names only, never values).",
+      "//env_files": "optional: paths `check` reads (deploy user must be able to read them) to see which keys are set.",
+      "env_keys": ["EIDAN_DATABASE_URL", "EIDAN_AUTH_MASTER_KEY", "EIDAN_JOB_KINDS"],
+      "env_files": ["/etc/eidan/eidan.env", "/etc/eidan/matbot.env"]
     }
   }
 }
