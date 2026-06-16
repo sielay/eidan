@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "description": "eidan relational Postgres memory as a matbot StorageBackend: Store<Session> over the eidan.* schema, keen append-only persistence, ambient-principal RLS.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
   "dependencies": {
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",

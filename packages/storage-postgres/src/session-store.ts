@@ -4,45 +4,7 @@ import type {
 } from '@matatbread/matbot-plugin-api';
 import { currentPrincipal } from '@matatbread/matbot-plugin-api';
 import type { Db, Q } from './db.js';
-
-interface ConvRow {
-  id: string; user_id: string; title: string | null; status: string; persona: string | null;
-  contexts: unknown; parent_conversation_id: string | null; origin_message_id: string | null;
-  version: string; created_at: Date; updated_at: Date;
-}
-interface MsgRow {
-  id: string; role: Message['role']; content_blocks: MessageContent[];
-  provider: string | null; trace_id: string | null; metadata: Record<string, unknown>; created_at: Date;
-}
-
-function rowToSession(c: ConvRow, messages: Message[]): Session {
-  return {
-    id: c.id,
-    version: String(c.version),
-    ownerPrincipalId: c.user_id,
-    status: c.status as Session['status'],
-    contexts: (c.contexts as string[] | null) ?? [],
-    messages,
-    createdAt: c.created_at.toISOString(),
-    updatedAt: c.updated_at.toISOString(),
-    ...(c.title != null ? { title: c.title } : {}),
-    ...(c.persona != null ? { persona: c.persona } : {}),
-    ...(c.parent_conversation_id != null ? { parentSessionId: c.parent_conversation_id } : {}),
-    ...(c.origin_message_id != null ? { branchPointMessageId: c.origin_message_id } : {}),
-  };
-}
-
-function rowToMessage(m: MsgRow): Message {
-  return {
-    id: m.id,
-    role: m.role,
-    content: m.content_blocks, // jsonb round-trips the full block array losslessly
-    createdAt: m.created_at.toISOString(),
-    traceId: m.trace_id ?? '',
-    ...(m.provider != null ? { providerName: m.provider } : {}),
-    ...(m.metadata && Object.keys(m.metadata).length ? { metadata: m.metadata } : {}),
-  };
-}
+import { type ConvRow, type MsgRow, rowToSession, rowToMessage } from './row-mappers.js';
 
 // matbot keeps the whole Session (with messages[]) as one CAS'd document; eidan keeps messages
 // as append-only rows. They reconcile because matbot Messages carry stable ids: `set(session)`
