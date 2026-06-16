@@ -5,12 +5,15 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "eidan recurring routines as a matbot plugin: schedule a prompt to run on a cadence (\"every morning at 08:00, brief me\"). A poll loop evaluates each routine in the owner's timezone, runs it as an agent turn when due, and delivers via @eidandev/notify.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
   "dependencies": {
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",

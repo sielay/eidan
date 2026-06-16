@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Inbound Telegram chat surface with potem-style account linking: /start → one-time web link → sign-in binds the chat to an eidan user; bound senders run each message as a matbot turn. Registers the TelegramChats service for outbound delivery.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "engines": {
     "node": ">=24.0.0"
   },
@@ -13,7 +15,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/*.test.ts"
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
   "dependencies": {
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
