@@ -5,6 +5,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { MatbotServices, Principal, Session, MessageContent } from '@matatbread/matbot-plugin-api';
 import { runAs, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
+import { agentCard } from './a2a-card.js';
 
 declare module '@matatbread/matbot-plugin-api' {
   interface MatbotServices {
@@ -46,19 +47,6 @@ function json(res: ServerResponse, code: number, obj: unknown): void {
   res.end(JSON.stringify(obj));
 }
 
-function agentCard(o: A2AOpts): object {
-  return {
-    name: o.name,
-    description: o.description,
-    url: o.url,
-    version: '0.1.0',
-    protocolVersion: '0.2.5',
-    capabilities: { streaming: false, pushNotifications: false },
-    defaultInputModes: ['text'],
-    defaultOutputModes: ['text'],
-    skills: [{ id: 'chat', name: 'chat', description: 'Converse with eidan; reads and writes your relational memory.', tags: ['memory', 'chat'] }],
-  };
-}
 
 export function startA2AServer(services: MatbotServices, opts: A2AOpts, boot: Principal): () => void {
   const server = createServer((req, res) => {
