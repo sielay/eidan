@@ -9,29 +9,11 @@
 //   (or bare prefixes: "/api/sage" → name derived from the last path segment)
 import type { NextRequest } from "next/server";
 
+import { parsePanels } from "@/lib/admin-panels";
 import { verifyBearer } from "@/server/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-interface PanelRef {
-  plugin: string;
-  prefix: string;
-}
-
-function parsePanels(raw: string | undefined): PanelRef[] {
-  if (!raw || !raw.trim()) return [];
-  const out: PanelRef[] = [];
-  for (const entry of raw.split(",")) {
-    const t = entry.trim();
-    if (!t) continue;
-    const eq = t.indexOf("=");
-    const plugin = eq >= 0 ? t.slice(0, eq).trim() : t.replace(/\/+$/, "").split("/").filter(Boolean).pop() ?? t;
-    const prefix = (eq >= 0 ? t.slice(eq + 1).trim() : t).replace(/\/+$/, "");
-    if (plugin && prefix.startsWith("/")) out.push({ plugin, prefix });
-  }
-  return out;
-}
 
 export async function GET(req: NextRequest): Promise<Response> {
   const sess = verifyBearer(req);
