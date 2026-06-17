@@ -4,8 +4,17 @@
   "private": true,
   "description": "Self-hosted personal agent OS — plugins on the matbot runtime (engine vendored at external/matbot).",
   "packageManager": "pnpm@9.15.9",
+  "bin": {
+    "eidan": "deploy/eidan-cli.mjs"
+  },
   "scripts": {
     "typecheck": "pnpm -r run typecheck",
-    "test": "node --import ./external/matbot/apps/cli/register.js --test \"packages/*/src/*.test.ts\" \"deploy/*.test.mjs\""
+    "test": "node --import ./external/matbot/apps/cli/register.js --test \"packages/*/src/*.test.ts\" \"deploy/*.test.mjs\"",
+    "eidan": "node deploy/eidan-cli.mjs"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.5.1",
+    "pg": "^8.13.1",
+    "picocolors": "^1.1.1"
   }
 }

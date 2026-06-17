@@ -10,6 +10,91 @@ node deploy/eidan-deploy.mjs deploy fly        # Fly.io
 node deploy/eidan-deploy.mjs deploy kesha      # a Raspberry Pi as a node process under systemd (ssh-node)
 ```
 
+## The interactive wizard (the front door)
+
+Most operators never touch a flag or a YAML file — run the menu:
+
+```bash
+pnpm eidan                       # or: node deploy/eidan-cli.mjs
+pnpm link --global && eidan      # global `eidan` command, pre-publish (future: npx @eidandev/eidan)
+```
+
+A **@clack/prompts** wizard (arrow-key menus, multiselect, colour) with a hero showing the version +
+git HEAD freshness. **On a fresh project** (no manifest / unfilled `.env`) it detects that and walks
+you through first-run setup — scaffolds config + secrets, prompts the essentials (DB connection,
+login email, Anthropic key, public URL — secrets masked), and offers to run migrations — before
+dropping you in the menu. Flows: `init` / add a target / add a bundle / configure a target / add keys /
+`doctor` / `compile` / plan / push / `migrate` / `deploy` / seal — secrets are edited in your
+`$EDITOR`, never echoed. The verbs (`eidan-deploy.mjs <verb>`) remain the scriptable, zero-dep,
+install-free engine for CI. *Roadmap (seams in place, not yet built): `provision` a bare box
+(Pi/Ryzen), browser **deeplink auth** for keys, `db backup`/`restore`/`import`, models-via-API.*
+
+## Config & env: the model (read this first)
+
+eidan config comes in **two tiers**:
+
+- **Tier 1 — files (bootstrap).** Everything needed to start and connect *before* the DB/vault are
+  usable: `DATABASE_URL`, the vault KEK, JWT secret, provider keys, node identity, ports, models,
+  flags. Lives in **`.env`** (engine: fly + kesha) and **`apps/web/.env`** (web: Vercel).
+- **Tier 2 — DB/runtime (per-user, mutable).** Each user's third-party creds (encrypted in
+  `eidan.secrets_vault` by the KEK), settings, knowledge. Set via the **UI**, never in files.
+
+You only hand-edit Tier 1. There is **one catalog** for it — [`deploy/env-schema.mjs`](env-schema.mjs)
+— listing every key with: required/optional, secret?, how to generate, description, and **which
+targets** get it (by role: `engine` = fly+kesha, `worker` = kesha, `web` = vercel). Values live in
+the `.env` files; **routing lives in the schema**; `eidan.deploy.json` only adds node connection
+details + non-secret per-node literals (`env_set`).
+
+### The DX flow
+```bash
+node deploy/eidan-deploy.mjs init          # scaffold .env + apps/web/.env: auto-gen secrets, defaults, ‹FILL› markers
+#   ... paste the few externals (DB URL, API keys, PAT) into the ‹FILL› spots ...
+node deploy/eidan-deploy.mjs doctor        # validate: required present, no placeholders, auth keys match engine<->web
+node deploy/eidan-deploy.mjs env-plan kesha   # what routes to a target + what its file is missing (names only)
+node deploy/eidan-deploy.mjs compile kesha    # render the target's matbot.yaml (plugins+providers) + env from the manifest
+node deploy/eidan-deploy.mjs env-push kesha --yes   # apply .env -> the node (fly secrets / Pi env file / vercel)
+node deploy/eidan-deploy.mjs secrets seal  # encrypt .env -> committable .env.enc
+node deploy/eidan-deploy.mjs env-example   # (maintainers) regenerate the .env.example files from the schema
+```
+
+### Targets (where values land)
+| Target | Role | File | Push mechanism |
+|---|---|---|---|
+| `fly` | engine | `.env` | `fly secrets import` |
+| `kesha` | engine + worker | `.env` → `/etc/eidan/eidan.env` | rsync render + restart |
+| `vercel` | web | `apps/web/.env` | Vercel dashboard / `vercel env` (no auto-push) |
+
+Shared keys are **identical-by-name** across engine and web now (`EIDAN_AUTH_*`, `EIDAN_WEB_URL`,
+`EIDAN_SMTP_PASSWORD`) — the old web-only aliases (`EIDAN_SMTP_PASS`, `EIDAN_PUBLIC_ORIGIN`,
+`EIDAN_PUBLIC_URL`) were renamed to match the engine. The **auth trio** (`EIDAN_AUTH_MASTER_KEY`,
+`EIDAN_AUTH_JWT_SECRET`, `EIDAN_AUTH_ALLOWED_EMAIL`) must hold the **same value** on both — `doctor`
+checks this. One name is intentionally **kept distinct**: the web reads `EIDAN_DATABASE_URL` (a
+separate, restricted `eidan_app` role), *not* the engine's privileged `DATABASE_URL` — aliasing them
+would risk giving the web superuser DB access.
+
+### Where values come from — pluggable `SecretSource`
+The schema/routing/doctor/push glue is **source-agnostic**; only [`deploy/secret-source.mjs`](secret-source.mjs)
+knows how to *fetch* values. Choose the source in `eidan.deploy.json` (default keeps OSS zero-dep):
+
+```jsonc
+"secrets": { "source": "dotenv" }   // default — reads .env / apps/web/.env
+"secrets": { "source": "sops" }     // encrypted files via `sops -d` (age / AWS-KMS / GCP-KMS / Vault keys)
+"secrets": {                         // the UNIVERSAL adapter for any secret server:
+  "source": "exec",                  //   give it a command per file that prints KEY=value or JSON
+  "command": {
+    "root": "doppler secrets download --no-file --format env",
+    "web":  "infisical export --env=prod --path=/web"
+  }
+}
+```
+
+`exec` covers **Delinea, HashiCorp Vault, Doppler, Infisical, AWS/GCP Secret Manager, 1Password**, … by
+pointing at the operator's own CLI — no bespoke adapter per server. We don't reinvent a secret *server*
+(use SOPS or one of those); we keep the thin eidan glue (two-tier model + matbot topology routing +
+heterogeneous push to Pi/Fly/Vercel) and let the value source plug in. `init` / `secrets seal` /
+`env-pull` are dotenv-mode authoring helpers; with `sops`/`exec` the operator manages values in that
+backend and the rest (`doctor`, `env-plan`, `env-push`) just works.
+
 ## What a deploy does
 
 1. **assemble** — vendor each configured bundle into `packages/<name>/` (private; gitignored),

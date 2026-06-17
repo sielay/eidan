@@ -12,6 +12,11 @@
     }
   ],
 
+  "//catalogue": "The bundle catalogue the wizard's 'Add a bundle' picks from lives in its OWN gitignored file eidan.catalogue.json (so it survives a from-zero re-init and keeps private repo names out of tracked code). Copy eidan.catalogue.example.json to start.",
+
+  "//providers": "optional provider catalogue (overrides deploy/manifest.mjs DEFAULT_PROVIDERS). Each: { module, endpoint, model, key:<ENV name|null> }. Targets pick from these by name.",
+
+  "//targets": "Each target's CAPABILITIES (the manifest): `eidan compile <target>` renders its matbot.yaml (plugins+providers) + env from these. Run the wizard (eidan-cli.mjs) instead of hand-editing.",
   "targets": {
     "local": {
       "type": "compose"
@@ -30,18 +35,35 @@
       "platform": "linux/arm64"
     },
     "pi-node": {
-      "//": "ssh-node: a host running the engine as a node process under systemd (no Docker). rsyncs the runtime + restarts the service; keeps the host's own matbot.yaml + .env unless you pass --sync-config.",
+      "//": "ssh-node: engine as a node process under systemd. CAPABILITIES below are the manifest; `eidan compile pi-node` renders its matbot.yaml + env from them.",
       "type": "ssh-node",
       "host": "192.168.1.100",
+      "//user": "SSH/deploy user (ssh + rsync + sudo).",
       "user": "pi",
+      "//run_user": "runtime user the systemd service runs as (User=); owns ~/.claude, git identity, WorkingDirectory. Defaults to the SSH user. Used by `provision`.",
+      "run_user": "pi",
       "dir": "eidan-mb",
       "service": "eidan-mb.service",
-      "//disable": "optional: plugin dir names to strip for THIS node's role (e.g. a backend-only node: [\"sage\",\"frontend-telegram\"]). Used by `check` and `deploy --sync-config`.",
+      "//caps": "plugins: '*'|[bundle names] (core always on); providers: [from catalogue]; models: '*'|[ids]; jobs: kinds served; domain/cors.",
+      "plugins": "*",
       "disable": [],
-      "//env_keys": "optional: env key NAMES this node must have, for `check` env drift (names only, never values).",
-      "//env_files": "optional: paths `check` reads (deploy user must be able to read them) to see which keys are set.",
-      "env_keys": ["EIDAN_DATABASE_URL", "EIDAN_AUTH_MASTER_KEY", "EIDAN_JOB_KINDS"],
-      "env_files": ["/etc/eidan/eidan.env", "/etc/eidan/matbot.env"]
+      "providers": ["claude", "openrouter", "ollama"],
+      "models": "*",
+      "jobs": ["chat", "code", "clone", "commit"],
+      "domain": null,
+      "cors": [],
+      "env_files": ["/etc/eidan/eidan.env", "/etc/eidan/matbot.env"],
+      "env_set": { "EIDAN_NODE_ID": "pi-node", "EIDAN_NODE_TYPE": "pi" }
+    },
+    "vercel": {
+      "//": "Web/Next.js front door on Vercel. Values live in apps/web/.env (schema role 'web'); set the same in the Vercel dashboard or `vercel env`. No matbot.yaml (runs the Next app, not the engine).",
+      "type": "vercel",
+      "project": "your-eidan-web",
+      "env_file": "apps/web/.env",
+      "plugins": "*",
+      "//domain": "→ EIDAN_WEB_URL (the public URL). //engine: which engine target the web proxies to → EIDAN_ENGINE_URL. Both derived at compile.",
+      "domain": "eidan.example.com",
+      "engine": "fly"
     }
   }
 }
