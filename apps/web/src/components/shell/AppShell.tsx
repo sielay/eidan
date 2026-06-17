@@ -40,7 +40,7 @@ export function AppShell({
   children: React.ReactNode;
 }): React.ReactElement {
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
 
   // Core sections + whatever installed plugins contribute (design §4).
   const sections = React.useMemo(
@@ -57,6 +57,7 @@ export function AppShell({
 
   const [moreOpen, setMoreOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
+  const [accountOpen, setAccountOpen] = React.useState(false);
 
   // The quick-add FAB sits bottom-right — exactly where the chat composer's
   // Send button is. On chat screens it both overlaps Send and is redundant
@@ -68,7 +69,14 @@ export function AppShell({
   React.useEffect(() => {
     setMoreOpen(false);
     setAddOpen(false);
+    setAccountOpen(false);
   }, [pathname]);
+
+  // Sign out, then hard-redirect to /login so all in-memory + cookie state is gone.
+  const onSignOut = React.useCallback(async () => {
+    await signOut();
+    window.location.href = "/login";
+  }, [signOut]);
 
   const initial = (user?.email?.[0] ?? "E").toUpperCase();
 
@@ -109,9 +117,15 @@ export function AppShell({
           </Link>
           <div className="shellhead__right">
             <ThemeToggle />
-            <Link href="/settings" className="avatar" aria-label="Account & settings">
+            <button
+              type="button"
+              className="avatar"
+              aria-label="Account"
+              aria-haspopup="dialog"
+              onClick={() => setAccountOpen(true)}
+            >
               {initial}
-            </Link>
+            </button>
           </div>
         </header>
 
@@ -189,6 +203,35 @@ export function AppShell({
           <Link href="/" className="btn btn--primary btn--block" onClick={() => setAddOpen(false)}>
             New chat
           </Link>
+        </Sheet>
+      ) : null}
+
+      {/* ---- account menu (avatar) ---- */}
+      {accountOpen ? (
+        <Sheet onClose={() => setAccountOpen(false)} className="qsheet" label="Account">
+          <div className="sheet__grip" />
+          <div className="sheet-head">
+            <h3>Account</h3>
+            <button type="button" className="btn--quiet" onClick={() => setAccountOpen(false)}>
+              Close
+            </button>
+          </div>
+          {user?.email ? (
+            <p className="screen-sub" style={{ marginBottom: "var(--s4)" }}>
+              Signed in as {user.email}
+            </p>
+          ) : null}
+          <Link
+            href="/settings"
+            className="btn btn--block"
+            onClick={() => setAccountOpen(false)}
+            style={{ marginBottom: "var(--s3)" }}
+          >
+            Settings
+          </Link>
+          <button type="button" className="btn btn--primary btn--block" onClick={onSignOut}>
+            Sign out
+          </button>
         </Sheet>
       ) : null}
     </div>

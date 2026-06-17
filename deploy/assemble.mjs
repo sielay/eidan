@@ -140,14 +140,16 @@ export function writeFrontendRegistry(fronts) {
 }
 
 export function assemble(config) {
-  for (const b of config.bundles ?? []) vendorBundle(b);
-  applyMatbotYaml(config.bundles ?? []);
+  // Skip "//" comment entries and anything without a name + source (path|git) — never crash on them.
+  const bundles = (config.bundles ?? []).filter((b) => b && b.name && !String(b.name).startsWith("//") && (b.path || b.git));
+  for (const b of bundles) vendorBundle(b);
+  applyMatbotYaml(bundles);
   // Frontends: read each bundle's eidan.frontend, vendor it, regenerate the registry + bundle CSS.
   // Only touch the committed base when a bundle actually ships UI (keeps the core checkout pristine).
-  const fronts = (config.bundles ?? []).map((b) => vendorFrontend(b.name)).filter(Boolean);
+  const fronts = bundles.map((b) => vendorFrontend(b.name)).filter(Boolean);
   if (fronts.length) writeFrontendRegistry(fronts);
-  const kinds = ["chat", ...(config.bundles ?? []).map((b) => b.kind).filter(Boolean)];
-  return { bundles: config.bundles ?? [], fronts, kinds: [...new Set(kinds)] };
+  const kinds = ["chat", ...bundles.map((b) => b.kind).filter(Boolean)];
+  return { bundles, fronts, kinds: [...new Set(kinds)] };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
