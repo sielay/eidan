@@ -24,8 +24,25 @@ export function loadRoutes(raw: string | undefined): Map<string, Route> {
   return routes;
 }
 
+// What a single delivery attempt resolved to — so the agent-facing tool can report back honestly
+// (sent / dry-run / no such route / channel error) instead of the fire-and-forget emit() that swallows.
+export interface DeliverResult {
+  ok: boolean;
+  noRoute?: boolean;
+  dryRun?: boolean;
+  channel?: string;
+  target?: string;
+  error?: string;
+}
+
 export interface Notify {
+  // Fire-and-forget, for system events: a missing route/webhook is a silent no-op (never throws).
   emit(topic: string, text: string, severity?: string): Promise<void>;
+  // Topic→route delivery with a status (does NOT swallow). Used by emit(); kept for system topics.
+  deliver(topic: string, text: string): Promise<DeliverResult>;
+  // Free-form on-demand send: the caller picks the channel + destination directly (no route needed).
+  // This is what the agent send tool uses — the operator only has to supply the channel's bot token.
+  sendTo(channel: string, target: string, text: string): Promise<DeliverResult>;
 }
 
 export interface NotifyConfig {
@@ -42,21 +59,45 @@ export class NotifyImpl implements Notify {
   async emit(topic: string, text: string, severity = 'info'): Promise<void> {
     const route = this.cfg.routes.get(topic);
     if (!route) return; // no route → intentional no-op
+    if (this.cfg.dryRun) {
+      console.log(`[notify:dryrun] topic=${topic} channel=${route.channel} target=${route.target ?? ''} severity=${severity} text=${JSON.stringify(text)}`);
+      return;
+    }
+    const res = await this.deliver(topic, text);
+    if (!res.ok && !res.noRoute) console.warn(`[notify] emit failed topic=${topic} channel=${route.channel}: ${res.error ?? 'failed'}`);
+  }
+
+  async deliver(topic: string, text: string): Promise<DeliverResult> {
+    const route = this.cfg.routes.get(topic);
+    if (!route) return { ok: false, noRoute: true };
+    const where = { channel: route.channel, ...(route.target !== undefined ? { target: route.target } : {}) };
+    if (this.cfg.dryRun) return { ok: true, dryRun: true, ...where };
     try {
-      if (this.cfg.dryRun) {
-        console.log(`[notify:dryrun] topic=${topic} channel=${route.channel} target=${route.target ?? ''} severity=${severity} text=${JSON.stringify(text)}`);
-        return;
-      }
       if (route.channel === 'telegram') await this.sendTelegram(route.target, text);
       else if (route.channel === 'slack') await this.sendSlack(route.target, text);
-      else console.warn(`[notify] unknown channel '${route.channel}' for topic ${topic}`);
+      else return { ok: false, ...where, error: `unknown channel '${route.channel}'` };
+      return { ok: true, ...where };
     } catch (e) {
-      console.warn(`[notify] emit failed topic=${topic} channel=${route.channel}: ${e instanceof Error ? e.message : String(e)}`);
+      return { ok: false, ...where, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async sendTo(channel: string, target: string, text: string): Promise<DeliverResult> {
+    const where = { channel, target };
+    if (this.cfg.dryRun) return { ok: true, dryRun: true, ...where };
+    try {
+      if (channel === 'telegram') await this.sendTelegram(target, text);
+      else if (channel === 'slack') await this.sendSlack(target, text);
+      else return { ok: false, ...where, error: `unknown channel '${channel}' (use 'slack' or 'telegram')` };
+      return { ok: true, ...where };
+    } catch (e) {
+      return { ok: false, ...where, error: e instanceof Error ? e.message : String(e) };
     }
   }
 
   private async sendTelegram(chatId: string | undefined, text: string): Promise<void> {
-    if (!this.cfg.telegramToken || !chatId) { console.warn('[notify] telegram: missing bot token or chat_id'); return; }
+    if (!this.cfg.telegramToken) throw new Error('missing telegram bot token (set EIDAN_TELEGRAM_BOT_TOKEN)');
+    if (!chatId) throw new Error('route has no target (telegram chat id)');
     const res = await fetch(`https://api.telegram.org/bot${this.cfg.telegramToken}/sendMessage`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text }),
     });
@@ -64,7 +105,8 @@ export class NotifyImpl implements Notify {
   }
 
   private async sendSlack(channel: string | undefined, text: string): Promise<void> {
-    if (!this.cfg.slackToken) { console.warn('[notify] slack: missing bot token'); return; }
+    if (!this.cfg.slackToken) throw new Error('missing slack bot token (set EIDAN_SLACK_BOT_TOKEN)');
+    if (!channel) throw new Error('route has no target (slack channel, e.g. #eidan)');
     const res = await fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${this.cfg.slackToken}` },
       body: JSON.stringify({ channel, text }),
