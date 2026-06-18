@@ -7,6 +7,13 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: "Image version tag (e.g. v0.1.0). Set by the release-on-bump caller; empty on a tag push."
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -44,6 +51,7 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/eidan-${{ matrix.name }}
           tags: |
             type=ref,event=tag
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             type=raw,value=latest
 
       - uses: docker/build-push-action@v6
