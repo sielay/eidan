@@ -101,6 +101,18 @@ async function checkProviderKey(prov, key) {
 const urlValidate = (v) => { if (!v) return undefined; try { new URL(v); return undefined; } catch { return "enter a full URL incl. http(s)://"; } };
 const emailValidate = (v) => (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) ? undefined : "enter a valid email");
 
+// --- Integration value checks (verify a token live before we write it) ------------------------
+// Telegram: getMe echoes the bot identity for a good token. Slack: auth.test for a good xoxb token.
+async function checkTelegramToken(token) {
+  try { const r = await fetch(`https://api.telegram.org/bot${token}/getMe`); const j = await r.json(); return j?.ok ? null : (j?.description || `rejected (${r.status})`); }
+  catch (e) { return "network error: " + (e?.message || e); }
+}
+async function checkSlackToken(token) {
+  try { const r = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { authorization: `Bearer ${token}` } }); const j = await r.json(); return j?.ok ? null : (j?.error || `rejected (${r.status})`); }
+  catch (e) { return "network error: " + (e?.message || e); }
+}
+const jsonObjValidate = (v) => { if (!v || !v.trim()) return undefined; try { const o = JSON.parse(v); return (o && typeof o === "object" && !Array.isArray(o)) ? undefined : "must be a JSON object {…}"; } catch { return "not valid JSON"; } };
+
 // Prompt → live-check the value → on failure, offer retry or "use anyway" (offline / known-good).
 async function askValid(label, promptFn, check) {
   for (;;) {
@@ -212,6 +224,7 @@ export const MENU = [
   { value: "add-provider", label: "Add an LLM provider", hint: "+ key; targets pick per-target" },
   { value: "configure", label: "Configure a target", hint: "plugins / providers / jobs / domain" },
   { value: "keys", label: "Add keys / secrets", hint: "edit in $EDITOR" },
+  { value: "integrate", label: "Integrations", hint: "telegram / slack chat + notify" },
   { value: "doctor", label: "Doctor", hint: "validate all config" },
   { value: "compile", label: "Compile a target", hint: "preview matbot.yaml + env" },
   { value: "env-plan", label: "Plan a target's env" },
@@ -238,6 +251,105 @@ async function keysFlow() {
   if (which === "root") spawnSync(editor, [join(ROOT, ".env")], { stdio: "inherit" });
   else if (which === "web") spawnSync(editor, [join(ROOT, "apps/web/.env")], { stdio: "inherit" });
   else runVerb(["doctor"]);
+}
+
+// --- Integrations: Telegram (two-way chat) + Slack/Telegram notify, wired straight into .env -------
+// Telegram is a full inbound surface (frontend-telegram); Slack is outbound-only (notify). Both also
+// share the topic→channel notify router (EIDAN_NOTIFY_ROUTES). These helpers write .env (+ a manifest
+// env_set for the Telegram poll-lock) so an operator never hand-edits a token or a JSON blob.
+const NOTIFY_TOPICS = ["node.startup", "job.update", "routine", "amygdala"];
+const readEnvVal = (key) => { const path = join(ROOT, ".env"); return existsSync(path) ? parseEnvMap(readFileSync(path, "utf8"))[key] : undefined; };
+
+// Edit EIDAN_NOTIFY_ROUTES (a topic→{channel,target} JSON map) as a list — add/remove rows, then
+// serialise back to a single .env line. Shared by the Telegram + Slack flows and the menu.
+async function notifyRoutesFlow() {
+  const envPath = join(ROOT, ".env");
+  let routes = {};
+  const cur = readEnvVal("EIDAN_NOTIFY_ROUTES");
+  if (cur) { try { routes = JSON.parse(cur) || {}; } catch { p.note(pc.yellow("current EIDAN_NOTIFY_ROUTES isn't valid JSON — starting fresh"), "notify"); } }
+  // Routes are ONLY for automatic system-event notifications (a topic fires → a channel). The
+  // assistant does NOT need a route to send: it posts to any Slack channel / Telegram chat directly
+  // via the send_message tool (it just needs the bot token, set in the Slack/Telegram step). So this
+  // editor is purely "when <system event> happens, ping <channel>".
+  p.note(
+    "These route AUTOMATIC system events to a channel — e.g. " +
+    `${pc.cyan("job.update")} → slack ${pc.cyan("#eidan")}.\n` +
+    `${pc.dim("Note:")} the assistant does NOT use routes — it posts to any channel/chat on its own\n` +
+    "via the send_message tool (just needs the bot token). You only need routes for unattended alerts.",
+    "what routes are");
+  for (;;) {
+    const keys = Object.keys(routes);
+    const action = guard(await p.select({ message: `System-event routes (${keys.length})`, options: [
+      ...keys.map((k) => ({ value: `rm:${k}`, label: `${k} → ${routes[k].channel}${routes[k].target ? " " + routes[k].target : ""}`, hint: "select to remove" })),
+      { value: "add", label: pc.green("+ add a route") },
+      { value: "save", label: pc.green("Save + back") },
+      { value: "back", label: "Back (discard)" },
+    ] }));
+    if (action === "back") return;
+    if (action === "save") { setEnv(envPath, "EIDAN_NOTIFY_ROUTES", JSON.stringify(routes)); p.note(`Saved ${Object.keys(routes).length} route(s).`, pc.green("notify")); return; }
+    if (action.startsWith("rm:")) { delete routes[action.slice(3)]; continue; }
+    let topic = guard(await p.select({ message: "System event", options: [...NOTIFY_TOPICS.map((t) => ({ value: t, label: t })), { value: "__custom__", label: pc.dim("+ custom topic") }] }));
+    if (topic === "__custom__") topic = guard(await p.text({ message: "Topic name", placeholder: "my.topic" }));
+    if (!topic) continue;
+    const channel = guard(await p.select({ message: "Channel", options: [{ value: "slack", label: "Slack" }, { value: "telegram", label: "Telegram" }] }));
+    const target = guard(await p.text({ message: channel === "slack" ? "Slack channel (e.g. #eidan)" : "Telegram chat id (e.g. 123456789)", placeholder: channel === "slack" ? "#eidan" : "123456789" }));
+    routes[topic.trim()] = { channel, ...(target && target.trim() ? { target: target.trim() } : {}) };
+  }
+}
+
+// Only ONE node may long-poll the bot (a 2nd gets Telegram 409). Set EIDAN_TELEGRAM_POLL via per-target
+// env_set in the manifest: 'true' on the chosen poller, 'false' on every other engine node.
+async function telegramPollLockFlow() {
+  const cfg = loadConfig();
+  const engines = Object.entries(cfg.targets ?? {}).filter(([, t]) => t.type === "fly" || t.type === "ssh-node").map(([n]) => n);
+  if (engines.length < 2) return; // 0/1 engine → no contention; default poll=true is fine
+  const poller = guard(await p.select({ message: "Which node long-polls Telegram?  (only one may — others get 409)", options: engines.map((n) => ({ value: n, label: n })) }));
+  for (const n of engines) { cfg.targets[n].env_set ??= {}; cfg.targets[n].env_set.EIDAN_TELEGRAM_POLL = n === poller ? "true" : "false"; }
+  writeFileSync(MANIFEST, JSON.stringify(cfg, null, 2) + "\n");
+  p.note(`Poll-lock set: ${poller} polls; ${engines.filter((n) => n !== poller).join(", ") || "none"} = off.`, pc.green("telegram"));
+}
+
+async function telegramFlow() {
+  const envPath = join(ROOT, ".env");
+  p.note("Telegram is a two-way chat surface (frontend-telegram). Create a bot with @BotFather and paste its token.", "telegram");
+  const token = await askValid("telegram bot token", () => p.password({ message: "Bot token (BotFather)  (EIDAN_TELEGRAM_BOT_TOKEN)" }), checkTelegramToken);
+  setEnv(envPath, "EIDAN_TELEGRAM_BOT_TOKEN", token);
+  const provs = providerNames(loadConfig());
+  if (provs.length) {
+    const prov = guard(await p.select({ message: "LLM provider for Telegram replies", options: [...provs.map((n) => ({ value: n, label: n })), { value: "", label: pc.dim("(default — first registered)") }] }));
+    if (prov) setEnv(envPath, "EIDAN_TELEGRAM_PROVIDER", prov);
+  }
+  if (guard(await p.confirm({ message: "Add a static allowlist (telegram id → eidan principal id)?  (skip → users link via /start)", initialValue: false }))) {
+    const al = guard(await p.text({ message: 'Allowlist JSON  {"<telegram_id>":"<principal_id>"}', placeholder: '{"123456789":"<uuid>"}', validate: jsonObjValidate }));
+    if (al && al.trim()) setEnv(envPath, "EIDAN_TELEGRAM_ALLOWLIST", al.trim());
+  }
+  await telegramPollLockFlow();
+  if (guard(await p.confirm({ message: "Also auto-send some SYSTEM events (boot/jobs) to Telegram?  (optional)", initialValue: false }))) await notifyRoutesFlow();
+  p.note("Telegram wired. Run env-push (or deploy) to ship the token; users message the bot then /start to link.", pc.green("telegram"));
+}
+
+async function slackFlow() {
+  const envPath = join(ROOT, ".env");
+  p.note("Slack is outbound. Create a Slack app, give it chat:write (+ chat:write.public for public\nchannels it isn't in), and paste the bot token (xoxb-…). Once set, the assistant can post to any\nchannel via the send_message tool — no routes needed.", "slack");
+  const token = await askValid("slack bot token", () => p.password({ message: "Slack bot token  (EIDAN_SLACK_BOT_TOKEN)" }), checkSlackToken);
+  setEnv(envPath, "EIDAN_SLACK_BOT_TOKEN", token);
+  if (guard(await p.confirm({ message: "Also auto-send some SYSTEM events (boot/jobs) to Slack?  (optional)", initialValue: false }))) await notifyRoutesFlow();
+  p.note("Slack wired. Run env-push (or deploy) to ship the token, then ask the assistant to post to a channel.", pc.green("slack"));
+}
+
+async function integrationsFlow() {
+  for (;;) {
+    const which = guard(await p.select({ message: "Integrations", options: [
+      { value: "telegram", label: "Telegram", hint: "two-way chat surface + notify" },
+      { value: "slack", label: "Slack", hint: "outbound notifications" },
+      { value: "routes", label: "System-event routes", hint: "auto-ping a channel on boot/jobs (agent sends need no route)" },
+      { value: "back", label: "Back" },
+    ] }));
+    if (which === "back") return;
+    if (which === "telegram") await telegramFlow();
+    else if (which === "slack") await slackFlow();
+    else await notifyRoutesFlow();
+  }
 }
 
 async function addTargetFlow() {
@@ -521,6 +633,7 @@ async function main() {
     else if (v === "add-provider") { const n = await setupProvider("Add an LLM provider"); p.note(`"${n}" ready — select it per target in Configure.`, pc.green("provider")); }
     else if (v === "configure") await configureFlow();
     else if (v === "keys") await keysFlow();
+    else if (v === "integrate") await integrationsFlow();
     else if (v === "doctor") runVerb(["doctor"]);
     else if (v === "seal") runVerb(["secrets", "seal"]);
     else if (v === "migrate") runVerb(["migrate"]); // DB is shared — not per-target
