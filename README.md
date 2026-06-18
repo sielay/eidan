@@ -1,12 +1,12 @@
 # 🧙🏾‍♂️ Eidan
 
-**Self-hosted personal agent OS for builders. Own your cognitive infrastructure.**
+<img alt="Eidan.dev — Self-hosted personal agent OS for builders. Own your cognitive infrastructure" src="./images/eidan_400.png" width="100" height="100" style="float:left; margin: 0 1rem 1rem 0" />
+ **Self-hosted personal agent OS for builders. Own your cognitive infrastructure.**
 
 > Think about your personal `Jarvis`&trade;. A bit wiser than `Dum-E`&trade;, but not yet `Vision`&trade; level.
 
-<p align="center">
-<img alt="Eidan.dev — Self-hosted personal agent OS for builders. Own your cognitive infrastructure" src="./images/eidan_400.png" />
-</p>
+
+![Eidan](./images/eidan-screen.png)
 
 You run Eidan on your own server, computer, Raspberry Pi, pod — whatever. It keeps the
 long-running memory — your conversations, notes, knowledge, and whatever your tools feed in —

@@ -16,9 +16,11 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
  * (``GET /api/cost/summary?scope=…``) and one update cadence story:
  *
  * - **Turn**  — updated immediately after the SSE ``complete`` event by
- *   bumping ``turnRefreshKey`` and (when known) handing the parent's
- *   ``lastMessageId`` in. The endpoint defaults to the user's latest
- *   user message id when none is supplied per `docs/010 §8.1`.
+ *   bumping ``turnRefreshKey`` and handing the parent's ``lastMessageId``
+ *   in. The rollup is keyed on that message id (``llm_calls.message_id``,
+ *   stamped per turn by the AG-UI server), so the chip stays ``—`` until
+ *   the first turn commits an id; the endpoint 400s on ``scope=turn``
+ *   without one, so this counter doesn't fetch until it has it.
  * - **Session** / **Day** — polled on a fixed interval (default 30s)
  *   per the issue brief; the user window is "since this JWT was
  *   issued" (`docs/010 §6.3`).
@@ -29,8 +31,9 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
  * thresholds) is left for the budget-config follow-up.
  */
 export interface CostCounterProps {
-  /** Anchor message id for the per-turn rollup. Optional — the backend
-   *  falls back to the user's latest user message when omitted. */
+  /** Anchor message id for the per-turn rollup (the turn's user-message
+   *  id). Null until the first turn commits one; the per-turn counter
+   *  holds at "—" while it is. */
   lastMessageId?: string | null;
   /** Bumped by the parent after every SSE ``complete`` event so the
    *  per-turn counter re-fetches against the freshly-committed row. */
@@ -53,12 +56,14 @@ export function CostCounter({
   const [error, setError] = React.useState<string | null>(null);
 
   // Per-turn counter — re-fetches whenever the parent signals a turn
-  // completed or the anchor message id changes.
+  // completed or the anchor message id changes. The per-turn rollup is
+  // keyed on a message id, so there's nothing to fetch until the first
+  // turn has committed one (before then the chip just reads "—").
   React.useEffect(() => {
-    if (!config || !user) return;
+    if (!config || !user || !lastMessageId) return;
     const ctrl = new AbortController();
     fetchCostSummary("turn", {
-      messageId: lastMessageId ?? null,
+      messageId: lastMessageId,
       signal: ctrl.signal,
     })
       .then((summary) => setTurn(summary))

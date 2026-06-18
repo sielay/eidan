@@ -4,6 +4,7 @@ import { Db } from './db.js';
 export interface LlmCall {
   userId: string;
   conversationId?: string;
+  messageId?: string;
   provider: string;
   model: string;
   inputTokens: number;
@@ -29,11 +30,11 @@ export class LlmCallsImpl implements LlmCalls {
     try {
       await this.db.query(
         `insert into eidan.llm_calls
-           (user_id, conversation_id, role, provider, model, input_tokens, output_tokens,
+           (user_id, conversation_id, message_id, role, provider, model, input_tokens, output_tokens,
             cache_read_tokens, cache_creation_tokens, cost_usd, request_id, started_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())`,
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())`,
         [
-          c.userId, c.conversationId ?? null, c.role ?? 'primary', c.provider, c.model,
+          c.userId, c.conversationId ?? null, c.messageId ?? null, c.role ?? 'primary', c.provider, c.model,
           c.inputTokens, c.outputTokens, c.cacheReadTokens ?? 0, c.cacheCreationTokens ?? 0,
           c.costUsd ?? 0, c.requestId ?? null,
         ],

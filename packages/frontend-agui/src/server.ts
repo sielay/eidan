@@ -2,7 +2,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { MatbotServices, Session, Principal } from '@matatbread/matbot-plugin-api';
 import { runAs, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
-import { AguiEmitter, type AguiEvent } from './agui-emitter.js';
+import { AguiEmitter, lastIdByRole, type AguiEvent } from './agui-emitter.js';
 import { handleDevAuth } from './auth-dev.js';
 import { proxyToPanel } from './panel-proxy.js';
 import { handleRest } from './rest.js';
@@ -18,7 +18,7 @@ declare module '@matatbread/matbot-plugin-api' {
 // The LLM cost ledger (declared by @eidandev/llm-calls; re-declared here, the matbot pattern, to
 // stay decoupled). Recorded per usage event; absent ⇒ no telemetry.
 interface LlmCall {
-  userId: string; conversationId?: string; provider: string; model: string;
+  userId: string; conversationId?: string; messageId?: string; provider: string; model: string;
   inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number;
   costUsd?: number; requestId?: string; role?: string;
 }
@@ -149,20 +149,42 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
       const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: [{ type: 'text', text }], provider: turnProvider, principal });
       const ledger = services.LlmCalls;
       const model = services.providers.get(turnProvider)?.model ?? '';
-      for await (const ev of view.events) {
-        if (ev.type === 'idle') continue;
-        if ('traceId' in ev && ev.traceId !== view.traceId) continue;
-        if (ev.type === 'usage' && ledger) {
+      // The turn's user-message id isn't known until the turn commits (its `done`/`aborted` event
+      // carries the session), but usage events arrive mid-turn — so buffer them and stamp the id on
+      // flush. message_id keys the per-turn cost rollup (`/api/cost/summary?scope=turn`); without it
+      // the turn counter can never resolve a row. lastIdByRole reads the SAME id the emitter reports
+      // to the client as `user_message_id`, so the recorded key matches the one the client queries.
+      const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'messageId' | 'provider' | 'model'>> = [];
+      const flushUsage = (messageId?: string): void => {
+        if (!ledger) { pendingUsage.length = 0; return; }
+        for (const u of pendingUsage) {
           void ledger.record({
-            userId: principal.id, conversationId, provider, model,
-            inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
-            ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
-            ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
-            ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
+            userId: principal.id, conversationId, provider, model, ...u,
+            ...(messageId ? { messageId } : {}),
           });
         }
-        for (const a of emitter.map(ev)) sse(res, a);
-        if (ev.type === 'done' || ev.type === 'error' || ev.type === 'aborted' || ev.type === 'cancelled') break;
+        pendingUsage.length = 0;
+      };
+      try {
+        for await (const ev of view.events) {
+          if (ev.type === 'idle') continue;
+          if ('traceId' in ev && ev.traceId !== view.traceId) continue;
+          if (ev.type === 'usage') {
+            pendingUsage.push({
+              inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
+              ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
+              ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
+              ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
+            });
+          }
+          if (ev.type === 'done' || ev.type === 'aborted') flushUsage(lastIdByRole(ev.session, 'user'));
+          for (const a of emitter.map(ev)) sse(res, a);
+          if (ev.type === 'done' || ev.type === 'error' || ev.type === 'aborted' || ev.type === 'cancelled') break;
+        }
+      } finally {
+        // error/cancelled (and any stream break) carry no committed session — still record the
+        // usage so session/day rollups stay accurate; only the per-turn attribution is dropped.
+        flushUsage();
       }
     } catch (e) {
       for (const a of emitter.error(e instanceof Error ? e.message : String(e))) sse(res, a);
