@@ -1,0 +1,61 @@
+name: Release on version bump
+
+# When a version bump lands on main (e.g. a `next-release` -> `main` merge), tag it `v<version>`,
+# cut a GitHub release with auto-generated notes, and build+push the multi-arch images. A merge that
+# does NOT change `package.json` version is a no-op (the tag already exists). Images build via
+# workflow_call in the SAME run, so the "a GITHUB_TOKEN push doesn't trigger workflows" rule never
+# bites — no PAT needed.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.check.outputs.released }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need all tags to know whether this version is already released
+
+      - id: check
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists — nothing to release."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New version $TAG — releasing."
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tag + GitHub release
+        if: steps.check.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.check.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "eidan $TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" --title "$TAG" --generate-notes
+
+  images:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    uses: ./.github/workflows/release-images.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
