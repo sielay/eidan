@@ -35,27 +35,44 @@ matbot.local.yaml
 /dev-up.sh
 /dev-down.sh
 
-# vendored paid bundles (private; deploy copies them in, never committed to core)
-packages/sage/
-packages/pro/
-packages/charles/
-packages/charlotte/
-packages/charles-decks/
-packages/charles-ventures/
-packages/gdrive/
-packages/google/
-packages/ical/
-packages/imap/
+# Bundles & their assembled web artifacts are dropped into the tree by `eidan deploy` and are
+# NEVER tracked here. Rather than name each private bundle (a leak + constant upkeep), default to
+# ignoring everything and re-include only the open-source core. A new bundle needs no edit; adding
+# a new CORE package/route means un-ignoring it below. Re-including the *directory* (not just the
+# `*` glob) is required — otherwise the parent ignore also swallows NEW files inside a core dir.
+packages/*
+!packages/a2a-server/
+!packages/auth/
+!packages/frontend-agui/
+!packages/frontend-telegram/
+!packages/jobs/
+!packages/llm-calls/
+!packages/mcp-server/
+!packages/memory/
+!packages/notify/
+!packages/procedures/
+!packages/routines/
+!packages/secrets-api/
+!packages/storage-postgres/
+!packages/vault-postgres/
 
-# assembled plugin frontends + API routes (`eidan deploy` writes these in from each bundle;
-# regenerated, never committed). No tracked subdirs live under apps/web/src/plugins/, so the
-# wildcard is safe; the committed *.generated.* base-case files sit directly in that dir and
-# are not matched by the trailing-slash (directories-only) pattern.
+# Assembled plugin frontends: every subdir here is bundle-written. The committed *.generated.*
+# base-case files sit directly in the dir (not a subdir), so the trailing-slash glob leaves them.
 apps/web/src/plugins/*/
-apps/web/src/app/api/charles/
-apps/web/src/app/api/google/
-apps/web/src/app/api/ical/
-apps/web/src/app/api/imap/
+
+# Assembled API routes: ignore every route dir, re-include the core ones. (`\[...path\]` escapes
+# the gitignore character-class brackets so the literal `[...path]` catch-all route matches.)
+apps/web/src/app/api/*/
+!apps/web/src/app/api/\[...path\]/
+!apps/web/src/app/api/admin/
+!apps/web/src/app/api/agent/
+!apps/web/src/app/api/auth/
+!apps/web/src/app/api/cost/
+!apps/web/src/app/api/escalations/
+!apps/web/src/app/api/events/
+!apps/web/src/app/api/knowledge/
+!apps/web/src/app/api/me/
+!apps/web/src/app/api/notes/
 
 # operator deploy config (per-deploy; targets + bundle paths)
 eidan.deploy.json
