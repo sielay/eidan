@@ -25,10 +25,15 @@ export const CORE_PLUGINS = [
 // env var holding the API key (resolved on the node); null = no key (e.g. local ollama).
 export const DEFAULT_PROVIDERS = {
   claude:     { module: "./external/matbot/packages/plugins/providers/anthropic",     endpoint: "https://api.anthropic.com", model: "claude-sonnet-4-6", key: "ANTHROPIC_API_KEY" },
-  openai:     { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://api.openai.com/v1", model: "gpt-4o", key: "OPENAI_API_KEY" },
-  openrouter: { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://openrouter.ai/api/v1", model: "anthropic/claude-3.5-sonnet", key: "OPENROUTER_API_KEY" },
-  grok:       { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://api.x.ai/v1", model: "grok-2", key: "XAI_API_KEY" },
-  ollama:     { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "http://localhost:11434/v1", model: "llama3", key: null },
+  // openai-compat posts to config.endpoint VERBATIM (its DEFAULT_ENDPOINT is a full
+  // …/chat/completions URL), so every endpoint here must be the full completions path, not the
+  // API base — a base URL silently 200s with the provider's HTML homepage, yielding an empty
+  // stream and a turn that finishes with zero iterations (no error). Only `claude` (anthropic
+  // adapter) appends its own path, so it stays a base URL.
+  openai:     { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4o", key: "OPENAI_API_KEY" },
+  openrouter: { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://openrouter.ai/api/v1/chat/completions", model: "anthropic/claude-sonnet-4.6", key: "OPENROUTER_API_KEY" },
+  grok:       { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://api.x.ai/v1/chat/completions", model: "grok-2", key: "XAI_API_KEY" },
+  ollama:     { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "http://localhost:11434/v1/chat/completions", model: "llama3", key: null },
 };
 
 // named bundles (drop "//" comment entries). assemble additionally requires a source (path|git).

@@ -22,7 +22,7 @@ export type AguiEvent = Record<string, unknown>;
 function newId(): string { return crypto.randomUUID().replace(/-/g, ''); }
 function stringifyResult(r: unknown): string { return typeof r === 'string' ? r : JSON.stringify(r ?? null); }
 
-function lastIdByRole(s: Session, role: Message['role']): string {
+export function lastIdByRole(s: Session, role: Message['role']): string {
   for (let i = s.messages.length - 1; i >= 0; i--) {
     const m = s.messages[i];
     if (m && m.role === role) return m.id;
