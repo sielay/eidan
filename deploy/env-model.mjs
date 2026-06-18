@@ -105,7 +105,10 @@ export function validateFile(file, values = {}) {
   const reqd = new Set(targetsForFile.flatMap((t) => requiredForTarget(t)));
   const present = presentKeysOf(Object.entries(values).map(([k, v]) => `${k}=${v}`).join("\n"));
   const missingRequired = [...reqd].filter((k) => !present.has(k)).sort();
-  const placeholders = Object.entries(values).filter(([, v]) => /‹FILL|<.*>/.test(v)).map(([k]) => k).sort();
+  // Placeholder = the scaffold's ‹FILL: …› marker, or an unfilled <angle-bracket> token. The bracket
+  // form excludes anything containing "@" so a real email mailbox (e.g. `Acme <no-reply@example.com>`)
+  // isn't mistaken for an unfilled value.
+  const placeholders = Object.entries(values).filter(([, v]) => /‹FILL|<(?![^>]*@)[^>]*>/.test(v)).map(([k]) => k).sort();
   return { missingRequired, placeholders };
 }
 

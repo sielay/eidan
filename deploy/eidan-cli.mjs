@@ -8,7 +8,7 @@ import pc from "picocolors";
 import { spawnSync, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { env, stdin } from "node:process";
 import { loadConfig, ROOT } from "./assemble.mjs";
 import { bundleNames, DEFAULT_PROVIDERS, catalogueOf, installedPlugins, CORE_PLUGINS } from "./manifest.mjs";
@@ -28,6 +28,18 @@ function loadCatalogue(cfg) {
   const merged = { ...catalogueOf(cfg), ...fileCat };
   // drop "//" comment keys + non-object values so they never become selectable bundles.
   return Object.fromEntries(Object.entries(merged).filter(([k, v]) => !k.startsWith("//") && v && typeof v === "object"));
+}
+
+// Remember a custom-defined bundle as org knowledge: write it to the gitignored catalogue file so it
+// SURVIVES a from-zero re-init of eidan.deploy.json and shows up in the pick-list next time. The
+// catalogue stores the source shape ({git|path, subdir, kind}); the per-target `name` is the key.
+function rememberInCatalogue(entry) {
+  let cat = {};
+  try { if (existsSync(CATALOGUE_FILE)) cat = JSON.parse(readFileSync(CATALOGUE_FILE, "utf8")); } catch { /* ignore — overwrite a corrupt file */ }
+  if (cat[entry.name]) return; // already catalogued — don't clobber a richer hand-authored entry
+  const { name, ...source } = entry;
+  cat[name] = source;
+  writeFileSync(CATALOGUE_FILE, JSON.stringify(cat, null, 2) + "\n");
 }
 
 // provider names from the catalogue (DEFAULT_PROVIDERS + config.providers), minus "//" comments.
@@ -284,16 +296,131 @@ async function pickBranch(repo, current) {
   return guard(await p.select({ message: `Branch for ${repo}`, options: branches.map((b) => ({ value: b, label: b })), initialValue: branches.includes(def) ? def : branches[0] }));
 }
 
-async function customBundle() {
-  const name = guard(await p.text({ message: "Bundle / plugin name" }));
+// A bundle declares the job kinds it registers in its package.json under `eidan.kinds` (string[]).
+// This is the source of truth — the operator shouldn't have to know/retype it.
+const declaredKinds = (pkg) => (Array.isArray(pkg?.eidan?.kinds) ? pkg.eidan.kinds.filter((k) => typeof k === "string" && k) : []);
+
+// Validate a local path is a real, well-formed matbot bundle: an existing directory with a
+// package.json that declares `matbotRuntime` or an `exports["."]` entry that actually exists on disk.
+// Returns { ok, reason, pkg } — `reason` is shown to the operator on failure.
+function inspectLocalBundle(dir) {
+  const abs = resolve(ROOT, dir);
+  if (!existsSync(abs)) return { ok: false, reason: "path does not exist" };
+  let st; try { st = statSync(abs); } catch { return { ok: false, reason: "cannot read path" }; }
+  if (!st.isDirectory()) return { ok: false, reason: "not a directory" };
+  const pkgPath = join(abs, "package.json");
+  if (!existsSync(pkgPath)) return { ok: false, reason: "no package.json — not a bundle" };
+  let pkg; try { pkg = JSON.parse(readFileSync(pkgPath, "utf8")); } catch { return { ok: false, reason: "package.json is not valid JSON" }; }
+  const entry = typeof pkg.exports === "string" ? pkg.exports : pkg.exports?.["."];
+  if (!Array.isArray(pkg.matbotRuntime) && !entry) return { ok: false, reason: "package.json has no matbotRuntime/exports — not a matbot plugin" };
+  if (entry && !existsSync(join(abs, entry))) return { ok: false, reason: `entry "${entry}" is missing` };
+  return { ok: true, pkg };
+}
+
+// Find the matbot bundles at a local path: the dir itself if it's a plugin, otherwise its
+// `packages/*` children that are plugins (a monorepo of bundles). Returns [{ dir, pkg }].
+function discoverBundles(dir) {
+  const self = inspectLocalBundle(dir);
+  if (self.ok) return [{ dir, pkg: self.pkg }];
+  const pkgsDir = join(resolve(ROOT, dir), "packages");
+  if (!existsSync(pkgsDir)) return [];
+  let children = []; try { children = readdirSync(pkgsDir); } catch { return []; }
+  return children.map((n) => {
+    const child = `${dir.replace(/\/+$/, "")}/packages/${n}`;
+    const r = inspectLocalBundle(child);
+    return r.ok ? { dir: child, pkg: r.pkg } : null;
+  }).filter(Boolean);
+}
+
+// Best-effort read of a git bundle's package.json (raw.githubusercontent, no clone) so we can pick up
+// its declared kinds at add time. Returns the parsed pkg or null (private repo / offline / 404).
+async function fetchGitManifest(repo, branch, subdir) {
+  const sub = subdir ? subdir.replace(/^\/+|\/+$/g, "") + "/" : "";
+  const url = `https://raw.githubusercontent.com/${repo}/${branch}/${sub}package.json`;
+  const token = env.GITHUB_TOKEN || env.GH_TOKEN;
+  try {
+    const res = await fetch(url, token ? { headers: { Authorization: `token ${token}` } } : undefined);
+    if (!res.ok) return null;
+    return JSON.parse(await res.text());
+  } catch { return null; }
+}
+
+// Turn a source ({git|path, subdir?}) + its manifest into a finished bundle entry: confirm the name
+// and resolve kinds (declared wins; ask only when none are declared / the manifest is unreadable).
+async function finalizeBundle(b, pkg) {
+  const guess = (pkg?.name ? String(pkg.name).split("/").pop() : null)
+    ?? (b.subdir ? b.subdir.split("/").filter(Boolean).pop()
+      : b.git ? b.git.split("#")[0].split("/").pop()
+      : b.path ? b.path.split("/").filter(Boolean).pop() : "");
+  const name = guard(await p.text({ message: "Bundle name (becomes packages/<name>)", initialValue: guess }));
   if (!name) return null;
-  const b = { name };
-  const src = guard(await p.select({ message: "Source", options: [{ value: "git", label: "git", hint: "owner/repo#ref" }, { value: "path", label: "local path" }] }));
-  if (src === "git") { b.git = guard(await p.text({ message: "owner/repo#ref" })); const sd = guard(await p.text({ message: "subdir (optional)" })); if (sd) b.subdir = sd; }
-  else b.path = guard(await p.text({ message: "local path" }));
-  const kind = guard(await p.text({ message: "job kind it registers (optional)" }));
-  if (kind) b.kind = kind;
+  b.name = name.trim();
+  const declared = declaredKinds(pkg);
+  if (declared.length) {
+    b.kinds = declared;
+    p.note(`Bundle declares job kind(s): ${pc.cyan(declared.join(", "))}`, "kinds");
+  } else {
+    p.note(pc.dim(pkg ? "this bundle declares no eidan.kinds — list them if it registers job handlers" : "couldn't read the repo's manifest (private/offline) — list any job kinds it registers"), "kinds");
+    const kind = guard(await p.text({ message: "Job kind(s) it registers (comma list; blank = none)", placeholder: "chat | code | …" }));
+    const ks = (kind ?? "").split(/[\s,]+/).filter(Boolean);
+    if (ks.length) b.kinds = ks;
+  }
   return b;
+}
+
+// Build a bundle entry straight from a discovered local plugin (no prompts) — used for bulk-add when
+// the operator points at a monorepo and multi-selects several packages.
+const bundleFromLocal = ({ dir, pkg }) => {
+  const kinds = declaredKinds(pkg);
+  return { name: String(pkg.name).split("/").pop(), path: dir, ...(kinds.length ? { kinds } : {}) };
+};
+
+// Define one or more custom bundles. Returns an array of bundle entries (a monorepo path can yield
+// several), or null if cancelled.
+async function customBundle() {
+  const src = guard(await p.select({ message: "Source", options: [{ value: "git", label: "GitHub repo", hint: "owner/name" }, { value: "path", label: "local path" }] }));
+  if (src === "git") {
+    // Lead with the org/name pair (no #ref in here) — branch is picked separately from the live remote.
+    let repo = guard(await p.text({ message: "GitHub repo (owner/name)", placeholder: "owner/my-bundle", validate: (v) => (v && /^[\w.-]+\/[\w.-]+$/.test(v.trim())) ? undefined : "enter owner/name, e.g. owner/my-bundle" }));
+    if (!repo) return null;
+    repo = repo.trim();
+    const branch = await pickBranch(repo);
+    const b = { git: `${repo}#${branch}` };
+    const sd = guard(await p.text({ message: "subdir (optional)", placeholder: "packages/<plugin> — leave blank if the repo root is the plugin" }));
+    if (sd) b.subdir = sd.trim();
+    const pkg = await fetchGitManifest(repo, branch, b.subdir); // null for private/offline — we ask for kinds
+    const done = await finalizeBundle(b, pkg);
+    return done ? [done] : null;
+  }
+  // local path: discover the bundle(s) at the path (the dir itself, or its packages/* children).
+  for (;;) {
+    const path = guard(await p.text({ message: "local path", placeholder: "../my-bundle (a repo) or ../my-bundle/packages/<plugin>" }));
+    if (!path) return null;
+    const found = discoverBundles(path.trim());
+    if (!found.length) {
+      p.note(pc.red(inspectLocalBundle(path.trim()).reason ?? "no bundles found under this path"), "not a valid bundle");
+      if (!guard(await p.confirm({ message: "Try a different path?", initialValue: true }))) return null;
+      continue;
+    }
+    // A single plugin → confirm name + kinds. A monorepo → multi-select which packages to add (bulk).
+    if (found.length === 1) { const done = await finalizeBundle({ path: found[0].dir }, found[0].pkg); return done ? [done] : null; }
+    const picks = guard(await p.multiselect({
+      message: `${found.length} bundles found under ${path.trim()} — add which?`,
+      options: found.map((f) => ({ value: f.dir, label: String(f.pkg.name).split("/").pop(), hint: declaredKinds(f.pkg).length ? `kinds: ${declaredKinds(f.pkg).join(",")}` : "no job kinds" })),
+      required: false,
+    }));
+    const chosen = found.filter((f) => picks.includes(f.dir));
+    return chosen.length ? chosen.map(bundleFromLocal) : null;
+  }
+}
+
+// Accept freshly-defined custom bundles (customBundle returns an array): record each in the manifest
+// + catalogue, skipping any name already present so a re-add never duplicates a row.
+function acceptCustom(cfg, have, added, bundles) {
+  for (const b of bundles ?? []) {
+    if (have.has(b.name)) { p.note(pc.yellow(`"${b.name}" is already added — skipped.`), "skip"); continue; }
+    have.add(b.name); cfg.bundles.push(b); rememberInCatalogue(b); added.push(b.name);
+  }
 }
 
 async function addBundleFlow() {
@@ -310,19 +437,24 @@ async function addBundleFlow() {
       required: false,
     }));
     for (const n of picks) {
-      if (n === "__custom__") { const b = await customBundle(); if (b) { cfg.bundles.push(b); added.push(b.name); } continue; }
+      if (n === "__custom__") { acceptCustom(cfg, have, added, await customBundle()); continue; }
       const m = catalogue[n];
       const entry = { name: n };
       if (m.git) { const [repo, ref] = m.git.split("#"); const branch = await pickBranch(repo, ref); entry.git = `${repo}#${branch}`; }
       else if (m.path) entry.path = m.path;
       if (m.subdir) entry.subdir = m.subdir;
-      if (m.kind) entry.kind = m.kind;
+      if (Array.isArray(m.kinds) && m.kinds.length) entry.kinds = m.kinds;
+      else if (m.kind) entry.kind = m.kind; // legacy single-kind catalogue entries
       cfg.bundles.push(entry);
       added.push(n);
     }
   } else {
-    p.note("No catalogue in eidan.deploy.json — defining a custom bundle.", "catalogue empty");
-    const b = await customBundle(); if (b) { cfg.bundles.push(b); added.push(b.name); }
+    // No catalogue yet (e.g. AGPL core ships none — private bundle names never live in tracked code).
+    // Ask for the bundle's GitHub repo (owner/name) directly, and loop so several can be added at once.
+    p.note("No bundles known yet — add them by GitHub repo (owner/name). I'll remember each for next time.", "new catalogue");
+    do {
+      acceptCustom(cfg, have, added, await customBundle());
+    } while (guard(await p.confirm({ message: "Add another bundle?", initialValue: false })));
   }
   if (!added.length) return;
   writeFileSync(MANIFEST, JSON.stringify(cfg, null, 2) + "\n");

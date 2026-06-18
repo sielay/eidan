@@ -67,13 +67,24 @@ docker compose up -d              # → http://localhost:3001  (sign in with the
 Updates are `docker compose pull && docker compose up -d`; your data is the Postgres volume. To use
 an external database (Supabase/Neon), set `EIDAN_DATABASE_URL` and drop the `postgres` service.
 
-**Shipping to a server/Pi, or including paid bundles?** Use the deploy CLI — one command to any
-target, with bundles vendored into the build (see [deploy/README.md](deploy/README.md)):
+**Shipping to a server, a Raspberry Pi, or Vercel — or adding paid bundles?** The deploy CLI makes it
+easy: run the interactive wizard and it walks you through everything — no YAML, no flags.
 
 ```bash
-cp deploy/eidan.deploy.example.json eidan.deploy.json   # edit: bundles + targets
-node deploy/eidan-deploy.mjs deploy fly      # or: local · kesha (a Pi over ssh)
+pnpm eidan        # interactive wizard
 ```
+
+On a fresh checkout it detects there's no config yet and does first-run setup — scaffolds the config +
+secrets, prompts the essentials (DB, login email, API key, public URL — masked), and offers to run
+migrations — then drops you in a menu: add a target, add a bundle, configure, `doctor`, `migrate`,
+`deploy`. Scripting it in CI? Every step also has a plain verb:
+
+```bash
+node deploy/eidan-deploy.mjs deploy fly      # one command to any target — also: local · a Pi over ssh · Vercel
+```
+
+`deploy` assembles your bundles into the build and pushes any missing env to the target first, so it
+goes live fully configured. Full guide: [deploy/README.md](deploy/README.md).
 
 ## Develop (run from source)
 
