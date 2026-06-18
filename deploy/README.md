@@ -2,7 +2,8 @@
 # eidan-deploy — one CLI, every target, with bundles
 
 `eidan-deploy` assembles your **bundles** into the build and ships eidan to any **target**. One
-config, `eidan.deploy.json` (gitignored — copy `eidan.deploy.example.json`).
+config, `eidan.deploy.json` (gitignored — the wizard scaffolds it on first run, or hand-write it per
+[Config](#config-eidandeployjson) below).
 
 ```bash
 node deploy/eidan-deploy.mjs deploy local     # docker compose on this box
