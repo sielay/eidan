@@ -40,6 +40,22 @@ packages/sage/
 packages/pro/
 packages/charles/
 packages/charlotte/
+packages/charles-decks/
+packages/charles-ventures/
+packages/gdrive/
+packages/google/
+packages/ical/
+packages/imap/
+
+# assembled plugin frontends + API routes (`eidan deploy` writes these in from each bundle;
+# regenerated, never committed). No tracked subdirs live under apps/web/src/plugins/, so the
+# wildcard is safe; the committed *.generated.* base-case files sit directly in that dir and
+# are not matched by the trailing-slash (directories-only) pattern.
+apps/web/src/plugins/*/
+apps/web/src/app/api/charles/
+apps/web/src/app/api/google/
+apps/web/src/app/api/ical/
+apps/web/src/app/api/imap/
 
 # operator deploy config (per-deploy; targets + bundle paths)
 eidan.deploy.json
