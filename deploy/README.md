@@ -7,7 +7,7 @@ config, `eidan.deploy.json` (gitignored — copy `eidan.deploy.example.json`).
 ```bash
 node deploy/eidan-deploy.mjs deploy local     # docker compose on this box
 node deploy/eidan-deploy.mjs deploy fly        # Fly.io
-node deploy/eidan-deploy.mjs deploy kesha      # a Raspberry Pi as a node process under systemd (ssh-node)
+node deploy/eidan-deploy.mjs deploy pi      # a Raspberry Pi as a node process under systemd (ssh-node)
 ```
 
 ## The interactive wizard (the front door)
@@ -35,13 +35,13 @@ eidan config comes in **two tiers**:
 
 - **Tier 1 — files (bootstrap).** Everything needed to start and connect *before* the DB/vault are
   usable: `DATABASE_URL`, the vault KEK, JWT secret, provider keys, node identity, ports, models,
-  flags. Lives in **`.env`** (engine: fly + kesha) and **`apps/web/.env`** (web: Vercel).
+  flags. Lives in **`.env`** (engine: fly + pi) and **`apps/web/.env`** (web: Vercel).
 - **Tier 2 — DB/runtime (per-user, mutable).** Each user's third-party creds (encrypted in
   `eidan.secrets_vault` by the KEK), settings, knowledge. Set via the **UI**, never in files.
 
 You only hand-edit Tier 1. There is **one catalog** for it — [`deploy/env-schema.mjs`](env-schema.mjs)
 — listing every key with: required/optional, secret?, how to generate, description, and **which
-targets** get it (by role: `engine` = fly+kesha, `worker` = kesha, `web` = vercel). Values live in
+targets** get it (by role: `engine` = fly+pi, `worker` = pi, `web` = vercel). Values live in
 the `.env` files; **routing lives in the schema**; `eidan.deploy.json` only adds node connection
 details + non-secret per-node literals (`env_set`).
 
@@ -50,9 +50,9 @@ details + non-secret per-node literals (`env_set`).
 node deploy/eidan-deploy.mjs init          # scaffold .env + apps/web/.env: auto-gen secrets, defaults, ‹FILL› markers
 #   ... paste the few externals (DB URL, API keys, PAT) into the ‹FILL› spots ...
 node deploy/eidan-deploy.mjs doctor        # validate: required present, no placeholders, auth keys match engine<->web
-node deploy/eidan-deploy.mjs env-plan kesha   # what routes to a target + what its file is missing (names only)
-node deploy/eidan-deploy.mjs compile kesha    # render the target's matbot.yaml (plugins+providers) + env from the manifest
-node deploy/eidan-deploy.mjs env-push kesha --yes   # apply .env -> the node (fly secrets / Pi env file / vercel)
+node deploy/eidan-deploy.mjs env-plan pi   # what routes to a target + what its file is missing (names only)
+node deploy/eidan-deploy.mjs compile pi    # render the target's matbot.yaml (plugins+providers) + env from the manifest
+node deploy/eidan-deploy.mjs env-push pi --yes   # apply .env -> the node (fly secrets / Pi env file / vercel)
 node deploy/eidan-deploy.mjs secrets seal  # encrypt .env -> committable .env.enc
 node deploy/eidan-deploy.mjs env-example   # (maintainers) regenerate the .env.example files from the schema
 ```
@@ -61,8 +61,14 @@ node deploy/eidan-deploy.mjs env-example   # (maintainers) regenerate the .env.e
 | Target | Role | File | Push mechanism |
 |---|---|---|---|
 | `fly` | engine | `.env` | `fly secrets import` |
-| `kesha` | engine + worker | `.env` → `/etc/eidan/eidan.env` | rsync render + restart |
-| `vercel` | web | `apps/web/.env` | Vercel dashboard / `vercel env` (no auto-push) |
+| `pi` | engine + worker | `.env` → `/etc/eidan/eidan.env` | rsync render + restart |
+| `vercel` | web | `apps/web/.env` | `vercel env` (auto: `env-push` + deploy preflight) |
+
+`env-push <target>` applies values to all three (`fly secrets import` / Pi env file / `vercel env`).
+You rarely call it directly: **`deploy` runs a preflight that pushes any *missing* required keys to the
+remote first**, so a target can't go live half-configured — and it won't rewrite keys already present
+(env persists server-side on Fly and Vercel). Vercel values are written with no trailing newline, so a
+secret/URL is never silently corrupted.
 
 Shared keys are **identical-by-name** across engine and web now (`EIDAN_AUTH_*`, `EIDAN_WEB_URL`,
 `EIDAN_SMTP_PASSWORD`) — the old web-only aliases (`EIDAN_SMTP_PASS`, `EIDAN_PUBLIC_ORIGIN`,
@@ -97,9 +103,13 @@ backend and the rest (`doctor`, `env-plan`, `env-push`) just works.
 
 ## What a deploy does
 
+0. **preflight** — ensure the `external/matbot` submodule is checked out (a fresh clone leaves it
+   empty; auto-`git submodule update --init`), and for `fly`/`vercel` push any missing required env to
+   the remote (see the env table above).
 1. **assemble** — vendor each configured bundle into `packages/<name>/` (private; gitignored),
    point its `@matatbread/matbot-plugin-api` at the host's vendored copy, and fold it into the engine
-   host config (`matbot.yaml`) + the worker's job kinds. Idempotent.
+   host config (`matbot.yaml`). The host **job-kind set** is the union of each bundle's *declared*
+   kinds (`package.json` → `eidan.kinds`) plus any pinned in the manifest. Idempotent.
 2. **build** — build the engine image (`infra/fly-mb/Dockerfile`) + the web image (`apps/web`).
    `--arm` / a target `platform` does a multi-arch `buildx` for Pis.
 3. **ship** — per target type:
@@ -130,7 +140,7 @@ What this means for the box:
 - **No git, no registry on the box** — just the rsynced sources + `pnpm install`.
 - **Passwordless `sudo systemctl restart <service>`** must work for the deploy user.
 - **`--dry-run`** previews the file transfer and skips the install + restart:
-  `node deploy/eidan-deploy.mjs deploy kesha --dry-run`.
+  `node deploy/eidan-deploy.mjs deploy pi --dry-run`.
 
 ## Config drift — `check` and `--sync-config`
 
@@ -139,8 +149,8 @@ assembled config: a bundle gets rsynced to the box but never loads because nobod
 box's yaml. Two tools close that gap:
 
 ```bash
-node deploy/eidan-deploy.mjs check kesha               # read-only: report drift, never change anything
-node deploy/eidan-deploy.mjs deploy kesha --sync-config # also render + push the box's matbot.yaml
+node deploy/eidan-deploy.mjs check pi               # read-only: report drift, never change anything
+node deploy/eidan-deploy.mjs deploy pi --sync-config # also render + push the box's matbot.yaml
 ```
 
 - **`check <target>`** (read-only) compares the plugins the assembled config *intends* for the box
@@ -158,8 +168,8 @@ Nodes differ by **role**, so each ssh-node target may declare a `disable` list (
 that box) and, optionally, `env_files` + `env_keys` for env-key drift:
 
 ```json
-"kesha": {
-  "type": "ssh-node", "host": "192.168.1.100", "user": "pi",
+"pi": {
+  "type": "ssh-node", "host": "192.0.2.10", "user": "pi",
   "dir": "eidan-mb", "service": "eidan-mb.service",
   "disable": [],
   "env_files": ["/etc/eidan/eidan.env", "/etc/eidan/matbot.env"],
@@ -177,18 +187,33 @@ One-time box setup: install Node 24+ and pnpm, create `<dir>` (default `eidan-mb
 
 ```json
 {
-  "bundles": [{ "name": "sage", "path": "../eidan-sage/packages/sage", "kind": "code" }],
+  "bundles": [{ "name": "my-bundle", "git": "owner/repo#main", "subdir": "packages/my-plugin" }],
   "targets": {
     "local": { "type": "compose" },
     "fly":   { "type": "fly", "app": "your-eidan", "config": "fly.toml" },
-    "kesha": { "type": "ssh-node", "host": "192.168.1.100", "user": "pi",
+    "pi": { "type": "ssh-node", "host": "192.0.2.10", "user": "pi",
                "dir": "eidan-mb", "service": "eidan-mb.service" }
   }
 }
 ```
 
-A bundle is either a local `path` or a `git` ref (`owner/repo#branch`, optional `subdir`). Bundles
-plug in purely through the string-keyed service registry, so adding one never edits core.
+A bundle is either a local `path` or a `git` ref (`owner/repo#branch`, optional `subdir`). The job
+kinds it registers are **declared by the bundle** (`package.json` → `"eidan": { "kinds": ["code"] }`),
+so the deploy entry doesn't carry them. Bundles plug in purely through the string-keyed service
+registry, so adding one never edits core.
+
+### Adding bundles — the catalogue
+
+The wizard's **add a bundle** flow builds a pick-list from your **catalogue** — a gitignored
+`eidan.catalogue.json` (it holds private repo names, so it never reaches tracked code, and it survives
+a from-zero re-init of `eidan.deploy.json`). When you define a bundle by hand it's remembered there
+for next time. Two ways to add:
+
+- **GitHub repo** — enter `owner/name`, pick a branch; the wizard reads the bundle's declared kinds
+  over `raw.githubusercontent` when it can.
+- **Local path** — point at a plugin dir, or at a **repo/monorepo** and the wizard discovers every
+  `packages/*` plugin under it and lets you multi-select. It validates the path is a real matbot
+  plugin and reads `eidan.kinds` from each `package.json`.
 
 ## Secrets at rest (`secrets seal` / `open`)
 
