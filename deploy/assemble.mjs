@@ -52,12 +52,21 @@ export function vendorBundle(bundle) {
   return dest;
 }
 
+// Effective job kinds for a vendored bundle: the kinds it DECLARES (package.json `eidan.kinds`) are
+// authoritative, unioned with any kinds pinned in the deploy manifest (`kinds[]`, or legacy `kind`).
+export function bundleKinds(b) {
+  let declared = [];
+  try { declared = (JSON.parse(readFileSync(join(ROOT, "packages", b.name, "package.json"), "utf8")).eidan?.kinds) ?? []; } catch { /* not vendored / no manifest */ }
+  const pinned = Array.isArray(b.kinds) ? b.kinds : (b.kind ? [b.kind] : []);
+  return [...new Set([...declared, ...pinned].filter((k) => typeof k === "string" && k))];
+}
+
 // Fold the bundles into infra/fly-mb/matbot.yaml in place (idempotent: strip any prior bundle lines,
 // then re-insert before the "# Paid bundles append here" slot). The committed file stays core-only.
 export function applyMatbotYaml(bundles) {
   const lines = readFileSync(MATBOT_YAML, "utf8").split("\n").filter((l) => !/# eidan-bundle:/.test(l));
   const slot = lines.findIndex((l) => /# Paid bundles append here/.test(l));
-  const inserts = bundles.map((b) => `  - ./packages/${b.name} # eidan-bundle: ${b.name} (kind=${b.kind ?? "?"})`);
+  const inserts = bundles.map((b) => { const k = bundleKinds(b); return `  - ./packages/${b.name} # eidan-bundle: ${b.name} (kinds=${k.join("|") || "?"})`; });
   if (slot >= 0) lines.splice(slot, 0, ...inserts);
   else lines.push(...inserts);
   writeFileSync(MATBOT_YAML, lines.join("\n"));
@@ -148,7 +157,7 @@ export function assemble(config) {
   // Only touch the committed base when a bundle actually ships UI (keeps the core checkout pristine).
   const fronts = bundles.map((b) => vendorFrontend(b.name)).filter(Boolean);
   if (fronts.length) writeFrontendRegistry(fronts);
-  const kinds = ["chat", ...bundles.map((b) => b.kind).filter(Boolean)];
+  const kinds = ["chat", ...bundles.flatMap((b) => bundleKinds(b))];
   return { bundles, fronts, kinds: [...new Set(kinds)] };
 }
 

@@ -43,6 +43,8 @@ packages/charlotte/
 
 # operator deploy config (per-deploy; targets + bundle paths)
 eidan.deploy.json
+# bundle catalogue — holds private repo names; survives re-init, never tracked
+eidan.catalogue.json
 .env.compose
 
 # Capacitor native shell (apps/mobile). The ios/ and android/ native projects are
