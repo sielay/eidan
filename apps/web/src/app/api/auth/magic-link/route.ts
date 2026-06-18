@@ -23,6 +23,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const allowed = process.env.EIDAN_AUTH_ALLOWED_EMAIL?.toLowerCase();
   if (allowed && email !== allowed) return Response.json({ status: "sent" });
+  const isAdmin = Boolean(allowed) && email === allowed;
 
   const token = randomToken();
   const code = randomCode();
@@ -34,6 +35,17 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const origin = process.env.EIDAN_PUBLIC_ORIGIN ?? new URL(req.url).origin;
   const link = `${origin}/login?token=${token}`;
-  const { sent } = await sendMagicLink(email, link, code);
-  return Response.json(sent ? { status: "sent" } : { status: "sent", magic_link: link, code });
+  const { sent, error } = await sendMagicLink(email, link, code);
+  if (sent) return Response.json({ status: "sent" });
+
+  // Not emailed (SMTP unconfigured, or the send failed). Echo the link/code so login still works — but
+  // ONLY for the configured admin, or in dev when no SMTP is set at all. Never leak to arbitrary
+  // requesters in prod: fall back to the same generic success the allow-list path returns.
+  const smtpConfigured = Boolean(process.env.EIDAN_SMTP_HOST);
+  if (isAdmin || !smtpConfigured) {
+    console.warn(`[magic-link] not emailed (${error ?? "smtp not configured"}) — echoing link for ${email}`);
+    return Response.json({ status: "sent", magic_link: link, code });
+  }
+  console.error(`[magic-link] send failed for ${email}, not echoed: ${error}`);
+  return Response.json({ status: "sent" });
 }
