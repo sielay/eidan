@@ -74,12 +74,18 @@ export function publicWebUrl(config) {
   return web ? asUrl(web.domain) : "";
 }
 
-// The engine a web target proxies to (EIDAN_ENGINE_URL) = its `engine` ref's domain; else any engine
-// target with a domain (fly/ssh-node).
+// The engine a web target proxies to (EIDAN_ENGINE_URL) = its `engine` ref's URL; else a domain'd
+// engine; else any fly app (reachable at its default <app>.fly.dev hostname even without a custom
+// domain). A fly engine with no custom domain falls back to https://<app>.fly.dev.
 export function engineUrlFor(config, target) {
   const t = config.targets?.[target] ?? {};
-  const eng = (t.engine && config.targets?.[t.engine]) || Object.values(config.targets ?? {}).find((x) => (x.type === "fly" || x.type === "ssh-node") && x.domain);
-  return eng?.domain ? asUrl(eng.domain) : "";
+  const eng = (t.engine && config.targets?.[t.engine])
+    || Object.values(config.targets ?? {}).find((x) => x.domain && (x.type === "fly" || x.type === "ssh-node"))
+    || Object.values(config.targets ?? {}).find((x) => x.type === "fly" && x.app);
+  if (!eng) return "";
+  if (eng.domain) return asUrl(eng.domain);
+  if (eng.type === "fly" && eng.app) return `https://${eng.app}.fly.dev`;
+  return "";
 }
 
 export const jobKindsFor = (config, target) => {

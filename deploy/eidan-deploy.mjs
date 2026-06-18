@@ -24,6 +24,24 @@ function sh(cmd, args, opts = {}) {
   execFileSync(cmd, args, { stdio: "inherit", cwd: ROOT, ...opts });
 }
 
+// Preflight: the matbot runtime is a git submodule (external/matbot). A fresh clone leaves it empty,
+// and the Docker build then dies with `ERR_PNPM_NO_PKG_MANIFEST`. Auto-init it so deploy stays
+// hand-step-free. No-op once populated.
+function ensureMatbot() {
+  if (existsSync(join(ROOT, "external/matbot/package.json"))) return;
+  if (!existsSync(join(ROOT, ".gitmodules"))) {
+    console.error("external/matbot is empty and there's no .gitmodules — cannot init the matbot submodule.");
+    process.exit(1);
+  }
+  console.log("external/matbot is empty — initialising the matbot submodule…");
+  try { sh("git", ["submodule", "update", "--init", "--recursive", "external/matbot"]); }
+  catch { console.error("Failed to init the submodule. Run: git submodule update --init --recursive"); process.exit(1); }
+  if (!existsSync(join(ROOT, "external/matbot/package.json"))) {
+    console.error("external/matbot still has no package.json after submodule update — check the submodule URL/commit.");
+    process.exit(1);
+  }
+}
+
 // Which env file a target reads its values from: root .env (engine types) or apps/web/.env (vercel).
 // Resolved by the target's TYPE (targets may be named anything), falling back to the string as a type.
 function fileRoleFor(name) {
@@ -94,14 +112,114 @@ function pushMultiArch(registry, platform) {
   sh("docker", ["buildx", "build", "--platform", platform, "-t", `${registry}/eidan-web:latest`, "--push", "apps/web"]);
 }
 
+// Apply a rendered env to a target's remote store (no dry-run). Shared by `env-push` and the deploy
+// preflight so they push identically. fly: `fly secrets import`. ssh-node: write env_files[0], blank
+// the rest, restart. vercel: rm+add each key across the target environments. Never prints values.
+function applyEnvPush(t, targetName, text) {
+  const nKeys = Object.keys(parseEnvMap(text)).length;
+  if (t.type === "fly") {
+    execFileSync("flyctl", ["secrets", "import", "--app", t.app], { input: text, stdio: ["pipe", "inherit", "inherit"], cwd: ROOT });
+    console.log(`✓ pushed ${nKeys} secrets to fly "${t.app}"`);
+  } else if (t.type === "ssh-node") {
+    const host = `${t.user}@${t.host}`;
+    const files = t.env_files ?? [];
+    if (!files.length) throw new Error("ssh-node env-push needs env_files in the target");
+    const primary = files[0];
+    const extras = files.slice(1);
+    const svc = t.service ?? "eidan-mb.service";
+    const tmp = join(mkdtempSync(join(tmpdir(), "eidan-env-")), "node.env");
+    writeFileSync(tmp, text, { mode: 0o600 });
+    sh("scp", ["-q", tmp, `${host}:/tmp/eidan-env.new`]);
+    const blank = extras.map((f) => `sudo cp -f ${f} ${f}.bak-predeploy 2>/dev/null || true; printf '# collapsed into ${primary} by env-push\\n' | sudo tee ${f} >/dev/null`).join("; ");
+    const remote = [
+      `sudo cp -f ${primary} ${primary}.bak-predeploy 2>/dev/null || true`,
+      `sudo install -m 600 -o root -g root /tmp/eidan-env.new ${primary}`,
+      `rm -f /tmp/eidan-env.new`,
+      blank,
+      `sudo systemctl restart ${svc}`,
+    ].filter(Boolean).join("; ");
+    sh("ssh", [host, remote]);
+    console.log(`✓ pushed ${nKeys} keys to ${host}:${primary} + restarted ${svc} (rollback: ${primary}.bak-predeploy)`);
+  } else if (t.type === "vercel") {
+    const cwd = join(ROOT, t.dir ?? "apps/web");
+    const envs = t.vercel_envs ?? ["production"];
+    const scope = t.scope ? ["--scope", t.scope] : [];
+    const map = parseEnvMap(text);
+    const keys = Object.keys(map);
+    if (!existsSync(join(cwd, ".vercel", "project.json"))) {
+      sh("vercel", ["link", "--yes", "--project", t.project, ...scope], { cwd });
+    }
+    for (const k of keys) {
+      for (const env of envs) {
+        // rm first (add fails if the key already exists for that environment); ignore "not found".
+        try { execFileSync("vercel", ["env", "rm", k, env, "--yes", ...scope], { cwd, stdio: "ignore" }); } catch { /* absent */ }
+        // Pipe the value with NO trailing newline — `vercel env add` stores stdin verbatim, so a
+        // trailing "\n" would be baked into the value (a `\n`-suffixed DATABASE_URL / JWT secret
+        // silently breaks the app). Strip any trailing CR/LF defensively; EOF submits the value.
+        execFileSync("vercel", ["env", "add", k, env, ...scope], { input: String(map[k]).replace(/[\r\n]+$/, ""), stdio: ["pipe", "ignore", "inherit"], cwd });
+      }
+    }
+    console.log(`✓ set ${keys.length} env var(s) on Vercel "${t.project}" (${envs.join(",")})`);
+  } else {
+    console.log(`env-push supports fly + ssh-node + vercel targets; "${targetName}" is "${t.type}".`);
+  }
+}
+
+// Names of env vars already present on the remote (fly secrets / vercel env). Returns a Set, or null
+// if it couldn't be determined (not linked / not logged in) — caller treats null as "must push".
+function remoteEnvKeys(t) {
+  const keyOf = (l) => (l.match(/^\s*([A-Z][A-Z0-9_]+)\b/) || [])[1];
+  try {
+    if (t.type === "fly") {
+      const out = cap("flyctl", ["secrets", "list", "--app", t.app]);
+      return new Set(out.split("\n").map(keyOf).filter((k) => k && k !== "NAME"));
+    }
+    if (t.type === "vercel") {
+      const cwd = join(ROOT, t.dir ?? "apps/web");
+      const scope = t.scope ? ["--scope", t.scope] : [];
+      const envs = t.vercel_envs ?? ["production"];
+      // A key counts as present only if it's set in EVERY target environment.
+      let common = null;
+      for (const env of envs) {
+        const here = new Set(cap("vercel", ["env", "ls", env, ...scope], { cwd }).split("\n").map(keyOf).filter(Boolean));
+        common = common ? new Set([...common].filter((k) => here.has(k))) : here;
+      }
+      return common ?? new Set();
+    }
+  } catch { return null; }
+  return null;
+}
+
+// Deploy preflight: ensure the target's env is on the remote BEFORE we build/ship. Pushes ONLY the
+// keys missing remotely (env persists server-side on fly + vercel, so we never rewrite existing
+// secrets each deploy). Aborts if .env lacks a value the schema requires for this target.
+function ensureEnvPushed(t, targetName) {
+  if (t.type !== "fly" && t.type !== "vercel") return; // compose/ssh-node manage env their own way
+  const { text, missing } = renderEnv(config, targetName, { ...loadValues(targetName), ...derivedEnv(config, targetName) });
+  if (missing.length) {
+    console.error(`✗ cannot deploy ${targetName}: ${missing.length} required env key(s) lack a value in .env: ${missing.join(", ")}`);
+    console.error("  fill them (or run `init` / `env-plan`), then deploy again.");
+    process.exit(1);
+  }
+  const want = Object.keys(parseEnvMap(text));
+  const have = remoteEnvKeys(t);
+  const where = t.type === "fly" ? `fly "${t.app}"` : `vercel "${t.project}"`;
+  const absent = have ? want.filter((k) => !have.has(k)) : want; // null = couldn't verify → push all
+  if (!absent.length) { console.log(`env: all ${want.length} key(s) already on ${where} — skipping push.`); return; }
+  console.log(`env: ${absent.length}/${want.length} key(s) missing on ${where}${have ? "" : " (could not verify — pushing all)"} — pushing before deploy…`);
+  applyEnvPush(t, targetName, text);
+}
+
 switch (cmd) {
   case "assemble": {
+    ensureMatbot();
     const { bundles, kinds } = assemble(config);
     console.log(`assembled ${bundles.length} bundle(s): ${bundles.map((b) => b.name).join(", ") || "(none)"} | kinds=${kinds.join(",")}`);
     break;
   }
 
   case "build": {
+    ensureMatbot();
     assemble(config);
     buildImages(process.argv.includes("--arm") ? "linux/arm64" : undefined);
     break;
@@ -110,6 +228,7 @@ switch (cmd) {
   case "up":
   case "deploy": {
     const t = target(targetName);
+    ensureMatbot(); // matbot submodule must be populated before assemble/build (fresh clones are empty)
     assemble(config); // vendor bundles + fold into the host config BEFORE any build
     if (t.type === "compose") {
       sh("docker", ["compose", "up", "-d", "--build"]);
@@ -136,6 +255,7 @@ switch (cmd) {
       // ROOT/fly.toml is gitignored & generated each deploy — never drifts.
       const rootToml = join(ROOT, "fly.toml");
       writeFileSync(rootToml, flyToml);
+      ensureEnvPushed(t, targetName); // secrets must be on the app before the release
       sh("flyctl", ["deploy", ROOT, "--app", t.app, "--config", rootToml, "--yes"]);
     } else if (t.type === "vercel") {
       // Web (Next.js) → Vercel. Deploy via the vercel CLI if present; else guide the operator.
@@ -145,6 +265,7 @@ switch (cmd) {
         // app dir with the project's Root Directory left at root. (Root Directory is a git-integration
         // setting; for CLI deploys it would double the path.) The .vercel link lives in the app dir.
         const webDir = join(ROOT, t.dir ?? "apps/web");
+        ensureEnvPushed(t, targetName); // env (incl. NEXT_PUBLIC_*) must exist BEFORE the build bakes it
         sh("vercel", ["deploy", "--prod", "--yes", ...(t.scope ? ["--scope", t.scope] : [])], { cwd: webDir });
       } else {
         console.log(`Vercel CLI not found — deploy the web (${t.project}) one of:`);
@@ -323,69 +444,18 @@ switch (cmd) {
     // env file, restart. Dry-run unless --yes. Refuses if any declared key lacks a value. Never prints values.
     const t = target(targetName);
     const { text, missing } = renderEnv(config, targetName, { ...loadValues(targetName), ...derivedEnv(config, targetName) });
-    const nKeys = text.split("\n").filter((l) => /^[A-Z_]+=/.test(l)).length;
+    const nKeys = Object.keys(parseEnvMap(text)).length;
     if (missing.length) {
       console.error(`✗ refusing to push ${targetName}: ${missing.length} declared key(s) lack a value in .env: ${missing.join(", ")}`);
       process.exit(1);
     }
-    const go = process.argv.includes("--yes");
-    if (t.type === "fly") {
-      if (!go) { console.log(`[dry-run] would import ${nKeys} secrets to fly "${t.app}" (fly secrets import). Re-run with --yes.`); break; }
-      execFileSync("flyctl", ["secrets", "import", "--app", t.app], { input: text, stdio: ["pipe", "inherit", "inherit"], cwd: ROOT });
-      console.log(`✓ pushed ${nKeys} secrets to fly "${t.app}"`);
-    } else if (t.type === "ssh-node") {
-      const host = `${t.user}@${t.host}`;
-      const files = t.env_files ?? [];
-      if (!files.length) throw new Error("ssh-node env-push needs env_files in the target");
-      const primary = files[0];
-      const extras = files.slice(1);
-      const svc = t.service ?? "eidan-mb.service";
-      if (!go) {
-        console.log(`[dry-run] would write ${nKeys} keys to ${host}:${primary}, blank [${extras.join(", ") || "none"}], restart ${svc} (backups: *.bak-predeploy). Re-run with --yes.`);
-        break;
-      }
-      const tmp = join(mkdtempSync(join(tmpdir(), "eidan-env-")), "node.env");
-      writeFileSync(tmp, text, { mode: 0o600 });
-      sh("scp", ["-q", tmp, `${host}:/tmp/eidan-env.new`]);
-      const blank = extras.map((f) => `sudo cp -f ${f} ${f}.bak-predeploy 2>/dev/null || true; printf '# collapsed into ${primary} by env-push\\n' | sudo tee ${f} >/dev/null`).join("; ");
-      const remote = [
-        `sudo cp -f ${primary} ${primary}.bak-predeploy 2>/dev/null || true`,
-        `sudo install -m 600 -o root -g root /tmp/eidan-env.new ${primary}`,
-        `rm -f /tmp/eidan-env.new`,
-        blank,
-        `sudo systemctl restart ${svc}`,
-      ].filter(Boolean).join("; ");
-      sh("ssh", [host, remote]);
-      console.log(`✓ pushed ${nKeys} keys to ${host}:${primary} + restarted ${svc} (rollback: ${primary}.bak-predeploy)`);
-    } else if (t.type === "vercel") {
-      // Push each rendered key to the linked Vercel project's env (default: production). The CLI reads
-      // each value from stdin; rm-then-add overwrites idempotently. NEXT_PUBLIC_* are baked at build,
-      // so this must precede `deploy`. Needs `vercel whoami` + a link (apps/web/.vercel/project.json).
-      // Link + env commands run from the app dir (where .vercel links), consistent with `deploy`. CLI
-      // deploys use the cwd as the upload root, so the link + env + deploy all key off the same dir.
-      const cwd = join(ROOT, t.dir ?? "apps/web");
-      const envs = t.vercel_envs ?? ["production"];
-      const scope = t.scope ? ["--scope", t.scope] : [];
-      const map = parseEnvMap(text);
-      const keys = Object.keys(map);
-      if (!go) {
-        console.log(`[dry-run] would set ${keys.length} env var(s) on Vercel project "${t.project}" (${envs.join(",")}), then \`deploy ${targetName}\`. Re-run with --yes.`);
-        break;
-      }
-      if (!existsSync(join(cwd, ".vercel", "project.json"))) {
-        sh("vercel", ["link", "--yes", "--project", t.project, ...scope], { cwd });
-      }
-      for (const k of keys) {
-        for (const env of envs) {
-          // rm first (add fails if the key already exists for that environment); ignore "not found".
-          try { execFileSync("vercel", ["env", "rm", k, env, "--yes", ...scope], { cwd, stdio: "ignore" }); } catch { /* absent */ }
-          execFileSync("vercel", ["env", "add", k, env, ...scope], { input: map[k] + "\n", stdio: ["pipe", "ignore", "inherit"], cwd });
-        }
-      }
-      console.log(`✓ set ${keys.length} env var(s) on Vercel "${t.project}" (${envs.join(",")}) — now \`deploy ${targetName}\``);
-    } else {
-      console.log(`env-push supports fly + ssh-node + vercel targets; "${targetName}" is "${t.type}".`);
+    if (!process.argv.includes("--yes")) {
+      const where = t.type === "fly" ? `fly "${t.app}"` : t.type === "ssh-node" ? `${t.user}@${t.host}:${(t.env_files ?? ["?"])[0]}` : t.type === "vercel" ? `Vercel "${t.project}" (${(t.vercel_envs ?? ["production"]).join(",")})` : `"${t.type}"`;
+      console.log(`[dry-run] would push ${nKeys} key(s) to ${where}. Re-run with --yes.`);
+      break;
     }
+    applyEnvPush(t, targetName, text);
+    if (t.type === "vercel") console.log(`  now \`deploy ${targetName}\` so the build picks them up.`);
     break;
   }
 
