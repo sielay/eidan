@@ -96,11 +96,9 @@ Key design points:
   ingestion API the shell posts to and the query API the agent reads from. It does **not** exist
   yet; this doc is its spec.
 - **Canonical store.** Health samples land in a single canonical, normalised store keyed by
-  `(source, data_type, start_ts, end_ts)` for idempotent dedupe. This **aligns with the lifestyle
-  bundle's canonical-store approach** — the lifestyle bundle is the natural home for richer
-  health *features* (insights, goals, coaching), built on top of the canonical health data the
-  core plugin ingests. Core owns the canonical store + ingestion; the bundle owns the proprietary
-  product layer on top. (No bundle code lives in this repo.)
+  `(source, data_type, start_ts, end_ts)` for idempotent dedupe. Richer health *features*
+  (insights, goals, coaching) build on top as additional plugins; the core plugin owns the
+  canonical store + ingestion. (Feature plugins may live here or in their own AGPL repo.)
 - **snake_case on the wire and in Postgres**, append-only rows, soft-delete via `deleted_at`,
   per the repo conventions.
 - **Ingestion is keen + idempotent.** Re-syncing a window must not duplicate rows.
@@ -139,4 +137,4 @@ before any schema or core-plugin work.
 - **App identifiers / entitlements** (`appId`, Apple Health entitlement, Android privacy-policy URL).
 - **Retention policy** for raw vs summarised heart-rate data.
 - **Where richer health features live** — confirmed direction: canonical store in core
-  (`@eidandev/health`), product features in the lifestyle bundle.
+  (`@eidandev/health`), richer features as additional plugins on top.

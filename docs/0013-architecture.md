@@ -46,12 +46,13 @@ each call stamps `eidan.current_user_id` so a non-superuser app role only sees i
 | **Secrets & auth** | `vault-postgres` + `secrets-api` ([[0009-secrets-vault]]), `auth` (JWT `WebPrincipalResolver`) |
 | **Cost & sandbox** | `llm-calls` (per-call ledger), `procedures` (isolated-vm) |
 
-## Open core, paid bundles
+## Open core, all AGPL
 
-Core ships AGPL. Paid functionality is **standalone private sibling repos** (one per bundle —
-coding/business/lifestyle) that drop in as more matbot plugins via the same service registry. There
-is no business logic in core; a bundle never edits core (see the gitignored-config policy in
-`CLAUDE.md`). The admin UI stays plugin-agnostic by convention ([[0007-admin-panels]]).
+Everything is AGPL — core and every plugin, including the mail / calendar / Gmail / Drive
+integrations. New capabilities drop in as more matbot plugins via the same service registry, never
+editing core (see the gitignored-config policy in `CLAUDE.md`). A plugin can live here or in its own
+AGPL repo and be vendored into the deploy image; the admin UI stays plugin-agnostic by convention
+([[0007-admin-panels]]).
 
 ## Deploy
 

@@ -29,11 +29,12 @@ copyright license** to reproduce, prepare derivative works of,
 publicly display, publicly perform, **sublicense**, and distribute
 your Contributions and derivative works.
 
-This license explicitly includes the right for the Company to use,
-combine, and relicense your Contribution — alone or as part of
-larger works — under any license terms the Company chooses,
-including proprietary licenses applied to the Company's own plugin
-bundles or bespoke private plugins.
+This license explicitly includes the right for the Company, as the
+steward of eidan's licence, to relicense your Contribution — alone
+or combined with other work — under a later version of the AGPL or
+another OSI-approved open-source licence, should the project ever
+need to keep its licensing coherent and current. It is **not** a
+right to take any part of eidan proprietary (see §7).
 
 ## 3. Grant of Patent License
 
@@ -87,17 +88,17 @@ OF ANY KIND.
 
 The Company will distribute your Contributions to the public as
 part of eidan core under the **GNU Affero General Public License
-v3.0 (AGPL-3.0)**. The Company also reserves the right, under the
-license you grant in §2, to use, sublicense, or relicense your
-Contribution — alone or combined with other code — under other
-terms, including the proprietary terms applied to the Company's
-own plugin bundles.
+v3.0 (AGPL-3.0)**. The Company reserves the right, under the
+license you grant in §2, to relicense your Contribution — alone or
+combined with other code — under a later AGPL version or another
+OSI-approved open-source license, solely to steward the project's
+licensing.
 
-The Company commits that **eidan core itself will not be
-relicensed out of AGPL-3.0**. The §2 grant is for the Company to
-use your Contribution alongside its own proprietary code in
-plugins outside this repository, not to change the licensing of
-core.
+The Company commits that **eidan core will not be relicensed out of
+open source**, and every eidan plugin ships under AGPL-compatible
+terms too. The §2 grant exists to let the Company keep the
+project's licensing coherent and current — never to take eidan, or
+any part of it, proprietary.
 
 ## 8. Notification
 

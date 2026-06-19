@@ -54,10 +54,10 @@ interface CursorItem {
 
 ## Why this shape
 
-The admin UI ships in open core but must not hard-code any paid bundle. By making the panel set an
-operator-supplied env (gitignored) and the data a duck-typed convention the UI probes, a bundle
-(Sage, Charles, …) lights up its panel purely by implementing `cursors`/`summary` behind its prefix —
-**no edit to core**. Same discipline as the [gitignored-config policy](../CLAUDE.md).
+The admin UI ships in open core but must not hard-code any specific plugin. By making the panel set
+an operator-supplied env (gitignored) and the data a duck-typed convention the UI probes, a plugin
+lights up its panel purely by implementing `cursors`/`summary` behind its prefix — **no edit to
+core**. Same discipline as the [gitignored-config policy](../CLAUDE.md).
 
 ## Files of record
 
