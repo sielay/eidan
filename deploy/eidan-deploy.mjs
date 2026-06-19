@@ -290,10 +290,14 @@ switch (cmd) {
       const service = t.service ?? "eidan-mb.service";
       const dry = process.argv.includes("--dry-run") ? ["--dry-run"] : [];
       // -R keeps each source's relative path under <dir>/. No --delete: never remove node-local files.
+      // external/matbot (the vendored runtime submodule) MUST ship too — a node runs the engine from
+      // these files, so a matbot bump only reaches the node if its source is synced. Omitting it lets
+      // the node silently run a stale runtime (strip-only TS hides the drift until a real runtime
+      // import from a new matbot module fails to resolve at boot).
       sh("rsync", [
         "-azR", "--stats", ...dry,
         "--exclude", "node_modules", "--exclude", ".git",
-        "packages", "migrations", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml",
+        "packages", "external/matbot", "migrations", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml",
         `${host}:${dir}/`,
       ]);
       if (dry.length) {
@@ -304,7 +308,10 @@ switch (cmd) {
       // the node's plugin list can't silently drift. Off by default preserves any node-local hand
       // tuning (e.g. kesha's ponytail matbot.yaml); the previous matbot.yaml is backed up first.
       if (process.argv.includes("--sync-config")) syncNodeConfig(t, host, dir, targetName);
-      sh("ssh", [host, `cd ${dir} && pnpm install --prefer-offline && sudo systemctl restart ${service}`]);
+      // Install BOTH workspaces: the eidan root, then the vendored matbot runtime (its own pnpm
+      // workspace, not an eidan workspace member — so the root install never links its packages).
+      // A matbot bump can add packages (e.g. storage-base) the node's old node_modules lack.
+      sh("ssh", [host, `cd ${dir} && pnpm install --prefer-offline && (cd external/matbot && pnpm install --prefer-offline) && sudo systemctl restart ${service}`]);
     } else {
       throw new Error(`unknown target type "${t.type}" for "${targetName}"`);
     }
