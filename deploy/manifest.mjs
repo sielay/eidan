@@ -19,6 +19,9 @@ import { join } from "node:path";
 export const CORE_PLUGINS = [
   "storage-postgres", "vault-postgres", "llm-calls", "memory", "tool-store", "decisions", "auth", "notify", "jobs",
   "frontend-agui", "mcp-server", "a2a-server", "secrets-api", "procedures", "escalations", "routines", "agents", "frontend-telegram",
+  // integrations: read-through mail / calendar / drive / gmail over the operator's vault-sealed
+  // accounts, each with its own admin screen.
+  "imap", "ical", "google", "gdrive",
 ];
 
 // A few core plugins are matbot built-ins loaded from the vendored submodule rather than eidan
