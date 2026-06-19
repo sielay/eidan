@@ -69,17 +69,8 @@ export default function Connections(): React.ReactElement {
       });
       const j = (await r.json().catch(() => ({}))) as { auth_url?: string; error?: string };
       if (!r.ok || !j.auth_url) throw new Error(j.error ?? `connect failed (${r.status})`);
-      // Carry the client through Google's round-trip to finish the exchange — the vault is write-only
-      // so the callback can't read it back. sessionStorage survives the same-origin return; the
-      // Callback page reads it once and clears it. (The client is also sealed in the vault for runtime.)
-      try {
-        window.sessionStorage.setItem(
-          "eidan_gconn",
-          JSON.stringify({ client_id: clientId.trim(), client_secret: clientSecret.trim() }),
-        );
-      } catch {
-        /* private-mode storage blocked — the callback will ask to restart */
-      }
+      // The client is sealed server-side (in the vault) by the POST above, so the callback finishes
+      // the exchange entirely server-side — the secret never round-trips through the browser.
       window.location.assign(j.auth_url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to start connection");

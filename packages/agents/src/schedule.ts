@@ -21,11 +21,13 @@ const WEEKDAY_NUM: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Th
 const UNIT_MIN: Record<string, number> = { m: 1, min: 1, mins: 1, minute: 1, minutes: 1, h: 60, hr: 60, hrs: 60, hour: 60, hours: 60 };
 
 export function parseSchedule(input: string): ParsedSchedule | null {
-  const txt = input.trim().toLowerCase();
+  // Collapse runs of whitespace to single spaces up front, so the patterns below use literal spaces
+  // (never adjacent `\s+`/`\s*` quantifiers, which backtrack polynomially on hostile input).
+  const txt = input.trim().toLowerCase().replace(/\s+/g, ' ');
 
   // interval: "hourly", "every minute/hour", "every N minutes/hours"
   if (txt === 'hourly') return { kind: 'interval', everyMinutes: 60 };
-  const iv = txt.match(/^every\s+(\d+)?\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$/);
+  const iv = txt.match(/^every (?:(\d+) )?(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$/);
   if (iv) {
     const n = iv[1] === undefined ? 1 : Number(iv[1]);
     const unit = UNIT_MIN[iv[2] ?? ''];
@@ -36,7 +38,7 @@ export function parseSchedule(input: string): ParsedSchedule | null {
   }
 
   // clock: "HH:MM" or "<days> HH:MM"
-  const m = txt.match(/^(?:([a-z,]+)\s+)?([0-2]?\d):([0-5]\d)$/);
+  const m = txt.match(/^(?:([a-z,]+) )?([0-2]?\d):([0-5]\d)$/);
   if (!m) return null;
   const hh = Number(m[2]);
   if (hh > 23) return null;

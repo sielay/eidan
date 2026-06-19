@@ -32,24 +32,13 @@ export default function Callback(): React.ReactElement {
 
     void (async () => {
       try {
-        // The client was stashed before the Google round-trip (the vault is write-only, so the
-        // exchange can't recover it server-side). Read it once, then clear it.
-        let client: { client_id?: string; client_secret?: string } = {};
-        try {
-          client = JSON.parse(window.sessionStorage.getItem("eidan_gconn") ?? "{}") as typeof client;
-        } catch {
-          client = {};
-        }
+        // Finish entirely server-side: the API reads the client sealed in the vault (under this
+        // pending account's key) and exchanges the code — the secret never touches the browser.
         const r = await authFetch("/api/google/accounts", {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ code, state, client_id: client.client_id, client_secret: client.client_secret }),
+          body: JSON.stringify({ code, state }),
         });
-        try {
-          window.sessionStorage.removeItem("eidan_gconn");
-        } catch {
-          /* ignore */
-        }
         const j = (await r.json().catch(() => ({}))) as { ok?: boolean; email?: string; error?: string };
         if (!r.ok || !j.ok) throw new Error(j.error ?? `connection failed (${r.status})`);
         setStatus("done");

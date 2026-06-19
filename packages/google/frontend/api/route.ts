@@ -21,8 +21,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/drive.readonly", "openid", "email"];
 
 interface AccountRow {
@@ -225,76 +223,11 @@ export async function PUT(req: NextRequest): Promise<Response> {
   const state = typeof body["state"] === "string" ? body["state"].trim() : "";
   if (!code || !state) return Response.json({ error: "code and state are required" }, { status: 400 });
 
-  // Reconnect path: the browser carries no client (it can't read the write-only vault). Hand off to
-  // the engine, which reads the sealed client and finishes the exchange + seals the new token.
-  const clientId = typeof body["client_id"] === "string" ? body["client_id"].trim() : "";
-  const clientSecret = typeof body["client_secret"] === "string" ? body["client_secret"].trim() : "";
-  if (!clientId || !clientSecret) {
-    return engineOAuth(req, "finish", { code, state, redirect_uri: redirectUri(req) });
-  }
-
-  // Initial connect: the Callback page carried the client from sessionStorage — exchange it here.
-  const acct = await withUser(sess.userId, async (c) => {
-    const r = await c.query(
-      `select id, client_vault_key, refresh_vault_key
-         from plugin_google.accounts
-        where id = $1 and user_id = $2 and status = 'pending'`,
-      [state, sess.userId],
-    );
-    return r.rows[0] as
-      | { id: string; client_vault_key: string; refresh_vault_key: string }
-      | undefined;
-  });
-  if (!acct) return Response.json({ error: "no pending connection for that state" }, { status: 404 });
-  void acct.client_vault_key;
-
-  // Exchange the auth code for a refresh token. access_type=offline + prompt=consent (set on the
-  // consent URL) make Google return a refresh_token here.
-  const tokenResp = await fetch(GOOGLE_TOKEN_URL, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: redirectUri(req),
-      grant_type: "authorization_code",
-    }),
-  });
-  if (!tokenResp.ok) {
-    return Response.json({ error: `Google rejected the code (HTTP ${tokenResp.status})` }, { status: 502 });
-  }
-  const tok = (await tokenResp.json()) as { refresh_token?: string; access_token?: string };
-  if (!tok.refresh_token) {
-    return Response.json(
-      { error: "Google returned no refresh token — revoke the app under your Google account and reconnect" },
-      { status: 502 },
-    );
-  }
-
-  // Best-effort: discover which mailbox was connected, for the list chip.
-  let email = "";
-  if (tok.access_token) {
-    try {
-      const ui = await fetch(GOOGLE_USERINFO_URL, { headers: { authorization: `Bearer ${tok.access_token}` } });
-      if (ui.ok) email = ((await ui.json()) as { email?: string }).email ?? "";
-    } catch {
-      email = "";
-    }
-  }
-
-  // Seal the refresh token, then flip the account to active. Tokens never go back to the browser.
-  if (!(await vaultPut(req, acct.refresh_vault_key, tok.refresh_token))) {
-    return Response.json({ error: "could not store the refresh token in the vault" }, { status: 502 });
-  }
-  await withUser(sess.userId, async (c) => {
-    await c.query(
-      `update plugin_google.accounts set status = 'active', email = $1, updated_at = now()
-        where id = $2 and user_id = $3`,
-      [email, acct.id, sess.userId],
-    );
-  });
-  return Response.json({ ok: true, email });
+  // Finish entirely server-side — both initial connect and reconnect. The engine reads the OAuth
+  // client sealed in the write-only vault (under this account's key), exchanges the code for a
+  // refresh token, seals it, fetches the mailbox email, and flips the account to active. The client
+  // secret therefore never round-trips through the browser.
+  return engineOAuth(req, "finish", { code, state, redirect_uri: redirectUri(req) });
 }
 
 export async function DELETE(req: NextRequest): Promise<Response> {
