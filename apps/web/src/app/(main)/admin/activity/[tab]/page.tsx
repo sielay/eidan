@@ -9,6 +9,7 @@ import { JobsPane } from "@/components/admin/JobsPane";
 import { LivePane } from "@/components/admin/LivePane";
 import { LogsPane } from "@/components/admin/LogsPane";
 import { NodesPane } from "@/components/admin/NodesPane";
+import { RoutinesPane } from "@/components/admin/RoutinesPane";
 import { TriggersPane } from "@/components/admin/TriggersPane";
 
 const TAB_COMPONENTS: Record<string, () => React.ReactElement> = {
@@ -16,6 +17,7 @@ const TAB_COMPONENTS: Record<string, () => React.ReactElement> = {
   conversations: ConversationsPane,
   nodes: NodesPane,
   triggers: TriggersPane,
+  routines: RoutinesPane,
   jobs: JobsPane,
   cursors: CursorsPane,
   log: LogsPane,
@@ -27,6 +29,7 @@ const TAB_ORDER = [
   "conversations",
   "nodes",
   "triggers",
+  "routines",
   "jobs",
   "cursors",
   "log",
