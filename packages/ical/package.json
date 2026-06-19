@@ -1,0 +1,44 @@
+{
+  "name": "@eidandev/ical",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "eidan calendar (matbot): read-through .ics feeds over the operator's named calendars — calendar_upcoming + calendar_search, plus a Calendars admin screen.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "ical.css",
+      "routes": [
+        { "path": "/", "component": "Calendars.tsx" }
+      ],
+      "api": [
+        { "path": "/api/ical/calendars", "handler": "api/route.ts" }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          { "id": "calendars", "label": "Calendars", "icon": "calendar", "href": "/p/ical", "mobileHome": 4 }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "node-ical": "^0.18.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

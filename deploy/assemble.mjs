@@ -7,6 +7,7 @@ import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { CORE_PLUGINS } from "./manifest.mjs";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MATBOT_YAML = join(ROOT, "infra/fly-mb/matbot.yaml");
@@ -153,9 +154,13 @@ export function assemble(config) {
   const bundles = (config.bundles ?? []).filter((b) => b && b.name && !String(b.name).startsWith("//") && (b.path || b.git));
   for (const b of bundles) vendorBundle(b);
   applyMatbotYaml(bundles);
-  // Frontends: read each bundle's eidan.frontend, vendor it, regenerate the registry + bundle CSS.
-  // Only touch the committed base when a bundle actually ships UI (keeps the core checkout pristine).
-  const fronts = bundles.map((b) => vendorFrontend(b.name)).filter(Boolean);
+  // Frontends: vendor each plugin's eidan.frontend (admin screens, routes, nav), regenerate the
+  // registry + bundle CSS. Core plugins (always-on, e.g. the folded-in integrations imap/ical/google)
+  // ship UI too, so vendor those first, then bundles. vendorFrontend returns null for logic-only
+  // plugins, so this is a no-op for the rest.
+  const fronts = [...CORE_PLUGINS, ...bundles.map((b) => b.name)]
+    .map((name) => vendorFrontend(name))
+    .filter(Boolean);
   if (fronts.length) writeFrontendRegistry(fronts);
   const kinds = ["chat", ...bundles.flatMap((b) => bundleKinds(b))];
   return { bundles, fronts, kinds: [...new Set(kinds)] };
