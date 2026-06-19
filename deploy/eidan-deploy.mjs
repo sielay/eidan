@@ -73,10 +73,12 @@ function intendedPluginSet(t) {
   return [...new Set([...base, ...bundles])].filter((p) => !dis.has(p));
 }
 
-// Push the rendered node matbot.yaml (assembled minus the node's `disable`), backing up the node's
-// current one first so a bad sync is one `cp` to undo. Used by `deploy --sync-config`.
-function syncNodeConfig(t, host, dir) {
-  const rendered = renderNodeYaml(readAssembled(), t.disable ?? []);
+// Push the node's matbot.yaml, backing up the current one first so a bad sync is one `cp` to undo.
+// Used by `deploy --sync-config`. Renders PER-NODE from the manifest (renderMatbotYaml) so the node's
+// own providers (e.g. kesha's local ollama) are emitted — NOT the assembled fly config, whose provider
+// set is fly's. Plugins are pluginsFor(target): core + bundles − this node's disables.
+function syncNodeConfig(t, host, dir, targetName) {
+  const rendered = renderMatbotYaml(config, targetName);
   const tmp = join(mkdtempSync(join(tmpdir(), "eidan-nodeyaml-")), "matbot.yaml");
   writeFileSync(tmp, rendered);
   sh("ssh", [host, `cd ${dir} && cp -f matbot.yaml matbot.yaml.bak-predeploy 2>/dev/null || true`]);
@@ -301,7 +303,7 @@ switch (cmd) {
       // Opt-in (default off): also render + push the node's matbot.yaml from the assembled config, so
       // the node's plugin list can't silently drift. Off by default preserves any node-local hand
       // tuning (e.g. kesha's ponytail matbot.yaml); the previous matbot.yaml is backed up first.
-      if (process.argv.includes("--sync-config")) syncNodeConfig(t, host, dir);
+      if (process.argv.includes("--sync-config")) syncNodeConfig(t, host, dir, targetName);
       sh("ssh", [host, `cd ${dir} && pnpm install --prefer-offline && sudo systemctl restart ${service}`]);
     } else {
       throw new Error(`unknown target type "${t.type}" for "${targetName}"`);

@@ -124,8 +124,23 @@ export async function handleRest(
   // /api/conversations
   if (parts.length === 2 && parts[0] === 'api' && parts[1] === 'conversations') {
     if (method === 'GET') {
+      // Agent-driven conversations get a synthesized "[<slug>] …" title prefix (from metadata.agent_name)
+      // so the existing client thread filter (agent-thread.ts parseAgentName) classifies them as agent
+      // threads — they show under the "agents" filter, not "chats". (Earlier we excluded them entirely,
+      // which broke that filter.) Human chats keep their own title untouched.
       const r = await withPrincipal(principal, (q) =>
-        q('select id, title, created_at, updated_at from eidan.conversations where user_id=$1 and deleted_at is null order by coalesce(updated_at, created_at) desc limit 200', [uid]),
+        q(
+          `select id,
+                  case when metadata->>'origin' = 'agent'
+                       then '[' || coalesce(nullif(btrim(lower(regexp_replace(coalesce(metadata->>'agent_name','agent'), '[^a-z0-9]+', '-', 'gi')), '-'), ''), 'agent') || '] '
+                            || coalesce(title, metadata->>'agent_name', '')
+                       else title end as title,
+                  created_at, updated_at
+             from eidan.conversations
+            where user_id = $1 and deleted_at is null
+            order by coalesce(updated_at, created_at) desc limit 200`,
+          [uid],
+        ),
       );
       json(res, 200, { conversations: r.rows.map((row) => ({ id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at) })) }, cors);
       return true;

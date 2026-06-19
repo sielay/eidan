@@ -18,7 +18,7 @@ import { join } from "node:path";
 // from the DB vault for later plugins).
 export const CORE_PLUGINS = [
   "storage-postgres", "vault-postgres", "llm-calls", "memory", "auth", "notify", "jobs",
-  "frontend-agui", "mcp-server", "a2a-server", "secrets-api", "procedures", "routines", "frontend-telegram",
+  "frontend-agui", "mcp-server", "a2a-server", "secrets-api", "procedures", "escalations", "routines", "agents", "frontend-telegram",
 ];
 
 // Default provider catalogue (eidan.deploy.json `providers` overrides/extends per key). `key` is the
