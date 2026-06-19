@@ -62,6 +62,7 @@ export const CORE_CONTRIBUTION: NavContribution = {
     { id: "chat", label: "Chat", icon: "chat", href: "/", mobileHome: 0 },
     { id: "memory", label: "Memory", icon: "memory", href: "/memory", mobileHome: 1 },
     { id: "inbox", label: "Inbox", icon: "inbox", href: "/escalations", mobileHome: 2 },
+    { id: "agents", label: "Agents", icon: "agents", href: "/agents", mobileHome: null },
     { id: "plugins", label: "Plugins", icon: "plugins", href: "/plugins", mobileHome: 3 },
     { id: "admin", label: "Admin", icon: "admin", href: "/admin/activity", mobileHome: null, desktopOnly: true },
   ],

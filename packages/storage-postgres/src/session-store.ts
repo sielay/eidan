@@ -3,6 +3,7 @@ import type {
   Store, Session, Message, MessageContent, CASResult, QueryResult, StoreQuery,
 } from '@matatbread/matbot-plugin-api';
 import { currentPrincipal } from '@matatbread/matbot-plugin-api';
+import { executeQuery } from '@matatbread/matbot-storage-base';
 import type { Db, Q } from './db.js';
 import { type ConvRow, type MsgRow, rowToSession, rowToMessage } from './row-mappers.js';
 
@@ -49,16 +50,16 @@ export class PgSessionStore implements Store<Session> {
     });
   }
 
-  async query(qy: StoreQuery<Session>): Promise<QueryResult<Session>> {
+  async query(qy: StoreQuery): Promise<QueryResult<Session>> {
     return this.db.withPrincipalTx(async (q) => {
       const rows = await q(
         'select id from eidan.conversations where deleted_at is null order by updated_at desc limit $1',
         [qy.limit ?? 50],
       );
-      const items: QueryResult<Session>['items'] = [];
+      const items: Session[] = [];
       for (const r of rows.rows) {
         const s = await this.read(q, r.id as string);
-        if (s) items.push({ doc: s });
+        if (s) items.push(s);
       }
       return { items, total: items.length };
     });
@@ -150,10 +151,15 @@ export class PgKvStore<T extends { id: string; version: string }> implements Sto
     });
   }
 
-  async query(): Promise<QueryResult<T>> {
+  // Load the namespace, then apply the StoreQuery (where/sort/limit/cursor) with matbot's reference
+  // in-memory engine — the same evaluator its filesystem/IndexedDB backends use, so tool-store +
+  // @eidandev/decisions get identical, correct query semantics. Fine at KV scale (settings,
+  // schedules, decisions: hundreds–thousands of rows); swap in a Filter→SQL pushdown if a namespace
+  // ever outgrows loading the whole set.
+  async query(qy: StoreQuery): Promise<QueryResult<T>> {
     return this.db.withPrincipalTx(async (q) => {
       const r = await q('select doc from eidan.kv where namespace=$1', [this.ns]);
-      return { items: r.rows.map((row) => ({ doc: row.doc as T })), total: r.rowCount ?? 0 };
+      return executeQuery<T>(r.rows.map((row) => row.doc as T), qy);
     });
   }
 }

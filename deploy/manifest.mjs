@@ -17,9 +17,21 @@ import { join } from "node:path";
 // Core plugins are ALWAYS loaded, in dependency order (storage first; vault early so ${…} resolves
 // from the DB vault for later plugins).
 export const CORE_PLUGINS = [
-  "storage-postgres", "vault-postgres", "llm-calls", "memory", "auth", "notify", "jobs",
-  "frontend-agui", "mcp-server", "a2a-server", "secrets-api", "procedures", "routines", "frontend-telegram",
+  "storage-postgres", "vault-postgres", "llm-calls", "memory", "tool-store", "decisions", "auth", "notify", "jobs",
+  "frontend-agui", "mcp-server", "a2a-server", "secrets-api", "procedures", "escalations", "routines", "agents", "frontend-telegram",
+  // integrations: read-through mail / calendar / drive / gmail over the operator's vault-sealed
+  // accounts, each with its own admin screen.
+  "imap", "ical", "google", "gdrive",
 ];
+
+// A few core plugins are matbot built-ins loaded from the vendored submodule rather than eidan
+// packages/. Map their names to the submodule path; everything else resolves to ./packages/<name>.
+export const MATBOT_PLUGIN_PATHS = {
+  "tool-store": "./external/matbot/packages/plugins/tool-store",
+};
+export function moduleForPlugin(name) {
+  return MATBOT_PLUGIN_PATHS[name] ?? `./packages/${name}`;
+}
 
 // Default provider catalogue (eidan.deploy.json `providers` overrides/extends per key). `key` is the
 // env var holding the API key (resolved on the node); null = no key (e.g. local ollama).
@@ -122,7 +134,7 @@ export function renderMatbotYaml(config, target) {
     "principal: ${MATBOT_PRINCIPAL}",
     "",
     "plugins:",
-    ...plugins.map((p) => `  - ./packages/${p}`),
+    ...plugins.map((p) => `  - ${moduleForPlugin(p)}`),
     "",
     "providers:",
   ];

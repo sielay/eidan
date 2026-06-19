@@ -1,0 +1,48 @@
+{
+  "name": "@eidandev/imap",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "eidan mail (matbot): read-through IMAP (list/search/read) + SMTP send over the operator's named mail accounts, plus a Mail accounts admin screen.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "imap.css",
+      "routes": [
+        { "path": "/", "component": "Accounts.tsx" }
+      ],
+      "api": [
+        { "path": "/api/imap/accounts", "handler": "api/route.ts" }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          { "id": "mail", "label": "Mail", "icon": "mail", "href": "/p/imap", "mobileHome": 5 }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "imapflow": "^1.0.171",
+    "mailparser": "^3.7.1",
+    "nodemailer": "^6.9.16",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.5",
+    "@types/node": "^22.10.0",
+    "@types/nodemailer": "^6.4.17",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

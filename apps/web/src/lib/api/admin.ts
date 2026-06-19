@@ -179,6 +179,172 @@ export async function jobAction(
 }
 
 // ---------------------------------------------------------------------------
+// Routines (eidan.routines) — the operator's recurring scheduled prompts and
+// each one's recent fire history (eidan.routine_runs). The amygdala proactive
+// loop rides on this substrate, so the pane doubles as "is scheduled agent work
+// actually firing?" observability.
+// ---------------------------------------------------------------------------
+
+export type RoutineRunStatus = "started" | "delivered" | "failed" | string;
+
+export interface RoutineRun {
+  /** The local window key the routine fired for, e.g. "2026-06-15T08:00". */
+  fired_for: string;
+  status: RoutineRunStatus;
+  detail: string | null;
+  created_at: string;
+}
+
+export interface RoutineInfo {
+  id: string;
+  name: string;
+  /** "HH:MM" (daily) or "<days> HH:MM" (e.g. "mon,wed,fri 08:00"), owner tz. */
+  schedule: string;
+  prompt: string;
+  enabled: boolean;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Up to the 5 most recent fires, newest first. */
+  recent_runs: RoutineRun[];
+}
+
+export async function listAdminRoutines(): Promise<RoutineInfo[]> {
+  const res = await authFetch("/api/admin/routines", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET /api/admin/routines returned ${res.status}`);
+  }
+  const body = (await res.json()) as { routines: RoutineInfo[] };
+  return body.routines;
+}
+
+// ---------------------------------------------------------------------------
+// Agents (eidan.agents) — user-defined agents (persona + their own provider)
+// bound to composable triggers (schedule | sensor | webhook). Epic #346. Slice 1
+// ships the schedule trigger; every fire records a row in eidan.agent_runs with
+// the conversation it produced.
+// ---------------------------------------------------------------------------
+
+export interface AgentTrigger {
+  id: string;
+  type: "schedule" | "sensor" | "webhook" | string;
+  config: Record<string, unknown>;
+  enabled: boolean;
+}
+
+export interface AgentRunInfo {
+  fire_key: string;
+  status: "started" | "delivered" | "failed" | string;
+  conversation_id: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  persona: string;
+  provider: string | null;
+  model: string | null;
+  target_node: string | null;
+  enabled: boolean;
+  created_at: string;
+  triggers: AgentTrigger[];
+  recent_runs: AgentRunInfo[];
+}
+
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  /** Per-token prompt price as a decimal string (OpenRouter); "0" for free. null if unknown. */
+  prompt: string | null;
+  completion: string | null;
+}
+
+export async function listOpenRouterModels(): Promise<OpenRouterModel[]> {
+  const res = await authFetch("/api/openrouter/models", { method: "GET", headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`GET /api/openrouter/models returned ${res.status}`);
+  const body = (await res.json()) as { models: OpenRouterModel[] };
+  return body.models;
+}
+
+export async function listAgents(): Promise<AgentInfo[]> {
+  const res = await authFetch("/api/admin/agents", { method: "GET", headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`GET /api/admin/agents returned ${res.status}`);
+  const body = (await res.json()) as { agents: AgentInfo[] };
+  return body.agents;
+}
+
+export interface CreateAgentInput {
+  name: string;
+  persona: string;
+  provider?: string;
+  model?: string;
+  target_node?: string;
+  schedule?: string;
+}
+
+async function jsonOrThrow(res: Response, what: string): Promise<unknown> {
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      const b = (await res.json()) as { detail?: string };
+      if (b.detail) detail = b.detail;
+    } catch {
+      /* non-JSON */
+    }
+    throw new Error(`${what} failed: ${detail}`);
+  }
+  return res.json();
+}
+
+export async function createAgent(input: CreateAgentInput): Promise<{ id: string }> {
+  const res = await authFetch("/api/admin/agents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(input),
+  });
+  return (await jsonOrThrow(res, "POST /api/admin/agents")) as { id: string };
+}
+
+export async function updateAgent(
+  id: string,
+  patch: { enabled?: boolean; name?: string; persona?: string; provider?: string | null; model?: string | null; target_node?: string | null },
+): Promise<void> {
+  const res = await authFetch(`/api/admin/agents/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(patch),
+  });
+  await jsonOrThrow(res, `PATCH /api/admin/agents/${id}`);
+}
+
+export async function deleteAgent(id: string): Promise<void> {
+  const res = await authFetch(`/api/admin/agents/${encodeURIComponent(id)}`, { method: "DELETE", headers: { Accept: "application/json" } });
+  await jsonOrThrow(res, `DELETE /api/admin/agents/${id}`);
+}
+
+export async function addAgentSchedule(id: string, schedule: string): Promise<void> {
+  const res = await authFetch(`/api/admin/agents/${encodeURIComponent(id)}/triggers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ schedule }),
+  });
+  await jsonOrThrow(res, `POST /api/admin/agents/${id}/triggers`);
+}
+
+export async function removeAgentTrigger(id: string, triggerId: string): Promise<void> {
+  const res = await authFetch(
+    `/api/admin/agents/${encodeURIComponent(id)}/triggers?trigger_id=${encodeURIComponent(triggerId)}`,
+    { method: "DELETE", headers: { Accept: "application/json" } },
+  );
+  await jsonOrThrow(res, `DELETE /api/admin/agents/${id}/triggers`);
+}
+
+// ---------------------------------------------------------------------------
 // Activity dashboard summary (#core admin) — aggregates over eidan.jobs +
 // eidan.node_events. Plugin loop stats are fetched separately (see panels).
 // ---------------------------------------------------------------------------

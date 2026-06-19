@@ -6,6 +6,7 @@ import { getUpdates, sendChatAction, sendMessage } from './bot.js';
 import { Db } from './db.js';
 import { TelegramStore } from './store.js';
 import { startLinkServer } from './link-server.js';
+import { telegramSendTool } from './tools.js';
 
 // The inbound Telegram chat surface. An admitted sender's message becomes an eidan principal, a
 // per-chat session is opened, and the turn runs through the SAME matbot run path (`run.open`) the
@@ -63,7 +64,7 @@ function assistantText(s: Session): string {
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
-    description: 'Inbound Telegram chat surface with potem-style account linking: /start → one-time web link → sign-in binds the chat to an eidan user (eidan.telegram_chats). Bound senders run each message as a matbot turn (same path as frontend-agui). Registers the TelegramChats service for outbound delivery (routines/replies). Bot token from vault or env; EIDAN_WEB_URL for the link.',
+    description: 'Inbound Telegram chat surface with potem-style account linking: /start → one-time web link → sign-in binds the chat to an eidan user (eidan.telegram_chats). Bound senders run each message as a matbot turn (same path as frontend-agui). Registers the TelegramChats service for outbound delivery (routines/replies) + the telegram_send agent tool (message a bound user, default = current user). Bot token from vault or env; EIDAN_WEB_URL for the link.',
   },
 
   async setup(services: MatbotServices) {
@@ -116,6 +117,10 @@ export const plugin: MatbotPluginSpec = {
       },
     };
     await services.register('TelegramChats', telegramChats);
+
+    // Agent tool: "message me on Telegram" — resolves the recipient from the account binding so the
+    // user never has to hand over a numeric chat id. (notify's send_message covers raw chat ids/Slack.)
+    services.tools.register(telegramSendTool(token, store));
 
     // Account-link redemption endpoint, exposed through the AG-UI front door.
     const linkPort = Number(process.env['MATBOT_TELEGRAM_LINK_PORT'] ?? 8096);

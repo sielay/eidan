@@ -59,7 +59,9 @@ export function ConversationList(): React.ReactElement {
   >(null);
   const [error, setError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
-  const [filter, setFilter] = React.useState<ThreadKindFilter>("all");
+  // Default to "chats" so agent threads (e.g. a 5-min scheduled agent) don't flood the human list;
+  // the "agents" / "all" tabs surface them on demand.
+  const [filter, setFilter] = React.useState<ThreadKindFilter>("chats");
 
   const visible = React.useMemo(() => {
     if (conversations === null) return null;

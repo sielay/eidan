@@ -55,7 +55,15 @@ export const ENV_SCHEMA = [
   { key: 'EIDAN_NOTIFY_ROUTES', roles: ['engine'], required: false, secret: false, default: '',
     desc: 'Topic->channel routing JSON (slack/telegram). Empty = dry-run.' },
   { key: 'TELEGRAM_BOT_TOKEN', roles: ['engine'], required: false, secret: true, generate: null,
-    desc: 'Telegram surface bot token (BotFather). Poll toggle EIDAN_TELEGRAM_POLL is a topology env_set.' },
+    desc: 'Telegram surface bot token (BotFather) — legacy name; EIDAN_TELEGRAM_BOT_TOKEN is canonical. Poll toggle EIDAN_TELEGRAM_POLL is a topology env_set.' },
+  { key: 'EIDAN_TELEGRAM_BOT_TOKEN', roles: ['engine'], required: false, secret: true, generate: null,
+    desc: 'Telegram surface bot token (BotFather), canonical name. Set via `eidan integrate`. Poll toggle EIDAN_TELEGRAM_POLL is a topology env_set.' },
+  { key: 'EIDAN_TELEGRAM_PROVIDER', roles: ['engine'], required: false, secret: false, generate: null,
+    desc: 'LLM provider name for Telegram replies (falls back to the first registered provider).' },
+  { key: 'EIDAN_TELEGRAM_ALLOWLIST', roles: ['engine'], required: false, secret: false, generate: null,
+    desc: 'Optional JSON {"<telegram_id>":"<eidan_principal_id>"} fallback before users /start-link.' },
+  { key: 'EIDAN_SLACK_BOT_TOKEN', roles: ['engine'], required: false, secret: true, generate: null,
+    desc: 'Slack bot token (xoxb-…, chat:write scope) for outbound notify. Pair with EIDAN_NOTIFY_ROUTES.' },
 
   // --- SMTP (engine side; optional — without it magic links print to screen) ---------------------
   // SMTP routes to BOTH engine + web: the web (Vercel) is what sends the magic-link mail (apps/web/

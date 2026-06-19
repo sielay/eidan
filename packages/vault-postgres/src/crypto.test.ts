@@ -42,7 +42,8 @@ describe('vault crypto (Fernet at-rest)', () => {
   it('throws on a tampered token (HMAC mismatch)', () => {
     const ct = encryptValue(Buffer.from('secret', 'utf8'));
     const tampered = Buffer.from(ct);
-    tampered[tampered.length - 1] ^= 0xff;
+    const li = tampered.length - 1;
+    tampered[li] = (tampered[li] as number) ^ 0xff;
     assert.throws(() => decryptValue(tampered));
   });
 

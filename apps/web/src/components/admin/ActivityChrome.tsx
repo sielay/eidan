@@ -6,7 +6,12 @@ import Link from "next/link";
 import { useAuth } from "@/components/providers/auth-provider";
 import * as React from "react";
 
-import { listAdminJobs, listAdminNodes, listAdminTriggers } from "@/lib/api/admin";
+import {
+  listAdminJobs,
+  listAdminNodes,
+  listAdminRoutines,
+  listAdminTriggers,
+} from "@/lib/api/admin";
 import { listConversations } from "@/lib/api/conversations";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +40,7 @@ const ACTIVITY_TABS = [
   "conversations",
   "nodes",
   "triggers",
+  "routines",
   "jobs",
   "cursors",
   "log",
@@ -55,6 +61,7 @@ export function ActivityChrome({
     null,
   );
   const [triggersCount, setTriggersCount] = React.useState<number | null>(null);
+  const [routinesCount, setRoutinesCount] = React.useState<number | null>(null);
   const [dlqCount, setDlqCount] = React.useState<number | null>(null);
   const [jobsActive, setJobsActive] = React.useState<number | null>(null);
 
@@ -84,6 +91,12 @@ export function ActivityChrome({
           if (cancelled) return;
           setTriggersCount(body.triggers.length);
           setDlqCount(body.dlq_count);
+        })
+        .catch(() => {});
+      void listAdminRoutines()
+        .then((rows) => {
+          if (cancelled) return;
+          setRoutinesCount(rows.filter((r) => r.enabled).length);
         })
         .catch(() => {});
       void listAdminJobs()
@@ -116,6 +129,8 @@ export function ActivityChrome({
           <span>{conversationsCount ?? "—"} conversations</span>
           <span>·</span>
           <span>{triggersCount ?? "—"} triggers</span>
+          <span>·</span>
+          <span>{routinesCount ?? "—"} routines</span>
           <span>·</span>
           <span>{jobsActive ?? "—"} jobs active</span>
           {dlqCount !== null && dlqCount > 0 ? (
