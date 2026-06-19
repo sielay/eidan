@@ -179,6 +179,49 @@ export async function jobAction(
 }
 
 // ---------------------------------------------------------------------------
+// Routines (eidan.routines) — the operator's recurring scheduled prompts and
+// each one's recent fire history (eidan.routine_runs). The amygdala proactive
+// loop rides on this substrate, so the pane doubles as "is scheduled agent work
+// actually firing?" observability.
+// ---------------------------------------------------------------------------
+
+export type RoutineRunStatus = "started" | "delivered" | "failed" | string;
+
+export interface RoutineRun {
+  /** The local window key the routine fired for, e.g. "2026-06-15T08:00". */
+  fired_for: string;
+  status: RoutineRunStatus;
+  detail: string | null;
+  created_at: string;
+}
+
+export interface RoutineInfo {
+  id: string;
+  name: string;
+  /** "HH:MM" (daily) or "<days> HH:MM" (e.g. "mon,wed,fri 08:00"), owner tz. */
+  schedule: string;
+  prompt: string;
+  enabled: boolean;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Up to the 5 most recent fires, newest first. */
+  recent_runs: RoutineRun[];
+}
+
+export async function listAdminRoutines(): Promise<RoutineInfo[]> {
+  const res = await authFetch("/api/admin/routines", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET /api/admin/routines returned ${res.status}`);
+  }
+  const body = (await res.json()) as { routines: RoutineInfo[] };
+  return body.routines;
+}
+
+// ---------------------------------------------------------------------------
 // Activity dashboard summary (#core admin) — aggregates over eidan.jobs +
 // eidan.node_events. Plugin loop stats are fetched separately (see panels).
 // ---------------------------------------------------------------------------
