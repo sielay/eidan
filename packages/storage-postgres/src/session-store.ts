@@ -49,16 +49,16 @@ export class PgSessionStore implements Store<Session> {
     });
   }
 
-  async query(qy: StoreQuery<Session>): Promise<QueryResult<Session>> {
+  async query(qy: StoreQuery): Promise<QueryResult<Session>> {
     return this.db.withPrincipalTx(async (q) => {
       const rows = await q(
         'select id from eidan.conversations where deleted_at is null order by updated_at desc limit $1',
         [qy.limit ?? 50],
       );
-      const items: QueryResult<Session>['items'] = [];
+      const items: Session[] = [];
       for (const r of rows.rows) {
         const s = await this.read(q, r.id as string);
-        if (s) items.push({ doc: s });
+        if (s) items.push(s);
       }
       return { items, total: items.length };
     });
@@ -150,10 +150,12 @@ export class PgKvStore<T extends { id: string; version: string }> implements Sto
     });
   }
 
-  async query(): Promise<QueryResult<T>> {
+  // where/sort/cursor not yet compiled to SQL — returns the whole namespace (callers filter in
+  // memory). Add a Filter→SQL compiler when tool-store starts issuing filtered queries.
+  async query(_qy: StoreQuery): Promise<QueryResult<T>> {
     return this.db.withPrincipalTx(async (q) => {
       const r = await q('select doc from eidan.kv where namespace=$1', [this.ns]);
-      return { items: r.rows.map((row) => ({ doc: row.doc as T })), total: r.rowCount ?? 0 };
+      return { items: r.rows.map((row) => row.doc as T), total: r.rowCount ?? 0 };
     });
   }
 }
