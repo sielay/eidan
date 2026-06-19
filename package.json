@@ -1,6 +1,6 @@
 {
   "name": "eidan",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Self-hosted personal agent OS — plugins on the matbot runtime (engine vendored at external/matbot).",
   "packageManager": "pnpm@9.15.9",
