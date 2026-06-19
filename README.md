@@ -29,7 +29,10 @@ external/matbot/        # the agent runtime (Apache-2.0 submodule)
 packages/
   storage-postgres/     # relational memory: Store<Session> + FileStore over the eidan.* schema
   memory/               # knowledge + notes; remember/recall tools (EidanMemory service)
-  jobs/                 # delegation work-queue (eidan.jobs); bundles register kind handlers
+  jobs/                 # delegation work-queue (eidan.jobs); plugins register kind handlers
+  agents/               # user-defined agents on composable triggers + escalations inbox
+  decisions/            # searchable decision log + durable job cursors
+  imap/ ical/ google/ gdrive/  # read-through mail · calendar · Gmail · Drive (vault-sealed accounts)
   frontend-agui/        # chat surface over AG-UI (POST /api/turn) for the web UI
   auth/                 # JWT WebPrincipalResolver — per-request identity
   mcp-server/           # inbound MCP server (expose eidan tools to external agents)
@@ -67,8 +70,8 @@ docker compose up -d              # → http://localhost:3001  (sign in with the
 Updates are `docker compose pull && docker compose up -d`; your data is the Postgres volume. To use
 an external database (Supabase/Neon), set `EIDAN_DATABASE_URL` and drop the `postgres` service.
 
-**Shipping to a server, a Raspberry Pi, or Vercel — or adding paid bundles?** The deploy CLI makes it
-easy: run the interactive wizard and it walks you through everything — no YAML, no flags.
+**Shipping to a server, a Raspberry Pi, or Vercel — or adding your own plugins?** The deploy CLI makes
+it easy: run the interactive wizard and it walks you through everything — no YAML, no flags.
 
 ```bash
 pnpm eidan        # interactive wizard
@@ -116,22 +119,24 @@ to the host so it's the same-origin front door).
 ### Deploy (Fly / container)
 
 `infra/fly-mb/Dockerfile` builds the host image — see **[infra/fly-mb/README.md](infra/fly-mb/README.md)**
-for the full guide (required env, ports, `migrate`/update flow, and how a deploy vendors a paid
-bundle). In short: `fly secrets set EIDAN_DATABASE_URL=… ANTHROPIC_API_KEY=…`, then `fly deploy`.
+for the full guide (required env, ports, `migrate`/update flow, and how a deploy vendors plugin
+bundles). In short: `fly secrets set EIDAN_DATABASE_URL=… ANTHROPIC_API_KEY=…`, then `fly deploy`.
 
-## Plugins & paid bundles
+## Plugins
 
-A plugin is one TypeScript module exporting a `MatbotPlugin` (`export const plugin`). Core ships
-the packages above (AGPL). Pre-packaged paid bundles (coding, business, lifestyle) live in
-standalone private sibling repos and are **vendored into the host image at deploy time** as more
-plugins — they plug into core purely through the string-keyed service registry (e.g. a coding
-bundle registers a `'code'` job handler), never editing core. See [eidan.dev](https://eidan.dev).
+A plugin is one TypeScript module exporting a `MatbotPlugin` (`export const plugin`). Everything
+above is a plugin — and so are the integrations that read your **mail, calendar, Gmail, and Drive**
+over your own vault-sealed accounts. It's all AGPL, all in this repo. Plugins plug into core purely
+through the string-keyed service registry (e.g. a plugin registers a `'code'` job handler) and are
+vendored into the host image at deploy time, never editing core. Write your own the same way; group
+them as a **bundle** the deploy CLI assembles in.
 
 ## Licensing
 
-- **Core** (AGPL v3) — free, self-hosted, source open forever.
+- **Core and every eidan plugin** (AGPL v3) — free, self-hosted, source open forever. Plugins that
+  link into core are derivative works and ship under AGPL-compatible terms.
 - **matbot runtime** — Apache-2.0 (vendored submodule; its `LICENSE` preserved in-tree).
-- **Paid bundles / commercial / hosted** — contact [licence@eidan.dev](mailto:licence@eidan.dev).
+- Questions: [hello@eidan.dev](mailto:hello@eidan.dev).
 
 ## Status
 

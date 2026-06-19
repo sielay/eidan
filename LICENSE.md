@@ -24,37 +24,25 @@ What this means in practice:
 
 Full text of the licence: <https://www.gnu.org/licenses/agpl-3.0.txt>.
 
-## Sielay Ltd's proprietary plugins
+## Plugins are AGPL too
 
-Sielay Ltd publishes proprietary plugin bundles that sit on top of
-AGPL core. These bundles are **not** in this repository and **not**
-covered by the AGPL release of core. They are sold via the eidan
-landing site (separate repo). Bundles are vendored into the deploy
-image as additional matbot plugins and never live in this repo.
+Every eidan plugin — including the mail, calendar, Gmail, and Drive
+integrations — lives in this repo (or another AGPL repo) and ships
+under AGPL. There are no proprietary or paid plugins. A plugin links
+into core through the `@eidandev/*` packages and matbot's service
+registry, which makes it a derivative work, so it must be released
+under AGPL-compatible terms when distributed.
 
-## Bespoke enterprise plugins
+## Contributor License Agreement (CLA)
 
-Sielay Ltd also builds **private, bespoke plugins** for enterprise
-clients who want to self-host eidan in their own infrastructure
-with custom integrations, custom row-level security, or other
-custom functionality. These are commissioned engagements — not a
-licence on core itself, and not a public price-list product.
-Contact `hello@eidan.dev` to discuss.
-
-## Why this asymmetry is legitimate
-
-Sielay Ltd owns the copyright on core, so AGPL (which Sielay Ltd
-grants to the world) does not bind Sielay Ltd's own use of its own
-code. The right to ship proprietary plugins against future core is
-preserved by requiring a **Contributor License Agreement (CLA)** on
-every outside contribution to core (see
-[`CLA.md`](CLA.md) and
-[`CONTRIBUTING.md`](CONTRIBUTING.md)).
-
-## Contributing
-
-Outside contributions to core require a signed CLA before merge.
-See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Sielay Ltd owns the copyright on core and stewards its licence.
+Outside contributions require a signed **CLA** so that licence can be
+kept consistent and, if ever needed, updated to a later AGPL version
+(or another OSI-approved open-source licence) as the ecosystem
+evolves. The CLA does **not** transfer your copyright, change AGPL for
+anyone else, or permit relicensing core out of open source — Sielay
+Ltd has committed to that in [`CLA.md §7`](CLA.md). See
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Questions
 
