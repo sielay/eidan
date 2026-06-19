@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "@matatbread/matbot-storage-base": "link:../../external/matbot/packages/core/storage/_base",
     "pg": "^8.13.1"
   },
   "devDependencies": {

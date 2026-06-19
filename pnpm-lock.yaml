@@ -71,6 +71,25 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/agents:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.21.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/auth:
     dependencies:
       '@matatbread/matbot-plugin-api':
@@ -80,6 +99,38 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.19
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/decisions:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/escalations:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.21.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -267,6 +318,9 @@ importers:
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      '@matatbread/matbot-storage-base':
+        specifier: link:../../external/matbot/packages/core/storage/_base
+        version: link:../../external/matbot/packages/core/storage/_base
       pg:
         specifier: ^8.13.1
         version: 8.21.0

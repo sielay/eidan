@@ -3,6 +3,7 @@ import type {
   Store, Session, Message, MessageContent, CASResult, QueryResult, StoreQuery,
 } from '@matatbread/matbot-plugin-api';
 import { currentPrincipal } from '@matatbread/matbot-plugin-api';
+import { executeQuery } from '@matatbread/matbot-storage-base';
 import type { Db, Q } from './db.js';
 import { type ConvRow, type MsgRow, rowToSession, rowToMessage } from './row-mappers.js';
 
@@ -150,12 +151,15 @@ export class PgKvStore<T extends { id: string; version: string }> implements Sto
     });
   }
 
-  // where/sort/cursor not yet compiled to SQL — returns the whole namespace (callers filter in
-  // memory). Add a Filter→SQL compiler when tool-store starts issuing filtered queries.
-  async query(_qy: StoreQuery): Promise<QueryResult<T>> {
+  // Load the namespace, then apply the StoreQuery (where/sort/limit/cursor) with matbot's reference
+  // in-memory engine — the same evaluator its filesystem/IndexedDB backends use, so tool-store +
+  // @eidandev/decisions get identical, correct query semantics. Fine at KV scale (settings,
+  // schedules, decisions: hundreds–thousands of rows); swap in a Filter→SQL pushdown if a namespace
+  // ever outgrows loading the whole set.
+  async query(qy: StoreQuery): Promise<QueryResult<T>> {
     return this.db.withPrincipalTx(async (q) => {
       const r = await q('select doc from eidan.kv where namespace=$1', [this.ns]);
-      return { items: r.rows.map((row) => row.doc as T), total: r.rowCount ?? 0 };
+      return executeQuery<T>(r.rows.map((row) => row.doc as T), qy);
     });
   }
 }
