@@ -301,6 +301,39 @@ async function jsonOrThrow(res: Response, what: string): Promise<unknown> {
   return res.json();
 }
 
+// A trimmed JSON-schema shape — enough to render a param form (object with typed/enumerated props).
+export interface ToolParamSchema {
+  type?: string;
+  description?: string;
+  enum?: Array<string | number | boolean>;
+  properties?: Record<string, ToolParamSchema>;
+  required?: string[];
+  items?: ToolParamSchema;
+}
+
+export interface ToolCatalogEntry {
+  name: string;
+  description: string;
+  plugin: string | null;
+  inputSchema: ToolParamSchema | null;
+}
+
+// The engine's live tool registry (GET /api/commands on the AG-UI host, reached through the proxy).
+// Powers the @-mention picker in the persona editor — an author references a tool by name instead of
+// hand-writing its call syntax; the runtime already hands the model each tool's full definition.
+export async function listAgentTools(): Promise<ToolCatalogEntry[]> {
+  const res = await authFetch("/api/commands", { headers: { Accept: "application/json" } });
+  const body = (await jsonOrThrow(res, "GET /api/commands")) as {
+    commands?: Array<{ name?: string; description?: string; plugin?: string | null; input_schema?: ToolParamSchema | null }>;
+  };
+  return (body.commands ?? [])
+    .filter((c): c is { name: string; description?: string; plugin?: string | null; input_schema?: ToolParamSchema | null } =>
+      typeof c.name === "string" && c.name.length > 0,
+    )
+    .map((c) => ({ name: c.name, description: c.description ?? "", plugin: c.plugin ?? null, inputSchema: c.input_schema ?? null }))
+    .sort((a, b) => (a.plugin ?? "~").localeCompare(b.plugin ?? "~") || a.name.localeCompare(b.name));
+}
+
 export async function createAgent(input: CreateAgentInput): Promise<{ id: string }> {
   const res = await authFetch("/api/admin/agents", {
     method: "POST",

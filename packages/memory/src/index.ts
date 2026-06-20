@@ -3,6 +3,7 @@ import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { EidanMemory } from './eidan-memory.js';
+import { EidanKnowledgeIndex } from './knowledge-index.js';
 import { rememberTool, recallTool } from './tools.js';
 
 // Advertise EidanMemory on the service registry so other plugins (bundles) can consume the
@@ -23,6 +24,9 @@ export const plugin: MatbotPluginSpec = {
     if (!url) throw new Error('EIDAN_DATABASE_URL (or DATABASE_URL) must be set for @eidandev/memory');
     const mem = new EidanMemory(new Db(url));
     await services.register('EidanMemory', mem);
+    // Expose the SAME relational knowledge as matbot's KnowledgeIndex, so skills/cognition/rumsfeld
+    // read+write eidan.knowledge (one unified store) rather than a separate matbot index.
+    await services.register('KnowledgeIndex', new EidanKnowledgeIndex(mem));
     services.tools.register(rememberTool(mem));
     services.tools.register(recallTool(mem));
   },

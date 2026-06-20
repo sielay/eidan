@@ -221,15 +221,31 @@ export async function authFetch(
   }
 
   const url = _backendUrl(path);
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(init.headers ?? {}),
+  const buildHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    };
+    const active = _accessToken;
+    if (active !== null) {
+      headers["Authorization"] = `Bearer ${active.token}`;
+    }
+    return headers;
   };
-  const active = _accessToken;
-  if (active !== null) {
-    headers["Authorization"] = `Bearer ${active.token}`;
+
+  let res = await fetch(url, { ...init, headers: buildHeaders(), credentials: "include" });
+
+  // Reactive refresh: a 401 means the token was rejected — it expired between the pre-emptive check
+  // and the request, or the engine restarted (e.g. a Fly deploy) and bounced it. Refresh ONCE and
+  // retry. If the refresh yields no token (genuinely signed out) we leave the 401 as-is, so a real
+  // sign-out still surfaces rather than looping.
+  if (res.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed !== null) {
+      res = await fetch(url, { ...init, headers: buildHeaders(), credentials: "include" });
+    }
   }
-  return fetch(url, { ...init, headers, credentials: "include" });
+  return res;
 }
 
 export function getBackendBase(): string {

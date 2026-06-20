@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 # 2) eidan core plugins (+ the migrate runner) — pg + symlinks to the vendored plugin-api.
 COPY packages/ ./packages/
 COPY migrations/ ./migrations/
+# plugin doc overlays (rich READMEs for vendored matbot plugins; read by frontend-agui /api/plugins)
+COPY docs/plugins/ ./docs/plugins/
 COPY infra/fly-mb/host-package.json ./package.json
 COPY infra/fly-mb/host-pnpm-workspace.yaml ./pnpm-workspace.yaml
 RUN pnpm install --config.engine-strict=false

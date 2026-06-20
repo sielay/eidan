@@ -100,27 +100,30 @@ export function chatSection(sections: NavSection[]): NavSection | undefined {
 }
 
 /**
- * Rail groups: domain bundles first (in contribution order), the core
- * System group last. Chat is excluded (pinned separately); Settings is
+ * Rail groups: domain groups first (in first-seen contribution order), the
+ * core System group last. Sections are merged by their `group` HEADING, not by
+ * bundle — so several bundles all contributing to "Integrations" (Mail, Calendars,
+ * Databases, Logs, …) render under ONE "Integrations" heading rather than a
+ * separate header per bundle. Chat is excluded (pinned separately); Settings is
  * excluded (rendered at the foot).
  */
 export function railGroups(sections: NavSection[]): RailGroup[] {
   const order: string[] = [];
-  const byBundle = new Map<string, NavSection[]>();
+  const byGroup = new Map<string, NavSection[]>();
   for (const s of sections) {
     if (s.id === "chat") continue;
-    if (!byBundle.has(s.bundle)) {
-      byBundle.set(s.bundle, []);
-      order.push(s.bundle);
+    if (!byGroup.has(s.group)) {
+      byGroup.set(s.group, []);
+      order.push(s.group);
     }
-    byBundle.get(s.bundle)!.push(s);
+    byGroup.get(s.group)!.push(s);
   }
-  // Core last.
-  order.sort((a, b) => (a === "core" ? 1 : 0) - (b === "core" ? 1 : 0));
-  return order.map((bundle) => ({
-    key: bundle,
-    label: byBundle.get(bundle)![0].group,
-    sections: byBundle.get(bundle)!,
+  // The core "System" group always sorts last.
+  order.sort((a, b) => (a === "System" ? 1 : 0) - (b === "System" ? 1 : 0));
+  return order.map((group) => ({
+    key: group,
+    label: group,
+    sections: byGroup.get(group)!,
   }));
 }
 
