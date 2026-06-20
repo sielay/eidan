@@ -11,10 +11,11 @@ import { authFetch } from "@/lib/auth";
 export interface PluginSummary {
   name: string;
   display_name: string;
-  tier: "core" | "pro" | "commercial";
+  tier: "core" | "pro" | "commercial" | "matbot";
   version: string;
   description: string | null;
   enabled: boolean;
+  tool_count?: number;
 }
 
 export interface NodeIdentity {
@@ -43,15 +44,24 @@ export interface PluginAuthor {
   email: string | null;
 }
 
+export interface PluginTool {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
 export interface PluginDetail {
   name: string;
+  package_name?: string;
   display_name: string;
-  tier: "core" | "pro" | "commercial";
+  tier: "core" | "pro" | "commercial" | "matbot";
   version: string;
   description: string | null;
   license: string | null;
   authors: PluginAuthor[];
   readme: string | null;
+  config_keys: string[];
+  tools: PluginTool[];
 }
 
 export async function getPlugin(name: string): Promise<PluginDetail> {

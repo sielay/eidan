@@ -22,12 +22,26 @@ export const CORE_PLUGINS = [
   // integrations: read-through mail / calendar / drive / gmail over the operator's vault-sealed
   // accounts, each with its own admin screen.
   "imap", "ical", "google", "gdrive",
+  // matbot engine tool plugins (vendored submodule) enabled by default — general, dependency-free
+  // capabilities: a file scratchpad, web requests, human-in-the-loop prompts, detached sub-turns.
+  "workspace", "http", "ask-user", "background",
+  // knowledge cluster (matbot): skills + cognition + rumsfeld. They read/write eidan.knowledge via
+  // the KnowledgeIndex adapter @eidandev/memory registers (one unified store). skills runs a per-turn
+  // trigger/analysis classifier on the `skills-classifier` provider (defined in eidan.deploy.json).
+  "skills", "cognition", "rumsfeld",
 ];
 
 // A few core plugins are matbot built-ins loaded from the vendored submodule rather than eidan
 // packages/. Map their names to the submodule path; everything else resolves to ./packages/<name>.
 export const MATBOT_PLUGIN_PATHS = {
   "tool-store": "./external/matbot/packages/plugins/tool-store",
+  "workspace": "./external/matbot/packages/plugins/workspace",
+  "http": "./external/matbot/packages/plugins/http",
+  "ask-user": "./external/matbot/packages/plugins/ask-user",
+  "background": "./external/matbot/packages/plugins/background",
+  "skills": "./external/matbot/packages/plugins/skills",
+  "cognition": "./external/matbot/packages/plugins/cognition",
+  "rumsfeld": "./external/matbot/packages/plugins/rumsfeld",
 };
 export function moduleForPlugin(name) {
   return MATBOT_PLUGIN_PATHS[name] ?? `./packages/${name}`;

@@ -47,7 +47,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "eidan $TAG"
           git push origin "$TAG"
-          gh release create "$TAG" --title "$TAG" --generate-notes
+          # Lead the notes with the release commit's body (a human summary of the release), then let
+          # GitHub append the categorised "What's Changed" section (categories in .github/release.yml).
+          NOTES=$(git log -1 --format=%b HEAD)
+          gh release create "$TAG" --title "eidan $TAG" --notes "$NOTES" --generate-notes
 
   images:
     needs: release

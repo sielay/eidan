@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@matatbread/matbot-core": "link:../../external/matbot/packages/core/runner",
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
     "pg": "^8.13.1"
   },

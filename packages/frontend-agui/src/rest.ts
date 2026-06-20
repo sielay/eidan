@@ -2,10 +2,12 @@
 // Plain CRUD read surface the Next app uses alongside the AG-UI turn stream: conversation list,
 // a single conversation, its message history, title edit/regenerate. Reads eidan.* directly
 // (RLS-scoped via the ambient principal + an explicit user_id filter). Runs under runAs(principal).
-import { readFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { basename, dirname, join, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { MatbotServices, Principal, Session, MessageContent } from '@matatbread/matbot-plugin-api';
+import { getRegisteredPlugins } from '@matatbread/matbot-core';
 import { withPrincipal } from './db.js';
 
 function iso(v: unknown): string {
@@ -50,8 +52,8 @@ function newSession(id: string, ownerId: string): Session {
   return { id, version: '0', ownerPrincipalId: ownerId, status: 'active', contexts: [], messages: [], createdAt: now, updatedAt: now };
 }
 
-// The live loaded-plugin set, parsed from the host config (services.configPath) — what the running
-// engine actually loaded, not a DB snapshot. Minimal block parse of the YAML `plugins:` list.
+// Fallback only: the configured plugin names, parsed from the host config (services.configPath),
+// used when the runtime registry is unavailable. Minimal block parse of the YAML `plugins:` list.
 function loadedPlugins(configPath: string | undefined): { name: string; spec: string }[] {
   if (!configPath) return [];
   let text: string;
@@ -75,6 +77,233 @@ function loadedPlugins(configPath: string | undefined): { name: string; spec: st
   return out;
 }
 
+// ---- plugin catalogue cards -------------------------------------------------
+// A rich, per-plugin "card" assembled from what the running engine knows: the loaded plugin's
+// manifest (description, config keys), its package.json (version/license/authors), its README.md,
+// and the tools it registered. Sourced from the live registry; falls back to the YAML name list.
+
+type PluginTier = 'core' | 'pro' | 'commercial' | 'matbot';
+
+interface PluginCard {
+  name: string; // url-safe short id (basename, no scope) — what the UI routes on
+  package_name: string; // full package name, e.g. @eidandev/memory
+  display_name: string;
+  tier: PluginTier;
+  version: string;
+  description: string | null;
+  license: string | null;
+  authors: { name: string; email: string | null }[];
+  readme: string | null;
+  config_keys: string[];
+  tools: { name: string; description: string; input_schema: Record<string, unknown> }[];
+  enabled: boolean;
+}
+
+interface LoadedPlugin {
+  name: string;
+  specifier?: string;
+  manifest?: { description?: string; config?: readonly string[] };
+}
+
+interface RegistryTool {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  pluginName?: string;
+}
+
+function humanize(s: string): string {
+  return s.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// The live loaded plugins (module-singleton in the runner). Defensive: if the runtime registry
+// can't be reached, callers fall back to the YAML name list — no regression, just sparser cards.
+function registeredPlugins(): readonly LoadedPlugin[] {
+  try {
+    return (getRegisteredPlugins() ?? []) as unknown as readonly LoadedPlugin[];
+  } catch {
+    return [];
+  }
+}
+
+function readCatalogue(configPath: string | undefined): Record<string, { path?: string }> {
+  if (!configPath) return {};
+  try {
+    return JSON.parse(readFileSync(join(dirname(configPath), 'eidan.catalogue.json'), 'utf8')) as Record<string, { path?: string }>;
+  } catch {
+    return {};
+  }
+}
+
+// Walk up from a file/dir to the nearest directory containing package.json (the package root).
+function findPackageRoot(start: string): string | null {
+  let dir = start;
+  for (let i = 0; i < 6; i += 1) {
+    try {
+      readFileSync(join(dir, 'package.json'), 'utf8');
+      return dir;
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+  return null;
+}
+
+// Best-effort resolve of a plugin's on-disk package dir from its load specifier (local path,
+// file:// URL, or a catalogue entry). Remote (github:/https:) plugins have no local dir → null,
+// so version/license/authors/readme simply stay empty for them.
+function pluginDir(specifier: string, configPath: string | undefined, catalogue: Record<string, { path?: string }>): string | null {
+  const base = configPath ? dirname(configPath) : undefined;
+  const short = basename(specifier.replace(/\/+$/, ''));
+  const cat = catalogue[short]?.path;
+  if (cat && base) return findPackageRoot(resolvePath(base, cat));
+  if (specifier.startsWith('file://')) {
+    try {
+      return findPackageRoot(fileURLToPath(specifier));
+    } catch {
+      return null;
+    }
+  }
+  if (/^[./]/.test(specifier) && base) return findPackageRoot(resolvePath(base, specifier));
+  return null;
+}
+
+function parseAuthors(pkg: Record<string, unknown>): { name: string; email: string | null }[] {
+  const norm = (a: unknown): { name: string; email: string | null } | null => {
+    if (typeof a === 'string') return { name: a, email: null };
+    if (a && typeof a === 'object' && typeof (a as { name?: unknown }).name === 'string') {
+      const o = a as { name: string; email?: unknown };
+      return { name: o.name, email: typeof o.email === 'string' ? o.email : null };
+    }
+    return null;
+  };
+  const out: { name: string; email: string | null }[] = [];
+  const one = norm(pkg.author);
+  if (one) out.push(one);
+  if (Array.isArray(pkg.contributors)) for (const c of pkg.contributors) { const n = norm(c); if (n) out.push(n); }
+  return out;
+}
+
+// Rich docs we author IN eidan for plugins that ship no README of their own — notably the
+// vendored matbot plugins (we can't edit the Apache submodule). Lives at docs/plugins/<short>.md.
+function overlayReadme(base: string | undefined, short: string): string | null {
+  if (!base) return null;
+  try {
+    return readFileSync(join(base, 'docs', 'plugins', `${short}.md`), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function buildCard(p: LoadedPlugin, tools: readonly RegistryTool[], configPath: string | undefined, catalogue: Record<string, { path?: string }>): PluginCard {
+  const base = configPath ? dirname(configPath) : undefined;
+  // Short id = the dir basename of the load specifier (stable + url-safe), e.g. ./packages/memory
+  // -> "memory", ./external/matbot/packages/plugins/tool-store -> "tool-store".
+  const short = basename((p.specifier ?? p.name).replace(/\/+$/, ''));
+  const dir = pluginDir(p.specifier ?? p.name, configPath, catalogue);
+  let version = '';
+  let license: string | null = 'AGPL-3.0-or-later';
+  let authors: { name: string; email: string | null }[] = [];
+  let pkgDescription: string | null = null;
+  let tier: PluginTier = 'core';
+  let readme: string | null = null;
+  if (dir) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as Record<string, unknown>;
+      if (typeof pkg.version === 'string') version = pkg.version;
+      if (typeof pkg.license === 'string') license = pkg.license;
+      if (typeof pkg.description === 'string') pkgDescription = pkg.description;
+      authors = parseAuthors(pkg);
+    } catch { /* no package.json on disk */ }
+    try { readme = readFileSync(join(dir, 'README.md'), 'utf8'); } catch { readme = null; }
+    if (/external[/\\]matbot[/\\]/.test(dir)) tier = 'matbot';
+    else if (/eidan-pro(?:[/\\]|$)/.test(dir)) tier = 'pro';
+    else if (/eidan-(?:charles|charlotte)(?:[/\\]|$)/.test(dir)) tier = 'commercial';
+  }
+  if (readme === null) readme = overlayReadme(base, short);
+  const owned = tools.filter((t) => t.pluginName === p.name || t.pluginName === short);
+  return {
+    name: short,
+    package_name: p.name,
+    display_name: humanize(short),
+    tier,
+    version,
+    description: (p.manifest?.description ?? pkgDescription) ?? null,
+    license,
+    authors,
+    readme,
+    config_keys: [...(p.manifest?.config ?? [])],
+    tools: owned.map((t) => ({ name: t.name, description: t.description ?? '', input_schema: t.inputSchema ?? {} })),
+    enabled: true,
+  };
+}
+
+// The matbot plugins available in the vendored submodule but NOT loaded — surfaced as a browsable
+// "available" catalogue (enabled:false). Info from each plugin's package.json (+ overlay README);
+// tools are unknown until a plugin is actually loaded, so the list is empty here.
+function availableMatbotPlugins(configPath: string | undefined, loadedShort: Set<string>): PluginCard[] {
+  const base = configPath ? dirname(configPath) : undefined;
+  if (!base) return [];
+  const root = join(base, 'external', 'matbot', 'packages', 'plugins');
+  let names: string[];
+  try {
+    names = readdirSync(root);
+  } catch {
+    return [];
+  }
+  const out: PluginCard[] = [];
+  for (const short of names.sort()) {
+    if (loadedShort.has(short)) continue;
+    let pkg: Record<string, unknown>;
+    try {
+      pkg = JSON.parse(readFileSync(join(root, short, 'package.json'), 'utf8')) as Record<string, unknown>;
+    } catch {
+      continue; // not a standalone plugin dir (e.g. frontend/providers/storage)
+    }
+    let readme: string | null = null;
+    try { readme = readFileSync(join(root, short, 'README.md'), 'utf8'); } catch { readme = null; }
+    if (readme === null) readme = overlayReadme(base, short);
+    out.push({
+      name: short,
+      package_name: typeof pkg.name === 'string' ? pkg.name : short,
+      display_name: humanize(short),
+      tier: 'matbot',
+      version: typeof pkg.version === 'string' ? pkg.version : '',
+      description: typeof pkg.description === 'string' ? pkg.description : null,
+      license: typeof pkg.license === 'string' ? pkg.license : 'Apache-2.0',
+      authors: parseAuthors(pkg),
+      readme,
+      config_keys: [],
+      tools: [],
+      enabled: false,
+    });
+  }
+  return out;
+}
+
+function fallbackCard(name: string): PluginCard {
+  return {
+    name,
+    package_name: name,
+    display_name: humanize(name),
+    tier: 'core',
+    version: '',
+    description: null,
+    license: 'AGPL-3.0-or-later',
+    authors: [],
+    readme: null,
+    config_keys: [],
+    tools: [],
+    enabled: true,
+  };
+}
+
+function pluginSummary(c: PluginCard): Record<string, unknown> {
+  return { name: c.name, display_name: c.display_name, tier: c.tier, version: c.version, description: c.description, enabled: c.enabled, tool_count: c.tools.length };
+}
+
 // Returns true if it owned the route. `parts` is the path split on '/', e.g. ['api','conversations','<id>','messages'].
 export async function handleRest(
   req: IncomingMessage,
@@ -93,31 +322,45 @@ export async function handleRest(
     json(
       res,
       200,
-      { commands: tools.map((t) => ({ name: t.name, description: t.description ?? '', plugin: t.pluginName ?? null, idempotent: false })) },
+      {
+        commands: tools.map((t) => ({
+          name: t.name,
+          description: t.description ?? '',
+          plugin: t.pluginName ?? null,
+          // The JSON input schema lets the authoring UI render a per-tool param form so an agent's
+          // tool call can be codified (e.g. job_cursor action=get) instead of left to inference.
+          input_schema: t.inputSchema ?? null,
+          idempotent: false,
+        })),
+      },
       cors,
     );
     return true;
   }
 
-  // /api/plugins (+ /:name) — the live loaded-plugin set parsed from the host config.
+  // /api/plugins (+ /:name) — rich catalogue cards from the live loaded-plugin set: manifest
+  // description, package.json (version/license/authors), README.md, registered tools, config keys.
   if (parts.length >= 2 && parts[0] === 'api' && parts[1] === 'plugins' && method === 'GET') {
-    const plugins = loadedPlugins(services.configPath);
+    const loaded = registeredPlugins();
+    const tools = (services.tools?.list() ?? []) as unknown as readonly RegistryTool[];
+    const catalogue = readCatalogue(services.configPath);
+    const loadedCards: PluginCard[] =
+      loaded.length > 0
+        ? loaded.map((p) => buildCard(p, tools, services.configPath, catalogue))
+        : loadedPlugins(services.configPath).map((p) => fallbackCard(p.name));
+    const loadedShort = new Set(loadedCards.map((c) => c.name));
+    // Append the not-loaded matbot plugins as a browsable "available" catalogue (enabled:false).
+    const cards: PluginCard[] = [...loadedCards, ...availableMatbotPlugins(services.configPath, loadedShort)];
     if (parts.length === 2) {
-      json(
-        res,
-        200,
-        { node: null, plugins: plugins.map((p) => ({ name: p.name, display_name: p.name, tier: 'core', version: '', description: null, enabled: true })) },
-        cors,
-      );
+      json(res, 200, { node: null, plugins: cards.map(pluginSummary) }, cors);
       return true;
     }
-    const p = plugins.find((x) => x.name === (parts[2] ?? ''));
-    if (!p) {
+    const card = cards.find((c) => c.name === (parts[2] ?? ''));
+    if (!card) {
       json(res, 404, { error: 'not found' }, cors);
       return true;
     }
-    // PluginDetail shape: license + authors[] + readme (not author/enabled).
-    json(res, 200, { name: p.name, display_name: p.name, tier: 'core', version: '', description: null, license: 'AGPL-3.0-or-later', authors: [], readme: null }, cors);
+    json(res, 200, card, cors);
     return true;
   }
 

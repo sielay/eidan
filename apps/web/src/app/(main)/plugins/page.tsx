@@ -15,9 +15,7 @@ export default function PluginsPage(): React.ReactElement {
           <div className="screen-sub">Installed on this host</div>
         </div>
       </div>
-      <div className="card">
-        <PluginList />
-      </div>
+      <PluginList />
     </div>
   );
 }

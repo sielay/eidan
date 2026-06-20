@@ -101,47 +101,71 @@ export function PluginList(): React.ReactElement {
   const grouped = groupByTier(plugins);
 
   return (
-    <div data-slot="plugin-nav" className="flex flex-col gap-3">
+    <div className="flex flex-col gap-8">
       {node ? (
-        <div
-          title={`${node.node_type} node ${node.node_id}`}
-          className="px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70"
-        >
-          Plugins on {node.node_id}
+        <div className="text-xs text-muted-foreground/70">
+          Plugins on{" "}
+          <span className="font-medium text-muted-foreground">
+            {node.node_id}
+          </span>
         </div>
       ) : null}
       {grouped.map(({ tier, rows }) => (
-        <section key={tier} className="flex flex-col gap-1">
-          <h3 className="px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+        <section key={tier} className="flex flex-col gap-3">
+          <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
             {tier}
-          </h3>
-          <ul className="flex flex-col gap-0.5">
+            <span className="ml-1.5 text-muted-foreground/50">
+              ({rows.length})
+            </span>
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((row) => (
-              <li key={row.name}>
-                <PluginRow row={row} />
-              </li>
+              <PluginCard key={row.name} row={row} />
             ))}
-          </ul>
+          </div>
         </section>
       ))}
     </div>
   );
 }
 
-function PluginRow({ row }: { row: PluginSummary }): React.ReactElement {
+function PluginCard({ row }: { row: PluginSummary }): React.ReactElement {
   return (
     <Link
       href={`/plugins/${row.name}`}
-      title={row.description ?? undefined}
       className={cn(
-        "flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs",
-        "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+        "group flex flex-col gap-2 rounded-lg border border-border bg-background p-4",
+        "transition hover:border-foreground/30 hover:shadow-sm",
+        !row.enabled && "opacity-70",
       )}
     >
-      <span className="truncate text-foreground">{row.display_name}</span>
-      <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-        v{row.version}
-      </span>
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-medium text-foreground">{row.display_name}</span>
+        <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+          {row.tier}
+        </span>
+      </div>
+      <p className="line-clamp-3 text-sm text-muted-foreground">
+        {row.description ?? "No description provided yet."}
+      </p>
+      <div className="mt-auto flex items-center gap-3 pt-1 text-[11px] text-muted-foreground/80">
+        {row.enabled ? (
+          <span className="inline-flex items-center gap-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            enabled
+          </span>
+        ) : (
+          <span className="rounded border border-dashed border-border px-1.5 py-0.5 uppercase tracking-wider">
+            available
+          </span>
+        )}
+        {row.version ? <span className="font-mono">v{row.version}</span> : null}
+        {typeof row.tool_count === "number" && row.tool_count > 0 ? (
+          <span>
+            {row.tool_count} tool{row.tool_count === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </div>
     </Link>
   );
 }
