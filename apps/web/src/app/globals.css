@@ -330,8 +330,24 @@
 .composer__input { flex: 1; min-height: 44px; max-height: 160px; resize: none; padding: 11px var(--s4); border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-family: inherit; font-size: var(--fs-15); line-height: var(--lh); }
 .composer__input:focus-visible { box-shadow: var(--ring); border-color: var(--accent); }
 .composer__send, .composer__attach { height: 44px; width: 44px; min-width: 44px; padding: 0; flex: none; }
-.composer__model { flex: none; height: 44px; border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-family: inherit; font-size: var(--fs-13); padding: 0 var(--s2); cursor: pointer; }
-.composer__model:focus-visible { box-shadow: var(--ring); border-color: var(--accent); }
+
+/* Model picker: a compact, fixed-width button (so the prompt stays the prominent element and the
+   model name never squeezes it) that opens an upward popover. */
+.composer__model-wrap { position: relative; flex: none; }
+.composer__model-btn { display: inline-flex; align-items: center; gap: 4px; height: 44px; max-width: 9rem; padding: 0 8px; border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); font-family: inherit; font-size: var(--fs-13); cursor: pointer; }
+.composer__model-btn:focus-visible { box-shadow: var(--ring); border-color: var(--accent); }
+.composer__model-btn:disabled { opacity: .5; cursor: default; }
+.composer__model-label { max-width: 5.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer__model-caret { flex: none; opacity: .55; }
+.composer__model-backdrop { position: fixed; inset: 0; z-index: 40; background: transparent; border: none; padding: 0; cursor: default; }
+.composer__model-menu { position: absolute; z-index: 41; bottom: calc(100% + 6px); right: 0; min-width: 15rem; max-width: min(20rem, 86vw); max-height: 48vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--e2); }
+.composer__model-opt { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: none; background: none; cursor: pointer; border-radius: var(--r-sm); text-align: left; font-family: inherit; color: var(--text); }
+.composer__model-opt:hover { background: var(--surface-2); }
+.composer__model-tick { flex: none; opacity: 0; color: var(--accent-link); }
+.composer__model-tick.is-on { opacity: 1; }
+.composer__model-opt-text { display: flex; flex-direction: column; min-width: 0; }
+.composer__model-opt-name { font-size: var(--fs-15); }
+.composer__model-opt-hint { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ============================================================ MEMORY (core)
    Styling authored to match the system — the design bundle shipped the
