@@ -66,11 +66,24 @@ export function ConversationView({
     setProvider(loadProvider(conversationId));
   }, [conversationId]);
   // The picker menu is built from the engine's live provider registry, so it can never offer a name
-  // the engine doesn't have (which silently falls back to the default).
+  // the engine doesn't have. We also reconcile the remembered pick against this list: a name saved
+  // before a provider was renamed/removed is stale, and sending it would make the server reject the
+  // turn — so drop it back to "" (host default). Without this, stale picks silently billed sonnet.
   const [providers, setProviders] = React.useState<ProviderOption[]>([]);
   React.useEffect(() => {
-    listProviders().then(setProviders).catch(() => setProviders([]));
-  }, []);
+    listProviders()
+      .then((list) => {
+        setProviders(list);
+        setProvider((cur) => {
+          if (cur && !list.some((p) => p.name === cur)) {
+            saveProvider(conversationId, "");
+            return "";
+          }
+          return cur;
+        });
+      })
+      .catch(() => setProviders([]));
+  }, [conversationId]);
   const onProviderChange = React.useCallback(
     (p: string) => {
       setProvider(p);
