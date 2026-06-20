@@ -32,7 +32,16 @@ export function VendorModelPicker({ models, provider, model, onChange }: {
   model: string;
   onChange: (provider: string, model: string) => void;
 }): React.ReactElement {
-  const vendor = provider === "ollama" ? "ollama" : model.includes("/") ? (model.split("/")[0] ?? "") : "";
+  // `vendor` (the chosen family) must be its OWN state, not derived from `model`: choosing a family
+  // clears `model` until a specific model is picked, and a model-derived vendor would immediately snap
+  // back to "" — making the model dropdown vanish and the choice impossible. Seed from the current
+  // model (covers the edit form, which mounts with the agent already loaded), then keep it in sync if
+  // an external model implies a different family (never clobber a chosen-family-awaiting-model state).
+  const derivedVendor = provider === "ollama" ? "ollama" : model.includes("/") ? (model.split("/")[0] ?? "") : "";
+  const [vendor, setVendor] = React.useState(derivedVendor);
+  React.useEffect(() => {
+    if (derivedVendor && derivedVendor !== vendor) setVendor(derivedVendor);
+  }, [derivedVendor]); // eslint-disable-line react-hooks/exhaustive-deps
   const vendors = React.useMemo(() => {
     const set = new Set<string>();
     for (const m of models) { const v = m.id.split("/")[0]; if (v) set.add(v); }
@@ -48,6 +57,7 @@ export function VendorModelPicker({ models, provider, model, onChange }: {
         value={vendor}
         onChange={(e) => {
           const v = e.target.value;
+          setVendor(v);
           if (v === "ollama") onChange("ollama", "");
           else if (v === "") onChange("", "");
           else onChange("openrouter", "");
