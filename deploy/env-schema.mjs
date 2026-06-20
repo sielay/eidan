@@ -40,6 +40,11 @@ export const ENV_SCHEMA = [
   { key: 'OPENAI_API_KEY', roles: ['engine'], required: false, secret: true, generate: null, desc: 'Key for the `openai` provider.' },
   { key: 'OPENROUTER_API_KEY', roles: ['engine'], required: false, secret: true, generate: null, desc: 'Key for the `openrouter` provider.' },
   { key: 'XAI_API_KEY', roles: ['engine'], required: false, secret: true, generate: null, desc: 'Key for the `grok` (xAI) provider.' },
+  // Voice transcription (@eidandev/transcribe) — any Whisper-compatible /audio/transcriptions endpoint
+  // (OpenAI or Groq; NOT OpenRouter, which has no audio API). Powers the chat mic + Telegram voice.
+  { key: 'EIDAN_WHISPER_ENDPOINT', roles: ['engine'], required: false, secret: false, generate: null, desc: 'Whisper-compatible transcriptions URL (e.g. https://api.groq.com/openai/v1/audio/transcriptions).' },
+  { key: 'EIDAN_WHISPER_MODEL', roles: ['engine'], required: false, secret: false, default: 'whisper-1', desc: 'STT model id (whisper-1 / whisper-large-v3-turbo).' },
+  { key: 'EIDAN_WHISPER_KEY', roles: ['engine'], required: false, secret: true, generate: null, desc: 'Bearer key for the transcription endpoint (OpenAI/Groq).' },
   { key: 'EIDAN_PROVIDER', roles: ['engine'], required: false, secret: false, default: 'anthropic',
     desc: 'Legacy provider selector. EIDAN_AGUI_PROVIDER is the matbot chat one.' },
   { key: 'EIDAN_AGUI_PROVIDER', roles: ['engine'], required: false, secret: false, default: 'claude',

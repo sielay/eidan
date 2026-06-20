@@ -131,10 +131,16 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     const conversationId = body.conversation_id;
     const text = body.text;
     if (!conversationId || typeof text !== 'string') { json(res, 400, { error: 'conversation_id and text required' }, cors); return; }
-    // Per-turn model: the client may name a provider; honour it only if it's actually configured,
-    // else fall back to the server default (EIDAN_AGUI_PROVIDER). Each provider in matbot.yaml is
-    // one model, so selecting a provider = selecting a model.
-    const turnProvider = body.provider && services.providers.get(body.provider) ? body.provider : provider;
+    // Per-turn model: an absent/empty `provider` means "use the host default" (EIDAN_AGUI_PROVIDER).
+    // But if the client EXPLICITLY names a provider that isn't configured, FAIL the turn — do NOT
+    // silently substitute the host default. Silent substitution is how a stale client pick (a renamed
+    // or removed provider) kept billing the default model (sonnet) without consent. Each provider in
+    // matbot.yaml is one model, so selecting a provider = selecting a model.
+    if (body.provider && !services.providers.get(body.provider)) {
+      json(res, 400, { error: `Unknown provider "${body.provider}" — not configured on this host. Re-select a model.` }, cors);
+      return;
+    }
+    const turnProvider = body.provider || provider;
 
     let session = await sessions.get(conversationId);
     if (!session) { session = newSession(conversationId, principal.id); await sessions.set(conversationId, session); }
@@ -159,7 +165,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
         if (!ledger) { pendingUsage.length = 0; return; }
         for (const u of pendingUsage) {
           void ledger.record({
-            userId: principal.id, conversationId, provider, model, ...u,
+            userId: principal.id, conversationId, provider: turnProvider, model, ...u,
             ...(messageId ? { messageId } : {}),
           });
         }
