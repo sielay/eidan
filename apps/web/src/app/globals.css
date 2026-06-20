@@ -462,3 +462,39 @@ svg.i-lg { width: 26px; height: 26px; }
 .login-spin--lg { width: 26px; height: 26px; border-width: 2.5px; }
 @keyframes login-rot { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .login-spin { animation-duration: 1.4s; } }
+
+/* persona authoring (agents) — @-mention chips + the rich-text surface (PersonaEditor / PersonaView) */
+.persona-mention {
+  display: inline;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  color: var(--accent-link, #2563eb);
+  background: var(--accent-tint, rgba(37, 99, 235, 0.1));
+  border-radius: 4px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.persona-prose { line-height: 1.5; }
+.persona-prose p { margin: 0.25rem 0; }
+.persona-prose p:first-child { margin-top: 0; }
+.persona-prose p:last-child { margin-bottom: 0; }
+.persona-prose h1, .persona-prose h2, .persona-prose h3 { font-weight: 600; margin: 0.5rem 0 0.25rem; }
+.persona-prose h1 { font-size: 1.05em; }
+.persona-prose h2 { font-size: 1em; }
+.persona-prose h3 { font-size: 0.95em; }
+.persona-prose ul { list-style: disc; padding-left: 1.1rem; margin: 0.25rem 0; }
+.persona-prose ol { list-style: decimal; padding-left: 1.1rem; margin: 0.25rem 0; }
+.persona-prose strong { font-weight: 600; }
+.persona-prose em { font-style: italic; }
+.persona-editor .ProseMirror { outline: none; }
+.persona-editor .ProseMirror:focus-visible { outline: none; }
+.persona-prose li { margin: 0.1rem 0; }
+.persona-prose ul ul, .persona-prose ol ol, .persona-prose ul ol, .persona-prose ol ul { margin: 0; }
+.persona-prose code { background: var(--accent-tint, rgba(0, 0, 0, 0.06)); border-radius: 3px; padding: 0 3px; font-size: 0.85em; }
+.persona-prose blockquote { border-left: 2px solid var(--border, #e5e7eb); padding-left: 0.6rem; margin: 0.25rem 0; opacity: 0.85; }
+.persona-prose a { text-decoration: underline; text-underline-offset: 2px; }
+.persona-prose .ProseMirror { outline: none; white-space: pre-wrap; }
+.persona-prose .ProseMirror p:first-child { margin-top: 0; }
+.persona-prose .ProseMirror p:last-child { margin-bottom: 0; }
+.persona-editor .persona-mention { cursor: pointer; }
+.persona-editor .persona-mention:hover { filter: brightness(0.95); }

@@ -12,6 +12,7 @@ export const TIER_ORDER: PluginSummary["tier"][] = [
   "core",
   "pro",
   "commercial",
+  "matbot",
 ];
 
 /**

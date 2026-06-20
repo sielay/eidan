@@ -69,6 +69,9 @@ export default function PluginDetailPage({
     );
   }
 
+  const tools = plugin.tools ?? [];
+  const configKeys = plugin.config_keys ?? [];
+
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10 flex flex-col gap-6">
       <header className="flex flex-col gap-1">
@@ -88,7 +91,7 @@ export default function PluginDetailPage({
 
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-xs">
         <dt className="text-muted-foreground">name</dt>
-        <dd className="font-mono">{plugin.name}</dd>
+        <dd className="font-mono">{plugin.package_name ?? plugin.name}</dd>
         {plugin.license ? (
           <>
             <dt className="text-muted-foreground">license</dt>
@@ -124,6 +127,59 @@ export default function PluginDetailPage({
           </p>
         )}
       </section>
+
+      {tools.length > 0 ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Tools ({tools.length})
+          </h2>
+          <ul className="flex flex-col gap-3">
+            {tools.map((t) => (
+              <li key={t.name} className="rounded-md border border-border p-3">
+                <code className="font-mono text-sm font-semibold">{t.name}</code>
+                {t.description ? (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t.description}
+                  </p>
+                ) : null}
+                {t.input_schema &&
+                Object.keys(t.input_schema).length > 0 ? (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-muted-foreground">
+                      input schema
+                    </summary>
+                    <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-xs">
+                      {JSON.stringify(t.input_schema, null, 2)}
+                    </pre>
+                  </details>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {configKeys.length > 0 ? (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Config keys
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Set under{" "}
+            <code className="font-mono">extensions.{plugin.name}</code> in{" "}
+            <code className="font-mono">matbot.yaml</code>.
+          </p>
+          <ul className="flex flex-wrap gap-2">
+            {configKeys.map((k) => (
+              <li key={k}>
+                <code className="rounded border border-border px-1.5 py-0.5 font-mono text-xs">
+                  {k}
+                </code>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </main>
   );
 }
