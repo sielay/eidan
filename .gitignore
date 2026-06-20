@@ -62,6 +62,7 @@ packages/*
 !packages/google/
 !packages/ical/
 !packages/imap/
+!packages/telemetry/
 
 # Assembled plugin frontends: every subdir here is bundle-written. The committed *.generated.*
 # base-case files sit directly in the dir (not a subdir), so the trailing-slash glob leaves them.

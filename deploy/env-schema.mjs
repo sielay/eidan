@@ -102,7 +102,7 @@ export const ENV_SCHEMA = [
   { key: 'MATBOT_A2A_PORT', roles: ['worker'], required: false, secret: false, default: '8095', desc: 'A2A surface port.' },
   { key: 'MATBOT_AGUI_PORT', roles: ['worker'], required: false, secret: false, default: '8090', desc: 'AG-UI surface port.' },
   { key: 'MATBOT_MCP_PORT', roles: ['worker'], required: false, secret: false, default: '8091', desc: 'MCP surface port.' },
-  { key: 'MATBOT_PRINCIPAL', roles: ['worker'], required: false, secret: false, generate: null, desc: 'Boot principal (a real eidan.users UUID).' },
+  { key: 'MATBOT_PRINCIPAL', roles: ['engine'], required: false, secret: false, generate: null, desc: 'Boot principal (a real eidan.users UUID). engine-wide: detached work (e.g. cognition reindex) runs as the boot principal, so every engine — fly included, not just worker boxes — needs it or it FK-fails (#380).' },
 
   // --- Fly engine only ---------------------------------------------------------------------------
   { key: 'EIDAN_COMPANIES_HOUSE_KEY', roles: ['fly'], required: false, secret: true, generate: null, desc: 'Companies House API key (ventures bundle).' },
