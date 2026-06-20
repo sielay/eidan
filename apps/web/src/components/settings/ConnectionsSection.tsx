@@ -105,7 +105,7 @@ export function ConnectionsSection(): React.ReactElement {
               <div className="flex items-center gap-2">
                 <code className="text-xs text-foreground">{c.key}</code>
                 {c.configured ? (
-                  <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
+                  <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/50 dark:text-green-200">
                     set
                   </span>
                 ) : (

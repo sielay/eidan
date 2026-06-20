@@ -149,7 +149,7 @@ export default function AgentsPage(): React.ReactElement {
       <NewAgentForm models={models} nodes={nodes} onCreated={reload} />
 
       {error ? (
-        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>
+        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{error}</p>
       ) : agents === null ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : agents.length === 0 ? (
@@ -277,7 +277,7 @@ function AgentCard({
           onClick={() => void act(() => updateAgent(agent.id, { enabled: !agent.enabled }))}
           className={cn(
             "rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
-            agent.enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground",
+            agent.enabled ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200" : "bg-muted text-muted-foreground",
           )}
           title="Toggle enabled"
         >
@@ -293,7 +293,7 @@ function AgentCard({
           </span>
         ) : null}
         {agent.target_node ? (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-800" title="Pinned to this node">
+          <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-800 dark:bg-amber-900/50 dark:text-amber-200" title="Pinned to this node">
             @{agent.target_node}
           </span>
         ) : null}
@@ -416,9 +416,9 @@ function TriggerChip({
 }
 
 const RUN_STATUS_CLASS: Record<string, string> = {
-  delivered: "bg-emerald-100 text-emerald-800",
-  started: "bg-blue-100 text-blue-800",
-  failed: "bg-red-100 text-red-800",
+  delivered: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200",
+  started: "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200",
+  failed: "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200",
 };
 
 function RunChip({ run }: { run: AgentRunInfo }): React.ReactElement {

@@ -62,7 +62,7 @@ export function NodeTail({ nodeId }: { nodeId: string }): React.ReactElement {
 
   if (error) {
     return (
-      <p className="rounded-md border border-red-200 bg-red-50 p-2 font-mono text-xs text-red-700">
+      <p className="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-2 font-mono text-xs text-red-700 dark:text-red-300">
         {error}
       </p>
     );

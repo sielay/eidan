@@ -134,7 +134,7 @@ export function ActivityChrome({
           <span>·</span>
           <span>{jobsActive ?? "—"} jobs active</span>
           {dlqCount !== null && dlqCount > 0 ? (
-            <span className="rounded bg-red-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-red-800">
+            <span className="rounded bg-red-100 dark:bg-red-900/50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-red-800 dark:text-red-200">
               {dlqCount} dlq
             </span>
           ) : null}
