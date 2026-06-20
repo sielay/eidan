@@ -8,11 +8,11 @@ import { jobAction, listAdminJobs, type JobInfo } from "@/lib/api/admin";
 import { cn } from "@/lib/utils";
 
 const STATUS_CLASS: Record<string, string> = {
-  queued: "bg-amber-100 text-amber-800",
-  claimed: "bg-blue-100 text-blue-800",
+  queued: "bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200",
+  claimed: "bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200",
   running: "bg-indigo-100 text-indigo-800",
-  done: "bg-emerald-100 text-emerald-800",
-  failed: "bg-red-100 text-red-800",
+  done: "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200",
+  failed: "bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200",
   cancelled: "bg-muted text-muted-foreground",
 };
 
@@ -66,7 +66,7 @@ export function JobsPane(): React.ReactElement {
 
   if (error) {
     return (
-      <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+      <p className="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-300">
         {error}
       </p>
     );
@@ -179,13 +179,13 @@ function JobRow({
           </a>
         ) : null}
         {job.error ? (
-          <span className="text-red-700" title={job.error}>
+          <span className="text-red-700 dark:text-red-300" title={job.error}>
             · {truncate(job.error, 160)}
           </span>
         ) : null}
       </div>
       {actionError ? (
-        <p className="font-mono text-[10px] text-red-700">{actionError}</p>
+        <p className="font-mono text-[10px] text-red-700 dark:text-red-300">{actionError}</p>
       ) : null}
     </article>
   );
