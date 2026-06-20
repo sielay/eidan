@@ -44,11 +44,13 @@ export const plugin: MatbotPluginSpec = {
     db = new Db(url);
 
     const servedKinds = (process.env['EIDAN_JOB_KINDS'] ?? 'chat').split(',').map((s) => s.trim()).filter(Boolean);
-    let plugins: string[] = [];
-    try { plugins = services.tools.list().map((t) => t.name); } catch { /* tools not ready — report none */ }
     const metadata = { host: os.hostname(), pid: process.pid, startedAt: new Date().toISOString() };
 
     const beat = async (): Promise<void> => {
+      // Read the tool list per-beat, not once at setup: telemetry loads early in the plugin order, so
+      // at setup only a handful of tools exist yet — by the first interval the full set is registered.
+      let plugins: string[] = [];
+      try { plugins = services.tools.list().map((t) => t.name); } catch { /* tools not ready */ }
       try {
         await db!.upsertHeartbeat({ nodeId: id.nodeId, nodeType: id.nodeType, status: 'online', plugins, servedKinds, metadata });
       } catch (err) {
@@ -59,7 +61,7 @@ export const plugin: MatbotPluginSpec = {
     // First beat creates the node_heartbeats row before any node_events reference it (FK), so do it
     // up front, then announce the node and start the periodic refresh.
     await beat();
-    void db.emitEvent({ nodeId: id.nodeId, type: 'node.online', payload: { servedKinds, plugins: plugins.length }, conversationId: null });
+    void db.emitEvent({ nodeId: id.nodeId, type: 'node.online', payload: { servedKinds }, conversationId: null });
     timer = setInterval(() => { void beat(); }, HEARTBEAT_MS);
     if (typeof timer.unref === 'function') timer.unref();
 
