@@ -438,6 +438,40 @@ export async function handleRest(
       return true;
     }
 
+    if (sub === 'llm_calls' && method === 'GET') {
+      const r = await withPrincipal(principal, (q) =>
+        q(
+          `select id, message_id, role, provider, model, input_tokens, output_tokens, cache_read_tokens,
+                  cache_creation_tokens, cost_usd, latency_ms, error, error_type, request_id,
+                  started_at, finished_at, metadata, created_at
+             from eidan.llm_calls where conversation_id=$1 and user_id=$2 order by created_at asc`,
+          [id, uid],
+        ),
+      );
+      const llm_calls = r.rows.map((row) => ({
+        id: row.id,
+        message_id: row.message_id ?? null,
+        role: (row.role as string | null) ?? '',
+        provider: (row.provider as string | null) ?? '',
+        model: (row.model as string | null) ?? '',
+        input_tokens: Number(row.input_tokens ?? 0),
+        output_tokens: Number(row.output_tokens ?? 0),
+        cache_read_tokens: Number(row.cache_read_tokens ?? 0),
+        cache_creation_tokens: Number(row.cache_creation_tokens ?? 0),
+        cost_usd: Number(row.cost_usd ?? 0),
+        latency_ms: row.latency_ms ?? null,
+        error: row.error ?? null,
+        error_type: row.error_type ?? null,
+        request_id: row.request_id ?? null,
+        started_at: iso(row.started_at),
+        finished_at: row.finished_at ? iso(row.finished_at) : null,
+        metadata: (row.metadata as Record<string, unknown> | null) ?? {},
+        created_at: iso(row.created_at),
+      }));
+      json(res, 200, { llm_calls }, cors);
+      return true;
+    }
+
     if (sub === 'regenerate_title' && method === 'POST') {
       const title = await withPrincipal(principal, async (q) => {
         const r = await q("select content_blocks from eidan.messages where conversation_id=$1 and user_id=$2 and role='user' and deleted_at is null order by seq asc limit 1", [id, uid]);
