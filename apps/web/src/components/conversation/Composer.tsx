@@ -2,9 +2,78 @@
 "use client";
 
 import * as React from "react";
-import { Paperclip, Send } from "lucide-react";
+import { Check, ChevronDown, Cpu, Paperclip, Send } from "lucide-react";
 
 import type { ProviderOption } from "@/lib/models";
+
+// Compact model picker: a small button (fixed width — never squeezes the prompt) that opens an
+// upward popover of providers. Replaces the native <select>, whose width grew with the selected
+// option's text ("name — model") and crowded the input out, unusably so on mobile.
+function ModelMenu({
+  provider, providers, onChange, disabled,
+}: {
+  provider: string;
+  providers: ProviderOption[];
+  onChange: (provider: string) => void;
+  disabled?: boolean;
+}): React.ReactElement {
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const current = providers.find((p) => p.name === provider);
+  const label = provider ? (current?.name ?? provider) : "Default";
+  const pick = (name: string): void => { onChange(name); setOpen(false); };
+
+  return (
+    <div className="composer__model-wrap">
+      <button
+        type="button"
+        className="composer__model-btn"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        title={current?.model ? `Model: ${current.name} — ${current.model}` : "Model for this conversation"}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Cpu className="i i-sm" aria-hidden />
+        <span className="composer__model-label">{label}</span>
+        <ChevronDown className="i i-sm composer__model-caret" aria-hidden />
+      </button>
+      {open ? (
+        <>
+          <button type="button" className="composer__model-backdrop" aria-label="Close model menu" onClick={() => setOpen(false)} />
+          <ul className="composer__model-menu" role="listbox" aria-label="Model">
+            <ModelOpt label="Default" hint="host default" selected={provider === ""} onPick={() => pick("")} />
+            {providers.map((p) => (
+              <ModelOpt key={p.name} label={p.name} hint={p.model} selected={p.name === provider} onPick={() => pick(p.name)} />
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function ModelOpt({
+  label, hint, selected, onPick,
+}: { label: string; hint?: string; selected: boolean; onPick: () => void }): React.ReactElement {
+  return (
+    <li>
+      <button type="button" role="option" aria-selected={selected} className="composer__model-opt" onClick={onPick}>
+        <Check className={"i i-sm composer__model-tick" + (selected ? " is-on" : "")} aria-hidden />
+        <span className="composer__model-opt-text">
+          <span className="composer__model-opt-name">{label}</span>
+          {hint ? <span className="composer__model-opt-hint">{hint}</span> : null}
+        </span>
+      </button>
+    </li>
+  );
+}
 
 export interface ComposerProps {
   /**
@@ -92,21 +161,7 @@ export function Composer({
         <Paperclip className="i" aria-hidden />
       </button>
       {onProviderChange && providers && providers.length > 0 ? (
-        <select
-          className="composer__model"
-          aria-label="Model"
-          title="Model for this conversation"
-          value={provider ?? ""}
-          disabled={isDisabled}
-          onChange={(e) => onProviderChange(e.target.value)}
-        >
-          <option value="">Default</option>
-          {providers.map((p) => (
-            <option key={p.name} value={p.name} title={p.model}>
-              {p.model ? `${p.name} — ${p.model}` : p.name}
-            </option>
-          ))}
-        </select>
+        <ModelMenu provider={provider ?? ""} providers={providers} onChange={onProviderChange} disabled={isDisabled} />
       ) : null}
       <textarea
         ref={taRef}
