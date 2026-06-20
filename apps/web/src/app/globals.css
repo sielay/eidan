@@ -136,6 +136,15 @@
     text-rendering: optimizeLegibility;
   }
   h1, h2, h3, h4 { margin: 0; font-weight: 600; line-height: var(--lh-tight); letter-spacing: -0.01em; }
+  /* Themed fallback for every form control so text is always legible in both themes (esp. dark mode,
+     where unclassed / utility-only inputs would otherwise inherit a default light field). Zero
+     specificity (:where) means any component class (.input, .composer__input, .login-input) or
+     Tailwind utility (bg-background, text-foreground) still wins. */
+  :where(input, textarea, select) {
+    background-color: var(--surface);
+    color: var(--text);
+  }
+  :where(input, textarea)::placeholder { color: var(--faint); }
   :where(a, button, input, select, textarea, [tabindex]):focus-visible {
     outline: none;
     box-shadow: var(--ring);
