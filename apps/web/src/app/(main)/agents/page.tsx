@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import * as React from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -10,6 +11,7 @@ import {
   deleteAgent,
   listAgents,
   removeAgentTrigger,
+  runAgentNow,
   updateAgent,
   type AgentInfo,
   type AgentRunInfo,
@@ -88,6 +90,7 @@ export default function AgentsPage(): React.ReactElement {
 function AgentCard({
   agent, onChange,
 }: { agent: AgentInfo; onChange: () => void }): React.ReactElement {
+  const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [scheduleInput, setScheduleInput] = React.useState("");
 
@@ -125,6 +128,14 @@ function AgentCard({
           </span>
         ) : null}
         <div className="ml-auto flex items-center gap-2">
+          <button
+            disabled={busy}
+            onClick={() => void act(async () => { const { conversation_id } = await runAgentNow(agent.id); router.push(`/c/${conversation_id}`); })}
+            className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+            title="Run now (test) — fires the agent and opens the conversation it produces"
+          >
+            {busy ? "running…" : "▶ run"}
+          </button>
           <Link href={`/agents/${agent.id}`} className="font-mono text-[10px] text-muted-foreground hover:text-foreground">
             edit
           </Link>

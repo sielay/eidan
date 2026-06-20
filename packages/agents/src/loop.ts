@@ -2,7 +2,7 @@
 import type { MatbotServices } from '@matatbread/matbot-plugin-api';
 import { AgentsStore, type DueScheduleRow } from './store.js';
 import { dueWindow } from './schedule.js';
-import { runAgentTurn } from './runner.js';
+import { runAgentTurn, effectiveProvider } from './runner.js';
 
 export interface AgentsLoopOpts {
   defaultProvider: string;
@@ -33,35 +33,6 @@ interface EscalationsLike {
 // Escalate an agent to the operator's Inbox after this many consecutive failed fires (deduped per
 // agent by the Escalations service, so it raises once per failure streak, not every tick).
 const FAIL_STREAK_TO_ESCALATE = 3;
-
-interface ProviderCfg {
-  name: string;
-  module: string;
-  model: string;
-  endpoint?: string;
-  credentials?: Record<string, unknown>;
-  parameters?: Record<string, unknown>;
-}
-
-// Per-turn model selection. The host exposes the live provider map as `services.providers`, read
-// lazily per turn by resolveProvider. So when an agent specifies a `model`, we clone its base
-// provider profile (module/endpoint/credentials) with the model overridden and register it under a
-// synthetic name — letting an agent run ANY model (e.g. any OpenRouter slug) without a restart or a
-// hand-authored profile. No model ⇒ use the base provider as-is.
-function effectiveProvider(services: MatbotServices, baseProvider: string, model: string | null): string {
-  if (!model) return baseProvider;
-  // services.providers is declared ReadonlyMap but is the host's real, mutable Map (read lazily per
-  // turn) — cast through unknown to register the synthesized profile.
-  const providers = (services as unknown as { providers?: Map<string, ProviderCfg> }).providers;
-  if (!providers) return baseProvider;
-  const synthName = `${baseProvider}::${model}`;
-  if (!providers.has(synthName)) {
-    const base = providers.get(baseProvider);
-    if (!base) return baseProvider; // unknown base — let it fail loudly at resolve time
-    providers.set(synthName, { ...base, name: synthName, model });
-  }
-  return synthName;
-}
 
 // Detached dispatch loop. Every pollMs it scans all enabled schedule triggers (joined with their
 // enabled agent); for each one due in the current window (owner timezone) it claims the fire

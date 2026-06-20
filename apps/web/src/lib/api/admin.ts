@@ -360,6 +360,15 @@ export async function deleteAgent(id: string): Promise<void> {
   await jsonOrThrow(res, `DELETE /api/admin/agents/${id}`);
 }
 
+// Manual "run now" (test): fire the agent immediately and get back the conversation it created (the
+// turn runs detached on the engine). Reaches the engine via the catch-all proxy (not a Next route).
+export async function runAgentNow(id: string): Promise<{ conversation_id: string }> {
+  const res = await authFetch(`/api/agents/${encodeURIComponent(id)}/run`, { method: "POST", headers: { Accept: "application/json" } });
+  const body = (await jsonOrThrow(res, `POST /api/agents/${id}/run`)) as { conversation_id?: string };
+  if (!body.conversation_id) throw new Error("run started but no conversation id returned");
+  return { conversation_id: body.conversation_id };
+}
+
 export async function addAgentSchedule(id: string, schedule: string): Promise<void> {
   const res = await authFetch(`/api/admin/agents/${encodeURIComponent(id)}/triggers`, {
     method: "POST",

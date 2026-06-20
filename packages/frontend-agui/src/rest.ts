@@ -348,6 +348,18 @@ export async function handleRest(
     return true;
   }
 
+  // /api/agents/:id/run — manual "run now" (test). Fires the agent's persona as a turn under its own
+  // provider and returns the conversation id immediately (the turn runs detached). The @eidandev/agents
+  // service is narrowed here so frontend-agui keeps no hard dependency on it (501 if absent).
+  if (parts.length === 4 && parts[0] === 'api' && parts[1] === 'agents' && parts[3] === 'run' && method === 'POST') {
+    const agents = (services as { Agents?: { runNow?: (agentId: string, userId: string) => Promise<{ conversationId: string } | null> } }).Agents;
+    if (!agents?.runNow) { json(res, 501, { error: 'agents run-now unavailable' }, cors); return true; }
+    const result = await agents.runNow(parts[2] ?? '', uid);
+    if (!result) { json(res, 404, { error: 'agent not found' }, cors); return true; }
+    json(res, 200, { conversation_id: result.conversationId }, cors);
+    return true;
+  }
+
   // /api/plugins (+ /:name) — rich catalogue cards from the live loaded-plugin set: manifest
   // description, package.json (version/license/authors), README.md, registered tools, config keys.
   if (parts.length >= 2 && parts[0] === 'api' && parts[1] === 'plugins' && method === 'GET') {

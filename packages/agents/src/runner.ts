@@ -1,6 +1,33 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MatbotServices, Session, MessageContent, Principal } from '@matatbread/matbot-plugin-api';
 import { runAs } from '@matatbread/matbot-plugin-api';
+import type { AgentsStore } from './store.js';
+
+interface ProviderCfg {
+  name: string;
+  module: string;
+  model: string;
+  endpoint?: string;
+  credentials?: Record<string, unknown>;
+  parameters?: Record<string, unknown>;
+}
+
+// Per-turn model selection. The host exposes the live provider map as `services.providers`. When an
+// agent specifies a `model`, clone its base provider profile (module/endpoint/credentials) with the
+// model overridden and register it under a synthetic name — letting an agent run ANY model (e.g. any
+// OpenRouter slug) without a restart or a hand-authored profile. No model ⇒ use the base provider.
+export function effectiveProvider(services: MatbotServices, baseProvider: string, model: string | null): string {
+  if (!model) return baseProvider;
+  const providers = (services as unknown as { providers?: Map<string, ProviderCfg> }).providers;
+  if (!providers) return baseProvider;
+  const synthName = `${baseProvider}::${model}`;
+  if (!providers.has(synthName)) {
+    const base = providers.get(baseProvider);
+    if (!base) return baseProvider; // unknown base — let it fail loudly at resolve time
+    providers.set(synthName, { ...base, name: synthName, model });
+  }
+  return synthName;
+}
 
 function newSession(ownerId: string): Session {
   const now = new Date().toISOString();
@@ -65,4 +92,29 @@ export async function runAgentTurn(
       if (timer !== undefined) clearTimeout(timer);
     }
   });
+}
+
+// Manual "run now" (test affordance, surfaced via POST /api/agents/:id/run). Starts the agent's turn
+// under its OWN provider (+ model synthesis), tags the conversation as agent-origin, and returns the
+// conversation id AS SOON AS it's created — the turn itself runs detached so the HTTP request doesn't
+// block on a long agent run (and can't hit a proxy/gateway timeout). No agent_runs row is written: the
+// run ledger is keyed by a trigger, and a manual test has none. Returns null if the agent is gone.
+export async function fireAgentNow(
+  services: MatbotServices,
+  store: AgentsStore,
+  agentId: string,
+  userId: string,
+  opts: { defaultProvider: string; turnTimeoutMs?: number },
+): Promise<{ conversationId: string } | null> {
+  const agent = await store.getAgent(agentId, userId);
+  if (!agent) return null;
+  const provider = effectiveProvider(services, agent.provider ?? opts.defaultProvider, agent.model);
+  let resolveId: (id: string) => void;
+  const idReady = new Promise<string>((r) => { resolveId = r; });
+  void runAgentTurn(
+    services, userId, agent.persona, provider,
+    async (cid) => { await store.markAgentConversation(cid, agentId, agent.name); resolveId(cid); },
+    opts.turnTimeoutMs,
+  ).catch((e) => console.warn(`[agents] run-now "${agent.name}" failed:`, e instanceof Error ? e.message : e));
+  return { conversationId: await idReady };
 }
