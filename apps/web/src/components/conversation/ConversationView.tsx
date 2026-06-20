@@ -10,7 +10,7 @@ import {
   type MessageRow,
 } from "@/lib/api/conversations";
 import { streamTurn } from "@/lib/api/turn";
-import { loadProvider, saveProvider } from "@/lib/models";
+import { loadProvider, saveProvider, listProviders, type ProviderOption } from "@/lib/models";
 
 import { buildThread, type StreamingAssistant } from "./buildThread";
 import { Composer } from "./Composer";
@@ -65,6 +65,12 @@ export function ConversationView({
   React.useEffect(() => {
     setProvider(loadProvider(conversationId));
   }, [conversationId]);
+  // The picker menu is built from the engine's live provider registry, so it can never offer a name
+  // the engine doesn't have (which silently falls back to the default).
+  const [providers, setProviders] = React.useState<ProviderOption[]>([]);
+  React.useEffect(() => {
+    listProviders().then(setProviders).catch(() => setProviders([]));
+  }, []);
   const onProviderChange = React.useCallback(
     (p: string) => {
       setProvider(p);
@@ -281,6 +287,7 @@ export function ConversationView({
         disabled={inFlight}
         provider={provider}
         onProviderChange={onProviderChange}
+        providers={providers}
       />
     </div>
   );
