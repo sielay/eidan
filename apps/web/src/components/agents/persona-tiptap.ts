@@ -20,7 +20,9 @@ export const MENTION_RE = /@([a-zA-Z][a-zA-Z0-9_-]*)(\([^)]*\))?/g;
 // ── param (de)serialisation ───────────────────────────────────────────────────────
 function serializeValue(v: string | number | boolean): string {
   if (typeof v === "boolean" || typeof v === "number") return String(v);
-  return /[\s,()"=]/.test(v) ? `"${v.replace(/"/g, '\\"')}"` : v;
+  // Escape backslashes FIRST, then quotes — otherwise a value containing `\` (or a trailing `\`)
+  // could break out of the quoted param (incomplete sanitisation). parseParams reverses both.
+  return /[\s,()"=\\]/.test(v) ? `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : v;
 }
 
 export function serializeParams(params: MentionParams | undefined): string {
@@ -40,7 +42,7 @@ export function parseParams(inner: string): MentionParams {
     const key = m[1];
     if (!key) continue;
     const raw = (m[2] ?? "").trim();
-    if (raw.startsWith('"') && raw.endsWith('"')) out[key] = raw.slice(1, -1).replace(/\\"/g, '"');
+    if (raw.startsWith('"') && raw.endsWith('"')) out[key] = raw.slice(1, -1).replace(/\\(["\\])/g, "$1");
     else if (raw === "true") out[key] = true;
     else if (raw === "false") out[key] = false;
     else if (raw !== "" && Number.isFinite(Number(raw))) out[key] = Number(raw);
