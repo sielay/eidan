@@ -329,7 +329,10 @@
 .composer { flex: none; display: flex; gap: 8px; align-items: flex-end; padding: var(--s3) 0 var(--s4); border-top: 1px solid var(--border); margin-top: var(--s3); }
 .composer__input { flex: 1; min-height: 44px; max-height: 160px; resize: none; padding: 11px var(--s4); border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-family: inherit; font-size: var(--fs-15); line-height: var(--lh); }
 .composer__input:focus-visible { box-shadow: var(--ring); border-color: var(--accent); }
-.composer__send, .composer__attach { height: 44px; width: 44px; min-width: 44px; padding: 0; flex: none; }
+.composer__send, .composer__attach, .composer__mic { height: 44px; width: 44px; min-width: 44px; padding: 0; flex: none; }
+.composer__mic.is-recording { color: var(--alert); background: var(--alert-tint); }
+.composer__mic-spin { animation: eidan-spin 0.9s linear infinite; }
+@keyframes eidan-spin { to { transform: rotate(360deg); } }
 
 /* Model picker: a compact, fixed-width button (so the prompt stays the prominent element and the
    model name never squeezes it) that opens an upward popover. */

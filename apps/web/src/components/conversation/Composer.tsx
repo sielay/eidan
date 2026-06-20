@@ -2,9 +2,82 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, Cpu, Paperclip, Send } from "lucide-react";
+import { Check, ChevronDown, Cpu, Loader2, Mic, Paperclip, Send, Square } from "lucide-react";
 
+import { isTranscribeAvailable, transcribeAudio } from "@/lib/api/transcribe";
 import type { ProviderOption } from "@/lib/models";
+
+// Voice input: records via MediaRecorder, sends the clip to the engine's /api/transcribe, and hands
+// the transcript back to the composer (which fills the prompt — the user reviews before sending).
+// Hidden entirely when the engine has no STT configured or the browser can't record.
+function MicButton({ onText, disabled }: { onText: (t: string) => void; disabled?: boolean }): React.ReactElement | null {
+  const [available, setAvailable] = React.useState(false);
+  const [recording, setRecording] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const recRef = React.useRef<MediaRecorder | null>(null);
+  const chunksRef = React.useRef<Blob[]>([]);
+  const streamRef = React.useRef<MediaStream | null>(null);
+
+  const canRecord = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+
+  React.useEffect(() => {
+    if (!canRecord) return;
+    void isTranscribeAvailable().then(setAvailable).catch(() => setAvailable(false));
+  }, [canRecord]);
+
+  const stopTracks = React.useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  React.useEffect(() => () => { recRef.current?.stop(); stopTracks(); }, [stopTracks]);
+
+  const start = React.useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+        : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      rec.onstop = () => {
+        stopTracks();
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+        chunksRef.current = [];
+        if (blob.size === 0) return;
+        setBusy(true);
+        void transcribeAudio(blob).then(onText).catch(() => { /* no text on failure */ }).finally(() => setBusy(false));
+      };
+      rec.start();
+      recRef.current = rec;
+      setRecording(true);
+    } catch {
+      stopTracks();
+      setRecording(false);
+    }
+  }, [onText, stopTracks]);
+
+  const stop = React.useCallback(() => {
+    recRef.current?.stop();
+    recRef.current = null;
+    setRecording(false);
+  }, []);
+
+  if (!canRecord || !available) return null;
+  return (
+    <button
+      type="button"
+      className={"iconbtn composer__mic" + (recording ? " is-recording" : "")}
+      aria-label={recording ? "Stop recording" : "Voice input"}
+      title={busy ? "Transcribing…" : recording ? "Stop & transcribe" : "Voice input"}
+      disabled={disabled || busy}
+      onClick={() => { if (recording) stop(); else void start(); }}
+    >
+      {busy ? <Loader2 className="i composer__mic-spin" aria-hidden /> : recording ? <Square className="i" aria-hidden /> : <Mic className="i" aria-hidden />}
+    </button>
+  );
+}
 
 // Compact model picker: a small button (fixed width — never squeezes the prompt) that opens an
 // upward popover of providers. Replaces the native <select>, whose width grew with the selected
@@ -117,6 +190,14 @@ export function Composer({
     ta.style.height = `${ta.scrollHeight}px`;
   }, []);
 
+  // Append transcribed text into the prompt (the user reviews/edits before sending — voice fills the
+  // field, it doesn't auto-send).
+  const appendText = React.useCallback((text: string) => {
+    if (!text) return;
+    setValue((v) => (v.trim() ? `${v.trim()} ${text}` : text));
+    requestAnimationFrame(() => { autosize(); taRef.current?.focus(); });
+  }, [autosize]);
+
   const submit = React.useCallback(async () => {
     const text = value.trim();
     if (!text || isDisabled) return;
@@ -160,6 +241,7 @@ export function Composer({
       >
         <Paperclip className="i" aria-hidden />
       </button>
+      <MicButton onText={appendText} disabled={isDisabled} />
       {onProviderChange && providers && providers.length > 0 ? (
         <ModelMenu provider={provider ?? ""} providers={providers} onChange={onProviderChange} disabled={isDisabled} />
       ) : null}

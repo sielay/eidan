@@ -28,6 +28,31 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+// Raw bytes (for binary uploads like audio). Capped at 25MB — the Whisper API's own per-file limit.
+function readRawBody(req: IncomingMessage, maxBytes = 25 * 1024 * 1024): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (d: Buffer) => {
+      size += d.length;
+      if (size > maxBytes) { reject(new Error('audio too large')); req.destroy(); return; }
+      chunks.push(d);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+// Map an audio mime to the filename extension Whisper-style endpoints use to detect the codec.
+function audioExt(mime: string): string {
+  if (mime.includes('ogg')) return 'ogg';
+  if (mime.includes('webm')) return 'webm';
+  if (mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac')) return 'm4a';
+  if (mime.includes('mpeg') || mime.includes('mp3')) return 'mp3';
+  if (mime.includes('wav')) return 'wav';
+  return 'webm';
+}
+
 // matbot MessageContent[] -> the UI's flat {content, tool_calls, tool_results}.
 function mapBlocks(blocks: MessageContent[] | null): {
   content: string | null;
@@ -345,6 +370,32 @@ export async function handleRest(
   if (parts.length === 2 && parts[0] === 'api' && parts[1] === 'providers' && method === 'GET') {
     const providers = [...services.providers.entries()].map(([name, cfg]) => ({ name, model: cfg.model ?? '' }));
     json(res, 200, { providers }, cors);
+    return true;
+  }
+
+  // /api/transcribe (GET) — whether speech-to-text is configured, so the chat can show/hide the mic.
+  if (parts.length === 2 && parts[0] === 'api' && parts[1] === 'transcribe' && method === 'GET') {
+    const tr = (services as { Transcribe?: { available(): boolean } }).Transcribe;
+    json(res, 200, { available: tr?.available() ?? false }, cors);
+    return true;
+  }
+
+  // /api/transcribe — speech-to-text for the chat mic button. The raw audio is the request body
+  // (content-type = its mime); returns { text }. Delegates to the Transcribe service (narrowed; 501
+  // when no STT endpoint/key is configured). No audio is persisted — bytes live only for the call.
+  if (parts.length === 2 && parts[0] === 'api' && parts[1] === 'transcribe' && method === 'POST') {
+    const tr = (services as { Transcribe?: { available(): boolean; transcribe(a: Uint8Array, o: { mime: string; filename: string }): Promise<string> } }).Transcribe;
+    if (!tr?.available()) { json(res, 501, { error: 'transcription not configured' }, cors); return true; }
+    const mime = (req.headers['content-type'] ?? 'audio/webm').split(';')[0]?.trim() || 'audio/webm';
+    let bytes: Buffer;
+    try { bytes = await readRawBody(req); } catch { json(res, 413, { error: 'audio too large' }, cors); return true; }
+    if (bytes.length === 0) { json(res, 400, { error: 'empty audio' }, cors); return true; }
+    try {
+      const text = await tr.transcribe(new Uint8Array(bytes), { mime, filename: `clip.${audioExt(mime)}` });
+      json(res, 200, { text }, cors);
+    } catch (e) {
+      json(res, 502, { error: e instanceof Error ? e.message : 'transcription failed' }, cors);
+    }
     return true;
   }
 
