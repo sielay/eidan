@@ -338,6 +338,16 @@ export async function handleRest(
     return true;
   }
 
+  // /api/providers — the live LLM provider registry. Each matbot provider is one fully-resolved
+  // model, so the chat model picker reads this to build its menu from the engine's ACTUAL config:
+  // a hardcoded client list silently falls back to the default whenever a name doesn't match
+  // (which is how "DeepSeek" ended up running sonnet). No secrets here — just name + model.
+  if (parts.length === 2 && parts[0] === 'api' && parts[1] === 'providers' && method === 'GET') {
+    const providers = [...services.providers.entries()].map(([name, cfg]) => ({ name, model: cfg.model ?? '' }));
+    json(res, 200, { providers }, cors);
+    return true;
+  }
+
   // /api/plugins (+ /:name) — rich catalogue cards from the live loaded-plugin set: manifest
   // description, package.json (version/license/authors), README.md, registered tools, config keys.
   if (parts.length >= 2 && parts[0] === 'api' && parts[1] === 'plugins' && method === 'GET') {

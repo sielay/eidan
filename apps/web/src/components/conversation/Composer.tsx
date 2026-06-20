@@ -4,7 +4,7 @@
 import * as React from "react";
 import { Paperclip, Send } from "lucide-react";
 
-import { MODEL_OPTIONS } from "@/lib/models";
+import type { ProviderOption } from "@/lib/models";
 
 export interface ComposerProps {
   /**
@@ -18,6 +18,8 @@ export interface ComposerProps {
   /** Selected matbot provider (one model each). When `onProviderChange` is set, a picker shows. */
   provider?: string;
   onProviderChange?: (provider: string) => void;
+  /** Engine-reported providers for the picker (GET /api/providers). Empty → picker hidden. */
+  providers?: ProviderOption[];
 }
 
 /**
@@ -30,6 +32,7 @@ export function Composer({
   disabled,
   provider,
   onProviderChange,
+  providers,
 }: ComposerProps): React.ReactElement {
   const [value, setValue] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
@@ -88,7 +91,7 @@ export function Composer({
       >
         <Paperclip className="i" aria-hidden />
       </button>
-      {onProviderChange ? (
+      {onProviderChange && providers && providers.length > 0 ? (
         <select
           className="composer__model"
           aria-label="Model"
@@ -97,9 +100,10 @@ export function Composer({
           disabled={isDisabled}
           onChange={(e) => onProviderChange(e.target.value)}
         >
-          {MODEL_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
+          <option value="">Default</option>
+          {providers.map((p) => (
+            <option key={p.name} value={p.name} title={p.model}>
+              {p.model ? `${p.name} — ${p.model}` : p.name}
             </option>
           ))}
         </select>
