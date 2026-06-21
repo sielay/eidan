@@ -139,7 +139,6 @@ export class BlueskyClient {
     const codePoints: CodePoint[] = [];
     let byteOffset = 0;
     for (const ch of text) {
-      Buffer.byteLength(ch, 'utf-8');
       codePoints.push({ byteOffset, charLen: ch.length });
       byteOffset += Buffer.byteLength(ch, 'utf-8');
     }
