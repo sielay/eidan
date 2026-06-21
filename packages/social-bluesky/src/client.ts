@@ -72,15 +72,17 @@ export class BlueskyClient {
     const accessJwtKey = 'BLUESKY_ACCESS_JWT';
     const refreshJwtKey = 'BLUESKY_REFRESH_JWT';
     const expiryKey = 'BLUESKY_ACCESS_JWT_EXPIRY';
+    const didKey = 'BLUESKY_DID';
 
     // Fast path: cached access JWT not yet near expiry
     const expiryStr = await secretOpt(this.ctx, expiryKey);
     const accessJwt = await secretOpt(this.ctx, accessJwtKey);
+    const did = await secretOpt(this.ctx, didKey);
 
-    if (accessJwt && expiryStr) {
+    if (accessJwt && expiryStr && did) {
       const expMs = new Date(expiryStr).getTime();
       if (expMs - Date.now() > REFRESH_WINDOW_MS) {
-        return { accessJwt, did: '', service: this.service };
+        return { accessJwt, did, service: this.service };
       }
     }
 
@@ -90,8 +92,12 @@ export class BlueskyClient {
       const refreshed = await this.refreshSession(refreshJwt);
       if (refreshed) {
         const accessExp = this.decodeJwtExpiry(refreshed.accessJwt);
-        // Store in vault would happen here in a full implementation
-        // For now, return the refreshed token
+        if (accessExp) {
+          await this.ctx.vault.writeSecret(accessJwtKey, refreshed.accessJwt);
+          await this.ctx.vault.writeSecret(refreshJwtKey, refreshed.refreshJwt);
+          await this.ctx.vault.writeSecret(expiryKey, accessExp.toISOString());
+          await this.ctx.vault.writeSecret(didKey, refreshed.did);
+        }
         return {
           accessJwt: refreshed.accessJwt,
           did: refreshed.did,
@@ -104,7 +110,12 @@ export class BlueskyClient {
     try {
       const session = await this.createSession(handle, appPassword);
       const accessExp = this.decodeJwtExpiry(session.accessJwt);
-      // Store in vault would happen here in a full implementation
+      if (accessExp) {
+        await this.ctx.vault.writeSecret(accessJwtKey, session.accessJwt);
+        await this.ctx.vault.writeSecret(refreshJwtKey, session.refreshJwt);
+        await this.ctx.vault.writeSecret(expiryKey, accessExp.toISOString());
+        await this.ctx.vault.writeSecret(didKey, session.did);
+      }
       return {
         accessJwt: session.accessJwt,
         did: session.did,
@@ -231,11 +242,11 @@ export class BlueskyClient {
 
       const data = (await res.json()) as { uri: string; cid: string };
       return { uri: data.uri, cid: data.cid };
-    } catch (err) {
+    } catch {
       return {
         uri: '',
         cid: '',
-        error: err instanceof Error ? err.message : String(err),
+        error: 'Failed to post to Bluesky',
       };
     }
   }
@@ -265,10 +276,10 @@ export class BlueskyClient {
 
       const data = (await res.json()) as { feed?: Array<{ post: any }> };
       return { posts: data.feed?.map((item) => item.post) ?? [] };
-    } catch (err) {
+    } catch {
       return {
         posts: [],
-        error: err instanceof Error ? err.message : String(err),
+        error: 'Failed to read feed from Bluesky',
       };
     }
   }
@@ -298,10 +309,10 @@ export class BlueskyClient {
 
       const data = (await res.json()) as { posts?: Array<any> };
       return { posts: data.posts ?? [] };
-    } catch (err) {
+    } catch {
       return {
         posts: [],
-        error: err instanceof Error ? err.message : String(err),
+        error: 'Failed to search Bluesky',
       };
     }
   }
