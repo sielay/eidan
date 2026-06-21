@@ -440,10 +440,23 @@ export async function handleRest(
   // /api/conversations
   if (parts.length === 2 && parts[0] === 'api' && parts[1] === 'conversations') {
     if (method === 'GET') {
-      // Agent-driven conversations get a synthesized "[<slug>] …" title prefix (from metadata.agent_name)
-      // so the existing client thread filter (agent-thread.ts parseAgentName) classifies them as agent
-      // threads — they show under the "agents" filter, not "chats". (Earlier we excluded them entirely,
-      // which broke that filter.) Human chats keep their own title untouched.
+      // Keyset-paginated + searchable + kind-filtered. Cursor is `before` = the prior page's last
+      // coalesce(updated_at,created_at) iso (stable under inserts). `kind`: all | agents | chats
+      // (agents = metadata.origin='agent'). `q` = case-insensitive match on title or agent name.
+      // Agent-driven conversations get a synthesized "[<slug>] …" title prefix so the client thread
+      // filter still classifies them; human chats keep their own title.
+      const qp = new URL(req.url ?? '', 'http://x').searchParams;
+      const limit = Math.min(Math.max(Number(qp.get('limit')) || 50, 1), 100);
+      const before = qp.get('before');
+      const search = (qp.get('q') ?? '').trim();
+      const kind = qp.get('kind');
+      const conds: string[] = ['user_id = $1', 'deleted_at is null'];
+      const vals: unknown[] = [uid];
+      if (kind === 'agents') conds.push(`metadata->>'origin' = 'agent'`);
+      else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
+      if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
+      if (before) { vals.push(before); conds.push(`coalesce(updated_at, created_at) < $${vals.length}::timestamptz`); }
+      vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
         q(
           `select id,
@@ -451,14 +464,24 @@ export async function handleRest(
                        then '[' || coalesce(nullif(btrim(lower(regexp_replace(coalesce(metadata->>'agent_name','agent'), '[^a-z0-9]+', '-', 'gi')), '-'), ''), 'agent') || '] '
                             || coalesce(title, metadata->>'agent_name', '')
                        else title end as title,
+                  metadata->>'origin' as origin, metadata->>'agent_name' as agent_name,
                   created_at, updated_at
              from eidan.conversations
-            where user_id = $1 and deleted_at is null
-            order by coalesce(updated_at, created_at) desc limit 200`,
-          [uid],
+            where ${conds.join(' and ')}
+            order by coalesce(updated_at, created_at) desc limit $${vals.length}`,
+          vals,
         ),
       );
-      json(res, 200, { conversations: r.rows.map((row) => ({ id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at) })) }, cors);
+      const rows = r.rows;
+      const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown } | undefined;
+      const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
+      json(res, 200, {
+        conversations: rows.map((row) => ({
+          id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
+          created_at: iso(row.created_at), updated_at: iso(row.updated_at),
+        })),
+        next_before: nextBefore,
+      }, cors);
       return true;
     }
     if (method === 'POST') {
