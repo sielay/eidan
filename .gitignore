@@ -64,6 +64,9 @@ packages/*
 !packages/imap/
 !packages/telemetry/
 !packages/transcribe/
+# thematic bundles folded into the AGPL core (kept as opt-in bundle plugins, not in CORE_PLUGINS)
+!packages/charles-ventures/
+!packages/charles-decks/
 
 # Assembled plugin frontends: every subdir here is bundle-written. The committed *.generated.*
 # base-case files sit directly in the dir (not a subdir), so the trailing-slash glob leaves them.

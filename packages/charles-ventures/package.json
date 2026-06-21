@@ -1,0 +1,64 @@
+{
+  "name": "@eidandev/charles-ventures",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "Ventures registry (Charles bundle, matbot) — the recursive org/venture/project scoping spine every other Charles capability hangs off, plus venture-resource attachment and Companies House identity lookup.",
+  "matbotRuntime": [
+    "node"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "charles.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Ventures.tsx"
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/charles/ventures",
+          "handler": "api/route.ts"
+        },
+        {
+          "path": "/api/charles/ventures/create",
+          "handler": "api/create.ts"
+        },
+        {
+          "path": "/api/charles/ventures/lookup",
+          "handler": "api/lookup.ts"
+        }
+      ],
+      "nav": {
+        "group": "Charles · business",
+        "sections": [
+          {
+            "id": "ventures",
+            "label": "Ventures",
+            "icon": "ventures",
+            "href": "/p/charles-ventures",
+            "mobileHome": 1
+          }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

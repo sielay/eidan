@@ -1,0 +1,88 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+   Charles bundle — screen-specific classes NOT in core's design-system globals.css.
+   The core ships the tokens + shared primitives (.card/.stat/.pill/.loglist/.scope/.grid-2/
+   .btn/.chip/.empty/.screen-sub); this adds only the Charles-owned bits. Authored against the
+   same tokens so it stays inside the one design system (brief §1.5). */
+
+/* ScopeSwitcher — the venture holding-tree dropdown (the global scope control, brief §4).
+   .scope (the trigger) lives in core globals; the menu internals are Charles-owned. */
+.scope-wrap { position: relative; }
+.scope__name { font-weight: 600; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope__scrim { position: fixed; inset: 0; z-index: 40; }
+.scope__menu {
+  position: absolute; top: calc(100% + var(--s2)); left: 0; z-index: 50;
+  min-width: 280px; max-width: min(92vw, 360px);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: var(--e2); padding: var(--s2); display: flex; flex-direction: column; gap: 2px;
+}
+.scope__holding {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s3); font-size: var(--fs-13); font-weight: 600; color: var(--muted);
+}
+.scope__count { margin-left: auto; font-family: var(--font-num); color: var(--faint); font-weight: 500; }
+.scope__item {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s3); border: none; background: none; cursor: pointer;
+  border-radius: var(--r-sm); text-align: left; color: var(--text);
+  transition: background var(--dur-1) var(--ease);
+}
+.scope__item:hover { background: var(--surface-2); }
+.scope__item.is-active { background: var(--accent-tint); }
+.scope__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.scope__item-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.scope__item-name { font-size: var(--fs-15); font-weight: 500; }
+.scope__item-kind { font-size: var(--fs-13); color: var(--muted); }
+.scope__item-cash { font-size: var(--fs-13); color: var(--muted); }
+.scope__check { color: var(--accent-link); }
+.scope__add {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s3); margin-top: 2px; border: none; background: none; cursor: pointer;
+  border-radius: var(--r-sm); color: var(--accent-link); font-size: var(--fs-15); font-weight: 500;
+}
+.scope__add:hover { background: var(--accent-tint); }
+
+/* Linked-resources rows on the venture profile */
+.res-row { grid-template-columns: auto 1fr auto; }
+.res-ic {
+  width: 32px; height: 32px; border-radius: var(--r-sm); flex: none;
+  display: grid; place-items: center; background: var(--surface-2); color: var(--muted);
+}
+
+/* venture screen scaffold + states */
+.ven-screen { display: flex; flex-direction: column; }
+.ven-row-tail { display: flex; align-items: center; gap: var(--s3); }
+
+/* Responsive two-pane: main + identity aside (brief §4 desktop context panel).
+   Single column on mobile; the aside reflows below. At desktop it sits to the side. */
+.ven-layout { display: grid; gap: var(--s4); align-items: start; }
+@media (min-width: 1024px) {
+  .ven-layout { grid-template-columns: minmax(0, 1fr) 320px; }
+}
+.ven-main { display: flex; flex-direction: column; min-width: 0; }
+.ven-aside { display: flex; flex-direction: column; }
+.ctxtag {
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--faint); margin-bottom: var(--s3);
+}
+.identity-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); padding: var(--s2) 0; }
+.identity-row + .identity-row { border-top: 1px solid var(--border); }
+.identity-row__k { font-size: var(--fs-13); color: var(--muted); }
+.identity-row__v { font-size: var(--fs-15); text-align: right; }
+
+/* Bottom-sheet overlay (QuickAddSheet pattern, brief §1.6 — logging/CRUD in a sheet) */
+.sheet-scrim {
+  position: fixed; inset: 0; z-index: 60; background: rgba(20,20,30,.36);
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: sheet-fade var(--dur-2) var(--ease);
+}
+@media (min-width: 640px) { .sheet-scrim { align-items: center; } }
+.sheet-dock {
+  width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+}
+@media (min-width: 640px) { .sheet-dock { border-radius: var(--r-lg); margin: 0 var(--s4); } }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s4); }
+.sheet-head h3 { font-size: var(--fs-20); }
+.sheet-x { border: none; background: none; cursor: pointer; color: var(--muted); padding: var(--s1); border-radius: var(--r-sm); }
+.sheet-fields { display: flex; flex-direction: column; gap: var(--s4); }
+@keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
