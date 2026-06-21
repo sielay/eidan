@@ -30,7 +30,7 @@ export function parseKv(text) {
   }
   const map = {};
   for (const line of (text ?? "").split("\n")) {
-    const mm = /^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line);
+    const mm = /^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*(?:__[a-z0-9-]+)?)=(.*)$/.exec(line);
     if (mm) map[mm[1]] = mm[2];
   }
   return map;

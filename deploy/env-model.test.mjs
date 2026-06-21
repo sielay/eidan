@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   resolveNodeEnv, missingValues, undeclaredKeys, presentKeysOf, parseEnvMap,
-  renderEnv, genSecret, renderExample, scaffoldEnv, validateFile,
+  renderEnv, genSecret, renderExample, scaffoldEnv, validateFile, applyNodeOverrides,
 } from "./env-model.mjs";
 
 const CONFIG = { targets: { kesha: { type: "ssh-node", env_set: { EIDAN_NODE_ID: "kesha" } } } };
@@ -42,6 +42,24 @@ describe("renderEnv", () => {
     assert.match(text, /^EIDAN_NODE_ID=kesha$/m);   // override literal
     assert.ok(missing.includes("EIDAN_AUTH_MASTER_KEY")); // declared, no value
     assert.ok(!/EIDAN_AUTH_MASTER_KEY=/.test(text));
+  });
+});
+
+describe("applyNodeOverrides", () => {
+  const TARGETS = ["fly", "kesha", "web"];
+  const VALS = { EIDAN_GH_PATS: "DEFAULT", EIDAN_GH_PATS__kesha: "KESHA", FOO__web: "WEB", DB__url: "keep" };
+
+  it("folds KEY__<node> over KEY for that node, drops other nodes' overrides", () => {
+    assert.deepEqual(applyNodeOverrides(VALS, "kesha", TARGETS), { EIDAN_GH_PATS: "KESHA", DB__url: "keep" });
+  });
+  it("uses the base KEY for a node without its own override", () => {
+    assert.deepEqual(applyNodeOverrides(VALS, "fly", TARGETS), { EIDAN_GH_PATS: "DEFAULT", DB__url: "keep" });
+  });
+  it("introduces a key that only exists per-node (FOO__web -> FOO on web)", () => {
+    assert.equal(applyNodeOverrides(VALS, "web", TARGETS).FOO, "WEB");
+  });
+  it("leaves a `__`-containing key untouched when the suffix is not a target name", () => {
+    assert.equal(applyNodeOverrides(VALS, "kesha", TARGETS).DB__url, "keep");
   });
 });
 
