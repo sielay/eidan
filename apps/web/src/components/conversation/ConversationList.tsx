@@ -3,7 +3,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { MoreHorizontal, Pencil, Plus, RefreshCw, Search } from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -54,19 +54,24 @@ export function ConversationList(): React.ReactElement {
   const { config, user, loading } = useAuth();
   const router = useRouter();
   const params = useParams<{ conversation_id?: string }>();
-  const searchParams = useSearchParams();
   const activeId = params?.conversation_id ?? null;
 
   // The kind filter is permalinked via ?tab= (default "chats" so scheduled agent threads don't flood
-  // the human list). Reading it from the URL means the view is shareable/bookmarkable.
-  const tab = searchParams.get("tab");
-  const filter: ThreadKindFilter = tab === "agents" || tab === "all" || tab === "chats" ? tab : "chats";
+  // the human list). Read/written via window+history rather than useSearchParams — the latter forces a
+  // Suspense boundary and has bitten this app before (see telegram/link). Initialised from the URL on
+  // mount (client-only), updated in place so the view stays shareable/bookmarkable.
+  const [filter, setFilterState] = React.useState<ThreadKindFilter>("chats");
+  React.useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "agents" || t === "all") setFilterState(t);
+  }, []);
   const setFilter = React.useCallback((kind: ThreadKindFilter) => {
-    const sp = new URLSearchParams(searchParams.toString());
+    setFilterState(kind);
+    const sp = new URLSearchParams(window.location.search);
     if (kind === "chats") sp.delete("tab"); else sp.set("tab", kind);
     const qs = sp.toString();
-    router.replace(qs ? `?${qs}` : "?", { scroll: false });
-  }, [router, searchParams]);
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, []);
 
   const [items, setItems] = React.useState<ConversationSummary[] | null>(null);
   const [nextBefore, setNextBefore] = React.useState<string | null>(null);
@@ -108,23 +113,29 @@ export function ConversationList(): React.ReactElement {
       const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore });
       setItems((prev) => [...(prev ?? []), ...page.conversations]);
       setNextBefore(page.nextBefore);
-    } catch { /* keep what we have; the sentinel will retry on next intersect */ } finally {
+    } catch { /* keep what we have; the next scroll-into-view retries */ } finally {
       setLoadingMore(false);
     }
   }, [loadingMore, nextBefore, config, filter, debounced]);
 
-  // Infinite scroll: load the next page when a sentinel at the list end comes into view.
+  // Infinite scroll. The observer is created ONCE and calls the latest loadMore via a ref — putting
+  // loadMore in the effect deps would re-create the observer on every loadingMore/nextBefore change,
+  // and a freshly-observed sentinel that's still in view re-fires immediately, eagerly loading EVERY
+  // page back-to-back on mount (thousands of rows → the tab crashes). IntersectionObserver only fires
+  // on intersection *change*, so a stable observer loads exactly one page per scroll-into-view.
+  const loadMoreRef = React.useRef(loadMore);
+  React.useEffect(() => { loadMoreRef.current = loadMore; }, [loadMore]);
   const sentinelRef = React.useRef<HTMLDivElement | null>(null);
   React.useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !nextBefore) return;
+    if (!el) return;
     const io = new IntersectionObserver(
-      (entries) => { if (entries[0]?.isIntersecting) void loadMore(); },
+      (entries) => { if (entries[0]?.isIntersecting) void loadMoreRef.current(); },
       { rootMargin: "240px" },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [nextBefore, loadMore]);
+  }, []);
 
   const onNewConversation = React.useCallback(async () => {
     if (!config || creating) return;

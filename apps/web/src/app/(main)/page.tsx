@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
-import * as React from "react";
-
 import { ConversationList } from "@/components/conversation/ConversationList";
 
 /**
@@ -20,15 +18,7 @@ export default function HomePage(): React.ReactElement {
           <div className="screen-sub">Your conversations with eidan</div>
         </div>
       </div>
-      <React.Suspense
-        fallback={
-          <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-muted-foreground">
-            Loading…
-          </p>
-        }
-      >
-        <ConversationList />
-      </React.Suspense>
+      <ConversationList />
     </div>
   );
 }
