@@ -4,10 +4,20 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { formatAbsolute, formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
 import type { PairedToolCall } from "./Thread";
 import { ToolDisclosure } from "./ToolDisclosure";
+
+function MsgTime({ iso }: { iso?: string }): React.ReactElement | null {
+  if (!iso) return null;
+  return (
+    <time className="msg-time" dateTime={iso} title={formatAbsolute(iso)}>
+      {formatRelative(iso)}
+    </time>
+  );
+}
 
 type MessageRole = "user" | "assistant" | "tool";
 
@@ -21,6 +31,8 @@ export interface MessageBlockProps {
   interrupted?: boolean;
   /** Streaming rows render a soft caret on the assistant bubble. */
   streaming?: boolean;
+  /** ISO timestamp shown subtly under the bubble (omitted for optimistic/streaming rows). */
+  time?: string;
 }
 
 /**
@@ -42,6 +54,7 @@ export function MessageBlock({
   toolCalls,
   interrupted,
   streaming,
+  time,
 }: MessageBlockProps): React.ReactElement {
   const hasBody = content !== null && content.length > 0;
   const hasToolCalls = toolCalls !== undefined && toolCalls.length > 0;
@@ -50,6 +63,7 @@ export function MessageBlock({
     return (
       <div className="bubble bubble--user" data-role="user">
         <span className="whitespace-pre-wrap">{content}</span>
+        <MsgTime iso={time} />
       </div>
     );
   }
@@ -78,6 +92,7 @@ export function MessageBlock({
             </span>
           ) : null}
           {streaming ? <span className="stream-caret" aria-hidden /> : null}
+          <MsgTime iso={time} />
         </div>
       ) : !hasToolCalls ? (
         <div className="bubble bubble--asst">

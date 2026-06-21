@@ -34,6 +34,8 @@ export interface ThreadMessage {
   streaming?: boolean;
   /** True when the stream ended without a ``complete`` event. */
   interrupted?: boolean;
+  /** ISO timestamp of the persisted row (undefined for optimistic/streaming rows). */
+  created_at?: string;
 }
 
 export interface ThreadProps {
@@ -81,6 +83,7 @@ export function Thread({ messages }: ThreadProps): React.ReactElement {
           toolCalls={m.tool_calls}
           streaming={m.streaming}
           interrupted={m.interrupted}
+          time={m.created_at}
         />
       ))}
       <div ref={bottomRef} />

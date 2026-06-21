@@ -36,10 +36,10 @@ export function ConversationsPane(): React.ReactElement {
     if (!user) return;
     let cancelled = false;
     function load(): void {
-      void listConversations()
-        .then((data) => {
+      void listConversations({ limit: 100 })
+        .then(({ conversations }) => {
           if (cancelled) return;
-          setRows(data);
+          setRows(conversations);
           setError(null);
         })
         .catch((err: unknown) => {

@@ -3,17 +3,17 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { MoreHorizontal, Pencil, Plus, RefreshCw } from "lucide-react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { MoreHorizontal, Pencil, Plus, RefreshCw, Search } from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
-  filterMatches,
   parseAgentName,
   THREAD_KIND_FILTERS,
   type ThreadKindFilter,
 } from "@/lib/agent-thread";
+import { formatAbsolute, formatRelative } from "@/lib/format-time";
 import {
   createConversation,
   listConversations,
@@ -48,48 +48,83 @@ const FILTER_LABEL: Record<ThreadKindFilter, string> = {
  * ``POST /api/conversations/{id}/regenerate_title`` and refreshes the
  * row in place.
  */
+const PAGE = 50;
+
 export function ConversationList(): React.ReactElement {
   const { config, user, loading } = useAuth();
   const router = useRouter();
   const params = useParams<{ conversation_id?: string }>();
+  const searchParams = useSearchParams();
   const activeId = params?.conversation_id ?? null;
 
-  const [conversations, setConversations] = React.useState<
-    ConversationSummary[] | null
-  >(null);
+  // The kind filter is permalinked via ?tab= (default "chats" so scheduled agent threads don't flood
+  // the human list). Reading it from the URL means the view is shareable/bookmarkable.
+  const tab = searchParams.get("tab");
+  const filter: ThreadKindFilter = tab === "agents" || tab === "all" || tab === "chats" ? tab : "chats";
+  const setFilter = React.useCallback((kind: ThreadKindFilter) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    if (kind === "chats") sp.delete("tab"); else sp.set("tab", kind);
+    const qs = sp.toString();
+    router.replace(qs ? `?${qs}` : "?", { scroll: false });
+  }, [router, searchParams]);
+
+  const [items, setItems] = React.useState<ConversationSummary[] | null>(null);
+  const [nextBefore, setNextBefore] = React.useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
-  // Default to "chats" so agent threads (e.g. a 5-min scheduled agent) don't flood the human list;
-  // the "agents" / "all" tabs surface them on demand.
-  const [filter, setFilter] = React.useState<ThreadKindFilter>("chats");
+  const [query, setQuery] = React.useState("");
+  const [debounced, setDebounced] = React.useState("");
 
-  const visible = React.useMemo(() => {
-    if (conversations === null) return null;
-    return conversations.filter((row) =>
-      filterMatches(filter, parseAgentName(row.title)),
-    );
-  }, [conversations, filter]);
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 250);
+    return () => clearTimeout(t);
+  }, [query]);
 
+  // (Re)load the first page whenever auth, filter, or the (debounced) search change.
   React.useEffect(() => {
     if (!config || !user) return;
     let cancelled = false;
+    setItems(null);
+    setError(null);
     (async () => {
       try {
-        const rows = await listConversations();
+        const { conversations, nextBefore } = await listConversations({ limit: PAGE, kind: filter, q: debounced });
         if (cancelled) return;
-        setConversations(rows);
-        setError(null);
+        setItems(conversations);
+        setNextBefore(nextBefore);
       } catch (err) {
         if (cancelled) return;
-        setError(
-          err instanceof Error ? err.message : "failed to load conversations",
-        );
+        setError(err instanceof Error ? err.message : "failed to load conversations");
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [config, user]);
+    return () => { cancelled = true; };
+  }, [config, user, filter, debounced]);
+
+  const loadMore = React.useCallback(async () => {
+    if (loadingMore || !nextBefore || !config) return;
+    setLoadingMore(true);
+    try {
+      const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore });
+      setItems((prev) => [...(prev ?? []), ...page.conversations]);
+      setNextBefore(page.nextBefore);
+    } catch { /* keep what we have; the sentinel will retry on next intersect */ } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, nextBefore, config, filter, debounced]);
+
+  // Infinite scroll: load the next page when a sentinel at the list end comes into view.
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !nextBefore) return;
+    const io = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) void loadMore(); },
+      { rootMargin: "240px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [nextBefore, loadMore]);
 
   const onNewConversation = React.useCallback(async () => {
     if (!config || creating) return;
@@ -98,22 +133,14 @@ export function ConversationList(): React.ReactElement {
       const created = await createConversation();
       router.push(`/c/${created.id}`);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "failed to create conversation",
-      );
+      setError(err instanceof Error ? err.message : "failed to create conversation");
       setCreating(false);
     }
   }, [config, creating, router]);
 
   const onRowTitleChange = React.useCallback(
     (rowId: string, nextTitle: string | null) => {
-      setConversations((prev) =>
-        prev === null
-          ? prev
-          : prev.map((row) =>
-              row.id === rowId ? { ...row, title: nextTitle } : row,
-            ),
-      );
+      setItems((prev) => prev === null ? prev : prev.map((row) => row.id === rowId ? { ...row, title: nextTitle } : row));
     },
     [],
   );
@@ -142,6 +169,18 @@ export function ConversationList(): React.ReactElement {
         {creating ? "Creating…" : "New conversation"}
       </Button>
 
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search conversations…"
+          aria-label="Search conversations"
+          className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      </div>
+
       <div
         role="tablist"
         aria-label="Filter conversations by kind"
@@ -167,24 +206,20 @@ export function ConversationList(): React.ReactElement {
       </div>
 
       {error !== null ? (
-        <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-red-600">
+        <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </p>
-      ) : conversations === null || visible === null ? (
+      ) : items === null ? (
         <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-muted-foreground">
           Loading…
         </p>
-      ) : conversations.length === 0 ? (
+      ) : items.length === 0 ? (
         <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-muted-foreground">
-          No conversations yet. Start a new conversation above.
-        </p>
-      ) : visible.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-muted-foreground">
-          No {filter === "agents" ? "agent threads" : "chats"} in this view.
+          {debounced ? `No conversations match “${debounced}”.` : "No conversations yet. Start a new conversation above."}
         </p>
       ) : (
         <ul className="flex flex-col gap-0.5">
-          {visible.map((row) => (
+          {items.map((row) => (
             <li key={row.id}>
               <ConversationRow
                 row={row}
@@ -195,6 +230,9 @@ export function ConversationList(): React.ReactElement {
           ))}
         </ul>
       )}
+
+      <div ref={sentinelRef} />
+      {loadingMore ? <p className="py-1 text-center text-[10px] text-muted-foreground">Loading more…</p> : null}
     </div>
   );
 }
@@ -341,6 +379,13 @@ function ConversationRow({
             label
           )}
         </span>
+        <time
+          dateTime={row.updated_at}
+          title={formatAbsolute(row.updated_at)}
+          className="shrink-0 font-mono text-[9px] tabular-nums text-muted-foreground/60"
+        >
+          {formatRelative(row.updated_at)}
+        </time>
       </Link>
       <div ref={menuRef} className="relative">
         <button

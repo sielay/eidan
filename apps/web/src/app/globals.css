@@ -318,6 +318,8 @@
 .bubble--asst { align-self: flex-start; background: var(--surface-2); color: var(--text); border-bottom-left-radius: var(--r-sm); }
 .bubble--asst a { color: var(--accent-link); }
 .bubble--user a { color: #fff; text-decoration: underline; }
+.msg-time { display: block; margin-top: 4px; font-size: 10px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--faint); }
+.bubble--user .msg-time { text-align: right; color: rgba(255,255,255,.65); }
 .inline-widget { margin-top: var(--s3); padding: var(--s4); border: 1px solid var(--border); box-shadow: none; background: var(--surface); border-radius: var(--r-md); }
 .tooldisc { align-self: flex-start; max-width: 86%; width: fit-content; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); overflow: hidden; }
 .tooldisc__head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; font-size: var(--fs-13); color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit; text-align: left; }

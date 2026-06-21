@@ -77,17 +77,38 @@ export async function fetchConversationMessages(
 export interface ConversationSummary {
   id: string;
   title: string | null;
+  origin: string | null;
+  agent_name: string | null;
   created_at: string;
   updated_at: string;
 }
 
 interface ConversationsResponse {
   conversations: ConversationSummary[];
+  next_before: string | null;
 }
 
+export interface ListConversationsOpts {
+  limit?: number;
+  /** Keyset cursor: the prior page's `nextBefore` (an updated_at iso). */
+  before?: string | null;
+  /** Case-insensitive title / agent-name search. */
+  q?: string;
+  /** all | agents | chats (server-side, so it composes with pagination). */
+  kind?: "all" | "agents" | "chats";
+}
+
+// One page of conversations + the cursor for the next page (null when the last page was reached).
 export async function listConversations(
-): Promise<ConversationSummary[]> {
-  const res = await authFetch("/api/conversations", {
+  opts: ListConversationsOpts = {},
+): Promise<{ conversations: ConversationSummary[]; nextBefore: string | null }> {
+  const qs = new URLSearchParams();
+  if (opts.limit) qs.set("limit", String(opts.limit));
+  if (opts.before) qs.set("before", opts.before);
+  if (opts.q && opts.q.trim()) qs.set("q", opts.q.trim());
+  if (opts.kind && opts.kind !== "all") qs.set("kind", opts.kind);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const res = await authFetch(`/api/conversations${suffix}`, {
     method: "GET",
     headers: { Accept: "application/json" },
   });
@@ -95,7 +116,7 @@ export async function listConversations(
     throw new Error(`GET /api/conversations returned ${res.status}`);
   }
   const body = (await res.json()) as ConversationsResponse;
-  return body.conversations;
+  return { conversations: body.conversations, nextBefore: body.next_before ?? null };
 }
 
 /**
