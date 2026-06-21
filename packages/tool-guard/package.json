@@ -1,0 +1,22 @@
+{
+  "name": "@eidandev/tool-guard",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tool-result guardrail: truncates oversized tool results before they re-enter the LLM context, so one huge result (e.g. a raw http API dump) can't poison the conversation.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.0"
+  }
+}
