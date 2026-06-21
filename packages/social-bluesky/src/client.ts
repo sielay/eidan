@@ -15,11 +15,13 @@ const REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
 export class BlueskyClient {
   private service: string;
+  private ctx: ToolContext;
 
   constructor(
-    private ctx: ToolContext,
+    ctx: ToolContext,
     service?: string
   ) {
+    this.ctx = ctx;
     this.service = service || DEFAULT_SERVICE;
   }
 
