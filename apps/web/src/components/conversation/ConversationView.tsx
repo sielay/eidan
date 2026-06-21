@@ -10,7 +10,7 @@ import {
   type MessageRow,
 } from "@/lib/api/conversations";
 import { streamTurn } from "@/lib/api/turn";
-import { loadProvider, saveProvider } from "@/lib/models";
+import { loadProvider, saveProvider, listProviders, type ProviderOption } from "@/lib/models";
 
 import { buildThread, type StreamingAssistant } from "./buildThread";
 import { Composer } from "./Composer";
@@ -64,6 +64,25 @@ export function ConversationView({
   const [provider, setProvider] = React.useState("");
   React.useEffect(() => {
     setProvider(loadProvider(conversationId));
+  }, [conversationId]);
+  // The picker menu is built from the engine's live provider registry, so it can never offer a name
+  // the engine doesn't have. We also reconcile the remembered pick against this list: a name saved
+  // before a provider was renamed/removed is stale, and sending it would make the server reject the
+  // turn — so drop it back to "" (host default). Without this, stale picks silently billed sonnet.
+  const [providers, setProviders] = React.useState<ProviderOption[]>([]);
+  React.useEffect(() => {
+    listProviders()
+      .then((list) => {
+        setProviders(list);
+        setProvider((cur) => {
+          if (cur && !list.some((p) => p.name === cur)) {
+            saveProvider(conversationId, "");
+            return "";
+          }
+          return cur;
+        });
+      })
+      .catch(() => setProviders([]));
   }, [conversationId]);
   const onProviderChange = React.useCallback(
     (p: string) => {
@@ -281,6 +300,7 @@ export function ConversationView({
         disabled={inFlight}
         provider={provider}
         onProviderChange={onProviderChange}
+        providers={providers}
       />
     </div>
   );

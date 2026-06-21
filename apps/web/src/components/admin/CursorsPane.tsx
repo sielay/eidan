@@ -48,9 +48,9 @@ function statusOf(s: string): { zone: Zone; label: string } {
 const ZONE_PILL: Record<Zone, string> = {
   neutral: "bg-muted text-muted-foreground",
   info: "bg-indigo-100 text-indigo-800",
-  warn: "bg-amber-100 text-amber-800",
-  alert: "bg-red-100 text-red-800",
-  good: "bg-emerald-100 text-emerald-800",
+  warn: "bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200",
+  alert: "bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200",
+  good: "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200",
 };
 const ZONE_DOT: Record<Zone, string> = {
   neutral: "bg-muted-foreground/50",
@@ -146,7 +146,7 @@ export function CursorsPane(): React.ReactElement {
 
   if (error) {
     return (
-      <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+      <p className="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-300">
         {error}
       </p>
     );
@@ -484,7 +484,7 @@ function CursorDetail({
       ) : null}
 
       {actionError ? (
-        <p className="font-mono text-[11px] text-red-700">{actionError}</p>
+        <p className="font-mono text-[11px] text-red-700 dark:text-red-300">{actionError}</p>
       ) : null}
     </div>
   );
@@ -522,7 +522,7 @@ function Chip({
       className={cn(
         "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[10px]",
         alert
-          ? "border-red-200 bg-red-50 text-red-700"
+          ? "border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300"
           : "border-border bg-muted/40 text-muted-foreground",
       )}
     >

@@ -1,20 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// The user-facing model menu. Each option's `value` is a matbot **provider name** (configured in
-// the host's matbot.yaml — one model per provider), so selecting an option selects a model. `""`
-// means "use the server default" (EIDAN_AGUI_PROVIDER). The list is curated per deployment; values
-// must match the provider names the engine actually has, or the turn silently falls back.
-export interface ModelOption {
-  value: string;
-  label: string;
-  note?: string;
+// The user-facing model menu is built at runtime from the engine's ACTUALLY-configured providers
+// (GET /api/providers), not a hardcoded list. Each matbot provider is one fully-resolved model, so
+// the menu value is the provider **name** and the label shows its model. This is deliberate: a
+// hand-maintained client list drifts out of sync with matbot.yaml and the engine then silently
+// falls back to the default (EIDAN_AGUI_PROVIDER) — which is how the menu's "DeepSeek" option (a
+// stale alias for the `openrouter` provider, configured to sonnet) ended up running sonnet.
+import { authFetch } from "@/lib/auth";
+
+// One configured provider as reported by the engine. `name` is the matbot provider name (the value
+// sent on the turn); `model` is the resolved model it runs (shown to the user so the label is true).
+export interface ProviderOption {
+  name: string;
+  model: string;
 }
 
-export const MODEL_OPTIONS: ModelOption[] = [
-  { value: "", label: "Default", note: "host default" },
-  { value: "openrouter", label: "DeepSeek", note: "fast · cheap" },
-  { value: "haiku", label: "Claude Haiku", note: "fast" },
-  { value: "claude", label: "Claude Sonnet", note: "strong" },
-];
+// Fetch the engine's live provider registry. `""` (server default) is always offered separately by
+// the picker, so this is just the explicit choices.
+export async function listProviders(): Promise<ProviderOption[]> {
+  const res = await authFetch("/api/providers", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`GET /api/providers returned ${res.status}`);
+  const body = (await res.json()) as { providers?: ProviderOption[] };
+  return body.providers ?? [];
+}
 
 const KEY_DEFAULT = "eidan.provider.default";
 const keyFor = (conversationId: string): string => `eidan.provider.${conversationId}`;

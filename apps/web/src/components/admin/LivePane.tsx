@@ -281,7 +281,7 @@ export function LivePane(): React.ReactElement {
       </div>
 
       {error !== null ? (
-        <div className="rounded-md border border-dashed border-red-300 bg-red-50/40 p-3 text-xs text-red-700 dark:bg-red-950/20">
+        <div className="rounded-md border border-dashed border-red-300 bg-red-50/40 p-3 text-xs text-red-700 dark:text-red-300 dark:bg-red-950/20">
           {error}
         </div>
       ) : null}

@@ -99,6 +99,23 @@ export class AgentsStore {
     });
   }
 
+  // A single agent by id, scoped to its owner — used by the manual "run now" path.
+  async getAgent(id: string, userId: string): Promise<AgentRow | null> {
+    return this.db.withPrincipalTx(async (q) => {
+      const r = await q(
+        `select ${A_COLS} from eidan.agents where id = $1 and user_id = $2 and deleted_at is null`,
+        [id, userId],
+      );
+      return (r.rows[0] as AgentRow | undefined) ?? null;
+    });
+  }
+
+  // Manual fire ("run now", for testing). Wired in index.ts (it needs `services` + run opts, which the
+  // data layer doesn't hold). Resolves with the conversation id as soon as it's created — the turn runs
+  // detached — or null if the agent doesn't exist. Unlike scheduled fires it records no agent_runs row
+  // (that ledger is keyed by a trigger), so a test never pollutes run history or the notify topic.
+  runNow?: (agentId: string, userId: string) => Promise<{ conversationId: string } | null>;
+
   async updateAgent(id: string, patch: UpdateAgentArgs): Promise<AgentRow | null> {
     const userId = uid();
     const sets: string[] = [];

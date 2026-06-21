@@ -8,7 +8,7 @@ import {
 } from "./manifest.mjs";
 
 const CONFIG = {
-  bundles: [{ name: "ventures" }, { name: "ical" }, { name: "sage" }],
+  bundles: [{ name: "ventures" }, { name: "mybundle" }, { name: "sage" }],
   providers: {},
   targets: {
     fly:    { type: "fly", plugins: "*", disable: ["sage"], providers: ["claude"], models: ["m1"], jobs: ["chat"], domain: "api.x", cors: ["https://x"] },
@@ -27,7 +27,7 @@ describe("pluginsFor", () => {
   it("explicit plugin list = core + just those bundles", () => {
     const p = pluginsFor(CONFIG, "web");
     assert.ok(p.includes("ventures"));
-    assert.ok(!p.includes("ical"));            // not selected
+    assert.ok(!p.includes("mybundle"));        // not selected (and not a core plugin, unlike ical)
     assert.ok(p.includes("storage-postgres")); // core still on
   });
 });

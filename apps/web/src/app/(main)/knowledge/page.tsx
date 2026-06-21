@@ -226,7 +226,7 @@ export default function KnowledgePage(): React.ReactElement {
       </header>
 
       {error ? (
-        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </p>
       ) : null}
@@ -330,7 +330,7 @@ export default function KnowledgePage(): React.ReactElement {
                     variant="ghost"
                     size="sm"
                     onClick={() => void deleteSelected()}
-                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
                   >
                     Delete
                   </Button>
@@ -338,7 +338,7 @@ export default function KnowledgePage(): React.ReactElement {
               </header>
 
               {conflict ? (
-                <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                   This row was edited elsewhere since you opened it. The
                   panel was refreshed with the live version — re-apply
                   your changes and save again.

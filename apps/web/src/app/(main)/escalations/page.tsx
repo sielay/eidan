@@ -114,7 +114,7 @@ export default function EscalationsPage(): React.ReactElement {
       </nav>
 
       {error ? (
-        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </p>
       ) : null}
@@ -153,9 +153,9 @@ function EscalationRow({
 }): React.ReactElement {
   const severityClass =
     row.severity === "high"
-      ? "border-red-300 bg-red-50"
+      ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/40"
       : row.severity === "medium"
-        ? "border-amber-300 bg-amber-50"
+        ? "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
         : "border-border bg-background";
   const sourceLabel =
     typeof row.metadata?.source === "string"
@@ -173,9 +173,9 @@ function EscalationRow({
           className={cn(
             "rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
             row.severity === "high"
-              ? "bg-red-200 text-red-800"
+              ? "bg-red-200 text-red-800 dark:bg-red-900/50 dark:text-red-200"
               : row.severity === "medium"
-                ? "bg-amber-200 text-amber-800"
+                ? "bg-amber-200 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
                 : "bg-muted text-muted-foreground",
           )}
         >

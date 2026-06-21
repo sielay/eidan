@@ -12,10 +12,10 @@ import {
 import { cn } from "@/lib/utils";
 
 const KIND_CLASS: Record<string, string> = {
-  cron: "bg-blue-100 text-blue-800",
+  cron: "bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200",
   schedule: "bg-indigo-100 text-indigo-800",
-  event: "bg-emerald-100 text-emerald-800",
-  webhook: "bg-amber-100 text-amber-800",
+  event: "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200",
+  webhook: "bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200",
   intent: "bg-purple-100 text-purple-800",
   agent: "bg-fuchsia-100 text-fuchsia-800",
 };
@@ -60,7 +60,7 @@ export function TriggersPane(): React.ReactElement {
 
   if (error) {
     return (
-      <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+      <p className="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-300">
         {error}
       </p>
     );
@@ -85,7 +85,7 @@ export function TriggersPane(): React.ReactElement {
   return (
     <div className="flex flex-col gap-3">
       {body.dlq_count > 0 ? (
-        <p className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+        <p className="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-2 text-xs text-red-800 dark:text-red-200">
           {body.dlq_count} pending DLQ row{body.dlq_count === 1 ? "" : "s"} —
           drill in via <code className="font-mono">psql</code> or
           <code className="font-mono">{` SELECT * FROM eidan.behaviour_dlq WHERE status = 'pending'`}</code>.

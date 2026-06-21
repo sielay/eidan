@@ -12,9 +12,9 @@ import {
 import { cn } from "@/lib/utils";
 
 const RUN_STATUS_CLASS: Record<string, string> = {
-  delivered: "bg-emerald-100 text-emerald-800",
-  started: "bg-blue-100 text-blue-800",
-  failed: "bg-red-100 text-red-800",
+  delivered: "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200",
+  started: "bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200",
+  failed: "bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200",
 };
 
 /**
@@ -55,7 +55,7 @@ export function RoutinesPane(): React.ReactElement {
 
   if (error) {
     return (
-      <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+      <p className="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-300">
         {error}
       </p>
     );
@@ -93,7 +93,7 @@ function RoutineRow({ routine }: { routine: RoutineInfo }): React.ReactElement {
           className={cn(
             "rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
             routine.enabled
-              ? "bg-emerald-100 text-emerald-800"
+              ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200"
               : "bg-muted text-muted-foreground",
           )}
         >

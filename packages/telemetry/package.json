@@ -1,0 +1,23 @@
+{
+  "name": "@eidandev/telemetry",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node telemetry: writes eidan.node_heartbeats (liveness) and eidan.node_events (activity stream) so the admin dashboard, nodes view, and log/live panes have data.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

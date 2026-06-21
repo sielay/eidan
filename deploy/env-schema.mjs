@@ -40,6 +40,11 @@ export const ENV_SCHEMA = [
   { key: 'OPENAI_API_KEY', roles: ['engine'], required: false, secret: true, generate: null, desc: 'Key for the `openai` provider.' },
   { key: 'OPENROUTER_API_KEY', roles: ['engine'], required: false, secret: true, generate: null, desc: 'Key for the `openrouter` provider.' },
   { key: 'XAI_API_KEY', roles: ['engine'], required: false, secret: true, generate: null, desc: 'Key for the `grok` (xAI) provider.' },
+  // Voice transcription (@eidandev/transcribe) — any Whisper-compatible /audio/transcriptions endpoint
+  // (OpenAI or Groq; NOT OpenRouter, which has no audio API). Powers the chat mic + Telegram voice.
+  { key: 'EIDAN_WHISPER_ENDPOINT', roles: ['engine'], required: false, secret: false, generate: null, desc: 'Whisper-compatible transcriptions URL (e.g. https://api.groq.com/openai/v1/audio/transcriptions).' },
+  { key: 'EIDAN_WHISPER_MODEL', roles: ['engine'], required: false, secret: false, default: 'whisper-1', desc: 'STT model id (whisper-1 / whisper-large-v3-turbo).' },
+  { key: 'EIDAN_WHISPER_KEY', roles: ['engine'], required: false, secret: true, generate: null, desc: 'Bearer key for the transcription endpoint (OpenAI/Groq).' },
   { key: 'EIDAN_PROVIDER', roles: ['engine'], required: false, secret: false, default: 'anthropic',
     desc: 'Legacy provider selector. EIDAN_AGUI_PROVIDER is the matbot chat one.' },
   { key: 'EIDAN_AGUI_PROVIDER', roles: ['engine'], required: false, secret: false, default: 'claude',
@@ -102,7 +107,7 @@ export const ENV_SCHEMA = [
   { key: 'MATBOT_A2A_PORT', roles: ['worker'], required: false, secret: false, default: '8095', desc: 'A2A surface port.' },
   { key: 'MATBOT_AGUI_PORT', roles: ['worker'], required: false, secret: false, default: '8090', desc: 'AG-UI surface port.' },
   { key: 'MATBOT_MCP_PORT', roles: ['worker'], required: false, secret: false, default: '8091', desc: 'MCP surface port.' },
-  { key: 'MATBOT_PRINCIPAL', roles: ['worker'], required: false, secret: false, generate: null, desc: 'Boot principal (a real eidan.users UUID).' },
+  { key: 'MATBOT_PRINCIPAL', roles: ['engine'], required: false, secret: false, generate: null, desc: 'Boot principal (a real eidan.users UUID). engine-wide: detached work (e.g. cognition reindex) runs as the boot principal, so every engine — fly included, not just worker boxes — needs it or it FK-fails (#380).' },
 
   // --- Fly engine only ---------------------------------------------------------------------------
   { key: 'EIDAN_COMPANIES_HOUSE_KEY', roles: ['fly'], required: false, secret: true, generate: null, desc: 'Companies House API key (ventures bundle).' },
