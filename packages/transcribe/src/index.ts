@@ -67,9 +67,17 @@ export const plugin: MatbotPluginSpec = {
       'service consumed by the chat mic button and the Telegram voice handler.',
   },
   async setup(services: MatbotServices) {
-    const endpoint = process.env['EIDAN_WHISPER_ENDPOINT'] ?? '';
-    const model = process.env['EIDAN_WHISPER_MODEL'] ?? 'whisper-1';
-    const key = process.env['EIDAN_WHISPER_KEY'] ?? '';
+    // Explicit EIDAN_WHISPER_* is the agnostic path (Groq/self-hosted/etc). As a convenience, if no
+    // explicit key is set but OPENAI_API_KEY is, fall back to OpenAI's endpoint — so an operator who
+    // already has an OpenAI key gets voice with zero extra config. (We only default the endpoint in
+    // the OpenAI-fallback case: an explicit EIDAN_WHISPER_KEY with no endpoint stays inert rather than
+    // risk POSTing a non-OpenAI key to OpenAI.)
+    const explicitKey = process.env['EIDAN_WHISPER_KEY'] || '';
+    const openaiKey = process.env['OPENAI_API_KEY'] || '';
+    const key = explicitKey || openaiKey;
+    const endpoint = process.env['EIDAN_WHISPER_ENDPOINT']
+      || (explicitKey ? '' : (openaiKey ? 'https://api.openai.com/v1/audio/transcriptions' : ''));
+    const model = process.env['EIDAN_WHISPER_MODEL'] || 'whisper-1';
     const impl = new WhisperTranscribe(endpoint, model, key);
     await services.register('Transcribe', impl);
     if (impl.available()) {
