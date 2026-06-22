@@ -15,6 +15,9 @@ const THREADS_API_BASE = 'https://graph.threads.com/v18.0';
 export class ThreadsClient {
   private ctx: ToolContext;
   private cachedUsername: string | null = null;
+  private cachedUsernameTime: number | null = null;
+  private profileFetchInProgress: boolean = false;
+  private readonly USERNAME_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in ms
 
   constructor(ctx: ToolContext) {
     this.ctx = ctx;
@@ -180,11 +183,23 @@ export class ThreadsClient {
     }
 
     try {
-      // Fetch username once and cache it for use in posts
-      if (!this.cachedUsername) {
-        const profileRes = await this.getProfile();
-        if (profileRes.user) {
-          this.cachedUsername = profileRes.user.username;
+      // Fetch username once and cache it with TTL, preventing concurrent fetches and redundant API calls
+      const now = Date.now();
+      const isCacheExpired = !this.cachedUsernameTime || (now - this.cachedUsernameTime) > this.USERNAME_CACHE_TTL;
+
+      if (isCacheExpired && !this.profileFetchInProgress) {
+        this.profileFetchInProgress = true;
+        try {
+          const profileRes = await this.getProfile();
+          if (profileRes.error) {
+            return { posts: [], error: profileRes.error };
+          }
+          if (profileRes.user) {
+            this.cachedUsername = profileRes.user.username;
+            this.cachedUsernameTime = Date.now();
+          }
+        } finally {
+          this.profileFetchInProgress = false;
         }
       }
 
