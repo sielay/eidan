@@ -144,7 +144,7 @@ export interface CommentInsertResponse {
     videoId: string;
     textDisplay: string;
     textOriginal: string;
-    parentId: string;
+    parentId?: string;
     authorDisplayName: string;
     authorProfileImageUrl: string;
     authorChannelUrl: string;

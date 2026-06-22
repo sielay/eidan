@@ -57,7 +57,7 @@ test('youtube_post_comment: executor yields error when token is missing', async 
   const mockCtx = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('YOUTUBE_ACCESS_TOKEN');
+        throw new MissingSecretError(['YOUTUBE_ACCESS_TOKEN']);
       },
     },
   } as any;
@@ -117,7 +117,7 @@ test('youtube_get_channel: executor yields error when token is missing', async (
   const mockCtx = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('YOUTUBE_ACCESS_TOKEN');
+        throw new MissingSecretError(['YOUTUBE_ACCESS_TOKEN']);
       },
     },
   } as any;
@@ -140,7 +140,7 @@ test('youtube_list_videos: executor yields error when token is missing', async (
   const mockCtx = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('YOUTUBE_ACCESS_TOKEN');
+        throw new MissingSecretError(['YOUTUBE_ACCESS_TOKEN']);
       },
     },
   } as any;

@@ -19,7 +19,7 @@ test('secretOpt: returns undefined when secret is missing', async () => {
   const mockCtx = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('TEST_SECRET');
+        throw new MissingSecretError(['TEST_SECRET']);
       },
     },
   } as any;
@@ -43,7 +43,7 @@ test('secretRequired: throws when secret is missing', async () => {
   const mockCtx = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('TEST_SECRET');
+        throw new MissingSecretError(['TEST_SECRET']);
       },
     },
   } as any;

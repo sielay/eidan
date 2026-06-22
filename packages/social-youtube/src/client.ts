@@ -128,6 +128,10 @@ export class YouTubeClient {
   }
 
   async postComment(videoId: string, text: string): Promise<{ commentId?: string; error?: string }> {
+    if (text.length > 10000) {
+      return { error: 'Comment text exceeds maximum length of 10,000 characters' };
+    }
+
     try {
       const url = new URL(`${API_BASE}/commentThreads`);
       url.searchParams.set('access_token', this.accessToken);

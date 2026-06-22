@@ -43,6 +43,7 @@ const SEARCH_SCHEMA = {
 const GET_CHANNEL_SCHEMA = {
   type: 'object',
   additionalProperties: false,
+  required: [],
   properties: {},
 };
 
@@ -73,6 +74,11 @@ export function makeYouTubeTools(): Tool[] {
 
         if (!videoId || !text) {
           yield { type: 'error', message: 'video_id and text are required' };
+          return;
+        }
+
+        if (text.length > 10000) {
+          yield { type: 'error', message: 'Comment text exceeds maximum length of 10,000 characters' };
           return;
         }
 
