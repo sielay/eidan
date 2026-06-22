@@ -200,7 +200,7 @@ function EscalationRow({
           <ul className="mt-1 list-disc pl-5">
             {row.evidence.map((ev, idx) => (
               <li key={idx} className="font-mono">
-                {ev}
+                {evidenceText(ev)}
               </li>
             ))}
           </ul>
@@ -235,6 +235,23 @@ function EscalationRow({
       </footer>
     </article>
   );
+}
+
+// Evidence is typed string[] but legacy/auto-escalated rows store jsonb objects
+// (e.g. {error, fire_key}). Rendering an object as a React child throws #31, so
+// coerce anything non-string to readable text (prefer a .error field if present).
+function evidenceText(ev: unknown): string {
+  if (typeof ev === "string") return ev;
+  if (ev && typeof ev === "object") {
+    const e = (ev as { error?: unknown }).error;
+    if (typeof e === "string") return e;
+    try {
+      return JSON.stringify(ev);
+    } catch {
+      return String(ev);
+    }
+  }
+  return String(ev);
 }
 
 function formatRelative(iso: string): string {
