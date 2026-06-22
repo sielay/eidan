@@ -23,6 +23,7 @@ export class InstagramAuthError extends Error {
 export class InstagramClient {
   private ctx: ToolContext;
   private accessToken: string | null | undefined;
+  private userId: string | null | undefined;
 
   constructor(ctx: ToolContext) {
     this.ctx = ctx;
@@ -33,6 +34,13 @@ export class InstagramClient {
     const token = await secretOpt(this.ctx, 'INSTAGRAM_ACCESS_TOKEN');
     this.accessToken = token ?? null;
     return this.accessToken;
+  }
+
+  private async getUserId(): Promise<string | null> {
+    if (this.userId !== undefined) return this.userId;
+    const user = await this.getAuthenticatedUser();
+    this.userId = user?.id ?? null;
+    return this.userId;
   }
 
   private async makeRequest(path: string, options?: RequestInit & { body?: string | undefined }): Promise<Response> {
@@ -85,7 +93,11 @@ export class InstagramClient {
   async searchHashtag(hashtag: string): Promise<{ id: string; name: string } | null> {
     try {
       const hashtag_clean = hashtag.replace(/^#/, '');
-      const res = await this.makeRequest(`/ig_hashtag_search?user_id=me&fields=id,name&query=${encodeURIComponent(hashtag_clean)}`);
+      const userId = await this.getUserId();
+      if (!userId) {
+        return null;
+      }
+      const res = await this.makeRequest(`/ig_hashtag_search?user_id=${userId}&fields=id,name&query=${encodeURIComponent(hashtag_clean)}`);
 
       if (!res.ok) {
         return null;
@@ -157,8 +169,12 @@ export class InstagramClient {
 
   async getHashtagMedia(hashtag_id: string, limit: number = 20): Promise<InstagramMedia[]> {
     try {
+      const userId = await this.getUserId();
+      if (!userId) {
+        return [];
+      }
       const res = await this.makeRequest(
-        `/${hashtag_id}/recent_media?user_id=me&fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=${Math.min(limit, 100)}`
+        `/${hashtag_id}/recent_media?user_id=${userId}&fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=${Math.min(limit, 100)}`
       );
 
       if (!res.ok) {

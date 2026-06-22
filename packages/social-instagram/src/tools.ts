@@ -29,7 +29,7 @@ const SEARCH_SCHEMA = {
     query: {
       type: 'string',
       minLength: 1,
-      description: 'Hashtag to search for (without # prefix).',
+      description: 'Hashtag to search for (without # prefix). Only hashtag search is supported.',
     },
     limit: {
       type: 'integer',
@@ -106,7 +106,7 @@ export function makeInstagramTools(): Tool[] {
   const instagramSearchTool: Tool = {
     name: 'instagram_search',
     description:
-      'Search Instagram hashtags and view recent posts under those hashtags. Returns hashtag metadata and recent media. Instagram Graph API only supports hashtag search, not direct user or keyword search. Requires INSTAGRAM_ACCESS_TOKEN vault secret.',
+      'Search Instagram hashtags and view recent posts under those hashtags. Returns hashtag metadata and recent media. Note: This tool searches hashtags only; user and keyword search are not supported by Instagram Graph API. Requires INSTAGRAM_ACCESS_TOKEN vault secret.',
     inputSchema: SEARCH_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
