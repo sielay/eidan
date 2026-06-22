@@ -34,6 +34,7 @@ plugins:
   - ./packages/procedures # sandboxed agent-authored procedures (isolated-vm); compose set via EIDAN_PROCEDURE_TOOLS (default: remember,recall)
   - ./packages/secrets-api # secure secrets HTTP API (:8092): LLM-free write path for the Settings UI (needs vault-postgres + auth)
   - ./packages/social-bluesky # Bluesky Social (bluesky_post, bluesky_search, bluesky_read_feed) via AT Protocol OAuth + vault
+  - ./packages/social-x # X (Twitter) Social (x_post_tweet, x_search, x_get_profile, x_list_timeline) via X API v2 OAuth2 + vault
   # Paid bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
 
 providers:
