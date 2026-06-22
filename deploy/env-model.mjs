@@ -116,7 +116,7 @@ export function validateFile(file, values = {}) {
 export function presentKeysOf(envText) {
   const present = new Set();
   for (const line of envText.split("\n")) {
-    const m = /^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line);
+    const m = /^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*(?:__[a-z0-9-]+)?)=(.*)$/.exec(line);
     if (m && m[2].trim() !== "") present.add(m[1]);
   }
   return present;
@@ -125,10 +125,33 @@ export function presentKeysOf(envText) {
 export function parseEnvMap(envText) {
   const map = {};
   for (const line of envText.split("\n")) {
-    const m = /^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line);
+    const m = /^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*(?:__[a-z0-9-]+)?)=(.*)$/.exec(line);
     if (m) map[m[1]] = m[2];
   }
   return map;
+}
+
+// Per-node value override. A `KEY__<node>` entry in the source (.env) re-targets the schema KEY for
+// exactly that node when rendering it; for every other node the suffixed entry is dropped. The base
+// `KEY` is the default. The suffix must be a configured target name (else `KEY__X` is left untouched,
+// so a real key that happens to contain `__` is never eaten). Lets one .env carry e.g. a kesha-only
+// EIDAN_GH_PATS (a different GitHub identity, with its own scopes) without a separate secret store.
+//   EIDAN_GH_PATS=...            # default, used by fly + any node without an override
+//   EIDAN_GH_PATS__kesha=...     # wins for the `kesha` node only
+export function applyNodeOverrides(values, target, knownTargets = []) {
+  const known = new Set(knownTargets);
+  const base = {};
+  const override = {};
+  for (const [k, v] of Object.entries(values)) {
+    const at = k.lastIndexOf("__");
+    const suffix = at > 0 ? k.slice(at + 2) : "";
+    if (at > 0 && known.has(suffix)) {
+      if (suffix === target) override[k.slice(0, at)] = v; // this node's override; others dropped
+    } else {
+      base[k] = v;
+    }
+  }
+  return { ...base, ...override };
 }
 
 export { specOf, ENV_SCHEMA, TARGETS };
