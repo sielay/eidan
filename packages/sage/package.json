@@ -1,0 +1,27 @@
+{
+  "name": "@eidandev/sage",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "Sage coding bundle (matbot) — registers a 'code' JobHandler on the eidan jobs substrate and runs the deterministic claim→PR pipeline (lease+clone → claude → commit/push → open PR → Copilot → seed iteration cursor). The Copilot/CI iteration loop + critic are follow-on bricks.",
+  "matbotRuntime": ["node"],
+  "eidan": {
+    "kinds": ["code"]
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

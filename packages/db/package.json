@@ -1,0 +1,44 @@
+{
+  "name": "@eidandev/db",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "eidan-sage database bundle (matbot): connect to the operator's named databases (Postgres + MongoDB to start) and run read/write queries, plus a Databases admin screen. One registry, one vault key per connection.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx ./smoke.test.mts"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "db.css",
+      "routes": [
+        { "path": "/", "component": "Connections.tsx" }
+      ],
+      "api": [
+        { "path": "/api/db/connections", "handler": "api/route.ts" }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          { "id": "databases", "label": "Databases", "icon": "database", "href": "/p/db", "mobileHome": 6 }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "mongodb": "^6.12.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}
