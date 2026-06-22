@@ -205,7 +205,7 @@ export class ThreadsClient {
 
       const url = new URL(`${THREADS_API_BASE}/me/threads`);
       url.searchParams.set('limit', String(Math.min(limit, 100)));
-      url.searchParams.set('fields', 'id,text,timestamp,permalink');
+      url.searchParams.set('fields', 'id,text,timestamp,permalink,like_count,reply_count,repost_count');
 
       const res = await fetch(url.toString(), {
         headers: {
@@ -227,6 +227,9 @@ export class ThreadsClient {
           text: post.text,
           timestamp: post.timestamp,
           permalink: post.permalink,
+          like_count: post.like_count,
+          reply_count: post.reply_count,
+          repost_count: post.repost_count,
           author: {
             id: 'me',
             username: this.cachedUsername || 'me',
