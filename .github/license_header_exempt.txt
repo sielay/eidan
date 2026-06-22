@@ -15,4 +15,4 @@
 external/matbot/**
 
 # vendored third-party (ponytail "lazy senior dev" ruleset, MIT — carries its own LICENSE)
-packages/sage/vendor/*
+packages/sage/vendor/**
