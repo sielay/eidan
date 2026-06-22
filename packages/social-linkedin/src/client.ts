@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretOpt } from './vault.js';
-import type { LinkedInPost, LinkedInProfileResponse, LinkedInFeedResponse } from './types.js';
+import type { LinkedInPost, LinkedInProfileResponse, LinkedInFeedResponse, LinkedInUGCPostRequest, LinkedInAssetRegisterResponse } from './types.js';
 
 const API_BASE = 'https://api.linkedin.com/v2';
 
@@ -54,7 +54,59 @@ export class LinkedInClient {
 
   async getProfile(): Promise<{ profile?: LinkedInProfileResponse; error?: string }> {
     const result = await this.request<LinkedInProfileResponse>('/me');
-    return result;
+    if (result.error) {
+      return { error: result.error };
+    }
+    if (!result.data) {
+      return { error: 'No profile data received' };
+    }
+    return { profile: result.data };
+  }
+
+  private async registerAsset(imageUrl: string): Promise<{ urn?: string; error?: string }> {
+    try {
+      const assetRegisterPayload = {
+        registerRequest: {
+          recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+          serviceRelationships: [
+            {
+              relationshipType: 'OWNER',
+              identifier: 'urn:li:userGeneratedContent',
+            },
+          ],
+        },
+      };
+
+      const registerResult = await this.request<{ value: string }>('/assets', 'POST', assetRegisterPayload);
+      if (registerResult.error) {
+        return { error: registerResult.error };
+      }
+
+      if (!registerResult.data?.value) {
+        return { error: 'Failed to register image asset' };
+      }
+
+      const urn = registerResult.data.value;
+      const uploadUrl = `${API_BASE}/assets?action=upload`;
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+        },
+        body: imageUrl,
+      });
+
+      if (!uploadResponse.ok) {
+        return { error: `Image upload failed: ${uploadResponse.status}` };
+      }
+
+      return { urn };
+    } catch (err) {
+      return {
+        error: `Asset registration failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      };
+    }
   }
 
   async post(text: string, imageUrl?: string): Promise<{ id?: string; error?: string }> {
@@ -65,7 +117,16 @@ export class LinkedInClient {
 
     const userId = userResult.data.id;
 
-    const postData: Record<string, unknown> = {
+    let mediaUrn: string | undefined;
+    if (imageUrl) {
+      const assetResult = await this.registerAsset(imageUrl);
+      if (assetResult.error) {
+        return { error: assetResult.error };
+      }
+      mediaUrn = assetResult.urn;
+    }
+
+    const postData: LinkedInUGCPostRequest = {
       author: `urn:li:person:${userId}`,
       lifecycleState: 'PUBLISHED',
       specificContent: {
@@ -73,7 +134,7 @@ export class LinkedInClient {
           shareCommentary: {
             text,
           },
-          shareMediaCategory: 'NONE',
+          shareMediaCategory: mediaUrn ? 'IMAGE' : 'NONE',
         },
       },
       visibility: {
@@ -81,25 +142,23 @@ export class LinkedInClient {
       },
     };
 
-    if (imageUrl) {
-      postData.specificContent = {
-        'com.linkedin.ugc.ShareContent': {
-          shareCommentary: {
-            text,
-          },
-          shareMediaCategory: 'IMAGE',
-          media: [
-            {
-              status: 'READY',
-              media: imageUrl,
-            },
-          ],
+    if (mediaUrn) {
+      postData.specificContent['com.linkedin.ugc.ShareContent'].media = [
+        {
+          status: 'READY',
+          media: mediaUrn,
         },
-      };
+      ];
     }
 
-    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postData as Record<string, unknown>);
-    return result;
+    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postData as unknown as Record<string, unknown>);
+    if (result.error) {
+      return { error: result.error };
+    }
+    if (!result.data?.id) {
+      return { error: 'No post ID received' };
+    }
+    return { id: result.data.id };
   }
 
   async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text?: string; author?: string }>; error?: string }> {

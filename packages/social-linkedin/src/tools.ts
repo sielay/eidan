@@ -166,6 +166,8 @@ export function makeLinkedInTools(): Tool[] {
           if (result.error) {
             yield { type: 'error', message: result.error };
           } else if (result.profile) {
+            const profilePicture =
+              result.profile.profilePicture?.elements?.[0]?.identifiers?.[0]?.identifier || '';
             yield {
               type: 'result',
               value: {
@@ -173,7 +175,7 @@ export function makeLinkedInTools(): Tool[] {
                 firstName: result.profile.localizedFirstName || '',
                 lastName: result.profile.localizedLastName || '',
                 headline: result.profile.localizedHeadline || '',
-                profilePicture: result.profile.profilePicture?.displayImage || '',
+                profilePicture,
               },
             };
           } else {

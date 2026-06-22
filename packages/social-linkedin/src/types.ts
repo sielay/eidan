@@ -6,7 +6,11 @@ export interface LinkedInProfile {
   localizedLastName?: string;
   localizedHeadline?: string;
   profilePicture?: {
-    displayImage?: string;
+    elements?: Array<{
+      identifiers?: Array<{
+        identifier?: string;
+      }>;
+    }>;
   };
 }
 
@@ -57,13 +61,41 @@ export interface LinkedInCreatePostResponse {
   id: string;
 }
 
+export interface LinkedInAssetRegisterResponse {
+  value: string;
+}
+
+export interface LinkedInUGCPostRequest {
+  author: string;
+  lifecycleState: 'PUBLISHED' | 'DRAFT';
+  specificContent: {
+    'com.linkedin.ugc.ShareContent': {
+      shareCommentary: {
+        text: string;
+      };
+      shareMediaCategory: 'NONE' | 'IMAGE' | 'ARTICLE' | 'VIDEO';
+      media?: Array<{
+        status: string;
+        media: string;
+      }>;
+    };
+  };
+  visibility: {
+    'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' | 'CONNECTIONS' | 'LOGGED_IN' | 'PRIVATE';
+  };
+}
+
 export interface LinkedInProfileResponse {
   id: string;
   localizedFirstName?: string;
   localizedLastName?: string;
   localizedHeadline?: string;
   profilePicture?: {
-    displayImage?: string;
+    elements?: Array<{
+      identifiers?: Array<{
+        identifier?: string;
+      }>;
+    }>;
   };
   firstName?: {
     localized?: {
