@@ -3,6 +3,7 @@
 
 import * as React from "react";
 
+import { JobMarkdown } from "@/components/admin/JobMarkdown";
 import { createJob, jobAction, type JobInfo } from "@/lib/api/admin";
 import { formatAbsolute, formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
@@ -169,7 +170,7 @@ export function JobDetailDrawer({
             />
           ) : (<>
           <Field label="Goal">
-            <p className="whitespace-pre-wrap text-foreground">{job.goal || "—"}</p>
+            {job.goal ? <JobMarkdown>{job.goal}</JobMarkdown> : <p className="text-muted-foreground">—</p>}
           </Field>
 
           <Field label="Timeline">

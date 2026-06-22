@@ -9,9 +9,9 @@ import { jobAction, listAdminJobs, type JobInfo } from "@/lib/api/admin";
 import { formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
-type GroupMode = "status" | "node" | "kind";
+type SwimMode = "none" | "node" | "kind";
 
-// Lifecycle lanes for the default (status) grouping. "Active" folds claimed+running.
+// Status columns are always present; swimlanes split them into horizontal bands per node / kind.
 const STATUS_LANES: { key: string; title: string; statuses: ReadonlySet<string> }[] = [
   { key: "queued", title: "Queued", statuses: new Set(["queued"]) },
   { key: "active", title: "Active", statuses: new Set(["claimed", "running"]) },
@@ -28,16 +28,13 @@ const DOT_CLASS: Record<string, string> = {
   cancelled: "bg-muted-foreground",
 };
 
-// Retry is for work that didn't finish cleanly; a clean `done` job clones (edit + re-run) instead.
 const RETRYABLE = new Set(["failed", "cancelled"]);
 const SETTLED = new Set(["done", "failed", "cancelled"]);
 
-interface Column { key: string; title: string; items: JobInfo[] }
+interface Band { key: string; title: string; jobs: JobInfo[] }
 
-function buildColumns(mode: GroupMode, jobs: JobInfo[]): Column[] {
-  if (mode === "status") {
-    return STATUS_LANES.map((l) => ({ key: l.key, title: l.title, items: jobs.filter((j) => l.statuses.has(j.status)) }));
-  }
+function buildSwimlanes(mode: SwimMode, jobs: JobInfo[]): Band[] {
+  if (mode === "none") return [{ key: "all", title: "", jobs }];
   const keyOf = (j: JobInfo): string => (mode === "node" ? (j.claimed_by ?? "—") : j.kind || "—");
   const groups = new Map<string, JobInfo[]>();
   for (const j of jobs) {
@@ -48,14 +45,13 @@ function buildColumns(mode: GroupMode, jobs: JobInfo[]): Column[] {
   }
   return [...groups.entries()]
     .sort((a, b) => (a[0] === "—" ? 1 : b[0] === "—" ? -1 : a[0].localeCompare(b[0])))
-    .map(([k, items]) => ({ key: k, title: mode === "node" && k === "—" ? "Unclaimed" : k, items }));
+    .map(([k, laneJobs]) => ({ key: k, title: mode === "node" && k === "—" ? "Unclaimed" : k, jobs: laneJobs }));
 }
 
 /**
- * Jobs kanban board (#407). Groups the `eidan.jobs` working set into lanes —
- * by lifecycle status (default), or as swimlanes by node / kind — with a stats
- * strip, per-card actions (retry/clone/archive), and a full-detail slide-over.
- * Shared core surface: any bundle that enqueues jobs (sage, charles) shows here.
+ * Jobs kanban board (#407) — full-bleed lifecycle columns, optionally split into
+ * swimlanes per node / kind, with a stats strip, per-card actions (retry/clone/
+ * archive), and a full-detail slide-over. Shared core surface (sage, charles).
  */
 export function JobsBoard(): React.ReactElement {
   const { user } = useAuth();
@@ -63,7 +59,7 @@ export function JobsBoard(): React.ReactElement {
   const [error, setError] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [startClone, setStartClone] = React.useState(false);
-  const [group, setGroup] = React.useState<GroupMode>("status");
+  const [swimlane, setSwimlane] = React.useState<SwimMode>("none");
   const [showArchived, setShowArchived] = React.useState(false);
   const reloadRef = React.useRef<() => void>(() => {});
 
@@ -82,6 +78,9 @@ export function JobsBoard(): React.ReactElement {
   }, [user, showArchived]);
 
   const selected = React.useMemo(() => jobs?.find((j) => j.id === selectedId) ?? null, [jobs, selectedId]);
+  const reload = React.useCallback(() => reloadRef.current(), []);
+  const openDetail = React.useCallback((id: string) => { setSelectedId(id); setStartClone(false); }, []);
+  const openClone = React.useCallback((id: string) => { setSelectedId(id); setStartClone(true); }, []);
 
   if (error) {
     return (
@@ -94,22 +93,22 @@ export function JobsBoard(): React.ReactElement {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
-  const columns = buildColumns(group, jobs);
+  const bands = buildSwimlanes(swimlane, jobs);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <StatsStrip jobs={jobs} />
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">group</span>
-          {(["status", "node", "kind"] as GroupMode[]).map((m) => (
+          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">swimlanes</span>
+          {(["none", "node", "kind"] as SwimMode[]).map((m) => (
             <button
               key={m}
               type="button"
-              onClick={() => setGroup(m)}
+              onClick={() => setSwimlane(m)}
               className={cn(
                 "rounded-md border px-2 py-0.5 text-[11px] capitalize transition-colors",
-                group === m ? "border-foreground/40 text-foreground" : "border-border text-muted-foreground hover:text-foreground",
+                swimlane === m ? "border-foreground/40 text-foreground" : "border-border text-muted-foreground hover:text-foreground",
               )}
             >
               {m}
@@ -122,26 +121,16 @@ export function JobsBoard(): React.ReactElement {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {columns.map((col) => (
-          <div key={col.key} className="flex min-h-24 flex-col gap-2 rounded-md border border-border bg-muted/20 p-2">
-            <div className="flex items-baseline justify-between gap-2 px-1">
-              <h3 className="truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground" title={col.title}>{col.title}</h3>
-              <span className="font-mono text-[10px] text-muted-foreground">{col.items.length}</span>
-            </div>
-            {col.items.length === 0 ? (
-              <p className="px-1 py-2 text-[11px] text-muted-foreground/60">—</p>
-            ) : (
-              col.items.map((job) => (
-                <JobCard
-                  key={job.id}
-                  job={job}
-                  onOpen={() => { setSelectedId(job.id); setStartClone(false); }}
-                  onClone={() => { setSelectedId(job.id); setStartClone(true); }}
-                  onReload={() => reloadRef.current()}
-                />
-              ))
-            )}
+      <div className="flex flex-col gap-4">
+        {bands.map((band) => (
+          <div key={band.key} className="flex flex-col gap-1.5">
+            {swimlane !== "none" ? (
+              <div className="flex items-baseline gap-2 border-b border-border pb-1">
+                <h3 className="truncate text-xs font-semibold text-foreground" title={band.title}>{band.title}</h3>
+                <span className="font-mono text-[10px] text-muted-foreground">{band.jobs.length}</span>
+              </div>
+            ) : null}
+            <StatusColumns jobs={band.jobs} onOpen={openDetail} onClone={openClone} onReload={reload} />
           </div>
         ))}
       </div>
@@ -150,8 +139,43 @@ export function JobsBoard(): React.ReactElement {
         job={selected}
         startCloning={startClone}
         onClose={() => { setSelectedId(null); setStartClone(false); }}
-        onChanged={() => reloadRef.current()}
+        onChanged={reload}
       />
+    </div>
+  );
+}
+
+function StatusColumns({
+  jobs,
+  onOpen,
+  onClone,
+  onReload,
+}: {
+  jobs: JobInfo[];
+  onOpen: (id: string) => void;
+  onClone: (id: string) => void;
+  onReload: () => void;
+}): React.ReactElement {
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {STATUS_LANES.map((col) => {
+        const items = jobs.filter((j) => col.statuses.has(j.status));
+        return (
+          <div key={col.key} className="flex min-h-20 flex-col gap-2 rounded-md border border-border bg-muted/20 p-2">
+            <div className="flex items-baseline justify-between px-1">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{col.title}</h4>
+              <span className="font-mono text-[10px] text-muted-foreground">{items.length}</span>
+            </div>
+            {items.length === 0 ? (
+              <p className="px-1 py-1 text-[11px] text-muted-foreground/60">—</p>
+            ) : (
+              items.map((job) => (
+                <JobCard key={job.id} job={job} onOpen={() => onOpen(job.id)} onClone={() => onClone(job.id)} onReload={onReload} />
+              ))
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

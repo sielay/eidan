@@ -10,8 +10,9 @@ import { JobsBoard } from "@/components/admin/JobsBoard";
  * states and the per-job detail drawer.
  */
 export default function JobsPage(): React.ReactElement {
+  // Full-bleed (not the 760px `.content` column) — the kanban wants the width.
   return (
-    <div className="content">
+    <div className="flex flex-col gap-4 px-4 py-6 lg:px-6">
       <div className="screen-head">
         <div>
           <h1 className="screen-title">Jobs</h1>
