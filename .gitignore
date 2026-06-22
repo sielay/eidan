@@ -55,6 +55,7 @@ packages/*
 !packages/routines/
 !packages/secrets-api/
 !packages/social-bluesky/
+!packages/social-threads/
 !packages/storage-postgres/
 !packages/vault-postgres/
 !packages/agents/
