@@ -190,6 +190,7 @@ importers:
         version: 5.9.3
 
   packages/finance-google-search-console:
+  packages/finance-trading212:
     dependencies:
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
