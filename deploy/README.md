@@ -46,6 +46,29 @@ targets** get it (by role: `engine` = fly+pi, `worker` = pi, `web` = vercel). Va
 the `.env` files; **routing lives in the schema**; `eidan.deploy.json` only adds node connection
 details + non-secret per-node literals (`env_set`).
 
+### Per-node value overrides — `KEY__<node>`
+
+By default a `.env` value routes to every target the schema assigns the key to. To give **one
+node a different value** for a key, add a `KEY__<node>` entry alongside the base `KEY` in the same
+`.env` — it wins for that node only, and the base serves everyone else. The suffix must be a
+configured target name (`eidan.deploy.json` `targets`); the suffixed key is never written to a node
+verbatim. Works for any key (secret or not). Unlike `env_set` (non-secret literals in the topology
+file), the override holds **secret values** and stays in `.env`.
+
+```bash
+EIDAN_GH_PATS=[{...fine-grained...}]        # default — fly + any node without an override
+EIDAN_GH_PATS__kesha=[{"target":"*","scope":"write","token":"ghp_..."}]  # kesha only
+```
+
+> **GitHub PAT gotcha (why this exists).** A **fine-grained** PAT cannot open pull requests on a
+> repo owned by a *different* account, even as a write collaborator — `git push` (Contents) works
+> but `gh pr create` returns `403 "Resource not accessible by personal access token"`. The
+> cross-account PR path needs a **classic** PAT with `repo` scope. So a worker node that opens PRs
+> into someone else's repo (e.g. kesha → `sielay/eidan` as the `sage-eidan` bot) carries a classic
+> token via `EIDAN_GH_PATS__kesha`, while other nodes keep their fine-grained default. Non-mutating
+> scope probe: `gh api -X POST repos/<o>/<r>/pulls -f head=main -f base=main …` → `403` = missing
+> ability, `422` ("No commits between") = scoped OK.
+
 ### The DX flow
 ```bash
 node deploy/eidan-deploy.mjs init          # scaffold .env + apps/web/.env: auto-gen secrets, defaults, ‹FILL› markers

@@ -104,6 +104,7 @@ export function buildThread({
           role: "assistant",
           content: row.content,
           tool_calls: pairs,
+          created_at: row.created_at,
         });
         i = j;
         continue;
@@ -121,6 +122,7 @@ export function buildThread({
         id: row.id,
         role: row.role,
         content: row.content,
+        created_at: row.created_at,
       });
       i++;
     }
