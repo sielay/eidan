@@ -124,6 +124,7 @@ export interface JobInfo {
   id: string;
   kind: string;
   goal: string;
+  payload: Record<string, unknown>;
   status: JobStatus;
   surface: string | null;
   claimed_by: string | null;
