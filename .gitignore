@@ -54,6 +54,16 @@ packages/*
 !packages/routines/
 !packages/secrets-api/
 !packages/social-bluesky/
+!packages/social-linkedin/
+!packages/social-mastodon/
+!packages/social-youtube/
+!packages/social-x/
+!packages/social-facebook/
+!packages/social-instagram/
+!packages/social-threads/
+!packages/finance-trading212/
+!packages/finance-google-trends/
+!packages/finance-gsc/
 !packages/storage-postgres/
 !packages/vault-postgres/
 !packages/agents/
