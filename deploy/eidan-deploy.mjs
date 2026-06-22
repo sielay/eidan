@@ -13,7 +13,7 @@ import {
 } from "./node-config.mjs";
 import * as secrets from "./secrets.mjs";
 import {
-  resolveNodeEnv, missingValues, undeclaredKeys, presentKeysOf, parseEnvMap, renderEnv,
+  resolveNodeEnv, missingValues, undeclaredKeys, presentKeysOf, parseEnvMap, renderEnv, applyNodeOverrides,
   renderExample, scaffoldEnv, validateFile, TARGETS, ENV_SCHEMA, specOf,
 } from "./env-model.mjs";
 import { makeSource, presentOf } from "./secret-source.mjs";
@@ -92,7 +92,11 @@ const targetName = process.argv[3];
 
 // The configured SecretSource (dotenv default | sops | exec). Tooling reads VALUES only through this.
 const source = makeSource(config, ROOT);
-const loadValues = (target) => source.resolve(fileRoleFor(target));
+// Resolve a target's values, then fold any `KEY__<target>` per-node overrides from the same source
+// (e.g. a kesha-specific EIDAN_GH_PATS for a different GitHub identity). Single chokepoint: every
+// render/plan/push path goes through here.
+const loadValues = (target) =>
+  applyNodeOverrides(source.resolve(fileRoleFor(target)), target, Object.keys(config?.targets ?? {}));
 
 function target(name) {
   const t = config.targets?.[name];

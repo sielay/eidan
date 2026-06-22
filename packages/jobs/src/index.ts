@@ -3,6 +3,7 @@ import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { JobHandlerRegistry, makeTurnHandler, startJobWorker, type JobHandlers } from './job-runner.js';
+import { buildJobTools } from './tools.js';
 
 // Advertise the handler registry so bundles register kind-specific workers:
 // services.JobHandlers?.register('code', sageCodeHandler).
@@ -31,6 +32,7 @@ export const plugin: MatbotPluginSpec = {
     const registry = new JobHandlerRegistry();
     registry.register('chat', makeTurnHandler(provider)); // default kind
     await services.register('JobHandlers', registry);
+    for (const tool of buildJobTools(db)) services.tools.register(tool);
     stop = startJobWorker(services, db, { kinds, nodeId, provider, registry });
     console.log(`[jobs] worker started: node=${nodeId} kinds=[${kinds.join(',')}] provider=${provider}`);
   },

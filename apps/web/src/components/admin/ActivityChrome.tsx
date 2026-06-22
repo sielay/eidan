@@ -80,10 +80,10 @@ export function ActivityChrome({
           setNodesTotal(rows.length);
         })
         .catch(() => {});
-      void listConversations()
-        .then((rows) => {
+      void listConversations({ limit: 100 })
+        .then(({ conversations }) => {
           if (cancelled) return;
-          setConversationsCount(rows.length);
+          setConversationsCount(conversations.length);
         })
         .catch(() => {});
       void listAdminTriggers()
