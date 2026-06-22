@@ -89,16 +89,31 @@ export class LinkedInClient {
       const urn = registerResult.data.value;
       const uploadUrl = `${API_BASE}/assets?action=upload`;
 
+      let imageBuffer: Buffer;
+      try {
+        const imageResponse = await fetch(imageUrl);
+        if (!imageResponse.ok) {
+          return { error: `Failed to fetch image from URL: ${imageResponse.status}` };
+        }
+        imageBuffer = await imageResponse.arrayBuffer() as any as Buffer;
+      } catch (fetchErr) {
+        return {
+          error: `Failed to download image: ${fetchErr instanceof Error ? fetchErr.message : 'Unknown error'}`,
+        };
+      }
+
       const uploadResponse = await fetch(uploadUrl, {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/octet-stream',
         },
-        body: imageUrl,
+        body: imageBuffer,
       });
 
       if (!uploadResponse.ok) {
-        return { error: `Image upload failed: ${uploadResponse.status}` };
+        const errorText = await uploadResponse.text();
+        return { error: `Image upload failed: ${uploadResponse.status} ${errorText}` };
       }
 
       return { urn };
@@ -126,7 +141,7 @@ export class LinkedInClient {
       mediaUrn = assetResult.urn;
     }
 
-    const postData: LinkedInUGCPostRequest = {
+    const postPayload: LinkedInUGCPostRequest = {
       author: `urn:li:person:${userId}`,
       lifecycleState: 'PUBLISHED',
       specificContent: {
@@ -135,6 +150,14 @@ export class LinkedInClient {
             text,
           },
           shareMediaCategory: mediaUrn ? 'IMAGE' : 'NONE',
+          ...(mediaUrn && {
+            media: [
+              {
+                status: 'READY',
+                media: mediaUrn,
+              },
+            ],
+          }),
         },
       },
       visibility: {
@@ -142,16 +165,7 @@ export class LinkedInClient {
       },
     };
 
-    if (mediaUrn) {
-      postData.specificContent['com.linkedin.ugc.ShareContent'].media = [
-        {
-          status: 'READY',
-          media: mediaUrn,
-        },
-      ];
-    }
-
-    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postData as unknown as Record<string, unknown>);
+    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postPayload as unknown as Record<string, unknown>);
     if (result.error) {
       return { error: result.error };
     }
@@ -161,7 +175,7 @@ export class LinkedInClient {
     return { id: result.data.id };
   }
 
-  async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text?: string; author?: string }>; error?: string }> {
+  async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text?: string; author?: string; likes: number; comments: number }>; error?: string }> {
     const url = `/feed?count=${Math.min(limit, 100)}&sortBy=RECENT`;
     const result = await this.request<LinkedInFeedResponse>(url);
 
@@ -173,7 +187,7 @@ export class LinkedInClient {
       result.data?.elements?.map((post) => ({
         id: post.id,
         text: post.content?.description || post.content?.title || '',
-        author: post.actor || '',
+        author: post.actor ?? '',
         likes: post.likesSummary?.totalLikes ?? 0,
         comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
       })) ?? [];
@@ -181,7 +195,7 @@ export class LinkedInClient {
     return { posts };
   }
 
-  async search(query: string, limit: number = 20): Promise<{ posts?: Array<{ id: string; text?: string; author?: string }>; error?: string }> {
+  async search(query: string, limit: number = 20): Promise<{ posts?: Array<{ id: string; text?: string; author?: string; likes: number; comments: number }>; error?: string }> {
     const url = `/search/posts?keywords=${encodeURIComponent(query)}&count=${Math.min(limit, 100)}`;
     const result = await this.request<LinkedInFeedResponse>(url);
 
@@ -193,7 +207,7 @@ export class LinkedInClient {
       result.data?.elements?.map((post) => ({
         id: post.id,
         text: post.content?.description || post.content?.title || '',
-        author: post.actor || '',
+        author: post.actor ?? '',
         likes: post.likesSummary?.totalLikes ?? 0,
         comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
       })) ?? [];
