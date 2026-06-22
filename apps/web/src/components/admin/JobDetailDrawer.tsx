@@ -97,6 +97,7 @@ export function JobDetailDrawer({
     setVerdict(null);
     try {
       setVerdict(await verifyJob(job.id));
+      onChanged(); // verify persists pr_state → reload so the board moves the job to its new phase
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {

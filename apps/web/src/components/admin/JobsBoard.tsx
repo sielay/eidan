@@ -43,6 +43,10 @@ function phaseOf(j: JobInfo): string {
   const result = j.result as Record<string, unknown> | undefined;
   const requeued = result?.["status"] === "requeue";
   if (requeued || !prUrlOf(result)) return "needs_work"; // buried / no PR (the old lease-collision bug)
+  // pr_state mirrors GitHub (written by the sage reconciler + the Verify action).
+  const prState = result?.["pr_state"];
+  if (prState === "merged") return "done"; // merged by anyone = review done
+  if (prState === "closed" || prState === "ci_failed") return "needs_work";
   if (j.archived_at) return "done"; // operator signed off
   return "in_review"; // PR open, awaiting a human/agent check
 }

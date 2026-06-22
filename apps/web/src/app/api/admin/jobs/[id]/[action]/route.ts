@@ -102,6 +102,28 @@ export async function POST(
     });
     if (result === undefined) return new Response("job not found", { status: 404 });
     const verdict = await verifyJobPr(result);
+    // Persist what we learned onto the same field the reconciler uses, so the board's lifecycle phase
+    // moves immediately (merged → Done, closed/missing → Needs work). Only write a definitive state.
+    const prState = verdict.ok
+      ? verdict.state === "merged"
+        ? "merged"
+        : verdict.state === "closed"
+          ? "closed"
+          : "open"
+      : verdict.state === "missing"
+        ? "closed"
+        : null;
+    if (prState) {
+      await withUser(sess.userId, async (c) => {
+        await c.query(
+          `update eidan.jobs
+             set result = coalesce(result, '{}'::jsonb) || jsonb_build_object('pr_state', $2::text, 'pr_checked_at', now()::text),
+                 updated_at = now()
+           where id = $1 and user_id = $3`,
+          [id, prState, sess.userId],
+        );
+      });
+    }
     return Response.json({ id, verify: verdict });
   }
 
