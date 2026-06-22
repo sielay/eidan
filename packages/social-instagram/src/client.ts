@@ -35,8 +35,12 @@ export class InstagramClient {
       return res;
     }
 
-    const url = `${BASE_URL}${path}${path.includes('?') ? '&' : '?'}access_token=${token}`;
-    return fetch(url, options);
+    const url = `${BASE_URL}${path}`;
+    const headers = {
+      ...((options?.headers as Record<string, string>) ?? {}),
+      'Authorization': `Bearer ${token}`,
+    };
+    return fetch(url, { ...options, headers });
   }
 
   async getAuthenticatedUser(): Promise<InstagramUser | null> {
@@ -92,26 +96,10 @@ export class InstagramClient {
   }
 
   async searchUsers(query: string, limit: number = 20): Promise<{ username: string; name?: string }[]> {
-    try {
-      const results: { username: string; name?: string }[] = [];
-      const res = await this.makeRequest(`/ig_hashtag_search?user_id=me&fields=id,name&query=${encodeURIComponent(query)}`);
-
-      if (!res.ok) {
-        return [];
-      }
-
-      const data = (await res.json()) as any;
-      if (data.data) {
-        return data.data.slice(0, limit).map((item: any) => ({
-          username: item.name,
-          name: item.name,
-        }));
-      }
-
-      return results;
-    } catch {
-      return [];
-    }
+    // Instagram Graph API does not support direct user search by username or keyword.
+    // User discovery is limited to hashtag search and followers/following lists.
+    // This method is a stub that returns empty results; use searchHashtag instead.
+    return [];
   }
 
   async postMedia(imageUrl: string, caption?: string): Promise<{ id: string; error?: string } | null> {
@@ -124,29 +112,61 @@ export class InstagramClient {
         return { id: '', error: 'Failed to get authenticated user' };
       }
 
+      // Step 1: Create media container
       const uploadRes = await fetch(
-        `${BASE_URL}/me/media?fields=id&access_token=${token}`,
+        `${BASE_URL}/me/media`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
           body: JSON.stringify({
             image_url: imageUrl,
             caption: caption || '',
+            is_carousel_item: false,
           }),
         }
       );
 
       if (!uploadRes.ok) {
         const error = await uploadRes.text();
-        return { id: '', error: `Upload failed: ${uploadRes.status} ${error}` };
+        return { id: '', error: `Create media failed: ${uploadRes.status} ${error}` };
       }
 
-      const result = (await uploadRes.json()) as InstagramMediaUploadResponse;
-      if (result.error) {
-        return { id: '', error: result.error.message };
+      const createResult = (await uploadRes.json()) as InstagramMediaUploadResponse;
+      if (createResult.error) {
+        return { id: '', error: createResult.error.message };
       }
 
-      return { id: result.id };
+      const creationId = createResult.id;
+
+      // Step 2: Publish the media container
+      const publishRes = await fetch(
+        `${BASE_URL}/me/media_publish`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            creation_id: creationId,
+          }),
+        }
+      );
+
+      if (!publishRes.ok) {
+        const error = await publishRes.text();
+        return { id: '', error: `Publish failed: ${publishRes.status} ${error}` };
+      }
+
+      const publishResult = (await publishRes.json()) as InstagramMediaUploadResponse;
+      if (publishResult.error) {
+        return { id: '', error: publishResult.error.message };
+      }
+
+      return { id: publishResult.id };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to post media';
       return { id: '', error: message };

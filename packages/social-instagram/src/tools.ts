@@ -106,7 +106,7 @@ export function makeInstagramTools(): Tool[] {
   const instagramSearchTool: Tool = {
     name: 'instagram_search',
     description:
-      'Search Instagram for hashtags or content. Returns hashtag metadata and recent posts or user suggestions. Requires INSTAGRAM_ACCESS_TOKEN vault secret.',
+      'Search Instagram for hashtags and their recent posts. Returns hashtag metadata and recent media. Note: Direct user search is not supported by Instagram Graph API. Requires INSTAGRAM_ACCESS_TOKEN vault secret.',
     inputSchema: SEARCH_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
