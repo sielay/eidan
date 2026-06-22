@@ -3,7 +3,7 @@
 
 import * as React from "react";
 
-import { jobAction, type JobInfo } from "@/lib/api/admin";
+import { createJob, jobAction, type JobInfo } from "@/lib/api/admin";
 import { formatAbsolute, formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +51,13 @@ export function JobDetailDrawer({
 }): React.ReactElement | null {
   const [busy, setBusy] = React.useState<null | "cancel" | "retry">(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  const [cloning, setCloning] = React.useState(false);
+
+  // Reset transient UI when the selected job changes.
+  React.useEffect(() => {
+    setCloning(false);
+    setActionError(null);
+  }, [job?.id]);
 
   // Close on Escape while the drawer is open.
   React.useEffect(() => {
@@ -124,6 +131,9 @@ export function JobDetailDrawer({
             {RETRYABLE.has(job.status) ? (
               <Action label="Retry" busy={busy === "retry"} disabled={busy !== null} onClick={() => void run("retry")} />
             ) : null}
+            {!cloning ? (
+              <Action label="Clone" busy={false} disabled={busy !== null} onClick={() => setCloning(true)} />
+            ) : null}
             <button
               type="button"
               onClick={onClose}
@@ -142,6 +152,13 @@ export function JobDetailDrawer({
             </p>
           ) : null}
 
+          {cloning ? (
+            <CloneForm
+              job={job}
+              onCancel={() => setCloning(false)}
+              onCreated={() => { setCloning(false); onChanged(); onClose(); }}
+            />
+          ) : (<>
           <Field label="Goal">
             <p className="whitespace-pre-wrap text-foreground">{job.goal || "—"}</p>
           </Field>
@@ -189,9 +206,98 @@ export function JobDetailDrawer({
               progress lives in the worker node&apos;s journal and the milestone notify topic.
             </p>
           </Field>
+          </>)}
         </div>
       </aside>
     </>
+  );
+}
+
+// Clone an existing job: pre-fill the goal + payload, let the operator edit, then enqueue a fresh
+// job (status='queued'). The original is untouched; this is the "duplicate and schedule" path.
+function CloneForm({
+  job,
+  onCancel,
+  onCreated,
+}: {
+  job: JobInfo;
+  onCancel: () => void;
+  onCreated: () => void;
+}): React.ReactElement {
+  const [goal, setGoal] = React.useState(job.goal);
+  const [payloadText, setPayloadText] = React.useState(() => prettyJson(job.payload ?? {}));
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function submit(): Promise<void> {
+    setError(null);
+    if (!goal.trim()) { setError("Goal can't be empty."); return; }
+    let payload: Record<string, unknown>;
+    try {
+      const parsed: unknown = payloadText.trim() ? JSON.parse(payloadText) : {};
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        setError("Payload must be a JSON object."); return;
+      }
+      payload = parsed as Record<string, unknown>;
+    } catch {
+      setError("Payload is not valid JSON."); return;
+    }
+    setBusy(true);
+    try {
+      await createJob({ kind: job.kind, goal: goal.trim(), payload });
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[11px] text-muted-foreground">
+        Editing a copy of this job — tweak the goal/payload and enqueue a new one. The original is left as-is.
+      </p>
+      {error ? (
+        <p className="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-2 font-mono text-[11px] text-red-700 dark:text-red-300">{error}</p>
+      ) : null}
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Goal</span>
+        <textarea
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          rows={10}
+          className="rounded-md border border-border bg-background p-2 font-mono text-[12px] text-foreground"
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Payload (JSON)</span>
+        <textarea
+          value={payloadText}
+          onChange={(e) => setPayloadText(e.target.value)}
+          rows={5}
+          className="rounded-md border border-border bg-background p-2 font-mono text-[11px] text-foreground"
+        />
+      </label>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={busy}
+          className="rounded-md border border-border bg-foreground/90 px-3 py-1 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? "Creating…" : "Create job"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded-md border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          Back
+        </button>
+      </div>
+    </div>
   );
 }
 
