@@ -5,7 +5,7 @@ import { ActivityChrome } from "@/components/admin/ActivityChrome";
 import { ConversationsPane } from "@/components/admin/ConversationsPane";
 import { CursorsPane } from "@/components/admin/CursorsPane";
 import { DashboardPane } from "@/components/admin/DashboardPane";
-import { JobsPane } from "@/components/admin/JobsPane";
+import { JobsBoard } from "@/components/admin/JobsBoard";
 import { LivePane } from "@/components/admin/LivePane";
 import { LogsPane } from "@/components/admin/LogsPane";
 import { NodesPane } from "@/components/admin/NodesPane";
@@ -18,7 +18,7 @@ const TAB_COMPONENTS: Record<string, () => React.ReactElement> = {
   nodes: NodesPane,
   triggers: TriggersPane,
   routines: RoutinesPane,
-  jobs: JobsPane,
+  jobs: JobsBoard,
   cursors: CursorsPane,
   log: LogsPane,
   live: LivePane,
