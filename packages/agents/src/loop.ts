@@ -76,7 +76,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
             severity: 'medium',
             reasonClass: 'external_failure',
             suggestedAction: `Agent "${row.name}" has failed ${streak} runs in a row (last error: ${msg}). Check its provider/config, or pause it.`,
-            evidence: [{ fire_key: fireKey, error: msg }],
+            evidence: [`error: ${msg}`, `fire_key: ${fireKey}`],
             agentId: row.agent_id,
           });
         }
