@@ -53,9 +53,13 @@ export class XClient {
     );
 
     if (!result || !result.data) {
+      const errorMessage =
+        result?.errors && result.errors.length > 0
+          ? result.errors[0].message
+          : 'Failed to fetch profile';
       return {
         profile: null,
-        error: result?.errors?.[0]?.message || 'Failed to fetch profile',
+        error: errorMessage,
       };
     }
 
@@ -86,10 +90,14 @@ export class XClient {
     );
 
     if (!result || !result.data) {
+      const errorMessage =
+        result?.errors && result.errors.length > 0
+          ? result.errors[0].message
+          : 'Failed to post tweet';
       return {
         tweetId: '',
         text,
-        error: result?.errors?.[0]?.message || 'Failed to post tweet',
+        error: errorMessage,
       };
     }
 
@@ -114,9 +122,13 @@ export class XClient {
     );
 
     if (!result || !result.data) {
+      const errorMessage =
+        result?.errors && result.errors.length > 0
+          ? result.errors[0].message
+          : 'Failed to search tweets';
       return {
         tweets: [],
-        error: result?.errors?.[0]?.message || 'Failed to search tweets',
+        error: errorMessage,
       };
     }
 
@@ -145,9 +157,13 @@ export class XClient {
     );
 
     if (!result || !result.data) {
+      const errorMessage =
+        result?.errors && result.errors.length > 0
+          ? result.errors[0].message
+          : 'Failed to fetch timeline';
       return {
         tweets: [],
-        error: result?.errors?.[0]?.message || 'Failed to fetch timeline',
+        error: errorMessage,
       };
     }
 
