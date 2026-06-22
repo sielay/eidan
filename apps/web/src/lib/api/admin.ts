@@ -185,6 +185,27 @@ export async function jobAction(
   return (await res.json()) as { id: string; status: string };
 }
 
+export interface JobVerifyVerdict {
+  ok: boolean; // a live PR was found on GitHub
+  state?: string; // open | closed | merged | missing
+  url?: string;
+  reason?: string;
+}
+
+/**
+ * Verify whether a settled job's claimed PR actually exists on GitHub. Read-only
+ * (no state change): distinguishes a real PR from a phantom (e.g. a job buried as
+ * `done` by the old lease-collision bug, which has no PR). The caller then decides
+ * whether to retry.
+ */
+export async function verifyJob(jobId: string): Promise<JobVerifyVerdict> {
+  const path = `/api/admin/jobs/${encodeURIComponent(jobId)}/verify`;
+  const res = await authFetch(path, { method: "POST", headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  const body = (await res.json()) as { verify: JobVerifyVerdict };
+  return body.verify;
+}
+
 /**
  * Enqueue a job — the "new" and "clone" paths both POST here. Optional
  * target_node / model / provider pin where + how the job runs (the engine
