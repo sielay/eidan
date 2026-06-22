@@ -9,7 +9,7 @@ test('secretOpt returns undefined for missing secret', async () => {
   const mockContext: Partial<ToolContext> = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('TEST_SECRET');
+        throw new MissingSecretError(['TEST_SECRET']);
       },
       writeSecret: async () => {},
       readSecret: async () => undefined,
@@ -50,7 +50,7 @@ test('secretRequired throws for missing secret', async () => {
   const mockContext: Partial<ToolContext> = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('TEST_SECRET');
+        throw new MissingSecretError(['TEST_SECRET']);
       },
       writeSecret: async () => {},
       readSecret: async () => undefined,

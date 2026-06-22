@@ -253,6 +253,7 @@ Google Trends public API has implicit rate limiting:
 - Real-time data may lag by 1-2 hours
 - Some regions/categories may have limited data availability
 - Search interest values are normalized (0-100 scale)
+- **Scraping fragility**: This plugin scrapes undocumented Google Trends endpoints. Google frequently changes its front-end structure, which can invalidate the parsing logic without warning. Parse errors indicate Google may have changed the API response format. If you encounter persistent parsing errors, the plugin may need updates to adapt to Google's changes.
 
 ## Error Handling
 

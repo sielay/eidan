@@ -11,6 +11,12 @@ import type {
   RelatedQuery,
 } from './types.js';
 
+// Note: This client uses undocumented Google Trends endpoints via scraping.
+// Google frequently changes its front-end structure and response formats,
+// which can invalidate parsing logic. Responses may fail to parse if Google
+// updates the API structure. Consider official Google APIs (e.g., Google Search
+// Console, Google Trends API via third-party wrappers) for production use.
+
 const TRENDS_BASE = 'https://trends.google.com';
 const GEO_DEFAULT = '';
 const CATEGORY_DEFAULT = '0';
@@ -42,8 +48,6 @@ export class GoogleTrendsClient {
     const g = geo || GEO_DEFAULT;
     const cat = category || CATEGORY_DEFAULT;
 
-    const tfParam = TIMEFRAME_MAP[tf] || TIMEFRAME_MAP['30d'];
-
     try {
       const url = new URL(`${TRENDS_BASE}/trends/api/dailytrends`);
       url.searchParams.append('tz', '0');
@@ -70,16 +74,38 @@ export class GoogleTrendsClient {
           geo: g,
           category: cat,
           trends: [],
-          error: 'Could not parse response data',
+          error: 'Could not parse response data: no JSON array found',
         };
       }
 
       const jsonStr = text.substring(startIdx);
-      const data = JSON.parse(jsonStr) as unknown;
-      const dailyTrends = data as Record<string, unknown>[];
+      let data: unknown;
+      try {
+        data = JSON.parse(jsonStr);
+      } catch {
+        return {
+          query,
+          timeframe: tf,
+          geo: g,
+          category: cat,
+          trends: [],
+          error: 'Could not parse response data: invalid JSON',
+        };
+      }
+
+      if (!Array.isArray(data)) {
+        return {
+          query,
+          timeframe: tf,
+          geo: g,
+          category: cat,
+          trends: [],
+          error: 'Could not parse response data: expected array',
+        };
+      }
 
       const trends: TrendData[] = [];
-      for (const day of dailyTrends) {
+      for (const day of data) {
         const dayObj = day as Record<string, unknown>;
         const articles = (dayObj.articles as Record<string, unknown>[]) || [];
 
@@ -148,12 +174,24 @@ export class GoogleTrendsClient {
           geo: g,
           date: d,
           charts: [],
-          error: 'Could not parse response data',
+          error: 'Could not parse response data: no JSON array found',
         };
       }
 
       const jsonStr = text.substring(startIdx);
-      const data = JSON.parse(jsonStr) as unknown;
+      let data: unknown;
+      try {
+        data = JSON.parse(jsonStr);
+      } catch {
+        return {
+          category: cat,
+          geo: g,
+          date: d,
+          charts: [],
+          error: 'Could not parse response data: invalid JSON',
+        };
+      }
+
       const charts: TopChart[] = [];
 
       if (Array.isArray(data)) {
@@ -210,16 +248,34 @@ export class GoogleTrendsClient {
           category: cat,
           geo: g,
           queries: [],
-          error: 'Could not parse response data',
+          error: 'Could not parse response data: no JSON array found',
         };
       }
 
       const jsonStr = text.substring(startIdx);
-      const data = JSON.parse(jsonStr) as unknown;
-      const dailyTrends = data as Record<string, unknown>[];
+      let data: unknown;
+      try {
+        data = JSON.parse(jsonStr);
+      } catch {
+        return {
+          category: cat,
+          geo: g,
+          queries: [],
+          error: 'Could not parse response data: invalid JSON',
+        };
+      }
+
+      if (!Array.isArray(data)) {
+        return {
+          category: cat,
+          geo: g,
+          queries: [],
+          error: 'Could not parse response data: expected array',
+        };
+      }
 
       const queryMap = new Map<string, number>();
-      for (const day of dailyTrends) {
+      for (const day of data) {
         const dayObj = day as Record<string, unknown>;
         const articles = (dayObj.articles as Record<string, unknown>[]) || [];
 
@@ -281,32 +337,58 @@ export class GoogleTrendsClient {
           geo: g,
           queries: [],
           topics: [],
-          error: 'Could not parse response data',
+          error: 'Could not parse response data: no JSON object found',
         };
       }
 
       const jsonStr = text.substring(startIdx);
-      const data = JSON.parse(jsonStr) as Record<string, unknown>;
+      let data: unknown;
+      try {
+        data = JSON.parse(jsonStr);
+      } catch {
+        return {
+          query,
+          geo: g,
+          queries: [],
+          topics: [],
+          error: 'Could not parse response data: invalid JSON',
+        };
+      }
 
+      if (typeof data !== 'object' || data === null) {
+        return {
+          query,
+          geo: g,
+          queries: [],
+          topics: [],
+          error: 'Could not parse response data: expected object',
+        };
+      }
+
+      const dataObj = data as Record<string, unknown>;
       const queries: RelatedQuery[] = [];
       const topics: RelatedQuery[] = [];
 
-      const relatedQueries = (data.relatedQueries as Record<string, unknown>[]) || [];
-      for (const item of relatedQueries) {
-        const itemObj = item as Record<string, unknown>;
-        queries.push({
-          query: String(itemObj.query || ''),
-          value: Number(itemObj.value || 0),
-        });
+      const relatedQueries = dataObj.relatedQueries;
+      if (Array.isArray(relatedQueries)) {
+        for (const item of relatedQueries) {
+          const itemObj = item as Record<string, unknown>;
+          queries.push({
+            query: String(itemObj.query || ''),
+            value: Number(itemObj.value || 0),
+          });
+        }
       }
 
-      const relatedTopics = (data.relatedTopics as Record<string, unknown>[]) || [];
-      for (const item of relatedTopics) {
-        const itemObj = item as Record<string, unknown>;
-        topics.push({
-          query: String(itemObj.title || ''),
-          value: Number(itemObj.value || 0),
-        });
+      const relatedTopics = dataObj.relatedTopics;
+      if (Array.isArray(relatedTopics)) {
+        for (const item of relatedTopics) {
+          const itemObj = item as Record<string, unknown>;
+          topics.push({
+            query: String(itemObj.title || ''),
+            value: Number(itemObj.value || 0),
+          });
+        }
       }
 
       return {
