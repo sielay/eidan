@@ -29,7 +29,6 @@ const DOT_CLASS: Record<string, string> = {
   cancelled: "bg-muted-foreground",
 };
 
-const RETRYABLE = new Set(["failed", "cancelled"]);
 const SETTLED = new Set(["done", "failed", "cancelled"]);
 
 interface Band { key: string; title: string; jobs: JobInfo[] }
@@ -257,7 +256,7 @@ function JobCard({
         ) : null}
       </button>
       <div className="flex items-center gap-1">
-        {RETRYABLE.has(job.status) ? <CardBtn label="Retry" disabled={busy} onClick={() => void act("retry")} /> : null}
+        {SETTLED.has(job.status) ? <CardBtn label="Retry" disabled={busy} onClick={() => void act("retry")} /> : null}
         <CardBtn label="Clone" disabled={busy} onClick={onClone} />
         {job.archived_at ? (
           <CardBtn label="Unarchive" disabled={busy} onClick={() => void act("unarchive")} />
