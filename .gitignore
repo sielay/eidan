@@ -58,6 +58,7 @@ packages/*
 !packages/social-threads/
 !packages/social-facebook/
 !packages/social-x/
+!packages/social-linkedin/
 !packages/storage-postgres/
 !packages/vault-postgres/
 !packages/agents/
