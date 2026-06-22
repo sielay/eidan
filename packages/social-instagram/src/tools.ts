@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
-import { InstagramClient, InstagramAuthError } from './client.js';
+import { InstagramClient, InstagramAuthError, InstagramAPIError, InstagramPostError } from './client.js';
 
 const POST_FEED_SCHEMA = {
   type: 'object',
@@ -82,13 +82,9 @@ export function makeInstagramTools(): Tool[] {
         }
 
         const client = new InstagramClient(ctx);
-        const result = await client.postMedia(imageUrl, text);
 
-        if (!result) {
-          yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
-        } else if (result.error) {
-          yield { type: 'error', message: result.error };
-        } else {
+        try {
+          const result = await client.postMedia(imageUrl, text);
           yield {
             type: 'result',
             value: {
@@ -98,6 +94,14 @@ export function makeInstagramTools(): Tool[] {
               message: 'Posted to Instagram',
             },
           };
+        } catch (err) {
+          if (err instanceof InstagramAuthError) {
+            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
+          } else if (err instanceof InstagramPostError) {
+            yield { type: 'error', message: err.message };
+          } else {
+            throw err;
+          }
         }
       },
     },
@@ -157,6 +161,8 @@ export function makeInstagramTools(): Tool[] {
         } catch (err) {
           if (err instanceof InstagramAuthError) {
             yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
+          } else if (err instanceof InstagramAPIError) {
+            yield { type: 'error', message: err.message };
           } else {
             throw err;
           }
@@ -173,26 +179,35 @@ export function makeInstagramTools(): Tool[] {
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
         const client = new InstagramClient(ctx);
-        const profile = await client.getAuthenticatedUser();
 
-        if (!profile) {
-          yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
-        } else {
-          yield {
-            type: 'result',
-            value: {
-              username: profile.username,
-              name: profile.name || profile.username,
-              bio: profile.biography || '',
-              followers: profile.followers_count ?? 0,
-              following: profile.follows_count ?? 0,
-              posts: profile.media_count ?? 0,
-              profile_picture: profile.profile_picture_url || '',
-              is_professional: profile.is_professional_account ?? false,
-              website: profile.website || '',
-              id: profile.id,
-            },
-          };
+        try {
+          const profile = await client.getAuthenticatedUser();
+
+          if (!profile) {
+            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
+          } else {
+            yield {
+              type: 'result',
+              value: {
+                username: profile.username,
+                name: profile.name || profile.username,
+                bio: profile.biography || '',
+                followers: profile.followers_count ?? 0,
+                following: profile.follows_count ?? 0,
+                posts: profile.media_count ?? 0,
+                profile_picture: profile.profile_picture_url || '',
+                is_professional: profile.is_professional_account ?? false,
+                website: profile.website || '',
+                id: profile.id,
+              },
+            };
+          }
+        } catch (err) {
+          if (err instanceof InstagramAuthError) {
+            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
+          } else {
+            throw err;
+          }
         }
       },
     },
@@ -241,6 +256,8 @@ export function makeInstagramTools(): Tool[] {
         } catch (err) {
           if (err instanceof InstagramAuthError) {
             yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
+          } else if (err instanceof InstagramAPIError) {
+            yield { type: 'error', message: err.message };
           } else {
             throw err;
           }

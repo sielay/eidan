@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { InstagramClient } from './client.js';
+import { InstagramClient, InstagramAuthError, InstagramPostError } from './client.js';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
@@ -19,37 +19,47 @@ const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext 
   },
 } as any);
 
-test('InstagramClient.getAuthenticatedUser returns null without token', async () => {
+test('InstagramClient.getAuthenticatedUser throws InstagramAuthError without token', async () => {
   const ctx = mockCtx();
   const client = new InstagramClient(ctx);
-  const result = await client.getAuthenticatedUser();
-  assert.equal(result, null);
+  await assert.rejects(
+    () => client.getAuthenticatedUser(),
+    InstagramAuthError
+  );
 });
 
-test('InstagramClient.getUserFeed returns empty array without token', async () => {
+test('InstagramClient.getUserFeed throws InstagramAuthError without token', async () => {
   const ctx = mockCtx();
   const client = new InstagramClient(ctx);
-  const result = await client.getUserFeed(20);
-  assert.deepEqual(result, []);
+  await assert.rejects(
+    () => client.getUserFeed(20),
+    InstagramAuthError
+  );
 });
 
-test('InstagramClient.searchHashtag returns null without token', async () => {
+test('InstagramClient.searchHashtag throws InstagramAuthError without token', async () => {
   const ctx = mockCtx();
   const client = new InstagramClient(ctx);
-  const result = await client.searchHashtag('test');
-  assert.equal(result, null);
+  await assert.rejects(
+    () => client.searchHashtag('test'),
+    InstagramAuthError
+  );
 });
 
-test('InstagramClient.postMedia returns null without token', async () => {
+test('InstagramClient.postMedia throws InstagramPostError without token', async () => {
   const ctx = mockCtx();
   const client = new InstagramClient(ctx);
-  const result = await client.postMedia('https://example.com/image.jpg', 'test caption');
-  assert.equal(result, null);
+  await assert.rejects(
+    () => client.postMedia('https://example.com/image.jpg', 'test caption'),
+    InstagramAuthError
+  );
 });
 
-test('InstagramClient.getHashtagMedia returns empty array without token', async () => {
+test('InstagramClient.getHashtagMedia throws InstagramAuthError without token', async () => {
   const ctx = mockCtx();
   const client = new InstagramClient(ctx);
-  const result = await client.getHashtagMedia('hashtag-id', 20);
-  assert.deepEqual(result, []);
+  await assert.rejects(
+    () => client.getHashtagMedia('hashtag-id', 20),
+    InstagramAuthError
+  );
 });
