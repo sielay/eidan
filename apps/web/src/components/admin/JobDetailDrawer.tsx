@@ -3,6 +3,7 @@
 
 import * as React from "react";
 
+import { JobMarkdown } from "@/components/admin/JobMarkdown";
 import { jobAction, type JobInfo } from "@/lib/api/admin";
 import { formatAbsolute, formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
@@ -17,7 +18,9 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 const CANCELLABLE = new Set(["queued", "claimed", "running"]);
-const RETRYABLE = new Set(["done", "failed", "cancelled"]);
+// Retry is for work that didn't finish cleanly; a clean `done` job clones instead.
+const RETRYABLE = new Set(["failed", "cancelled"]);
+const SETTLED = new Set(["done", "failed", "cancelled"]);
 
 // Only surface a worker-supplied result field as a link when it's an http(s)
 // URL — guards against a javascript:/data: scheme reaching href.
@@ -42,15 +45,22 @@ function prettyJson(v: unknown): string {
  */
 export function JobDetailDrawer({
   job,
+  onClone,
   onClose,
   onChanged,
 }: {
   job: JobInfo | null;
+  onClone: () => void;
   onClose: () => void;
   onChanged: () => void;
 }): React.ReactElement | null {
-  const [busy, setBusy] = React.useState<null | "cancel" | "retry">(null);
+  const [busy, setBusy] = React.useState<null | "cancel" | "retry" | "archive" | "unarchive">(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
+
+  // Reset transient UI when the selected job changes.
+  React.useEffect(() => {
+    setActionError(null);
+  }, [job?.id]);
 
   // Close on Escape while the drawer is open.
   React.useEffect(() => {
@@ -64,7 +74,7 @@ export function JobDetailDrawer({
 
   if (!job) return null;
 
-  async function run(action: "cancel" | "retry"): Promise<void> {
+  async function run(action: "cancel" | "retry" | "archive" | "unarchive"): Promise<void> {
     if (!job) return;
     setBusy(action);
     setActionError(null);
@@ -124,6 +134,12 @@ export function JobDetailDrawer({
             {RETRYABLE.has(job.status) ? (
               <Action label="Retry" busy={busy === "retry"} disabled={busy !== null} onClick={() => void run("retry")} />
             ) : null}
+            <Action label="Clone" busy={false} disabled={busy !== null} onClick={onClone} />
+            {job.archived_at ? (
+              <Action label="Unarchive" busy={busy === "unarchive"} disabled={busy !== null} onClick={() => void run("unarchive")} />
+            ) : SETTLED.has(job.status) ? (
+              <Action label="Archive" busy={busy === "archive"} disabled={busy !== null} onClick={() => void run("archive")} />
+            ) : null}
             <button
               type="button"
               onClick={onClose}
@@ -143,7 +159,7 @@ export function JobDetailDrawer({
           ) : null}
 
           <Field label="Goal">
-            <p className="whitespace-pre-wrap text-foreground">{job.goal || "—"}</p>
+            {job.goal ? <JobMarkdown>{job.goal}</JobMarkdown> : <p className="text-muted-foreground">—</p>}
           </Field>
 
           <Field label="Timeline">
@@ -153,6 +169,9 @@ export function JobDetailDrawer({
               <dt>updated</dt><dd title={formatAbsolute(job.updated_at)}>{formatRelative(job.updated_at)}</dd>
               {durationMs !== null ? (<><dt>duration</dt><dd>{Math.round(durationMs / 1000)}s</dd></>) : null}
               {job.surface ? (<><dt>via</dt><dd>{job.surface}</dd></>) : null}
+              {job.target_node ? (<><dt>node</dt><dd>{job.target_node}</dd></>) : null}
+              {job.provider ? (<><dt>provider</dt><dd>{job.provider}</dd></>) : null}
+              {job.model ? (<><dt>model</dt><dd>{job.model}</dd></>) : null}
             </dl>
           </Field>
 

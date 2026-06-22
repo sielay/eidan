@@ -131,6 +131,11 @@ export interface JobInfo {
   claimed_at: string | null;
   result: Record<string, unknown>;
   error: string | null;
+  archived_at: string | null;
+  target_node: string | null;
+  model: string | null;
+  provider: string | null;
+  agent: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -139,8 +144,9 @@ interface JobListResponse {
   jobs: JobInfo[];
 }
 
-export async function listAdminJobs(): Promise<JobInfo[]> {
-  const res = await authFetch("/api/admin/jobs", {
+export async function listAdminJobs(opts?: { includeArchived?: boolean }): Promise<JobInfo[]> {
+  const suffix = opts?.includeArchived ? "?archived=1" : "";
+  const res = await authFetch(`/api/admin/jobs${suffix}`, {
     method: "GET",
     headers: { Accept: "application/json" },
   });
@@ -159,7 +165,7 @@ export async function listAdminJobs(): Promise<JobInfo[]> {
  */
 export async function jobAction(
   jobId: string,
-  action: "cancel" | "retry",
+  action: "cancel" | "retry" | "archive" | "unarchive",
 ): Promise<{ id: string; status: string }> {
   const path = `/api/admin/jobs/${encodeURIComponent(jobId)}/${action}`;
   const res = await authFetch(path, {
@@ -175,6 +181,31 @@ export async function jobAction(
       /* non-JSON error body */
     }
     throw new Error(`POST ${path} failed: ${detail}`);
+  }
+  return (await res.json()) as { id: string; status: string };
+}
+
+/**
+ * Enqueue a job — the "new" and "clone" paths both POST here. Optional
+ * target_node / model / provider pin where + how the job runs (the engine
+ * honours them at claim/run time).
+ */
+export async function createJob(input: {
+  kind?: string;
+  goal: string;
+  payload?: Record<string, unknown>;
+  target_node?: string | null;
+  model?: string | null;
+  provider?: string | null;
+}): Promise<{ id: string; status: string }> {
+  const res = await authFetch("/api/admin/jobs", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => `${res.status}`);
+    throw new Error(`POST /api/admin/jobs failed: ${detail || res.status}`);
   }
   return (await res.json()) as { id: string; status: string };
 }

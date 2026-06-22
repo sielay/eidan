@@ -27,14 +27,15 @@ export const plugin: MatbotPluginSpec = {
     const kinds = (process.env['EIDAN_JOB_KINDS'] ?? 'chat').split(',').map((s) => s.trim()).filter(Boolean);
     const provider = process.env['EIDAN_JOB_PROVIDER'] ?? 'claude';
     const nodeId = process.env['EIDAN_NODE_ID'] ?? `mb-${crypto.randomUUID().slice(0, 8)}`;
+    const concurrency = Math.max(1, Math.floor(Number(process.env['EIDAN_JOBS_CONCURRENCY'] ?? 1)) || 1);
 
     db = new Db(url);
     const registry = new JobHandlerRegistry();
     registry.register('chat', makeTurnHandler(provider)); // default kind
     await services.register('JobHandlers', registry);
     for (const tool of buildJobTools(db)) services.tools.register(tool);
-    stop = startJobWorker(services, db, { kinds, nodeId, provider, registry });
-    console.log(`[jobs] worker started: node=${nodeId} kinds=[${kinds.join(',')}] provider=${provider}`);
+    stop = startJobWorker(services, db, { kinds, nodeId, provider, registry, concurrency });
+    console.log(`[jobs] worker started: node=${nodeId} kinds=[${kinds.join(',')}] provider=${provider} concurrency=${concurrency}`);
   },
   async teardown() {
     if (stop) await stop();

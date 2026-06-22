@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// GET /api/admin/jobs — the jobs queue (eidan.jobs), newest first.
+// GET  /api/admin/jobs — the jobs queue (eidan.jobs), newest first.
+// POST /api/admin/jobs — enqueue a job (the "clone" path: an edited copy of an existing one).
 import type { NextRequest } from "next/server";
 
 import { verifyBearer } from "@/server/auth";
@@ -12,11 +13,15 @@ export async function GET(req: NextRequest): Promise<Response> {
   const sess = verifyBearer(req);
   if (!sess) return new Response("unauthorized", { status: 401 });
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 100, 500);
+  const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
 
   const rows = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `select id, kind, goal, payload, status, surface, claimed_by, claimed_at, result, error, created_at, updated_at
-         from eidan.jobs where user_id = $1 order by created_at desc limit ${limit}`,
+      `select id, kind, goal, payload, status, surface, claimed_by, claimed_at, result, error,
+              archived_at, target_node, model, provider, agent, created_at, updated_at
+         from eidan.jobs
+        where user_id = $1 ${includeArchived ? "" : "and archived_at is null"}
+        order by created_at desc limit ${limit}`,
       [sess.userId],
     );
     return r.rows as Array<Record<string, unknown>>;
@@ -34,8 +39,63 @@ export async function GET(req: NextRequest): Promise<Response> {
       claimed_at: r.claimed_at ? iso(r.claimed_at) : null,
       result: (r.result as Record<string, unknown>) ?? {},
       error: r.error ?? null,
+      archived_at: r.archived_at ? iso(r.archived_at) : null,
+      target_node: r.target_node ?? null,
+      model: r.model ?? null,
+      provider: r.provider ?? null,
+      agent: r.agent ?? null,
       created_at: iso(r.created_at),
       updated_at: iso(r.updated_at),
     })),
   });
+}
+
+interface CreateJobBody {
+  kind?: unknown;
+  goal?: unknown;
+  payload?: unknown;
+  target_node?: unknown;
+  model?: unknown;
+  provider?: unknown;
+}
+
+// Optional free-text execution-target field: trimmed non-empty string, else null.
+function optStr(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+export async function POST(req: NextRequest): Promise<Response> {
+  const sess = verifyBearer(req);
+  if (!sess) return new Response("unauthorized", { status: 401 });
+
+  let body: CreateJobBody;
+  try {
+    body = (await req.json()) as CreateJobBody;
+  } catch {
+    return new Response("invalid JSON body", { status: 400 });
+  }
+
+  const kind = typeof body.kind === "string" && body.kind.trim() ? body.kind.trim() : "code";
+  const goal = typeof body.goal === "string" ? body.goal.trim() : "";
+  if (!goal) return new Response("goal is required", { status: 400 });
+  const payload =
+    body.payload && typeof body.payload === "object" && !Array.isArray(body.payload)
+      ? (body.payload as Record<string, unknown>)
+      : {};
+
+  const targetNode = optStr(body.target_node);
+  const model = optStr(body.model);
+  const provider = optStr(body.provider);
+
+  const created = await withUser(sess.userId, async (c) => {
+    const r = await c.query(
+      `insert into eidan.jobs (kind, goal, payload, user_id, status, surface, target_node, model, provider)
+         values ($1, $2, $3, $4, 'queued', 'manual', $5, $6, $7)
+       returning id, status`,
+      [kind, goal, JSON.stringify(payload), sess.userId, targetNode, model, provider],
+    );
+    return r.rows[0] as { id: string; status: string };
+  });
+
+  return Response.json({ id: created.id, status: created.status });
 }

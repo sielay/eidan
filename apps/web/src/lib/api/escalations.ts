@@ -16,7 +16,9 @@ export interface EscalationSummary {
   severity: "low" | "medium" | "high";
   reason_class: string;
   suggested_action: string | null;
-  evidence: string[];
+  // Contract is string[], but legacy/auto-escalated rows may carry jsonb objects
+  // (e.g. {error, fire_key}); the UI must defensively stringify. See evidenceText().
+  evidence: Array<string | Record<string, unknown>>;
   metadata: Record<string, unknown>;
   status: "pending" | "acknowledged" | "resolved";
   created_at: string;

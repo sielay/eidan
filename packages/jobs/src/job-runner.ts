@@ -11,6 +11,10 @@ export interface Job {
   payload: Record<string, unknown>;
   surface: string | null;
   user_id: string | null;
+  // Per-job execution overrides (#407 targeting); null = the handler's defaults. target_node is
+  // enforced at claim time, so a claimed job is already on the right node.
+  model?: string | null;
+  provider?: string | null;
 }
 
 // A handler runs one claimed job to completion and returns its result (stored on eidan.jobs.result).
@@ -71,11 +75,12 @@ export function makeTurnHandler(provider: string): JobHandler {
 async function claimOne(db: Db, kinds: string[], nodeId: string): Promise<Job | null> {
   return db.tx(async (q) => {
     const r = await q(
-      `select id, kind, goal, payload, surface, user_id from eidan.jobs
+      `select id, kind, goal, payload, surface, user_id, model, provider from eidan.jobs
         where status='queued' and kind = any($1::text[])
+          and (target_node is null or target_node = $2)
         order by created_at
         limit 1 for update skip locked`,
-      [kinds],
+      [kinds, nodeId],
     );
     const row = r.rows[0] as Job | undefined;
     if (!row) return null;
@@ -93,6 +98,11 @@ async function markDone(db: Db, id: string, result: unknown): Promise<void> {
 async function markFailed(db: Db, id: string, error: string): Promise<void> {
   await db.query(`update eidan.jobs set status='failed', error=$2 where id=$1`, [id, error]);
 }
+// Put a claimed job back on the queue for a later tick. Used when a handler signals `requeue`
+// (e.g. sage's "workspace lease busy") — the work isn't done and must not be buried as done.
+async function markRequeue(db: Db, id: string): Promise<void> {
+  await db.query(`update eidan.jobs set status='queued', claimed_by=null, claimed_at=null where id=$1`, [id]);
+}
 
 export interface JobWorkerOpts {
   kinds: string[];
@@ -100,16 +110,48 @@ export interface JobWorkerOpts {
   provider: string;
   registry: JobHandlerRegistry;
   pollMs?: number;
+  // Max jobs this node runs at once (EIDAN_JOBS_CONCURRENCY). Default 1 = the historical serial
+  // loop. >1 lets independent jobs (typically different repos) proceed in parallel so one slow or
+  // hung job no longer blocks the whole backlog. Same-repo `code` jobs still serialise via sage's
+  // (repo,stack) lease — they `requeue` and retry rather than corrupt a shared checkout; true
+  // same-repo parallelism needs per-job git worktrees (a separate change).
+  concurrency?: number;
 }
 
-// Detached claim/run loop. Returns a stop() that ends the loop after the in-flight job.
+// Detached claim/run loop. Runs up to `concurrency` jobs at once; stop() ends the loop and waits
+// for in-flight jobs to finish (so no row is left stuck in 'running').
 export function startJobWorker(services: MatbotServices, db: Db, opts: JobWorkerOpts): () => Promise<void> {
   let stopped = false;
   const pollMs = opts.pollMs ?? 2000;
+  const concurrency = Math.max(1, Math.floor(opts.concurrency ?? 1));
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  const inFlight = new Set<Promise<void>>();
+
+  const runOne = async (job: Job): Promise<void> => {
+    try {
+      await mark(db, job.id, 'running');
+      const handler = opts.registry.get(job.kind) ?? makeTurnHandler(opts.provider);
+      const { result } = await handler(job, services);
+      if ((result as { status?: unknown } | null | undefined)?.status === 'requeue') {
+        // Don't bury it as done: put it back and hold this slot briefly so we don't hot-loop
+        // re-claiming the same lease-blocked job while a peer slot still holds the lease.
+        await markRequeue(db, job.id);
+        console.log(`[jobs] requeue ${job.kind} ${job.id}`);
+        await sleep(Math.max(pollMs, 3000));
+      } else {
+        await markDone(db, job.id, result ?? null);
+        console.log(`[jobs] done ${job.kind} ${job.id}`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await markFailed(db, job.id, msg).catch(() => undefined);
+      console.warn(`[jobs] failed ${job.kind} ${job.id}: ${msg}`);
+    }
+  };
 
   const loop = async (): Promise<void> => {
     while (!stopped) {
+      if (inFlight.size >= concurrency) { await Promise.race(inFlight); continue; }
       let job: Job | null = null;
       try {
         job = await claimOne(db, opts.kinds, opts.nodeId);
@@ -118,20 +160,16 @@ export function startJobWorker(services: MatbotServices, db: Db, opts: JobWorker
         await sleep(5000);
         continue;
       }
-      if (!job) { await sleep(pollMs); continue; }
-      try {
-        await mark(db, job.id, 'running');
-        const handler = opts.registry.get(job.kind) ?? makeTurnHandler(opts.provider);
-        const { result } = await handler(job, services);
-        await markDone(db, job.id, result ?? null);
-        console.log(`[jobs] done ${job.kind} ${job.id}`);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        await markFailed(db, job.id, msg).catch(() => undefined);
-        console.warn(`[jobs] failed ${job.kind} ${job.id}: ${msg}`);
+      if (!job) {
+        // Nothing to claim: idle-poll, but wake early if an in-flight job frees a slot.
+        await (inFlight.size === 0 ? sleep(pollMs) : Promise.race([...inFlight, sleep(pollMs)]));
+        continue;
       }
+      const p = runOne(job).finally(() => { inFlight.delete(p); });
+      inFlight.add(p);
     }
+    await Promise.allSettled(inFlight);
   };
   void loop();
-  return async () => { stopped = true; };
+  return async () => { stopped = true; await Promise.allSettled(inFlight); };
 }
