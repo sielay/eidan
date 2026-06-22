@@ -54,7 +54,7 @@ export class FacebookClient {
 
       if (!res.ok || (typeof data === 'object' && data !== null && 'error' in data)) {
         const errorMsg = typeof data === 'object' && data !== null && 'error' in data
-          ? JSON.stringify((data as any).error)
+          ? ((data as any).error?.message ?? 'Unknown error')
           : `HTTP ${res.status}`;
         return { error: `Graph API error: ${errorMsg}` } as T | { error: string };
       }
@@ -68,6 +68,14 @@ export class FacebookClient {
   async postFeed(text: string, imageUrl?: string): Promise<{ id: string; error?: string }> {
     const targetId = this.pageId || 'me';
     const endpoint = `/${targetId}/feed`;
+
+    if (imageUrl) {
+      try {
+        new URL(imageUrl);
+      } catch {
+        return { id: '', error: 'Invalid image_url: must be a valid URL' };
+      }
+    }
 
     const body: Record<string, unknown> = { message: text };
     if (imageUrl) {
@@ -96,18 +104,17 @@ export class FacebookClient {
 
       if (!res.ok || (typeof data === 'object' && data !== null && 'error' in data)) {
         const errorMsg = typeof data === 'object' && data !== null && 'error' in data
-          ? JSON.stringify((data as any).error)
+          ? ((data as any).error?.message ?? 'Unknown error')
           : `HTTP ${res.status}`;
         return { posts: [], error: `Search failed: ${errorMsg}` };
       }
 
-      // For search results, we get basic post info; fetch full details for each
       const searchData = data as FacebookSearchResponse;
       const posts: FacebookPost[] = searchData.data
         .filter((item) => item.type === 'post' || !item.type)
         .map((item) => ({
           id: item.id,
-          message: item.name,
+          message: item.name || '',
           created_time: '',
           type: 'post',
         }));
@@ -122,7 +129,7 @@ export class FacebookClient {
   }
 
   async getProfile(): Promise<{ profile: FacebookUser | null; error?: string }> {
-    const result = await this.request<FacebookUser>('/me?fields=id,name,picture,bio,friends.summary(total_count)');
+    const result = await this.request<FacebookUser>('/me?fields=id,name,picture,bio');
 
     if ('error' in result) {
       return { profile: null, error: result.error };
@@ -147,7 +154,7 @@ export class FacebookClient {
 
       if (!res.ok || (typeof data === 'object' && data !== null && 'error' in data)) {
         const errorMsg = typeof data === 'object' && data !== null && 'error' in data
-          ? JSON.stringify((data as any).error)
+          ? ((data as any).error?.message ?? 'Unknown error')
           : `HTTP ${res.status}`;
         return { posts: [], error: `Feed fetch failed: ${errorMsg}` };
       }

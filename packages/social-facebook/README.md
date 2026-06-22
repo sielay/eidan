@@ -71,7 +71,9 @@ facebook_search({
 })
 ```
 
-**Returns:** Posts with ID, message, type, creation time, and engagement metrics (likes, comments, shares)
+**Returns:** Posts with ID, message (limited), type, creation time, and engagement metrics (likes, comments, shares)
+
+**Note:** Search results return limited information (ID and name only). Full engagement metrics (likes, comments, shares) are available only for posts already in your feed. The `message` field contains the post name/title if available, but the full post body may not be returned by the Facebook Graph API search endpoint.
 
 ### `facebook_get_profile`
 
@@ -84,7 +86,9 @@ Get the authenticated user's Facebook profile info.
 facebook_get_profile()
 ```
 
-**Returns:** User ID, name, bio, friend count, and profile picture URL
+**Returns:** User ID, name, bio, and profile picture URL
+
+**Note:** Friend count is not available due to Facebook's `user_friends` permission restrictions on general-purpose apps. The API returns 0 if the field is not accessible.
 
 ### `facebook_list_feed`
 
@@ -215,7 +219,7 @@ Result: {
   id: "user123",
   name: "John Doe",
   bio: "AI enthusiast, builder",
-  friends_count: 500,
+  friends_count: 0,
   picture_url: "https://platform-lookaside.fbsbx.com/..."
 }
 
@@ -265,7 +269,8 @@ For full functionality, your access token should have these permissions:
 - `publish_pages`: Post to pages
 - `manage_pages`: Access page feeds
 - `user_photos`: Attach images to posts
-- `user_friends`: Read friend count
 - `user_events`: (optional) Read events
 
-Generate with all permissions at https://developers.facebook.com/tools/explorer.
+Note: `user_friends` permission is restricted by Facebook and not required for this plugin.
+
+Generate with permissions at https://developers.facebook.com/tools/explorer.
