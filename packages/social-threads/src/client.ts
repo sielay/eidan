@@ -59,8 +59,7 @@ export class ThreadsClient {
       });
 
       if (!res.ok) {
-        const errorData = await res.text();
-        return { id: '', error: `Post failed: ${res.status} ${errorData}` };
+        return { id: '', error: `Post failed: ${res.status}` };
       }
 
       const data = (await res.json()) as CreateThreadResponse;
@@ -94,10 +93,9 @@ export class ThreadsClient {
       url.searchParams.set('user_id', 'me');
       url.searchParams.set('q', query);
       url.searchParams.set('fields', 'id,name');
+      url.searchParams.set('access_token', token);
 
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(url.toString());
 
       if (!res.ok) {
         return { posts: [], error: `Search failed: ${res.status}` };
@@ -144,10 +142,9 @@ export class ThreadsClient {
         'fields',
         'id,username,name,biography,profile_picture_url,follower_count,following_count,is_verified,website,threads_profile_picture_url'
       );
+      url.searchParams.set('access_token', token);
 
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(url.toString());
 
       if (!res.ok) {
         return {
@@ -183,10 +180,9 @@ export class ThreadsClient {
         'fields',
         'id,text,timestamp,permalink,like_count,reply_count,repost_count,quote_count,hidden'
       );
+      url.searchParams.set('access_token', token);
 
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(url.toString());
 
       if (!res.ok) {
         return { posts: [], error: `Timeline fetch failed: ${res.status}` };
