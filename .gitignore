@@ -59,6 +59,7 @@ packages/*
 !packages/agents/
 !packages/escalations/
 !packages/decisions/
+!packages/finance-google-search-console/
 !packages/gdrive/
 !packages/google/
 !packages/ical/
