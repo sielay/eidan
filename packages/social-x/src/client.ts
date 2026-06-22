@@ -36,10 +36,6 @@ export class XClient {
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
 
-      if (!response.ok) {
-        return null;
-      }
-
       return (await response.json()) as T;
     } catch {
       return null;
@@ -54,9 +50,7 @@ export class XClient {
 
     if (!result || !result.data) {
       const errorMessage =
-        result?.errors && result.errors.length > 0
-          ? result.errors[0].message
-          : 'Failed to fetch profile';
+        result?.errors?.[0]?.message || 'Failed to fetch profile';
       return {
         profile: null,
         error: errorMessage,
@@ -91,9 +85,7 @@ export class XClient {
 
     if (!result || !result.data) {
       const errorMessage =
-        result?.errors && result.errors.length > 0
-          ? result.errors[0].message
-          : 'Failed to post tweet';
+        result?.errors?.[0]?.message || 'Failed to post tweet';
       return {
         tweetId: '',
         text,
@@ -123,9 +115,7 @@ export class XClient {
 
     if (!result || !result.data) {
       const errorMessage =
-        result?.errors && result.errors.length > 0
-          ? result.errors[0].message
-          : 'Failed to search tweets';
+        result?.errors?.[0]?.message || 'Failed to search tweets';
       return {
         tweets: [],
         error: errorMessage,
@@ -158,9 +148,7 @@ export class XClient {
 
     if (!result || !result.data) {
       const errorMessage =
-        result?.errors && result.errors.length > 0
-          ? result.errors[0].message
-          : 'Failed to fetch timeline';
+        result?.errors?.[0]?.message || 'Failed to fetch timeline';
       return {
         tweets: [],
         error: errorMessage,
@@ -174,14 +162,22 @@ export class XClient {
 export async function createXClient(
   ctx: ToolContext
 ): Promise<{ client: XClient | null; error?: string }> {
-  const accessToken = await secretOpt(ctx, 'X_ACCESS_TOKEN');
+  try {
+    const accessToken = await secretOpt(ctx, 'X_ACCESS_TOKEN');
 
-  if (!accessToken) {
+    if (!accessToken) {
+      return {
+        client: null,
+        error: "X isn't connected — set X_ACCESS_TOKEN in vault (Settings → Connections)",
+      };
+    }
+
+    return { client: new XClient(ctx, accessToken) };
+  } catch (exc) {
+    const errorMessage = exc instanceof Error ? exc.message : 'Unknown vault error';
     return {
       client: null,
-      error: "X isn't connected — set X_ACCESS_TOKEN in vault (Settings → Connections)",
+      error: `Failed to access X credentials: ${errorMessage}`,
     };
   }
-
-  return { client: new XClient(ctx, accessToken) };
 }
