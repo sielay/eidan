@@ -3,28 +3,28 @@
 export interface Position {
   instrument_id: string;
   symbol: string;
-  quantity: number;
-  average_price: number;
-  current_price: number;
-  current_value: number;
-  pl_amount: number;
-  pl_percentage: number;
+  quantity: number | null;
+  average_price: number | null;
+  current_price: number | null;
+  current_value: number | null;
+  pl_amount: number | null;
+  pl_percentage: number | null;
 }
 
 export interface PortfolioResponse {
   positions: Position[];
-  total_value: number;
-  cash: number;
-  buying_power: number;
-  total_pl: number;
+  total_value: number | null;
+  cash: number | null;
+  buying_power: number | null;
+  total_pl: number | null;
 }
 
 export interface Account {
   account_id: string;
   account_type: string;
-  total_value: number;
-  cash_balance: number;
-  buying_power: number;
+  total_value: number | null;
+  cash_balance: number | null;
+  buying_power: number | null;
   currency: string;
 }
 
@@ -36,16 +36,16 @@ export interface Trade {
   order_id: string;
   symbol: string;
   side: 'BUY' | 'SELL';
-  quantity: number;
-  price: number;
+  quantity: number | null;
+  price: number | null;
   executed_at: string;
-  commission: number;
+  commission: number | null;
   status: 'FILLED' | 'CANCELLED' | 'PARTIALLY_FILLED';
 }
 
 export interface TradesResponse {
   trades: Trade[];
-  total: number;
+  total: number | null;
 }
 
 export interface ApiError {

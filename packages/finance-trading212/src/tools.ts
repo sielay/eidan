@@ -54,28 +54,6 @@ const TRADES_SCHEMA = {
       type: 'string',
       description: 'Optional: filter by stock symbol (e.g., AAPL, MSFT).',
     },
-    trades: {
-      type: 'object',
-      properties: {
-        total: { type: 'number' },
-        trades: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              order_id: { type: 'string' },
-              symbol: { type: 'string' },
-              side: { type: 'string', enum: ['BUY', 'SELL'] },
-              quantity: { type: 'number' },
-              price: { type: 'number' },
-              executed_at: { type: 'string' },
-              commission: { type: 'number' },
-              status: { type: 'string', enum: ['FILLED', 'CANCELLED', 'PARTIALLY_FILLED'] },
-            },
-          },
-        },
-      },
-    },
   },
 };
 
