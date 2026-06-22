@@ -135,6 +135,7 @@ export interface JobInfo {
   target_node: string | null;
   model: string | null;
   provider: string | null;
+  agent: string | null;
   created_at: string;
   updated_at: string;
 }

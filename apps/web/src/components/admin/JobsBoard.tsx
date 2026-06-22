@@ -10,7 +10,7 @@ import { jobAction, listAdminJobs, type JobInfo } from "@/lib/api/admin";
 import { formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
-type SwimMode = "none" | "node" | "kind";
+type SwimMode = "none" | "node" | "kind" | "agent";
 
 // Status columns are always present; swimlanes split them into horizontal bands per node / kind.
 const STATUS_LANES: { key: string; title: string; statuses: ReadonlySet<string> }[] = [
@@ -36,7 +36,8 @@ interface Band { key: string; title: string; jobs: JobInfo[] }
 
 function buildSwimlanes(mode: SwimMode, jobs: JobInfo[]): Band[] {
   if (mode === "none") return [{ key: "all", title: "", jobs }];
-  const keyOf = (j: JobInfo): string => (mode === "node" ? (j.claimed_by ?? "—") : j.kind || "—");
+  const keyOf = (j: JobInfo): string =>
+    mode === "node" ? (j.claimed_by ?? "—") : mode === "agent" ? (j.agent ?? "—") : j.kind || "—";
   const groups = new Map<string, JobInfo[]>();
   for (const j of jobs) {
     const k = keyOf(j);
@@ -46,7 +47,11 @@ function buildSwimlanes(mode: SwimMode, jobs: JobInfo[]): Band[] {
   }
   return [...groups.entries()]
     .sort((a, b) => (a[0] === "—" ? 1 : b[0] === "—" ? -1 : a[0].localeCompare(b[0])))
-    .map(([k, laneJobs]) => ({ key: k, title: mode === "node" && k === "—" ? "Unclaimed" : k, jobs: laneJobs }));
+    .map(([k, laneJobs]) => ({
+      key: k,
+      title: k !== "—" ? k : mode === "node" ? "Unclaimed" : mode === "agent" ? "No agent" : "—",
+      jobs: laneJobs,
+    }));
 }
 
 /**
@@ -113,7 +118,7 @@ export function JobsBoard(): React.ReactElement {
         </button>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">swimlanes</span>
-          {(["none", "node", "kind"] as SwimMode[]).map((m) => (
+          {(["none", "node", "kind", "agent"] as SwimMode[]).map((m) => (
             <button
               key={m}
               type="button"

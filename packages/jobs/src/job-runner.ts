@@ -11,6 +11,10 @@ export interface Job {
   payload: Record<string, unknown>;
   surface: string | null;
   user_id: string | null;
+  // Per-job execution overrides (#407 targeting); null = the handler's defaults. target_node is
+  // enforced at claim time, so a claimed job is already on the right node.
+  model?: string | null;
+  provider?: string | null;
 }
 
 // A handler runs one claimed job to completion and returns its result (stored on eidan.jobs.result).
@@ -71,11 +75,12 @@ export function makeTurnHandler(provider: string): JobHandler {
 async function claimOne(db: Db, kinds: string[], nodeId: string): Promise<Job | null> {
   return db.tx(async (q) => {
     const r = await q(
-      `select id, kind, goal, payload, surface, user_id from eidan.jobs
+      `select id, kind, goal, payload, surface, user_id, model, provider from eidan.jobs
         where status='queued' and kind = any($1::text[])
+          and (target_node is null or target_node = $2)
         order by created_at
         limit 1 for update skip locked`,
-      [kinds],
+      [kinds, nodeId],
     );
     const row = r.rows[0] as Job | undefined;
     if (!row) return null;
