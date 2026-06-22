@@ -81,9 +81,9 @@ test('Trading212Client.getPortfolio returns positions on success', async () => {
 
   assert.ok(!result.error);
   assert.ok(result.data);
-  assert.equal(result.data?.positions.length, 1);
-  assert.equal(result.data?.positions[0].symbol, 'AAPL');
-  assert.equal(result.data?.total_value, 5000);
+  assert.equal(result.data.positions.length, 1);
+  assert.equal(result.data.positions[0].symbol, 'AAPL');
+  assert.equal(result.data.total_value, 5000);
 
   teardownFetchMocks();
 });
@@ -147,8 +147,8 @@ test('Trading212Client.getTrades returns trades on success', async () => {
 
   assert.ok(!result.error);
   assert.ok(result.data);
-  assert.equal(result.data?.trades.length, 1);
-  assert.equal(result.data?.trades[0].symbol, 'AAPL');
+  assert.equal(result.data.trades.length, 1);
+  assert.equal(result.data.trades[0].symbol, 'AAPL');
 
   teardownFetchMocks();
 });

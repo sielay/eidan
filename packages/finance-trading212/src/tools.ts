@@ -4,14 +4,40 @@ import { createClient } from './client.js';
 
 const PORTFOLIO_SCHEMA = {
   type: 'object',
-  additionalProperties: false,
-  properties: {},
+  properties: {
+    total_value: { type: 'number', description: 'Total portfolio value' },
+    cash: { type: 'number', description: 'Available cash balance' },
+    buying_power: { type: 'number', description: 'Buying power available' },
+    total_pl: { type: 'number', description: 'Total profit/loss' },
+    positions: {
+      type: 'array',
+      description: 'Array of current positions',
+      items: {
+        type: 'object',
+        properties: {
+          symbol: { type: 'string', description: 'Stock symbol' },
+          quantity: { type: 'number', description: 'Number of shares' },
+          average_price: { type: 'number', description: 'Average purchase price' },
+          current_price: { type: 'number', description: 'Current market price' },
+          current_value: { type: 'number', description: 'Total current value' },
+          pl_amount: { type: 'number', description: 'Profit/loss amount' },
+          pl_percentage: { type: 'number', description: 'Profit/loss percentage' },
+        },
+      },
+    },
+  },
 };
 
 const ACCOUNT_SCHEMA = {
   type: 'object',
-  additionalProperties: false,
-  properties: {},
+  properties: {
+    account_id: { type: 'string', description: 'Trading 212 account ID' },
+    account_type: { type: 'string', description: 'Account type (INVEST, ISA, etc)' },
+    total_value: { type: 'number', description: 'Total account value' },
+    cash_balance: { type: 'number', description: 'Available cash' },
+    buying_power: { type: 'number', description: 'Available buying power' },
+    currency: { type: 'string', description: 'Account currency' },
+  },
 };
 
 const TRADES_SCHEMA = {
@@ -28,6 +54,28 @@ const TRADES_SCHEMA = {
       type: 'string',
       description: 'Optional: filter by stock symbol (e.g., AAPL, MSFT).',
     },
+    trades: {
+      type: 'object',
+      properties: {
+        total: { type: 'number' },
+        trades: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              order_id: { type: 'string' },
+              symbol: { type: 'string' },
+              side: { type: 'string', enum: ['BUY', 'SELL'] },
+              quantity: { type: 'number' },
+              price: { type: 'number' },
+              executed_at: { type: 'string' },
+              commission: { type: 'number' },
+              status: { type: 'string', enum: ['FILLED', 'CANCELLED', 'PARTIALLY_FILLED'] },
+            },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -38,7 +86,7 @@ export function makeTrading212Tools(): Tool[] {
       'Get your Trading 212 portfolio holdings. Returns current positions with average price, current price, and profit/loss for each instrument. Requires TRADING212_API_KEY vault secret.',
     inputSchema: PORTFOLIO_SCHEMA,
     executor: {
-      async *execute(input, ctx) {
+      async *execute(input: any, ctx: ToolContext) {
         const clientResult = await createClient(ctx);
 
         if (clientResult.error) {
@@ -95,7 +143,7 @@ export function makeTrading212Tools(): Tool[] {
       'Get your Trading 212 account information. Returns total value, cash balance, buying power, and account type. Requires TRADING212_API_KEY vault secret.',
     inputSchema: ACCOUNT_SCHEMA,
     executor: {
-      async *execute(input, ctx) {
+      async *execute(input: any, ctx: ToolContext) {
         const clientResult = await createClient(ctx);
 
         if (clientResult.error) {
@@ -145,7 +193,7 @@ export function makeTrading212Tools(): Tool[] {
       'Get your recent Trading 212 trades/order history. Returns buy/sell orders with price, quantity, and execution date. Optionally filter by stock symbol. Requires TRADING212_API_KEY vault secret.',
     inputSchema: TRADES_SCHEMA,
     executor: {
-      async *execute(input, ctx) {
+      async *execute(input: any, ctx: ToolContext) {
         const args = (input ?? {}) as { limit?: number; symbol?: string };
         const limit = Math.min(Number(args.limit) || 50, 100);
         const symbol = args.symbol ? String(args.symbol).toUpperCase() : undefined;
