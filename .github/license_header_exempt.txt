@@ -13,3 +13,6 @@
 # licensed Apache-2.0 (its own LICENSE is preserved in-tree). It is not
 # AGPL eidan core, so its files must NOT carry the eidan header.
 external/matbot/**
+
+# vendored third-party (ponytail "lazy senior dev" ruleset, MIT — carries its own LICENSE)
+packages/sage/vendor/*

@@ -1,0 +1,43 @@
+{
+  "name": "@eidandev/logs",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "eidan-sage logs bundle (matbot): read deployment/app logs from the operator's named log sources (Vercel + Fly + Heroku + Better Stack to start), plus a Log sources admin screen. One registry, one vault key per source.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx ./smoke.test.mts"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "logs.css",
+      "routes": [
+        { "path": "/", "component": "Sources.tsx" }
+      ],
+      "api": [
+        { "path": "/api/logs/sources", "handler": "api/route.ts" }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          { "id": "logs", "label": "Logs", "icon": "scroll-text", "href": "/p/logs", "mobileHome": 7 }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}
