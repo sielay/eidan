@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+/// <reference lib="dom" />
 import { strict as assert } from 'assert';
 import { test } from 'node:test';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';

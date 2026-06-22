@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+/// <reference lib="dom" />
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretRequired } from './vault.js';
 import type {
