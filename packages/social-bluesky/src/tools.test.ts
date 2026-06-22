@@ -6,14 +6,57 @@ import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
 let fetchCalls: Array<{ url: string; options: RequestInit | undefined }> = [];
-let fetchResponses: Map<string, Response> = new Map();
+let fetchResponses: Map<string, Response | Error> = new Map();
+
+const normalizeUrl = (url: string): string => {
+  const u = new URL(url);
+  const params = new URLSearchParams(u.search);
+  const sortedParams = new URLSearchParams([...params.entries()].sort());
+  const queryStr = sortedParams.toString();
+  return queryStr ? `${u.origin}${u.pathname}?${queryStr}` : `${u.origin}${u.pathname}`;
+};
 
 const mockFetch = (url: string | URL, options?: RequestInit): Response | Promise<Response> => {
   const urlStr = String(url);
   fetchCalls.push({ url: urlStr, options });
 
   if (fetchResponses.has(urlStr)) {
-    return fetchResponses.get(urlStr)!;
+    const response = fetchResponses.get(urlStr)!;
+    if (response instanceof Error) {
+      throw response;
+    }
+    return response;
+  }
+
+  const normalized = normalizeUrl(urlStr);
+  if (fetchResponses.has(normalized)) {
+    const response = fetchResponses.get(normalized)!;
+    if (response instanceof Error) {
+      throw response;
+    }
+    return response;
+  }
+
+  for (const [key, response] of fetchResponses.entries()) {
+    const keyStr = String(key);
+    const basePart = keyStr.split('?')[0] || '';
+    if (urlStr.includes(basePart) && keyStr.includes('?')) {
+      const keyUrl = new URL(keyStr);
+      const givenUrl = new URL(urlStr);
+      let matches = true;
+      for (const [param, value] of keyUrl.searchParams.entries()) {
+        if (givenUrl.searchParams.get(param) !== value) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        if (response instanceof Error) {
+          throw response;
+        }
+        return response;
+      }
+    }
   }
 
   return new Response(JSON.stringify({ error: 'Not mocked' }), {
@@ -197,20 +240,13 @@ test('bluesky_post executor succeeds with valid credentials', async () => {
 test('bluesky_post executor uses custom BLUESKY_SERVICE', async () => {
   setupFetchMocks();
 
-  let customServiceCalled = false;
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('https://custom.service')) {
-      customServiceCalled = true;
-      return new Response(
-        JSON.stringify({
-          uri: 'at://did:plc:123/app.bsky.feed.post/abc123',
-          cid: 'bafy123',
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Wrong service' }), { status: 400 } as any);
-  }) as any;
+  fetchResponses.set('https://custom.service/xrpc/com.atproto.repo.createRecord', {
+    ok: true,
+    json: async () => ({
+      uri: 'at://did:plc:123/app.bsky.feed.post/abc123',
+      cid: 'bafy123',
+    }),
+  } as any);
 
   const tools = makeBlueskyTools();
   const postTool = tools.find((t) => t.name === 'bluesky_post');
@@ -225,7 +261,8 @@ test('bluesky_post executor uses custom BLUESKY_SERVICE', async () => {
 
   await collectYields(postTool!.executor.execute({ text: 'Hello' }, ctx));
 
-  assert.ok(customServiceCalled);
+  const customServiceCall = fetchCalls.find(call => call.url.includes('custom.service'));
+  assert.ok(customServiceCall);
 
   teardownFetchMocks();
 });
@@ -282,27 +319,22 @@ test('bluesky_search executor yields error when not authenticated', async () => 
 test('bluesky_search executor succeeds with valid credentials', async () => {
   setupFetchMocks();
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('searchPosts')) {
-      return new Response(
-        JSON.stringify({
-          posts: [
-            {
-              uri: 'at://did:plc:456/app.bsky.feed.post/search1',
-              cid: 'bafy-search1',
-              author: { did: 'did:plc:456', handle: 'other.bsky.social', displayName: 'Other User' },
-              record: { text: 'About bluesky', createdAt: '2025-01-01T00:00:00Z' },
-              likeCount: 10,
-              replyCount: 2,
-              repostCount: 1,
-            },
-          ],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 } as any);
-  }) as any;
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.searchPosts?q=bluesky&limit=20', {
+    ok: true,
+    json: async () => ({
+      posts: [
+        {
+          uri: 'at://did:plc:456/app.bsky.feed.post/search1',
+          cid: 'bafy-search1',
+          author: { did: 'did:plc:456', handle: 'other.bsky.social', displayName: 'Other User' },
+          record: { text: 'About bluesky', createdAt: '2025-01-01T00:00:00Z' },
+          likeCount: 10,
+          replyCount: 2,
+          repostCount: 1,
+        },
+      ],
+    }),
+  } as any);
 
   const tools = makeBlueskyTools();
   const searchTool = tools.find((t) => t.name === 'bluesky_search');
@@ -331,17 +363,12 @@ test('bluesky_search executor succeeds with valid credentials', async () => {
 test('bluesky_search executor uses default limit', async () => {
   setupFetchMocks();
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('searchPosts') && url.includes('limit=20')) {
-      return new Response(
-        JSON.stringify({
-          posts: [],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Wrong limit' }), { status: 400 } as any);
-  }) as any;
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.searchPosts?q=test&limit=20', {
+    ok: true,
+    json: async () => ({
+      posts: [],
+    }),
+  } as any);
 
   const tools = makeBlueskyTools();
   const searchTool = tools.find((t) => t.name === 'bluesky_search');
@@ -381,29 +408,24 @@ test('bluesky_read_feed executor yields error when not authenticated', async () 
 test('bluesky_read_feed executor succeeds with valid credentials', async () => {
   setupFetchMocks();
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('getAuthorFeed')) {
-      return new Response(
-        JSON.stringify({
-          feed: [
-            {
-              post: {
-                uri: 'at://did:plc:123/app.bsky.feed.post/post1',
-                cid: 'bafy1',
-                author: { did: 'did:plc:123', handle: 'user.bsky.social', displayName: 'User' },
-                record: { text: 'Post 1', createdAt: '2025-01-01T00:00:00Z' },
-                likeCount: 5,
-                replyCount: 1,
-                repostCount: 0,
-              },
-            },
-          ],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 } as any);
-  }) as any;
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.getAuthorFeed?actor=did:plc:123&limit=20', {
+    ok: true,
+    json: async () => ({
+      feed: [
+        {
+          post: {
+            uri: 'at://did:plc:123/app.bsky.feed.post/post1',
+            cid: 'bafy1',
+            author: { did: 'did:plc:123', handle: 'user.bsky.social', displayName: 'User' },
+            record: { text: 'Post 1', createdAt: '2025-01-01T00:00:00Z' },
+            likeCount: 5,
+            replyCount: 1,
+            repostCount: 0,
+          },
+        },
+      ],
+    }),
+  } as any);
 
   const tools = makeBlueskyTools();
   const feedTool = tools.find((t) => t.name === 'bluesky_read_feed');
@@ -429,17 +451,12 @@ test('bluesky_read_feed executor succeeds with valid credentials', async () => {
 test('bluesky_read_feed executor respects limit parameter', async () => {
   setupFetchMocks();
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('getAuthorFeed') && url.includes('limit=50')) {
-      return new Response(
-        JSON.stringify({
-          feed: [],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Wrong limit' }), { status: 400 } as any);
-  }) as any;
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.getAuthorFeed?actor=did:plc:123&limit=50', {
+    ok: true,
+    json: async () => ({
+      feed: [],
+    }),
+  } as any);
 
   const tools = makeBlueskyTools();
   const feedTool = tools.find((t) => t.name === 'bluesky_read_feed');
@@ -462,17 +479,12 @@ test('bluesky_read_feed executor respects limit parameter', async () => {
 test('bluesky_read_feed executor uses default limit', async () => {
   setupFetchMocks();
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('getAuthorFeed') && url.includes('limit=20')) {
-      return new Response(
-        JSON.stringify({
-          feed: [],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Wrong limit' }), { status: 400 } as any);
-  }) as any;
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.getAuthorFeed?actor=did:plc:123&limit=20', {
+    ok: true,
+    json: async () => ({
+      feed: [],
+    }),
+  } as any);
 
   const tools = makeBlueskyTools();
   const feedTool = tools.find((t) => t.name === 'bluesky_read_feed');
@@ -495,27 +507,22 @@ test('bluesky_read_feed executor uses default limit', async () => {
 test('search tool formats post data correctly', async () => {
   setupFetchMocks();
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('searchPosts')) {
-      return new Response(
-        JSON.stringify({
-          posts: [
-            {
-              uri: 'at://did:plc:456/app.bsky.feed.post/search1',
-              cid: 'bafy-search1',
-              author: { did: 'did:plc:456', handle: 'author.bsky.social', displayName: 'Author Name' },
-              record: { text: 'Post content', createdAt: '2025-01-01T00:00:00Z' },
-              likeCount: 100,
-              replyCount: 10,
-              repostCount: 5,
-            },
-          ],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 } as any);
-  }) as any;
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.searchPosts?q=test&limit=20', {
+    ok: true,
+    json: async () => ({
+      posts: [
+        {
+          uri: 'at://did:plc:456/app.bsky.feed.post/search1',
+          cid: 'bafy-search1',
+          author: { did: 'did:plc:456', handle: 'author.bsky.social', displayName: 'Author Name' },
+          record: { text: 'Post content', createdAt: '2025-01-01T00:00:00Z' },
+          likeCount: 100,
+          replyCount: 10,
+          repostCount: 5,
+        },
+      ],
+    }),
+  } as any);
 
   const tools = makeBlueskyTools();
   const searchTool = tools.find((t) => t.name === 'bluesky_search');
@@ -544,29 +551,24 @@ test('search tool formats post data correctly', async () => {
 test('read_feed tool formats post data correctly', async () => {
   setupFetchMocks();
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('getAuthorFeed')) {
-      return new Response(
-        JSON.stringify({
-          feed: [
-            {
-              post: {
-                uri: 'at://did:plc:456/app.bsky.feed.post/post1',
-                cid: 'bafy1',
-                author: { did: 'did:plc:456', handle: 'author.bsky.social', displayName: 'Author Name' },
-                record: { text: 'Feed post', createdAt: '2025-01-01T00:00:00Z' },
-                likeCount: 50,
-                replyCount: 5,
-                repostCount: 2,
-              },
-            },
-          ],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 } as any);
-  }) as any;
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.getAuthorFeed?actor=did:plc:123&limit=20', {
+    ok: true,
+    json: async () => ({
+      feed: [
+        {
+          post: {
+            uri: 'at://did:plc:456/app.bsky.feed.post/post1',
+            cid: 'bafy1',
+            author: { did: 'did:plc:456', handle: 'author.bsky.social', displayName: 'Author Name' },
+            record: { text: 'Feed post', createdAt: '2025-01-01T00:00:00Z' },
+            likeCount: 50,
+            replyCount: 5,
+            repostCount: 2,
+          },
+        },
+      ],
+    }),
+  } as any);
 
   const tools = makeBlueskyTools();
   const feedTool = tools.find((t) => t.name === 'bluesky_read_feed');
@@ -594,27 +596,22 @@ test('read_feed tool formats post data correctly', async () => {
 test('tools handle missing author display name', async () => {
   setupFetchMocks();
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('searchPosts')) {
-      return new Response(
-        JSON.stringify({
-          posts: [
-            {
-              uri: 'at://did:plc:456/app.bsky.feed.post/search1',
-              cid: 'bafy-search1',
-              author: { did: 'did:plc:456', handle: 'author.bsky.social' },
-              record: { text: 'Post', createdAt: '2025-01-01T00:00:00Z' },
-              likeCount: 0,
-              replyCount: 0,
-              repostCount: 0,
-            },
-          ],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 } as any);
-  }) as any;
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.searchPosts?q=test&limit=20', {
+    ok: true,
+    json: async () => ({
+      posts: [
+        {
+          uri: 'at://did:plc:456/app.bsky.feed.post/search1',
+          cid: 'bafy-search1',
+          author: { did: 'did:plc:456', handle: 'author.bsky.social' },
+          record: { text: 'Post', createdAt: '2025-01-01T00:00:00Z' },
+          likeCount: 0,
+          replyCount: 0,
+          repostCount: 0,
+        },
+      ],
+    }),
+  } as any);
 
   const tools = makeBlueskyTools();
   const searchTool = tools.find((t) => t.name === 'bluesky_search');

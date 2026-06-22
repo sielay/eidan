@@ -6,14 +6,57 @@ import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
 let fetchCalls: Array<{ url: string; options: RequestInit | undefined }> = [];
-let fetchResponses: Map<string, Response> = new Map();
+let fetchResponses: Map<string, Response | Error> = new Map();
+
+const normalizeUrl = (url: string): string => {
+  const u = new URL(url);
+  const params = new URLSearchParams(u.search);
+  const sortedParams = new URLSearchParams([...params.entries()].sort());
+  const queryStr = sortedParams.toString();
+  return queryStr ? `${u.origin}${u.pathname}?${queryStr}` : `${u.origin}${u.pathname}`;
+};
 
 const mockFetch = (url: string | URL, options?: RequestInit): Response | Promise<Response> => {
   const urlStr = String(url);
   fetchCalls.push({ url: urlStr, options });
 
   if (fetchResponses.has(urlStr)) {
-    return fetchResponses.get(urlStr)!;
+    const response = fetchResponses.get(urlStr)!;
+    if (response instanceof Error) {
+      throw response;
+    }
+    return response;
+  }
+
+  const normalized = normalizeUrl(urlStr);
+  if (fetchResponses.has(normalized)) {
+    const response = fetchResponses.get(normalized)!;
+    if (response instanceof Error) {
+      throw response;
+    }
+    return response;
+  }
+
+  for (const [key, response] of fetchResponses.entries()) {
+    const keyStr = String(key);
+    const basePart = keyStr.split('?')[0] || '';
+    if (urlStr.includes(basePart) && keyStr.includes('?')) {
+      const keyUrl = new URL(keyStr);
+      const givenUrl = new URL(urlStr);
+      let matches = true;
+      for (const [param, value] of keyUrl.searchParams.entries()) {
+        if (givenUrl.searchParams.get(param) !== value) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        if (response instanceof Error) {
+          throw response;
+        }
+        return response;
+      }
+    }
   }
 
   return new Response(JSON.stringify({ error: 'Not mocked' }), {
@@ -331,7 +374,6 @@ test('post succeeds with valid text', async () => {
 test('post includes facets in request', async () => {
   setupFetchMocks();
 
-  let capturedBody: any;
   fetchResponses.set(`https://bsky.social/xrpc/com.atproto.repo.createRecord`, {
     ok: true,
     json: async () => ({
@@ -348,23 +390,14 @@ test('post includes facets in request', async () => {
     BLUESKY_DID: 'did:plc:123',
   });
 
-  global.fetch = ((url: string, options: RequestInit) => {
-    if (url.includes('createRecord')) {
-      capturedBody = JSON.parse(options.body as string);
-    }
-    return new Response(
-      JSON.stringify({
-        uri: 'at://did:plc:123/app.bsky.feed.post/abc123',
-        cid: 'bafy123',
-      }),
-      { ok: true } as any
-    );
-  }) as any;
-
   const client = new BlueskyClient(ctx);
   const result = await client.post('Check #hashtag and https://example.com');
 
   assert.equal(result.uri, 'at://did:plc:123/app.bsky.feed.post/abc123');
+
+  const createRecordCall = fetchCalls.find(call => call.url.includes('createRecord'));
+  assert.ok(createRecordCall);
+  const capturedBody = JSON.parse(createRecordCall!.options!.body as string);
   assert.ok(capturedBody?.record?.facets);
 
   teardownFetchMocks();
@@ -373,7 +406,6 @@ test('post includes facets in request', async () => {
 test('post with reply_to includes parent reference', async () => {
   setupFetchMocks();
 
-  let capturedBody: any;
   fetchResponses.set(
     'https://bsky.social/xrpc/app.bsky.feed.getPosts?uris=at://did:plc:999/app.bsky.feed.post/parent123',
     {
@@ -405,36 +437,14 @@ test('post with reply_to includes parent reference', async () => {
     BLUESKY_DID: 'did:plc:123',
   });
 
-  global.fetch = ((url: string, options: RequestInit) => {
-    if (url.includes('createRecord')) {
-      capturedBody = JSON.parse(options.body as string);
-    }
-    if (url.includes('getPosts')) {
-      return new Response(
-        JSON.stringify({
-          posts: [
-            {
-              uri: 'at://did:plc:999/app.bsky.feed.post/parent123',
-              cid: 'bafy-parent',
-            },
-          ],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(
-      JSON.stringify({
-        uri: 'at://did:plc:123/app.bsky.feed.post/reply123',
-        cid: 'bafy-reply',
-      }),
-      { ok: true } as any
-    );
-  }) as any;
-
   const client = new BlueskyClient(ctx);
   const result = await client.post('Reply text', 'at://did:plc:999/app.bsky.feed.post/parent123');
 
   assert.equal(result.uri, 'at://did:plc:123/app.bsky.feed.post/reply123');
+
+  const createRecordCall = fetchCalls.find(call => call.url.includes('createRecord'));
+  assert.ok(createRecordCall);
+  const capturedBody = JSON.parse(createRecordCall!.options!.body as string);
   assert.ok(capturedBody?.record?.reply?.parent);
 
   teardownFetchMocks();
@@ -457,13 +467,6 @@ test('post returns error when reply parent not found', async () => {
     BLUESKY_ACCESS_JWT_EXPIRY: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     BLUESKY_DID: 'did:plc:123',
   });
-
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('getPosts')) {
-      return new Response(JSON.stringify({ posts: [] }), { ok: true } as any);
-    }
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 } as any);
-  }) as any;
 
   const client = new BlueskyClient(ctx);
   const result = await client.post('Reply text', 'invalid-uri');
@@ -491,27 +494,22 @@ test('readFeed returns error when not authenticated', async () => {
 test('readFeed succeeds with valid session', async () => {
   setupFetchMocks();
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('getAuthorFeed')) {
-      return new Response(
-        JSON.stringify({
-          feed: [
-            {
-              post: {
-                uri: 'at://did:plc:123/app.bsky.feed.post/post1',
-                cid: 'bafy1',
-                author: { did: 'did:plc:123', handle: 'user.bsky.social' },
-                record: { text: 'Post 1', createdAt: '2025-01-01T00:00:00Z' },
-                likeCount: 5,
-              },
-            },
-          ],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 } as any);
-  }) as any;
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.getAuthorFeed?actor=did:plc:123&limit=20', {
+    ok: true,
+    json: async () => ({
+      feed: [
+        {
+          post: {
+            uri: 'at://did:plc:123/app.bsky.feed.post/post1',
+            cid: 'bafy1',
+            author: { did: 'did:plc:123', handle: 'user.bsky.social' },
+            record: { text: 'Post 1', createdAt: '2025-01-01T00:00:00Z' },
+            likeCount: 5,
+          },
+        },
+      ],
+    }),
+  } as any);
 
   const ctx = mockCtx({
     BLUESKY_HANDLE: 'user.bsky.social',
@@ -551,13 +549,6 @@ test('readFeed respects limit parameter', async () => {
     BLUESKY_ACCESS_JWT_EXPIRY: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     BLUESKY_DID: 'did:plc:123',
   });
-
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('getAuthorFeed') && url.includes('limit=50')) {
-      return new Response(JSON.stringify({ feed: [] }), { ok: true } as any);
-    }
-    return new Response(JSON.stringify({ error: 'Wrong limit' }), { status: 400 } as any);
-  }) as any;
 
   const client = new BlueskyClient(ctx);
   const result = await client.readFeed(50);
@@ -610,28 +601,6 @@ test('search succeeds with valid query', async () => {
     BLUESKY_DID: 'did:plc:123',
   });
 
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('searchPosts')) {
-      return new Response(
-        JSON.stringify({
-          posts: [
-            {
-              uri: 'at://did:plc:456/app.bsky.feed.post/search1',
-              cid: 'bafy-search1',
-              author: { did: 'did:plc:456', handle: 'other.bsky.social', displayName: 'Other User' },
-              record: { text: 'About bluesky', createdAt: '2025-01-01T00:00:00Z' },
-              likeCount: 10,
-              replyCount: 2,
-              repostCount: 1,
-            },
-          ],
-        }),
-        { ok: true } as any
-      );
-    }
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 } as any);
-  }) as any;
-
   const client = new BlueskyClient(ctx);
   const result = await client.search('bluesky');
 
@@ -645,6 +614,13 @@ test('search succeeds with valid query', async () => {
 test('search respects limit parameter', async () => {
   setupFetchMocks();
 
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.searchPosts?q=test&limit=50', {
+    ok: true,
+    json: async () => ({
+      posts: [],
+    }),
+  } as any);
+
   const ctx = mockCtx({
     BLUESKY_HANDLE: 'user.bsky.social',
     BLUESKY_APP_PASSWORD: 'password123',
@@ -652,13 +628,6 @@ test('search respects limit parameter', async () => {
     BLUESKY_ACCESS_JWT_EXPIRY: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     BLUESKY_DID: 'did:plc:123',
   });
-
-  global.fetch = ((url: string, options?: RequestInit) => {
-    if (url.includes('searchPosts') && url.includes('limit=50')) {
-      return new Response(JSON.stringify({ posts: [] }), { ok: true } as any);
-    }
-    return new Response(JSON.stringify({ error: 'Wrong limit' }), { status: 400 } as any);
-  }) as any;
 
   const client = new BlueskyClient(ctx);
   const result = await client.search('test', 50);
@@ -672,9 +641,7 @@ test('search respects limit parameter', async () => {
 test('post handles network error gracefully', async () => {
   setupFetchMocks();
 
-  global.fetch = async () => {
-    throw new Error('Network error');
-  };
+  fetchResponses.set('https://bsky.social/xrpc/com.atproto.repo.createRecord', new Error('Network error'));
 
   const ctx = mockCtx({
     BLUESKY_HANDLE: 'user.bsky.social',
@@ -698,9 +665,7 @@ test('post handles network error gracefully', async () => {
 test('readFeed handles network error gracefully', async () => {
   setupFetchMocks();
 
-  global.fetch = async () => {
-    throw new Error('Network error');
-  };
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.getAuthorFeed?actor=did:plc:123&limit=20', new Error('Network error'));
 
   const ctx = mockCtx({
     BLUESKY_HANDLE: 'user.bsky.social',
@@ -723,9 +688,7 @@ test('readFeed handles network error gracefully', async () => {
 test('search handles network error gracefully', async () => {
   setupFetchMocks();
 
-  global.fetch = async () => {
-    throw new Error('Network error');
-  };
+  fetchResponses.set('https://bsky.social/xrpc/app.bsky.feed.searchPosts?q=test&limit=20', new Error('Network error'));
 
   const ctx = mockCtx({
     BLUESKY_HANDLE: 'user.bsky.social',
