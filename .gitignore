@@ -43,6 +43,7 @@ matbot.local.yaml
 packages/*
 !packages/a2a-server/
 !packages/auth/
+!packages/finance-trading212/
 !packages/frontend-agui/
 !packages/frontend-telegram/
 !packages/jobs/
