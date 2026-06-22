@@ -131,6 +131,7 @@ export interface JobInfo {
   claimed_at: string | null;
   result: Record<string, unknown>;
   error: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -139,8 +140,9 @@ interface JobListResponse {
   jobs: JobInfo[];
 }
 
-export async function listAdminJobs(): Promise<JobInfo[]> {
-  const res = await authFetch("/api/admin/jobs", {
+export async function listAdminJobs(opts?: { includeArchived?: boolean }): Promise<JobInfo[]> {
+  const suffix = opts?.includeArchived ? "?archived=1" : "";
+  const res = await authFetch(`/api/admin/jobs${suffix}`, {
     method: "GET",
     headers: { Accept: "application/json" },
   });
@@ -159,7 +161,7 @@ export async function listAdminJobs(): Promise<JobInfo[]> {
  */
 export async function jobAction(
   jobId: string,
-  action: "cancel" | "retry",
+  action: "cancel" | "retry" | "archive" | "unarchive",
 ): Promise<{ id: string; status: string }> {
   const path = `/api/admin/jobs/${encodeURIComponent(jobId)}/${action}`;
   const res = await authFetch(path, {
