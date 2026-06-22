@@ -12,13 +12,40 @@ import { cn } from "@/lib/utils";
 
 type SwimMode = "none" | "node" | "kind" | "agent";
 
-// Status columns are always present; swimlanes split them into horizontal bands per node / kind.
-const STATUS_LANES: { key: string; title: string; statuses: ReadonlySet<string> }[] = [
-  { key: "queued", title: "Queued", statuses: new Set(["queued"]) },
-  { key: "active", title: "Active", statuses: new Set(["claimed", "running"]) },
-  { key: "done", title: "Done", statuses: new Set(["done"]) },
-  { key: "failed", title: "Failed", statuses: new Set(["failed", "cancelled"]) },
+// Lifecycle PHASES (the kanban columns), derived from a job's status + result so the board reflects
+// where the work really is. A `done` status only means a PR was OPENED — not that it passed review or
+// merged — so we split it: "In review" (real PR, awaiting a check) vs "Needs work" (failed, or buried
+// with no PR — the lease-collision case). "Done" is reserved for work the operator has signed off
+// (archived; a future engine reconciler will also auto-advance a job here when its PR merges).
+const PHASE_LANES: { key: string; title: string; hint: string }[] = [
+  { key: "queued", title: "Queued", hint: "waiting to be picked" },
+  { key: "active", title: "Active", hint: "being worked on" },
+  { key: "in_review", title: "In review", hint: "PR opened — needs a check" },
+  { key: "needs_work", title: "Needs work", hint: "failed or rescheduled" },
+  { key: "done", title: "Done", hint: "signed off" },
 ];
+
+function prUrlOf(result: Record<string, unknown> | undefined): string | null {
+  if (!result) return null;
+  for (const k of ["pr_url", "prUrl"]) {
+    const v = result[k];
+    if (typeof v === "string" && /^https?:\/\//i.test(v)) return v;
+  }
+  return null;
+}
+
+// Map a job to its lifecycle phase (see PHASE_LANES).
+function phaseOf(j: JobInfo): string {
+  if (j.status === "queued") return "queued";
+  if (j.status === "claimed" || j.status === "running") return "active";
+  if (j.status === "failed" || j.status === "cancelled") return "needs_work";
+  // status === "done": a real PR exists iff the result carries a PR url and it wasn't a lease requeue.
+  const result = j.result as Record<string, unknown> | undefined;
+  const requeued = result?.["status"] === "requeue";
+  if (requeued || !prUrlOf(result)) return "needs_work"; // buried / no PR (the old lease-collision bug)
+  if (j.archived_at) return "done"; // operator signed off
+  return "in_review"; // PR open, awaiting a human/agent check
+}
 
 const DOT_CLASS: Record<string, string> = {
   queued: "bg-amber-500",
@@ -65,14 +92,15 @@ export function JobsBoard(): React.ReactElement {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState<{ title: string; initial: JobFormInitial } | null>(null);
   const [swimlane, setSwimlane] = React.useState<SwimMode>("none");
-  const [showArchived, setShowArchived] = React.useState(false);
   const reloadRef = React.useRef<() => void>(() => {});
 
   React.useEffect(() => {
     if (!user) return;
     let cancelled = false;
     function load(): void {
-      void listAdminJobs({ includeArchived: showArchived })
+      // Always include archived: a signed-off (archived) job belongs in the "Done" phase column,
+      // not hidden — the phase model, not a toggle, decides where each job lands.
+      void listAdminJobs({ includeArchived: true })
         .then((rows) => { if (!cancelled) { setJobs(rows); setError(null); } })
         .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); });
     }
@@ -80,7 +108,7 @@ export function JobsBoard(): React.ReactElement {
     load();
     const id = setInterval(load, 15_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [user, showArchived]);
+  }, [user]);
 
   const selected = React.useMemo(() => jobs?.find((j) => j.id === selectedId) ?? null, [jobs, selectedId]);
   const reload = React.useCallback(() => reloadRef.current(), []);
@@ -130,10 +158,6 @@ export function JobsBoard(): React.ReactElement {
               {m}
             </button>
           ))}
-          <label className="ml-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-            archived
-          </label>
         </div>
       </div>
 
@@ -182,13 +206,16 @@ function StatusColumns({
   onReload: () => void;
 }): React.ReactElement {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {STATUS_LANES.map((col) => {
-        const items = jobs.filter((j) => col.statuses.has(j.status));
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      {PHASE_LANES.map((col) => {
+        const items = jobs.filter((j) => phaseOf(j) === col.key);
         return (
           <div key={col.key} className="flex min-h-20 flex-col gap-2 rounded-md border border-border bg-muted/20 p-2">
-            <div className="flex items-baseline justify-between px-1">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{col.title}</h4>
+            <div className="flex items-baseline justify-between gap-2 px-1">
+              <div className="flex flex-col">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{col.title}</h4>
+                <span className="text-[9px] text-muted-foreground/60">{col.hint}</span>
+              </div>
               <span className="font-mono text-[10px] text-muted-foreground">{items.length}</span>
             </div>
             {items.length === 0 ? (
@@ -285,22 +312,20 @@ function CardBtn({ label, disabled, onClick }: { label: string; disabled: boolea
 }
 
 function StatsStrip({ jobs }: { jobs: JobInfo[] }): React.ReactElement {
+  // Count by lifecycle phase (matches the board columns), not raw status.
   const counts = jobs.reduce<Record<string, number>>((acc, j) => {
-    acc[j.status] = (acc[j.status] ?? 0) + 1;
+    const p = phaseOf(j);
+    acc[p] = (acc[p] ?? 0) + 1;
     return acc;
   }, {});
-  const done = counts["done"] ?? 0;
-  const failed = (counts["failed"] ?? 0) + (counts["cancelled"] ?? 0);
-  const settled = done + failed;
-  const successRate = settled > 0 ? Math.round((done / settled) * 100) : null;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-border bg-background px-3 py-2 text-xs">
       <Stat label="total" value={String(jobs.length)} />
       <Stat label="queued" value={String(counts["queued"] ?? 0)} />
-      <Stat label="active" value={String((counts["claimed"] ?? 0) + (counts["running"] ?? 0))} />
-      <Stat label="done" value={String(done)} />
-      <Stat label="failed" value={String(failed)} />
-      {successRate !== null ? <Stat label="success" value={`${successRate}%`} /> : null}
+      <Stat label="active" value={String(counts["active"] ?? 0)} />
+      <Stat label="in review" value={String(counts["in_review"] ?? 0)} />
+      <Stat label="needs work" value={String(counts["needs_work"] ?? 0)} />
+      <Stat label="done" value={String(counts["done"] ?? 0)} />
     </div>
   );
 }
