@@ -18,7 +18,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const rows = await withUser(sess.userId, async (c) => {
     const r = await c.query(
       `select id, kind, goal, payload, status, surface, claimed_by, claimed_at, result, error,
-              archived_at, target_node, model, provider, created_at, updated_at
+              archived_at, target_node, model, provider, agent, created_at, updated_at
          from eidan.jobs
         where user_id = $1 ${includeArchived ? "" : "and archived_at is null"}
         order by created_at desc limit ${limit}`,
@@ -43,6 +43,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       target_node: r.target_node ?? null,
       model: r.model ?? null,
       provider: r.provider ?? null,
+      agent: r.agent ?? null,
       created_at: iso(r.created_at),
       updated_at: iso(r.updated_at),
     })),

@@ -19,6 +19,9 @@ function delegateTool(db: Db): Tool {
       title: { type: 'string', description: 'Short title for the task / PR.' },
       stack: { type: 'string', description: 'Coding stack/handler the worker uses. Default "sage".' },
       kind:  { type: 'string', description: 'Work-queue kind. Default "code" (the sage coding loop). Only change for a different registered handler.' },
+      node:  { type: 'string', description: 'Pin the job to a specific node by EIDAN_NODE_ID (e.g. "kesha"). Default: any capable node may claim it.' },
+      model: { type: 'string', description: "Override the model the worker runs under. Default: the handler's default." },
+      provider: { type: 'string', description: "Override the provider the worker runs under. Default: the handler's default." },
     },
     required: ['goal', 'repo'],
     additionalProperties: false,
@@ -32,7 +35,7 @@ function delegateTool(db: Db): Tool {
       'view. This actually enqueues the work — do not claim a task is delegated without calling it.',
     inputSchema,
     executor: {
-      async *execute(input) {
+      async *execute(input, ctx) {
         const a = (input ?? {}) as Record<string, unknown>;
         const goal = s(a['goal']).trim();
         const repo = s(a['repo']).trim();
@@ -41,6 +44,9 @@ function delegateTool(db: Db): Tool {
         const title = s(a['title']).trim();
         const stack = s(a['stack']).trim() || 'sage';
         const kind = s(a['kind']).trim() || 'code';
+        const node = s(a['node']).trim() || null;       // enforced at claim time
+        const model = s(a['model']).trim() || null;
+        const provider = s(a['provider']).trim() || null;
 
         // user_id (ownership; escalations + the run inherit it). The ambient principal is a uuid for
         // web users; for non-uuid principals (e.g. telegram-…) leave it null and keep the id in payload.
@@ -48,14 +54,28 @@ function delegateTool(db: Db): Tool {
         const userId = UUID_RE.test(pid) ? pid : null;
         const payload = { repo, stack, ...(title ? { title } : {}), ...(userId ? {} : { requested_by: pid }) };
 
+        // Attribute the job to the firing agent if this turn runs under one — the agent runtime stamps
+        // the conversation with agent_id, so resolve its name. Best-effort; a human/chat delegate is null.
+        let agent: string | null = null;
+        const convId = ctx?.session?.id;
+        if (convId && UUID_RE.test(convId)) {
+          try {
+            const ar = await db.query(
+              `select a.name from eidan.conversations c join eidan.agents a on a.id = c.agent_id where c.id = $1`,
+              [convId],
+            );
+            agent = (ar.rows[0] as { name?: string } | undefined)?.name ?? null;
+          } catch { /* attribution is a nicety, never block the enqueue */ }
+        }
+
         const r = await db.query(
-          `insert into eidan.jobs (kind, goal, payload, user_id, status, surface)
-           values ($1, $2, $3::jsonb, $4::uuid, 'queued', 'delegate') returning id`,
-          [kind, goal, JSON.stringify(payload), userId],
+          `insert into eidan.jobs (kind, goal, payload, user_id, status, surface, target_node, model, provider, agent)
+           values ($1, $2, $3::jsonb, $4::uuid, 'queued', 'delegate', $5, $6, $7, $8) returning id`,
+          [kind, goal, JSON.stringify(payload), userId, node, model, provider, agent],
         );
         const jobId = (r.rows[0] as { id: string } | undefined)?.id ?? null;
         if (!jobId) { yield { type: 'error', message: 'failed to enqueue the job.' }; return; }
-        yield { type: 'result', value: { job_id: jobId, kind, repo, stack, status: 'queued' } };
+        yield { type: 'result', value: { job_id: jobId, kind, repo, stack, status: 'queued', ...(node ? { node } : {}), ...(agent ? { agent } : {}) } };
       },
     },
   };
