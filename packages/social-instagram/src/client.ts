@@ -13,6 +13,13 @@ import type {
 const API_VERSION = 'v19.0';
 const BASE_URL = `https://graph.instagram.com/${API_VERSION}`;
 
+export class InstagramAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InstagramAuthError';
+  }
+}
+
 export class InstagramClient {
   private ctx: ToolContext;
   private accessToken: string | null | undefined;
@@ -31,7 +38,7 @@ export class InstagramClient {
   private async makeRequest(path: string, options?: RequestInit & { body?: string | undefined }): Promise<Response> {
     const token = await this.getAccessToken();
     if (!token) {
-      throw new Error('Instagram access token not configured. Set INSTAGRAM_ACCESS_TOKEN in vault/env.');
+      throw new InstagramAuthError('Instagram access token not configured. Set INSTAGRAM_ACCESS_TOKEN in vault/env.');
     }
 
     const url = `${BASE_URL}${path}`;
@@ -57,12 +64,6 @@ export class InstagramClient {
 
   async getUserFeed(limit: number = 20): Promise<InstagramMedia[]> {
     try {
-      const token = await this.getAccessToken();
-      if (!token) return [];
-
-      const user = await this.getAuthenticatedUser();
-      if (!user?.id) return [];
-
       const res = await this.makeRequest(
         `/me/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=${Math.min(limit, 100)}`
       );
@@ -73,7 +74,10 @@ export class InstagramClient {
 
       const data = (await res.json()) as { data?: InstagramMedia[] };
       return data.data ?? [];
-    } catch {
+    } catch (err) {
+      if (err instanceof InstagramAuthError) {
+        throw err;
+      }
       return [];
     }
   }
@@ -89,21 +93,16 @@ export class InstagramClient {
 
       const data = (await res.json()) as InstagramHashtagSearch;
       return data.data?.[0] ?? null;
-    } catch {
+    } catch (err) {
+      if (err instanceof InstagramAuthError) {
+        throw err;
+      }
       return null;
     }
   }
 
   async postMedia(imageUrl: string, caption?: string): Promise<{ id: string; error?: string } | null> {
     try {
-      const token = await this.getAccessToken();
-      if (!token) return null;
-
-      const user = await this.getAuthenticatedUser();
-      if (!user?.id) {
-        return { id: '', error: 'Failed to get authenticated user' };
-      }
-
       // Step 1: Create media container
       const uploadRes = await this.makeRequest('/me/media', {
         method: 'POST',
@@ -168,7 +167,10 @@ export class InstagramClient {
 
       const data = (await res.json()) as { data?: InstagramMedia[] };
       return data.data ?? [];
-    } catch {
+    } catch (err) {
+      if (err instanceof InstagramAuthError) {
+        throw err;
+      }
       return [];
     }
   }

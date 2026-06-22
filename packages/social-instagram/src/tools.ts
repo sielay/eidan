@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
-import { InstagramClient } from './client.js';
+import { InstagramClient, InstagramAuthError } from './client.js';
 
 const POST_FEED_SCHEMA = {
   type: 'object',
@@ -120,13 +120,9 @@ export function makeInstagramTools(): Tool[] {
 
         const client = new InstagramClient(ctx);
 
-        const hashtag = await client.searchHashtag(query);
-        if (!hashtag) {
-          // Check if the issue is due to missing token
-          const testUser = await client.getAuthenticatedUser();
-          if (!testUser) {
-            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
-          } else {
+        try {
+          const hashtag = await client.searchHashtag(query);
+          if (!hashtag) {
             yield {
               type: 'result',
               value: {
@@ -136,29 +132,35 @@ export function makeInstagramTools(): Tool[] {
                 message: 'Hashtag not found',
               },
             };
+            return;
           }
-          return;
+
+          const media = await client.getHashtagMedia(hashtag.id, Number(args.limit) || 20);
+
+          yield {
+            type: 'result',
+            value: {
+              query,
+              hashtag: hashtag.name,
+              posts: media.map((post) => ({
+                id: post.id,
+                caption: post.caption || '',
+                media_type: post.media_type,
+                permalink: post.permalink,
+                likes: post.like_count ?? 0,
+                comments: post.comments_count ?? 0,
+                timestamp: post.timestamp,
+              })),
+              count: media.length,
+            },
+          };
+        } catch (err) {
+          if (err instanceof InstagramAuthError) {
+            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
+          } else {
+            throw err;
+          }
         }
-
-        const media = await client.getHashtagMedia(hashtag.id, Number(args.limit) || 20);
-
-        yield {
-          type: 'result',
-          value: {
-            query,
-            hashtag: hashtag.name,
-            posts: media.map((post) => ({
-              id: post.id,
-              caption: post.caption || '',
-              media_type: post.media_type,
-              permalink: post.permalink,
-              likes: post.like_count ?? 0,
-              comments: post.comments_count ?? 0,
-              timestamp: post.timestamp,
-            })),
-            count: media.length,
-          },
-        };
       },
     },
   };
@@ -205,14 +207,11 @@ export function makeInstagramTools(): Tool[] {
       async *execute(input: unknown, ctx: ToolContext) {
         const args = (input ?? {}) as { limit?: number };
         const client = new InstagramClient(ctx);
-        const feed = await client.getUserFeed(Number(args.limit) || 20);
 
-        if (feed.length === 0) {
-          // Check if the issue is due to missing token or if there are genuinely no posts
-          const profile = await client.getAuthenticatedUser();
-          if (!profile) {
-            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
-          } else {
+        try {
+          const feed = await client.getUserFeed(Number(args.limit) || 20);
+
+          if (feed.length === 0) {
             yield {
               type: 'result',
               value: {
@@ -221,24 +220,30 @@ export function makeInstagramTools(): Tool[] {
                 message: 'No posts found in your feed',
               },
             };
+          } else {
+            yield {
+              type: 'result',
+              value: {
+                posts: feed.map((post) => ({
+                  id: post.id,
+                  caption: post.caption || '',
+                  media_type: post.media_type,
+                  media_url: post.media_url || '',
+                  permalink: post.permalink,
+                  likes: post.like_count ?? 0,
+                  comments: post.comments_count ?? 0,
+                  timestamp: post.timestamp,
+                })),
+                count: feed.length,
+              },
+            };
           }
-        } else {
-          yield {
-            type: 'result',
-            value: {
-              posts: feed.map((post) => ({
-                id: post.id,
-                caption: post.caption || '',
-                media_type: post.media_type,
-                media_url: post.media_url || '',
-                permalink: post.permalink,
-                likes: post.like_count ?? 0,
-                comments: post.comments_count ?? 0,
-                timestamp: post.timestamp,
-              })),
-              count: feed.length,
-            },
-          };
+        } catch (err) {
+          if (err instanceof InstagramAuthError) {
+            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
+          } else {
+            throw err;
+          }
         }
       },
     },
