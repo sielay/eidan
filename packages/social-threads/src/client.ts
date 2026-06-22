@@ -88,8 +88,11 @@ export class ThreadsClient {
     }
 
     try {
+      // ponytail: ig_hashtag_search returns hashtags, not posts. Meta's Threads API doesn't expose
+      // a post search endpoint to non-business accounts. This searches for hashtags by keyword.
       const url = new URL(`${THREADS_API_BASE}/ig_hashtag_search`);
       url.searchParams.set('user_id', 'me');
+      url.searchParams.set('q', query);
       url.searchParams.set('fields', 'id,name');
 
       const res = await fetch(url.toString(), {
@@ -192,19 +195,21 @@ export class ThreadsClient {
       const data = (await res.json()) as TimelineResponse;
       const postsData = data.data || [];
 
-      const posts: ThreadsPost[] = postsData.map((post: any) => ({
-        id: post.id,
-        text: post.text,
-        timestamp: post.timestamp,
-        permalink: post.permalink,
-        author: {
-          id: 'me',
-          username: 'me',
-        },
-        like_count: post.like_count,
-        reply_count: post.reply_count,
-        repost_count: post.repost_count,
-      }));
+      const posts: ThreadsPost[] = postsData
+        .slice(0, Math.min(limit, 100))
+        .map((post: any) => ({
+          id: post.id,
+          text: post.text,
+          timestamp: post.timestamp,
+          permalink: post.permalink,
+          author: {
+            id: 'me',
+            username: 'me',
+          },
+          like_count: post.like_count,
+          reply_count: post.reply_count,
+          repost_count: post.repost_count,
+        }));
 
       return { posts };
     } catch {

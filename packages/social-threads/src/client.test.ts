@@ -21,24 +21,29 @@ const mockFetch = (url: string | URL, options?: RequestInit): Response | Promise
   }
 
   for (const [key, response] of fetchResponses.entries()) {
-    const keyStr = String(key);
-    const basePart = keyStr.split('?')[0] || '';
-    if (urlStr.includes(basePart) && keyStr.includes('?')) {
-      const keyUrl = new URL(keyStr);
-      const givenUrl = new URL(urlStr);
-      let matches = true;
-      for (const [param, value] of keyUrl.searchParams.entries()) {
-        if (givenUrl.searchParams.get(param) !== value) {
-          matches = false;
-          break;
+    let matches = false;
+    if (key instanceof RegExp) {
+      matches = key.test(urlStr);
+    } else {
+      const keyStr = String(key);
+      const basePart = keyStr.split('?')[0] || '';
+      if (urlStr.includes(basePart) && keyStr.includes('?')) {
+        const keyUrl = new URL(keyStr);
+        const givenUrl = new URL(urlStr);
+        matches = true;
+        for (const [param, value] of keyUrl.searchParams.entries()) {
+          if (givenUrl.searchParams.get(param) !== value) {
+            matches = false;
+            break;
+          }
         }
       }
-      if (matches) {
-        if (response instanceof Error) {
-          throw response;
-        }
-        return response;
+    }
+    if (matches) {
+      if (response instanceof Error) {
+        throw response;
       }
+      return response;
     }
   }
 

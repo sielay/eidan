@@ -10,7 +10,7 @@ const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext 
     resolve: async (name: string) => {
       const key = name.replace(/^\$\{/, '').replace(/\}$/, '');
       const value = secrets[key];
-      if (!value) throw new MissingSecretError(['KEY_NOT_FOUND']);
+      if (value === undefined) throw new MissingSecretError(['KEY_NOT_FOUND']);
       return value;
     },
     writeSecret: async (key: string, value: string) => {

@@ -56,21 +56,21 @@ threads_post_thread({
 
 ### `threads_search`
 
-Search Threads for posts by keyword or hashtag.
+Search for hashtags on Threads by keyword. Returns matching hashtags found on the platform (not individual posts).
 
 **Parameters:**
-- `query` (required): Search text (keywords, hashtags)
+- `query` (required): Search text (keywords to find hashtags)
 - `limit` (optional, 1–100): Max results (default: 20)
 
 **Example:**
 ```
 threads_search({
-  query: "#eidan",
+  query: "eidan",
   limit: 10
 })
 ```
 
-**Returns:** Matching posts with author info and engagement metrics
+**Returns:** Matching hashtags with hashtag names
 
 ### `threads_get_profile`
 
@@ -113,7 +113,7 @@ threads_list_timeline({ limit: 30 })
 
 3. **API**: Uses Meta's Threads API (graph.threads.com)
    - Posts via `POST /me/threads`
-   - Search via `GET /ig_hashtag_search`
+   - Hashtag search via `GET /ig_hashtag_search` (searches for hashtags, not posts)
    - Profile via `GET /me`
    - Timeline via `GET /me/threads`
 
@@ -168,26 +168,30 @@ Result: {
   message: "Posted to Threads"
 }
 
-Agent: Search for recent discussions about AI agents on Threads.
+Agent: Search for hashtags related to AI agents on Threads.
 
 Agent → threads_search({
-  query: "#AI agents",
+  query: "AI agents",
   limit: 5
 })
 
 Result: {
-  query: "#AI agents",
+  query: "AI agents",
   count: 5,
   posts: [
     {
-      id: "post-123",
-      text: "Building an AI agent framework...",
-      author: "alice",
+      id: "hashtag-123",
+      text: "#agentic",
+      author: "agentic",
       timestamp: "2026-06-22T10:30:00Z",
-      likes: 234,
-      replies: 12,
-      reposts: 45,
-      permalink: "https://threads.net/t/123"
+      permalink: "https://threads.net/search/agentic"
+    },
+    {
+      id: "hashtag-124",
+      text: "#aidevelopment",
+      author: "aidevelopment",
+      timestamp: "2026-06-22T10:30:00Z",
+      permalink: "https://threads.net/search/aidevelopment"
     },
     ...
   ]

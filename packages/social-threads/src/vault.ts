@@ -13,7 +13,7 @@ export async function secretOpt(ctx: ToolContext, name: string): Promise<string 
 
 export async function secretRequired(ctx: ToolContext, name: string): Promise<string> {
   const value = await secretOpt(ctx, name);
-  if (!value) {
+  if (value === undefined) {
     throw new Error(`Missing secret: ${name}`);
   }
   return value;

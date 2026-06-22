@@ -82,7 +82,7 @@ export function makeThreadsTools(): Tool[] {
   const threadsSearchTool: Tool = {
     name: 'threads_search',
     description:
-      'Search Threads for posts by keyword or hashtag. Returns matching results with engagement metrics.',
+      'Search for hashtags on Threads by keyword. Returns matching hashtags found on the platform.',
     inputSchema: SEARCH_SCHEMA,
     executor: {
       async *execute(input, ctx) {
