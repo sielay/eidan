@@ -121,39 +121,36 @@ export function makeInstagramTools(): Tool[] {
         const client = new InstagramClient(ctx);
 
         const hashtag = await client.searchHashtag(query);
-        if (hashtag) {
-          const media = await client.getHashtagMedia(hashtag.id, Number(args.limit) || 20);
-
+        if (!hashtag) {
           yield {
             type: 'result',
             value: {
               query,
-              hashtag: hashtag.name,
-              posts: media.map((post) => ({
-                id: post.id,
-                caption: post.caption || '',
-                media_type: post.media_type,
-                permalink: post.permalink,
-                likes: post.like_count ?? 0,
-                comments: post.comments_count ?? 0,
-                timestamp: post.timestamp,
-              })),
-              count: media.length,
+              posts: [],
+              count: 0,
+              message: 'Hashtag not found',
             },
           };
           return;
         }
 
-        const users = await client.searchUsers(query, Number(args.limit) || 20);
+        const media = await client.getHashtagMedia(hashtag.id, Number(args.limit) || 20);
+
         yield {
           type: 'result',
           value: {
             query,
-            users: users.map((user) => ({
-              username: user.username,
-              name: user.name || user.username,
+            hashtag: hashtag.name,
+            posts: media.map((post) => ({
+              id: post.id,
+              caption: post.caption || '',
+              media_type: post.media_type,
+              permalink: post.permalink,
+              likes: post.like_count ?? 0,
+              comments: post.comments_count ?? 0,
+              timestamp: post.timestamp,
             })),
-            count: users.length,
+            count: media.length,
           },
         };
       },

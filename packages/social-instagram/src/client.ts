@@ -94,13 +94,6 @@ export class InstagramClient {
     }
   }
 
-  async searchUsers(query: string, limit: number = 20): Promise<{ username: string; name?: string }[]> {
-    // Instagram Graph API does not support direct user search by username or keyword.
-    // User discovery is limited to hashtag search and followers/following lists.
-    // This method is a stub that returns empty results; use searchHashtag instead.
-    return [];
-  }
-
   async postMedia(imageUrl: string, caption?: string): Promise<{ id: string; error?: string } | null> {
     try {
       const token = await this.getAccessToken();
