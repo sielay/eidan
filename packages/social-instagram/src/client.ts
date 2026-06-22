@@ -31,8 +31,7 @@ export class InstagramClient {
   private async makeRequest(path: string, options?: RequestInit): Promise<Response> {
     const token = await this.getAccessToken();
     if (!token) {
-      const res = new Response('', { status: 401 });
-      return res;
+      throw new Error('Instagram access token not configured. Set INSTAGRAM_ACCESS_TOKEN in vault/env.');
     }
 
     const url = `${BASE_URL}${path}`;
@@ -124,7 +123,6 @@ export class InstagramClient {
           body: JSON.stringify({
             image_url: imageUrl,
             caption: caption || '',
-            is_carousel_item: false,
           }),
         }
       );

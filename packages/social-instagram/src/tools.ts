@@ -29,7 +29,7 @@ const SEARCH_SCHEMA = {
     query: {
       type: 'string',
       minLength: 1,
-      description: 'Search query: hashtag name, user handle, or keyword.',
+      description: 'Hashtag to search for (without # prefix). Instagram Graph API only supports hashtag search, not direct user or keyword search.',
     },
     limit: {
       type: 'integer',
