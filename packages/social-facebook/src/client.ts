@@ -96,10 +96,12 @@ export class FacebookClient {
     url.searchParams.set('q', query);
     url.searchParams.set('type', 'post');
     url.searchParams.set('limit', String(Math.min(limit, 100)));
-    url.searchParams.set('access_token', this.accessToken);
 
     try {
-      const res = await fetch(url.toString(), { method: 'GET' });
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.accessToken}` },
+      });
       const data = (await res.json()) as FacebookSearchResponse | { error?: Record<string, unknown> };
 
       if (!res.ok || (typeof data === 'object' && data !== null && 'error' in data)) {
@@ -111,7 +113,7 @@ export class FacebookClient {
 
       const searchData = data as FacebookSearchResponse;
       const posts: FacebookPost[] = searchData.data
-        .filter((item) => item.type === 'post' || !item.type)
+        .filter((item) => item.type === 'post')
         .map((item) => ({
           id: item.id,
           message: item.name || '',
@@ -146,10 +148,12 @@ export class FacebookClient {
     const url = new URL(`${GRAPH_API_BASE}/${DEFAULT_API_VERSION}${endpoint}`);
     url.searchParams.set('fields', fields);
     url.searchParams.set('limit', String(Math.min(limit, 100)));
-    url.searchParams.set('access_token', this.accessToken);
 
     try {
-      const res = await fetch(url.toString(), { method: 'GET' });
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.accessToken}` },
+      });
       const data = (await res.json()) as FacebookFeed | { error?: Record<string, unknown> };
 
       if (!res.ok || (typeof data === 'object' && data !== null && 'error' in data)) {
