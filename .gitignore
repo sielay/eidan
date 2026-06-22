@@ -53,6 +53,7 @@ packages/*
 !packages/procedures/
 !packages/routines/
 !packages/secrets-api/
+!packages/social-bluesky/
 !packages/storage-postgres/
 !packages/vault-postgres/
 !packages/agents/
