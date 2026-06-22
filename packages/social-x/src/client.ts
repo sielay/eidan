@@ -11,6 +11,11 @@ import type {
 
 const BASE_URL = 'https://api.twitter.com/2';
 
+// Runtime validation for API responses
+function validateResponse(data: unknown): data is Record<string, unknown> {
+  return typeof data === 'object' && data !== null;
+}
+
 export class XClient {
   private accessToken: string;
   private ctx: ToolContext;
@@ -35,7 +40,13 @@ export class XClient {
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
 
-    return (await response.json()) as T;
+    const data = await response.json();
+
+    if (!validateResponse(data)) {
+      throw new Error('Invalid API response: expected an object');
+    }
+
+    return data as T;
   }
 
   async getMe(): Promise<{ profile: XUserProfile | null; error?: string }> {
