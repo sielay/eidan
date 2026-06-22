@@ -29,7 +29,7 @@ const SEARCH_SCHEMA = {
     query: {
       type: 'string',
       minLength: 1,
-      description: 'Hashtag to search for (without # prefix). Instagram Graph API only supports hashtag search, not direct user or keyword search.',
+      description: 'Hashtag to search for (without # prefix).',
     },
     limit: {
       type: 'integer',
@@ -106,7 +106,7 @@ export function makeInstagramTools(): Tool[] {
   const instagramSearchTool: Tool = {
     name: 'instagram_search',
     description:
-      'Search Instagram for hashtags and their recent posts. Returns hashtag metadata and recent media. Note: Direct user search is not supported by Instagram Graph API. Requires INSTAGRAM_ACCESS_TOKEN vault secret.',
+      'Search Instagram hashtags and view recent posts under those hashtags. Returns hashtag metadata and recent media. Instagram Graph API only supports hashtag search, not direct user or keyword search. Requires INSTAGRAM_ACCESS_TOKEN vault secret.',
     inputSchema: SEARCH_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
@@ -122,15 +122,21 @@ export function makeInstagramTools(): Tool[] {
 
         const hashtag = await client.searchHashtag(query);
         if (!hashtag) {
-          yield {
-            type: 'result',
-            value: {
-              query,
-              posts: [],
-              count: 0,
-              message: 'Hashtag not found',
-            },
-          };
+          // Check if the issue is due to missing token
+          const testUser = await client.getAuthenticatedUser();
+          if (!testUser) {
+            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
+          } else {
+            yield {
+              type: 'result',
+              value: {
+                query,
+                posts: [],
+                count: 0,
+                message: 'Hashtag not found',
+              },
+            };
+          }
           return;
         }
 
@@ -202,14 +208,20 @@ export function makeInstagramTools(): Tool[] {
         const feed = await client.getUserFeed(Number(args.limit) || 20);
 
         if (feed.length === 0) {
-          yield {
-            type: 'result',
-            value: {
-              posts: [],
-              count: 0,
-              message: "Instagram isn't connected or no posts found — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)",
-            },
-          };
+          // Check if the issue is due to missing token or if there are genuinely no posts
+          const profile = await client.getAuthenticatedUser();
+          if (!profile) {
+            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
+          } else {
+            yield {
+              type: 'result',
+              value: {
+                posts: [],
+                count: 0,
+                message: 'No posts found in your feed',
+              },
+            };
+          }
         } else {
           yield {
             type: 'result',

@@ -132,7 +132,7 @@ test('instagram_get_profile executor yields error when not authenticated', async
   assert.ok(results[0].message.includes("isn't connected"));
 });
 
-test('instagram_list_feed executor handles missing token gracefully', async () => {
+test('instagram_list_feed executor yields error when not authenticated', async () => {
   const tools = makeInstagramTools();
   const feedTool = tools.find((t) => t.name === 'instagram_list_feed');
   const ctx = mockCtx({});
@@ -140,7 +140,6 @@ test('instagram_list_feed executor handles missing token gracefully', async () =
   const results = await collectYields(feedTool!.executor.execute({}, ctx));
 
   assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'result');
-  assert.deepEqual(results[0].value.posts, []);
-  assert.equal(results[0].value.count, 0);
+  assert.equal(results[0].type, 'error');
+  assert.ok(results[0].message.includes("isn't connected"));
 });

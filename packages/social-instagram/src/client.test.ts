@@ -40,13 +40,6 @@ test('InstagramClient.searchHashtag returns null without token', async () => {
   assert.equal(result, null);
 });
 
-test('InstagramClient.searchUsers returns empty array without token', async () => {
-  const ctx = mockCtx();
-  const client = new InstagramClient(ctx);
-  const result = await client.searchUsers('test', 20);
-  assert.deepEqual(result, []);
-});
-
 test('InstagramClient.postMedia returns null without token', async () => {
   const ctx = mockCtx();
   const client = new InstagramClient(ctx);

@@ -28,7 +28,7 @@ export class InstagramClient {
     return this.accessToken;
   }
 
-  private async makeRequest(path: string, options?: RequestInit): Promise<Response> {
+  private async makeRequest(path: string, options?: RequestInit & { body?: string | undefined }): Promise<Response> {
     const token = await this.getAccessToken();
     if (!token) {
       throw new Error('Instagram access token not configured. Set INSTAGRAM_ACCESS_TOKEN in vault/env.');
@@ -105,20 +105,16 @@ export class InstagramClient {
       }
 
       // Step 1: Create media container
-      const uploadRes = await fetch(
-        `${BASE_URL}/me/media`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            image_url: imageUrl,
-            caption: caption || '',
-          }),
-        }
-      );
+      const uploadRes = await this.makeRequest('/me/media', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image_url: imageUrl,
+          caption: caption || '',
+        }),
+      });
 
       if (!uploadRes.ok) {
         const error = await uploadRes.text();
@@ -133,19 +129,15 @@ export class InstagramClient {
       const creationId = createResult.id;
 
       // Step 2: Publish the media container
-      const publishRes = await fetch(
-        `${BASE_URL}/me/media_publish`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            creation_id: creationId,
-          }),
-        }
-      );
+      const publishRes = await this.makeRequest('/me/media_publish', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          creation_id: creationId,
+        }),
+      });
 
       if (!publishRes.ok) {
         const error = await publishRes.text();
