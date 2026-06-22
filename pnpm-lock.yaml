@@ -524,6 +524,7 @@ importers:
         version: 5.9.3
 
   packages/social-threads:
+  packages/social-facebook:
     dependencies:
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
