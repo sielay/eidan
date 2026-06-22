@@ -24,40 +24,44 @@ export class XClient {
     method: string,
     path: string,
     body?: Record<string, unknown>
-  ): Promise<T | null> {
+  ): Promise<T> {
     const url = `${BASE_URL}${path}`;
-    try {
-      const response = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      });
+    const response = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
 
-      return (await response.json()) as T;
-    } catch {
-      return null;
-    }
+    return (await response.json()) as T;
   }
 
   async getMe(): Promise<{ profile: XUserProfile | null; error?: string }> {
-    const result = await this.makeRequest<XUserResponse>(
-      'GET',
-      '/users/me?user.fields=created_at,description,followers_count,following_count,public_metrics,verified,verified_type'
-    );
+    try {
+      const result = await this.makeRequest<XUserResponse>(
+        'GET',
+        '/users/me?user.fields=created_at,description,followers_count,following_count,public_metrics,verified,verified_type'
+      );
 
-    if (!result || !result.data) {
-      const errorMessage =
-        result?.errors?.[0]?.message || 'Failed to fetch profile';
+      if (!result.data) {
+        const errorMessage =
+          result?.errors?.[0]?.message || 'Failed to fetch profile';
+        return {
+          profile: null,
+          error: errorMessage,
+        };
+      }
+
+      return { profile: result.data };
+    } catch (exc) {
+      const errorMessage = exc instanceof Error ? exc.message : 'Unknown error';
       return {
         profile: null,
-        error: errorMessage,
+        error: `Failed to fetch profile: ${errorMessage}`,
       };
     }
-
-    return { profile: result.data };
   }
 
   async postTweet(
@@ -72,90 +76,115 @@ export class XClient {
       };
     }
 
-    const body: Record<string, unknown> = { text };
-    if (replyToId) {
-      body.reply = { in_reply_to_tweet_id: replyToId };
-    }
+    try {
+      const body: Record<string, unknown> = { text };
+      if (replyToId) {
+        body.reply = { in_reply_to_tweet_id: replyToId };
+      }
 
-    const result = await this.makeRequest<XCreateTweetResponse>(
-      'POST',
-      '/tweets',
-      body
-    );
+      const result = await this.makeRequest<XCreateTweetResponse>(
+        'POST',
+        '/tweets',
+        body
+      );
 
-    if (!result || !result.data) {
-      const errorMessage =
-        result?.errors?.[0]?.message || 'Failed to post tweet';
+      if (!result.data) {
+        const errorMessage =
+          result?.errors?.[0]?.message || 'Failed to post tweet';
+        return {
+          tweetId: '',
+          text,
+          error: errorMessage,
+        };
+      }
+
+      return { tweetId: result.data.id, text: result.data.text };
+    } catch (exc) {
+      const errorMessage = exc instanceof Error ? exc.message : 'Unknown error';
       return {
         tweetId: '',
         text,
-        error: errorMessage,
+        error: `Failed to post tweet: ${errorMessage}`,
       };
     }
-
-    return { tweetId: result.data.id, text: result.data.text };
   }
 
   async searchTweets(
     query: string,
     limit: number = 20
   ): Promise<{ tweets: XTweet[]; error?: string }> {
-    const params = new URLSearchParams({
-      query,
-      max_results: String(Math.min(limit, 100)),
-      'tweet.fields': 'created_at,public_metrics,author_id',
-      expansions: 'author_id',
-      'user.fields': 'username,name',
-    });
+    try {
+      const params = new URLSearchParams({
+        query,
+        max_results: String(Math.min(limit, 100)),
+        'tweet.fields': 'created_at,public_metrics,author_id',
+        expansions: 'author_id',
+        'user.fields': 'username,name',
+      });
 
-    const result = await this.makeRequest<XTweetsResponse>(
-      'GET',
-      `/tweets/search/recent?${params.toString()}`
-    );
+      const result = await this.makeRequest<XTweetsResponse>(
+        'GET',
+        `/tweets/search/recent?${params.toString()}`
+      );
 
-    if (!result || !result.data) {
-      const errorMessage =
-        result?.errors?.[0]?.message || 'Failed to search tweets';
+      if (!result.data) {
+        const errorMessage =
+          result?.errors?.[0]?.message || 'Failed to search tweets';
+        return {
+          tweets: [],
+          error: errorMessage,
+        };
+      }
+
+      return { tweets: result.data };
+    } catch (exc) {
+      const errorMessage = exc instanceof Error ? exc.message : 'Unknown error';
       return {
         tweets: [],
-        error: errorMessage,
+        error: `Failed to search tweets: ${errorMessage}`,
       };
     }
-
-    return { tweets: result.data };
   }
 
   async getTimeline(
     limit: number = 20
   ): Promise<{ tweets: XTweet[]; error?: string }> {
-    const me = await this.getMe();
-    if (!me.profile) {
+    try {
+      const me = await this.getMe();
+      if (!me.profile) {
+        return {
+          tweets: [],
+          error: me.error || 'Failed to get authenticated user',
+        };
+      }
+
+      const params = new URLSearchParams({
+        max_results: String(Math.min(limit, 100)),
+        'tweet.fields': 'created_at,public_metrics',
+      });
+
+      const result = await this.makeRequest<XTweetsResponse>(
+        'GET',
+        `/users/${me.profile.id}/tweets?${params.toString()}`
+      );
+
+      if (!result.data) {
+        const errorMessage =
+          result?.errors?.[0]?.message || 'Failed to fetch timeline';
+        return {
+          tweets: [],
+          error: errorMessage,
+        };
+      }
+
+      return { tweets: result.data };
+    } catch (exc) {
+      const errorMessage = exc instanceof Error ? exc.message : 'Unknown error';
       return {
         tweets: [],
-        error: me.error || 'Failed to get authenticated user',
+        error: `Failed to fetch timeline: ${errorMessage}`,
       };
     }
-
-    const params = new URLSearchParams({
-      max_results: String(Math.min(limit, 100)),
-      'tweet.fields': 'created_at,public_metrics',
-    });
-
-    const result = await this.makeRequest<XTweetsResponse>(
-      'GET',
-      `/users/${me.profile.id}/tweets?${params.toString()}`
-    );
-
-    if (!result || !result.data) {
-      const errorMessage =
-        result?.errors?.[0]?.message || 'Failed to fetch timeline';
-      return {
-        tweets: [],
-        error: errorMessage,
-      };
-    }
-
-    return { tweets: result.data };
   }
 }
 
