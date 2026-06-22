@@ -179,6 +179,27 @@ export async function jobAction(
   return (await res.json()) as { id: string; status: string };
 }
 
+/**
+ * Enqueue a job — the "clone" path: the operator edits a copy of an existing
+ * job's goal/payload and schedules a fresh one (`POST /api/admin/jobs`).
+ */
+export async function createJob(input: {
+  kind?: string;
+  goal: string;
+  payload?: Record<string, unknown>;
+}): Promise<{ id: string; status: string }> {
+  const res = await authFetch("/api/admin/jobs", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => `${res.status}`);
+    throw new Error(`POST /api/admin/jobs failed: ${detail || res.status}`);
+  }
+  return (await res.json()) as { id: string; status: string };
+}
+
 // ---------------------------------------------------------------------------
 // Routines (eidan.routines) — the operator's recurring scheduled prompts and
 // each one's recent fire history (eidan.routine_runs). The amygdala proactive
