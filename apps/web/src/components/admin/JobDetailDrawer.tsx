@@ -17,7 +17,9 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 const CANCELLABLE = new Set(["queued", "claimed", "running"]);
-const RETRYABLE = new Set(["done", "failed", "cancelled"]);
+// Retry is for work that didn't finish cleanly; a clean `done` job clones instead.
+const RETRYABLE = new Set(["failed", "cancelled"]);
+const SETTLED = new Set(["done", "failed", "cancelled"]);
 
 // Only surface a worker-supplied result field as a link when it's an http(s)
 // URL — guards against a javascript:/data: scheme reaching href.
@@ -42,22 +44,24 @@ function prettyJson(v: unknown): string {
  */
 export function JobDetailDrawer({
   job,
+  startCloning = false,
   onClose,
   onChanged,
 }: {
   job: JobInfo | null;
+  startCloning?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }): React.ReactElement | null {
-  const [busy, setBusy] = React.useState<null | "cancel" | "retry">(null);
+  const [busy, setBusy] = React.useState<null | "cancel" | "retry" | "archive" | "unarchive">(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [cloning, setCloning] = React.useState(false);
 
-  // Reset transient UI when the selected job changes.
+  // Reset transient UI when the selected job changes (open straight into clone mode if asked).
   React.useEffect(() => {
-    setCloning(false);
+    setCloning(startCloning);
     setActionError(null);
-  }, [job?.id]);
+  }, [job?.id, startCloning]);
 
   // Close on Escape while the drawer is open.
   React.useEffect(() => {
@@ -71,7 +75,7 @@ export function JobDetailDrawer({
 
   if (!job) return null;
 
-  async function run(action: "cancel" | "retry"): Promise<void> {
+  async function run(action: "cancel" | "retry" | "archive" | "unarchive"): Promise<void> {
     if (!job) return;
     setBusy(action);
     setActionError(null);
@@ -133,6 +137,11 @@ export function JobDetailDrawer({
             ) : null}
             {!cloning ? (
               <Action label="Clone" busy={false} disabled={busy !== null} onClick={() => setCloning(true)} />
+            ) : null}
+            {job.archived_at ? (
+              <Action label="Unarchive" busy={busy === "unarchive"} disabled={busy !== null} onClick={() => void run("unarchive")} />
+            ) : SETTLED.has(job.status) && !cloning ? (
+              <Action label="Archive" busy={busy === "archive"} disabled={busy !== null} onClick={() => void run("archive")} />
             ) : null}
             <button
               type="button"

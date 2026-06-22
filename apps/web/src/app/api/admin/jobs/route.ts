@@ -13,11 +13,15 @@ export async function GET(req: NextRequest): Promise<Response> {
   const sess = verifyBearer(req);
   if (!sess) return new Response("unauthorized", { status: 401 });
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 100, 500);
+  const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
 
   const rows = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `select id, kind, goal, payload, status, surface, claimed_by, claimed_at, result, error, created_at, updated_at
-         from eidan.jobs where user_id = $1 order by created_at desc limit ${limit}`,
+      `select id, kind, goal, payload, status, surface, claimed_by, claimed_at, result, error,
+              archived_at, created_at, updated_at
+         from eidan.jobs
+        where user_id = $1 ${includeArchived ? "" : "and archived_at is null"}
+        order by created_at desc limit ${limit}`,
       [sess.userId],
     );
     return r.rows as Array<Record<string, unknown>>;
@@ -35,6 +39,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       claimed_at: r.claimed_at ? iso(r.claimed_at) : null,
       result: (r.result as Record<string, unknown>) ?? {},
       error: r.error ?? null,
+      archived_at: r.archived_at ? iso(r.archived_at) : null,
       created_at: iso(r.created_at),
       updated_at: iso(r.updated_at),
     })),
