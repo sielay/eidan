@@ -132,6 +132,9 @@ export interface JobInfo {
   result: Record<string, unknown>;
   error: string | null;
   archived_at: string | null;
+  target_node: string | null;
+  model: string | null;
+  provider: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -182,13 +185,17 @@ export async function jobAction(
 }
 
 /**
- * Enqueue a job — the "clone" path: the operator edits a copy of an existing
- * job's goal/payload and schedules a fresh one (`POST /api/admin/jobs`).
+ * Enqueue a job — the "new" and "clone" paths both POST here. Optional
+ * target_node / model / provider pin where + how the job runs (the engine
+ * honours them at claim/run time).
  */
 export async function createJob(input: {
   kind?: string;
   goal: string;
   payload?: Record<string, unknown>;
+  target_node?: string | null;
+  model?: string | null;
+  provider?: string | null;
 }): Promise<{ id: string; status: string }> {
   const res = await authFetch("/api/admin/jobs", {
     method: "POST",

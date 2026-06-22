@@ -5,6 +5,7 @@ import * as React from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { JobDetailDrawer } from "@/components/admin/JobDetailDrawer";
+import { BLANK_JOB, JobForm, jobToInitial, type JobFormInitial } from "@/components/admin/JobForm";
 import { jobAction, listAdminJobs, type JobInfo } from "@/lib/api/admin";
 import { formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
@@ -58,7 +59,7 @@ export function JobsBoard(): React.ReactElement {
   const [jobs, setJobs] = React.useState<JobInfo[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [startClone, setStartClone] = React.useState(false);
+  const [form, setForm] = React.useState<{ title: string; initial: JobFormInitial } | null>(null);
   const [swimlane, setSwimlane] = React.useState<SwimMode>("none");
   const [showArchived, setShowArchived] = React.useState(false);
   const reloadRef = React.useRef<() => void>(() => {});
@@ -79,8 +80,7 @@ export function JobsBoard(): React.ReactElement {
 
   const selected = React.useMemo(() => jobs?.find((j) => j.id === selectedId) ?? null, [jobs, selectedId]);
   const reload = React.useCallback(() => reloadRef.current(), []);
-  const openDetail = React.useCallback((id: string) => { setSelectedId(id); setStartClone(false); }, []);
-  const openClone = React.useCallback((id: string) => { setSelectedId(id); setStartClone(true); }, []);
+  const openDetail = React.useCallback((id: string) => { setSelectedId(id); }, []);
 
   if (error) {
     return (
@@ -93,12 +93,24 @@ export function JobsBoard(): React.ReactElement {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
+  const openClone = (id: string): void => {
+    const j = jobs.find((x) => x.id === id);
+    if (j) setForm({ title: "Clone job", initial: jobToInitial(j) });
+  };
+
   const bands = buildSwimlanes(swimlane, jobs);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <StatsStrip jobs={jobs} />
+        <button
+          type="button"
+          onClick={() => setForm({ title: "New job", initial: BLANK_JOB })}
+          className="rounded-md border border-border bg-foreground/90 px-2.5 py-1 text-xs font-medium text-background transition-opacity hover:opacity-90"
+        >
+          + New job
+        </button>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">swimlanes</span>
           {(["none", "node", "kind"] as SwimMode[]).map((m) => (
@@ -137,10 +149,19 @@ export function JobsBoard(): React.ReactElement {
 
       <JobDetailDrawer
         job={selected}
-        startCloning={startClone}
-        onClose={() => { setSelectedId(null); setStartClone(false); }}
+        onClone={() => { if (selected) openClone(selected.id); }}
+        onClose={() => setSelectedId(null)}
         onChanged={reload}
       />
+
+      {form ? (
+        <JobForm
+          title={form.title}
+          initial={form.initial}
+          onCancel={() => setForm(null)}
+          onCreated={() => { setForm(null); reload(); }}
+        />
+      ) : null}
     </div>
   );
 }

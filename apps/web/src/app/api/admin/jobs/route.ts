@@ -18,7 +18,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const rows = await withUser(sess.userId, async (c) => {
     const r = await c.query(
       `select id, kind, goal, payload, status, surface, claimed_by, claimed_at, result, error,
-              archived_at, created_at, updated_at
+              archived_at, target_node, model, provider, created_at, updated_at
          from eidan.jobs
         where user_id = $1 ${includeArchived ? "" : "and archived_at is null"}
         order by created_at desc limit ${limit}`,
@@ -40,6 +40,9 @@ export async function GET(req: NextRequest): Promise<Response> {
       result: (r.result as Record<string, unknown>) ?? {},
       error: r.error ?? null,
       archived_at: r.archived_at ? iso(r.archived_at) : null,
+      target_node: r.target_node ?? null,
+      model: r.model ?? null,
+      provider: r.provider ?? null,
       created_at: iso(r.created_at),
       updated_at: iso(r.updated_at),
     })),
@@ -50,6 +53,14 @@ interface CreateJobBody {
   kind?: unknown;
   goal?: unknown;
   payload?: unknown;
+  target_node?: unknown;
+  model?: unknown;
+  provider?: unknown;
+}
+
+// Optional free-text execution-target field: trimmed non-empty string, else null.
+function optStr(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -71,12 +82,16 @@ export async function POST(req: NextRequest): Promise<Response> {
       ? (body.payload as Record<string, unknown>)
       : {};
 
+  const targetNode = optStr(body.target_node);
+  const model = optStr(body.model);
+  const provider = optStr(body.provider);
+
   const created = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `insert into eidan.jobs (kind, goal, payload, user_id, status, surface)
-         values ($1, $2, $3, $4, 'queued', 'clone')
+      `insert into eidan.jobs (kind, goal, payload, user_id, status, surface, target_node, model, provider)
+         values ($1, $2, $3, $4, 'queued', 'manual', $5, $6, $7)
        returning id, status`,
-      [kind, goal, JSON.stringify(payload), sess.userId],
+      [kind, goal, JSON.stringify(payload), sess.userId, targetNode, model, provider],
     );
     return r.rows[0] as { id: string; status: string };
   });
