@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Db } from './db.js';
+import { costForModel } from './pricing.js';
 
 export interface LlmCall {
   userId: string;
@@ -27,6 +28,10 @@ export class LlmCallsImpl implements LlmCalls {
   constructor(db: Db) { this.db = db; }
 
   async record(c: LlmCall): Promise<void> {
+    // matbot adapters report tokens, not cost — so when the call didn't carry a costUsd, derive it
+    // from the model's list price here (the one chokepoint every chat/agent/sage call records through),
+    // so the ledger and the cost rollups aren't silently zero.
+    const costUsd = c.costUsd ?? costForModel(c.model, c) ?? 0;
     try {
       await this.db.query(
         `insert into eidan.llm_calls
@@ -36,7 +41,7 @@ export class LlmCallsImpl implements LlmCalls {
         [
           c.userId, c.conversationId ?? null, c.messageId ?? null, c.role ?? 'primary', c.provider, c.model,
           c.inputTokens, c.outputTokens, c.cacheReadTokens ?? 0, c.cacheCreationTokens ?? 0,
-          c.costUsd ?? 0, c.requestId ?? null,
+          costUsd, c.requestId ?? null,
         ],
       );
     } catch (e) {
