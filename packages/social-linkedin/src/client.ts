@@ -22,31 +22,25 @@ export class LinkedInClient {
   }
 
   private isPrivateIp(ip: string): boolean {
-    // IPv4 private ranges
+    // RFC1918 private ranges and loopback for IPv4
     const ipv4Patterns = [
-      /^127\./,           // loopback
+      /^127\./,           // loopback (127.0.0.0/8)
       /^10\./,            // private (10.0.0.0/8)
       /^172\.(1[6-9]|2\d|3[01])\./, // private (172.16.0.0/12)
       /^192\.168\./,      // private (192.168.0.0/16)
       /^169\.254\./,      // link-local (169.254.0.0/16)
-      /^0\./,             // current network (0.0.0.0/8)
-      /^255\./,           // broadcast (255.0.0.0/8)
-      /^224\./,           // multicast (224.0.0.0/4)
-      /^240\./,           // reserved (240.0.0.0/4)
     ];
 
     // IPv6 private/reserved ranges
     const ipv6Patterns = [
       /^::1$/,            // loopback
-      /^fc00:/,           // unique local (fc00::/7)
-      /^fe80:/,           // link-local (fe80::/10)
-      /^ff00:/,           // multicast (ff00::/8)
+      /^fc00:/,           // unique local unicast (fc00::/7)
+      /^fe80:/,           // link-local unicast (fe80::/10)
       /^::ffff:127\./,    // IPv4-mapped loopback
       /^::ffff:10\./,     // IPv4-mapped private
       /^::ffff:172\.(1[6-9]|2\d|3[01])\./,  // IPv4-mapped private
       /^::ffff:192\.168\./, // IPv4-mapped private
       /^::ffff:169\.254\./, // IPv4-mapped link-local
-      /^::/,              // unspecified address / other reserved
     ];
 
     const isPrivateIpv4 = ipv4Patterns.some((pattern) => pattern.test(ip));
@@ -343,14 +337,14 @@ export class LinkedInClient {
   }
 
   // Maps a raw LinkedIn post response to a flattened post structure.
-  // Fallback behavior: empty string for text if both description and title are missing,
-  // empty string for author if actor is undefined, and 0 for engagement metrics if not provided.
-  // This ensures agents always receive consistent non-null values.
+  // Fallback behavior: undefined for text if both description and title are missing (allows distinguishing
+  // between empty posts and missing content), empty string for author if actor is undefined, and 0 for
+  // engagement metrics if not provided.
   private mapPost(post: LinkedInPost): { id: string; text?: string; author?: string; likes: number; comments: number } {
     return {
       id: post.id,
-      // Prefer description over title; empty string if neither exists (API may omit content for some posts)
-      text: post.content?.description || post.content?.title || '',
+      // Prefer description over title; undefined if neither exists (API may omit content for some posts)
+      text: post.content?.description || post.content?.title,
       // Actor is optional in API response; default to empty string if missing
       author: post.actor ?? '',
       // Default to 0 for missing engagement metrics (expected for posts with no engagement)
