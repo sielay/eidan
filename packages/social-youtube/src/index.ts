@@ -40,15 +40,15 @@ export const plugin: MatbotPluginSpec = {
         {
           name: 'YOUTUBE_API_KEY',
           label: 'API Key',
-          secret: true,
-          help: 'Public API key for search functionality (from Google Cloud Console).',
+          secret: false,
+          help: 'Public API key for search functionality (not technically a secret, but rate-limited per key). Generate at https://console.cloud.google.com',
         },
         {
           name: 'YOUTUBE_ACCESS_TOKEN',
           label: 'Access Token',
           secret: true,
           required: true,
-          help: 'OAuth access token for upload and channel access.',
+          help: '⚠️ OAuth access token for upload and channel access. Requires youtube.upload and youtube.readonly scopes. Your app must pass Google OAuth consent review. Treat as highly sensitive.',
         },
       ],
     });

@@ -27,7 +27,7 @@ export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
     description:
-      'Threads: post to Threads, search posts, and view profile (threads_post, threads_search, threads_profile) via Threads API with OAuth and matbot vault secrets.',
+      '⚠️ Threads API (in limited rollout): post, search, profile via Threads API. Search not yet available. Endpoints subject to change. (threads_post, threads_search, threads_profile)',
   },
   async setup(services: MatbotServices) {
     const tools = makeThreadsTools();
@@ -42,7 +42,7 @@ export const plugin: MatbotPluginSpec = {
           label: 'Access Token',
           secret: true,
           required: true,
-          help: 'OAuth access token for Threads API. Generate at https://www.threads.net/settings/apps',
+          help: '⚠️ OAuth access token for Threads API (in limited rollout). Your app must pass Meta/Instagram app review. Treat as highly sensitive. Generate at https://developers.facebook.com/docs/threads',
         },
         {
           name: 'THREADS_USER_ID',
@@ -53,6 +53,6 @@ export const plugin: MatbotPluginSpec = {
       ],
     });
 
-    console.log('[social-threads] plugin loaded: threads_post, threads_search, threads_profile');
+    console.log('[social-threads] ⚠️ plugin loaded (API in limited rollout, search unavailable): threads_post, threads_search, threads_profile');
   },
 };

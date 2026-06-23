@@ -27,7 +27,7 @@ export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
     description:
-      'Google Trends: search trends, top charts, and rising queries (google_trends_search, google_trends_topics, google_trends_rising) via Google Trends API with API key and matbot vault secrets.',
+      '⚠️ UNOFFICIAL: Google Trends (search trends, top charts, rising queries) via reverse-engineered endpoints. Subject to breakage without notice. Consider SerpAPI or ValueSerps for production use. (google_trends_search, google_trends_topics, google_trends_rising)',
   },
   async setup(services: MatbotServices) {
     const tools = makeGoogleTrendsTools();
@@ -35,18 +35,18 @@ export const plugin: MatbotPluginSpec = {
 
     services.EidanSecrets?.declareSection({
       plugin: 'finance-google-trends',
-      title: 'Google Trends',
+      title: 'Google Trends (⚠️ Unofficial)',
       fields: [
         {
           name: 'GOOGLE_TRENDS_API_KEY',
-          label: 'API Key',
+          label: 'API Key (for reverse-engineered endpoints)',
           secret: true,
           required: true,
-          help: 'API key for Google Trends. Generate at https://console.cloud.google.com',
+          help: '⚠️ WARNING: Google Trends API is not officially public. These endpoints are reverse-engineered and subject to change or breakage without notice. For production use, consider third-party services like SerpAPI or ValueSerps.',
         },
       ],
     });
 
-    console.log('[finance-google-trends] plugin loaded: google_trends_search, google_trends_topics, google_trends_rising');
+    console.log('[finance-google-trends] ⚠️ plugin loaded (unofficial API): google_trends_search, google_trends_topics, google_trends_rising');
   },
 };

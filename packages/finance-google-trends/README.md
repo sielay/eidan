@@ -1,6 +1,8 @@
 # Google Trends Plugin
 
-Access Google Trends data for search interest, trending topics, and rising queries.
+⚠️ **IMPORTANT: This plugin uses reverse-engineered, unofficial Google Trends API endpoints. They are subject to breakage without notice.**
+
+Access Google Trends data for search interest, trending topics, and rising queries. For production use, consider official alternatives like [SerpAPI](https://serpapi.com/docs/google-trends-api) or [ValueSerps](https://www.valueserps.com/google-trends-api).
 
 ## Tools
 
@@ -10,11 +12,11 @@ Access Google Trends data for search interest, trending topics, and rising queri
 
 ## Setup
 
-1. Create a Google Cloud project
-2. Enable Google Trends API
-3. Generate API key
-4. Store in vault:
-   - `GOOGLE_TRENDS_API_KEY` - Your API key
+⚠️ Note: Google does not officially provide a public Trends API. This plugin uses reverse-engineered endpoints from the Trends website.
+
+1. Obtain an API key (e.g., from Google Cloud or use a generic placeholder)
+2. Store in vault:
+   - `GOOGLE_TRENDS_API_KEY` - API key for accessing reverse-engineered endpoints
 
 ## Example
 
@@ -38,3 +40,4 @@ Rising: query="AI", find rising queries
 - **Authentication failed**: Check GOOGLE_TRENDS_API_KEY is valid
 - **API limit exceeded**: Google Trends has rate limits
 - **No data**: Try different timeframe or query term
+- **API errors / endpoints broken**: Google frequently updates its website; reverse-engineered endpoints may break without notice. If this occurs, consider migrating to an official third-party service (SerpAPI, ValueSerps) which maintain stable APIs.

@@ -42,7 +42,7 @@ export const plugin: MatbotPluginSpec = {
           label: 'Access Token',
           secret: true,
           required: true,
-          help: 'OAuth access token for Facebook Graph API. Generate at https://developers.facebook.com',
+          help: '⚠️ OAuth access token for Facebook Graph API (publish_pages, publish_to_groups scopes required). Your app must pass Facebook app review. Generate at https://developers.facebook.com. Treat as highly sensitive.',
         },
         {
           name: 'FACEBOOK_USER_ID',

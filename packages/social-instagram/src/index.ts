@@ -42,7 +42,7 @@ export const plugin: MatbotPluginSpec = {
           label: 'Access Token',
           secret: true,
           required: true,
-          help: 'OAuth access token for Instagram Graph API. Generate at https://developers.facebook.com/instagram',
+          help: '⚠️ OAuth access token for Instagram Graph API (instagram_business_content_publish scope required). Your app must pass Facebook/Instagram app review. Generate at https://developers.facebook.com/instagram. Treat as highly sensitive.',
         },
         {
           name: 'INSTAGRAM_BUSINESS_ACCOUNT_ID',

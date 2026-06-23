@@ -37,7 +37,7 @@ export class Trading212Client {
     try {
       const apiKey = await secretRequired(this.ctx, 'TRADING212_API_KEY');
 
-      const response = await fetch(`${API_BASE}/account/cash`, {
+      const response = await fetch(`${API_BASE}/account`, {
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
@@ -58,7 +58,7 @@ export class Trading212Client {
     try {
       const apiKey = await secretRequired(this.ctx, 'TRADING212_API_KEY');
 
-      const response = await fetch(`${API_BASE}/history?limit=${Math.min(limit, 200)}`, {
+      const response = await fetch(`${API_BASE}/orders?limit=${Math.min(limit, 200)}`, {
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },

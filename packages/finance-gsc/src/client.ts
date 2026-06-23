@@ -19,16 +19,17 @@ export class GSCClient {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      const response = await fetch(`${API_BASE}/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, {
+      const response = await fetch(`${API_BASE}/sites/searchAnalytics/query`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          siteUrl,
           startDate: startDate.toISOString().split('T')[0],
           endDate: new Date().toISOString().split('T')[0],
-          dimensions: ['PAGE', 'QUERY'],
+          dimensions: ['PAGE', 'QUERY', 'DATE'],
           rowLimit: limit,
           startRow: 0,
         }),

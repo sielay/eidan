@@ -27,7 +27,7 @@ export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
     description:
-      'X (Twitter): post tweets, search posts, and view profile (x_post, x_search, x_profile) via X API v2 with OAuth and matbot vault secrets.',
+      '⚠️ X (Twitter) API: Post/search/profile tools. POST requires OAuth 1.0a User Context (not fully implemented). Read operations (search, profile) use OAuth 2.0 Bearer (app-only, limited scope).',
   },
   async setup(services: MatbotServices) {
     const tools = makeXTools();
@@ -39,14 +39,14 @@ export const plugin: MatbotPluginSpec = {
       fields: [
         {
           name: 'X_ACCESS_TOKEN',
-          label: 'Access Token',
+          label: 'Access Token (Read-only)',
           secret: true,
           required: true,
-          help: 'Bearer token for X API v2. Generate at https://developer.twitter.com',
+          help: '⚠️ Bearer token for X API v2 read operations only (OAuth 2.0). POST operations require OAuth 1.0a User Context (not yet implemented). Generate at https://developer.twitter.com',
         },
       ],
     });
 
-    console.log('[social-x] plugin loaded: x_post, x_search, x_profile');
+    console.log('[social-x] ⚠️ plugin loaded (POST not fully supported): x_post, x_search, x_profile');
   },
 };

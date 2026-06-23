@@ -17,7 +17,7 @@ export class InstagramClient {
       const accessToken = await secretRequired(this.ctx, 'INSTAGRAM_ACCESS_TOKEN');
       const businessAccountId = await secretRequired(this.ctx, 'INSTAGRAM_BUSINESS_ACCOUNT_ID');
 
-      const response = await fetch(`${API_BASE}/${businessAccountId}/media`, {
+      const containerResponse = await fetch(`${API_BASE}/${businessAccountId}/media`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -30,12 +30,34 @@ export class InstagramClient {
         }),
       });
 
-      if (!response.ok) {
-        return { error: `Instagram API error: ${response.status}` };
+      if (!containerResponse.ok) {
+        return { error: `Instagram API error: ${containerResponse.status}` };
       }
 
-      const result = (await response.json()) as { id?: string };
-      return { id: result.id };
+      const containerResult = (await containerResponse.json()) as { id?: string };
+      const mediaId = containerResult.id;
+
+      if (!mediaId) {
+        return { error: 'Failed to create media container: no ID returned' };
+      }
+
+      const publishResponse = await fetch(`${API_BASE}/${businessAccountId}/media_publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          creation_id: mediaId,
+        }),
+      });
+
+      if (!publishResponse.ok) {
+        return { error: `Instagram API error publishing media: ${publishResponse.status}` };
+      }
+
+      const publishResult = (await publishResponse.json()) as { id?: string };
+      return { id: publishResult.id };
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Unknown error' };
     }

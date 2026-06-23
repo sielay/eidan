@@ -42,7 +42,7 @@ export const plugin: MatbotPluginSpec = {
           label: 'Access Token',
           secret: true,
           required: true,
-          help: 'OAuth access token for LinkedIn API. Generate at https://www.linkedin.com/developers',
+          help: '⚠️ OAuth access token for LinkedIn API (w_member_social scope required). Your app must pass LinkedIn app review. Generate at https://www.linkedin.com/developers. Treat as highly sensitive.',
         },
         {
           name: 'LINKEDIN_USER_ID',
