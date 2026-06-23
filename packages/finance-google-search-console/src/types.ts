@@ -58,10 +58,10 @@ export interface CoverageResponse {
   crawlablePages?: string;
   indexingState?: string;
   robotsTxt?: CoverageIndex;
-  pagee?: CoverageIndex;
-  pageeControlledByHttpsStatus?: CoverageIndex;
-  pageeWithoutCanonical?: CoverageIndex;
-  pageeIndexStatus?: Array<{
+  page?: CoverageIndex;
+  pageControlledByHttpsStatus?: CoverageIndex;
+  pageWithoutCanonical?: CoverageIndex;
+  pageIndexStatus?: Array<{
     category?: string;
     pages?: string;
     coverage?: string;

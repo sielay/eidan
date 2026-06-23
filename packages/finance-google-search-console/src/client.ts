@@ -169,15 +169,9 @@ export class GoogleSearchConsoleClient {
     }>;
   }> {
     try {
-      const response = await this.request<{
-        inspectionResult?: {
-          crawlIssues?: Array<{
-            issueType?: string;
-            severity?: string;
-            details?: string;
-          }>;
-        };
-      }>(`/sites/${this.encodeProperty(this.propertyUrl)}/inspectionIndex/errors`);
+      const response = await this.request<IndexingErrorResponse>(
+        `/sites/${this.encodeProperty(this.propertyUrl)}/inspectionIndex/errors`
+      );
 
       const crawlIssues = response.inspectionResult?.crawlIssues || [];
 
