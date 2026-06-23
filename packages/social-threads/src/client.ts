@@ -8,6 +8,9 @@ import type {
   SearchResponse,
   TimelineResponse,
   ProfileResponse,
+  HashtagSearchResponse,
+  Hashtag,
+  TimelinePost,
 } from './types.js';
 
 const THREADS_API_BASE = 'https://graph.threads.com/v18.0';
@@ -16,7 +19,7 @@ export class ThreadsClient {
   private ctx: ToolContext;
   private cachedUsername: string | null = null;
   private cachedUsernameTime: number | null = null;
-  private profileFetchInProgress: boolean = false;
+  private profileFetchPromise: Promise<{ user: ThreadsUser | null; error?: string }> | null = null;
   private readonly USERNAME_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in ms
 
   constructor(ctx: ToolContext) {
@@ -107,12 +110,12 @@ export class ThreadsClient {
         return { posts: [], error: `Search failed: ${res.status}` };
       }
 
-      const data = (await res.json()) as any;
+      const data = (await res.json()) as HashtagSearchResponse;
       const hashtags = data.data || [];
 
       const posts: ThreadsPost[] = hashtags
         .slice(0, Math.min(limit, 100))
-        .map((tag: any) => ({
+        .map((tag: Hashtag) => ({
           id: tag.id,
           text: `#${tag.name}`,
           timestamp: new Date().toISOString(),
@@ -187,19 +190,21 @@ export class ThreadsClient {
       const now = Date.now();
       const isCacheExpired = !this.cachedUsernameTime || (now - this.cachedUsernameTime) > this.USERNAME_CACHE_TTL;
 
-      if (isCacheExpired && !this.profileFetchInProgress) {
-        this.profileFetchInProgress = true;
-        try {
-          const profileRes = await this.getProfile();
-          if (profileRes.error) {
-            return { posts: [], error: profileRes.error };
-          }
-          if (profileRes.user) {
-            this.cachedUsername = profileRes.user.username;
-            this.cachedUsernameTime = Date.now();
-          }
-        } finally {
-          this.profileFetchInProgress = false;
+      if (isCacheExpired) {
+        if (!this.profileFetchPromise) {
+          this.profileFetchPromise = this.getProfile().then(profileRes => {
+            if (!profileRes.error && profileRes.user) {
+              this.cachedUsername = profileRes.user.username;
+              this.cachedUsernameTime = Date.now();
+            }
+            return profileRes;
+          }).finally(() => {
+            this.profileFetchPromise = null;
+          });
+        }
+        const profileRes = await this.profileFetchPromise;
+        if (profileRes.error) {
+          return { posts: [], error: profileRes.error };
         }
       }
 
@@ -222,7 +227,7 @@ export class ThreadsClient {
 
       const posts: ThreadsPost[] = postsData
         .slice(0, Math.min(limit, 100))
-        .map((post: any) => ({
+        .map((post: TimelinePost) => ({
           id: post.id,
           text: post.text,
           timestamp: post.timestamp,

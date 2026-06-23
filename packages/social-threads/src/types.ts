@@ -44,12 +44,31 @@ export interface PostResponse {
   data: ThreadsPost;
 }
 
+export interface Hashtag {
+  id: string;
+  name: string;
+}
+
+export interface HashtagSearchResponse {
+  data: Hashtag[];
+}
+
+export interface TimelinePost {
+  id: string;
+  text?: string;
+  timestamp: string;
+  permalink: string;
+  like_count?: number;
+  reply_count?: number;
+  repost_count?: number;
+}
+
 export interface SearchResponse {
   data?: ThreadsPost[];
 }
 
 export interface TimelineResponse {
-  data?: ThreadsPost[];
+  data?: TimelinePost[];
   paging?: {
     cursors?: {
       before?: string;
