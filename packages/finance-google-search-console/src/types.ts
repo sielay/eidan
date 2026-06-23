@@ -68,6 +68,12 @@ export interface CoverageResponse {
   }>;
 }
 
+export interface CrawlIssue {
+  issueType?: string;
+  severity?: string;
+  details?: string;
+}
+
 export interface IndexingErrorResponse {
   inspectionResult?: {
     inspectionUrl?: string;
@@ -106,11 +112,7 @@ export interface IndexingErrorResponse {
         message?: string;
       }>;
     };
-    crawlIssues?: Array<{
-      issueType?: string;
-      severity?: string;
-      details?: string;
-    }>;
+    crawlIssues?: CrawlIssue[];
   };
 }
 
