@@ -180,12 +180,28 @@ export class GoogleSearchConsoleClient {
       }>(`/sites/${this.encodeProperty(this.propertyUrl)}/inspectionIndex/errors`);
 
       const crawlIssues = response.inspectionResult?.crawlIssues || [];
-      const errors = crawlIssues.slice(0, limit).map((issue) => ({
-        type: issue.issueType || 'unknown',
-        count: '1',
-        ...(issue.details ? { example: issue.details } : {}),
-        severity: issue.severity || 'unknown',
-      }));
+
+      // Aggregate by issue type to get accurate counts
+      const issueMap = new Map<string, { count: number; example?: string; severity?: string }>();
+      for (const issue of crawlIssues) {
+        const type = issue.issueType || 'unknown';
+        const existing = issueMap.get(type) || { count: 0, severity: issue.severity || 'unknown' };
+        existing.count += 1;
+        if (!existing.example && issue.details) {
+          existing.example = issue.details;
+        }
+        issueMap.set(type, existing);
+      }
+
+      // Convert to array and limit
+      const errors = Array.from(issueMap.entries())
+        .slice(0, limit)
+        .map(([type, data]) => ({
+          type,
+          count: String(data.count),
+          ...(data.example ? { example: data.example } : {}),
+          severity: data.severity || 'unknown',
+        }));
 
       return { errors };
     } catch (exc) {

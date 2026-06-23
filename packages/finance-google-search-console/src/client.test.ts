@@ -117,7 +117,7 @@ test('GoogleSearchConsoleClient.getIndexingStatus returns coverage data', async 
   }
 });
 
-test('GoogleSearchConsoleClient.getIndexingErrors returns formatted errors', async () => {
+test('GoogleSearchConsoleClient.getIndexingErrors aggregates by type', async () => {
   const responses = new Map();
   responses.set(
     'https://www.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fexample.com/inspectionIndex/errors',
@@ -128,6 +128,16 @@ test('GoogleSearchConsoleClient.getIndexingErrors returns formatted errors', asy
             issueType: 'ROBOTS_TAG',
             severity: 'WARNING',
             details: 'Page blocked by robots.txt',
+          },
+          {
+            issueType: 'ROBOTS_TAG',
+            severity: 'WARNING',
+            details: 'Another robots.txt issue',
+          },
+          {
+            issueType: 'CRAWL_ANOMALY',
+            severity: 'ERROR',
+            details: 'Server error (5xx)',
           },
         ],
       },
@@ -142,8 +152,15 @@ test('GoogleSearchConsoleClient.getIndexingErrors returns formatted errors', asy
 
     assert(!result.error);
     assert(result.errors);
-    assert.equal(result.errors?.length, 1);
-    assert.equal(result.errors?.[0]?.type, 'ROBOTS_TAG');
+    assert.equal(result.errors?.length, 2);
+
+    const robotsError = result.errors?.find(e => e.type === 'ROBOTS_TAG');
+    assert(robotsError);
+    assert.equal(robotsError.count, '2');
+
+    const crawlError = result.errors?.find(e => e.type === 'CRAWL_ANOMALY');
+    assert(crawlError);
+    assert.equal(crawlError.count, '1');
   } finally {
     restore();
   }
@@ -160,6 +177,82 @@ test('makeGSCClient returns error for missing secrets', async () => {
 
   const result = await makeGSCClient(ctx);
   assert(result.error);
+});
+
+test('GoogleSearchConsoleClient.checkUrl returns indexed status and issues', async () => {
+  const responses = new Map();
+  responses.set(
+    'https://www.googleapis.com/webmasters/v3/urlInspection/v1/urlInspection:inspect',
+    {
+      inspectionResult: {
+        inspectionUrl: 'https://example.com/page',
+        indexingState: 'INDEXED',
+        crawlIssues: [],
+        mobileUsability: {
+          issues: [],
+        },
+      },
+    }
+  );
+
+  const restore = mockFetch(responses);
+  try {
+    const ctx = { vault: {} } as unknown as ToolContext;
+    const client = new GoogleSearchConsoleClient(ctx, 'https://example.com', 'token123');
+    const result = await client.checkUrl('https://example.com/page');
+
+    assert(!result.error);
+    assert.equal(result.indexed, true);
+    assert.equal(result.state, 'INDEXED');
+    assert(result.issues);
+    assert.equal(result.issues?.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test('GoogleSearchConsoleClient.checkUrl returns issues when present', async () => {
+  const responses = new Map();
+  responses.set(
+    'https://www.googleapis.com/webmasters/v3/urlInspection/v1/urlInspection:inspect',
+    {
+      inspectionResult: {
+        inspectionUrl: 'https://example.com/blocked',
+        indexingState: 'BLOCKED_BY_ROBOTS_TXT',
+        crawlIssues: [
+          {
+            issueType: 'ROBOTS_TAG',
+            severity: 'ERROR',
+          },
+        ],
+        mobileUsability: {
+          issues: [
+            {
+              rule: 'VIEWPORT_NOT_SET',
+              message: 'Viewport is not set',
+            },
+          ],
+        },
+      },
+    }
+  );
+
+  const restore = mockFetch(responses);
+  try {
+    const ctx = { vault: {} } as unknown as ToolContext;
+    const client = new GoogleSearchConsoleClient(ctx, 'https://example.com', 'token123');
+    const result = await client.checkUrl('https://example.com/blocked');
+
+    assert(!result.error);
+    assert.equal(result.indexed, false);
+    assert.equal(result.state, 'BLOCKED_BY_ROBOTS_TXT');
+    assert(result.issues);
+    assert.equal(result.issues?.length, 2);
+    assert(result.issues?.includes('ROBOTS_TAG'));
+    assert(result.issues?.includes('VIEWPORT_NOT_SET'));
+  } finally {
+    restore();
+  }
 });
 
 test('makeGSCClient creates client with valid secrets', async () => {
