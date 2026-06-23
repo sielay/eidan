@@ -14,6 +14,10 @@ const THREADS_API_BASE = 'https://graph.threads.com/v18.0';
 
 export class ThreadsClient {
   private ctx: ToolContext;
+  private cachedUsername: string | null = null;
+  private cachedUsernameTime: number | null = null;
+  private profileFetchInProgress: boolean = false;
+  private readonly USERNAME_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in ms
 
   constructor(ctx: ToolContext) {
     this.ctx = ctx;
@@ -90,12 +94,14 @@ export class ThreadsClient {
       // ponytail: ig_hashtag_search returns hashtags, not posts. Meta's Threads API doesn't expose
       // a post search endpoint to non-business accounts. This searches for hashtags by keyword.
       const url = new URL(`${THREADS_API_BASE}/ig_hashtag_search`);
-      url.searchParams.set('user_id', 'me');
       url.searchParams.set('q', query);
       url.searchParams.set('fields', 'id,name');
-      url.searchParams.set('access_token', token);
 
-      const res = await fetch(url.toString());
+      const res = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       if (!res.ok) {
         return { posts: [], error: `Search failed: ${res.status}` };
@@ -140,11 +146,14 @@ export class ThreadsClient {
       const url = new URL(`${THREADS_API_BASE}/me`);
       url.searchParams.set(
         'fields',
-        'id,username,name,biography,profile_picture_url,follower_count,following_count,is_verified,website,threads_profile_picture_url'
+        'id,username,biography,threads_profile_picture_url'
       );
-      url.searchParams.set('access_token', token);
 
-      const res = await fetch(url.toString());
+      const res = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       if (!res.ok) {
         return {
@@ -174,15 +183,35 @@ export class ThreadsClient {
     }
 
     try {
+      // Fetch username once and cache it with TTL, preventing concurrent fetches and redundant API calls
+      const now = Date.now();
+      const isCacheExpired = !this.cachedUsernameTime || (now - this.cachedUsernameTime) > this.USERNAME_CACHE_TTL;
+
+      if (isCacheExpired && !this.profileFetchInProgress) {
+        this.profileFetchInProgress = true;
+        try {
+          const profileRes = await this.getProfile();
+          if (profileRes.error) {
+            return { posts: [], error: profileRes.error };
+          }
+          if (profileRes.user) {
+            this.cachedUsername = profileRes.user.username;
+            this.cachedUsernameTime = Date.now();
+          }
+        } finally {
+          this.profileFetchInProgress = false;
+        }
+      }
+
       const url = new URL(`${THREADS_API_BASE}/me/threads`);
       url.searchParams.set('limit', String(Math.min(limit, 100)));
-      url.searchParams.set(
-        'fields',
-        'id,text,timestamp,permalink,like_count,reply_count,repost_count,quote_count,hidden'
-      );
-      url.searchParams.set('access_token', token);
+      url.searchParams.set('fields', 'id,text,timestamp,permalink,like_count,reply_count,repost_count');
 
-      const res = await fetch(url.toString());
+      const res = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       if (!res.ok) {
         return { posts: [], error: `Timeline fetch failed: ${res.status}` };
@@ -198,13 +227,13 @@ export class ThreadsClient {
           text: post.text,
           timestamp: post.timestamp,
           permalink: post.permalink,
-          author: {
-            id: 'me',
-            username: 'me',
-          },
           like_count: post.like_count,
           reply_count: post.reply_count,
           repost_count: post.repost_count,
+          author: {
+            id: 'me',
+            username: this.cachedUsername || 'me',
+          },
         }));
 
       return { posts };
