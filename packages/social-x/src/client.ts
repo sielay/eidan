@@ -35,7 +35,10 @@ export class XClient {
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
 
-    return (await response.json()) as T;
+    const data = await response.json();
+
+    // X API v2 responses are validated by callers checking for data/errors properties
+    return data as T;
   }
 
   async getMe(): Promise<{ profile: XUserProfile | null; error?: string }> {
@@ -71,7 +74,7 @@ export class XClient {
     if (text.length > 280) {
       return {
         tweetId: '',
-        text,
+        text: '',
         error: 'Tweet exceeds 280 character limit',
       };
     }
@@ -93,7 +96,7 @@ export class XClient {
           result?.errors?.[0]?.message || 'Failed to post tweet';
         return {
           tweetId: '',
-          text,
+          text: '',
           error: errorMessage,
         };
       }
@@ -103,7 +106,7 @@ export class XClient {
       const errorMessage = exc instanceof Error ? exc.message : 'Unknown error';
       return {
         tweetId: '',
-        text,
+        text: '',
         error: `Failed to post tweet: ${errorMessage}`,
       };
     }
@@ -154,7 +157,7 @@ export class XClient {
       if (!me.profile) {
         return {
           tweets: [],
-          error: me.error || 'Failed to get authenticated user',
+          error: me.error ?? 'Failed to get authenticated user: profile is null',
         };
       }
 
