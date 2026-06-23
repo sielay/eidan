@@ -4,6 +4,9 @@ import { secretOpt } from './vault.js';
 import type { LinkedInPost, LinkedInProfileResponse, LinkedInFeedResponse, LinkedInUGCPostRequest, LinkedInAssetRegisterResponse } from './types.js';
 
 const API_BASE = 'https://api.linkedin.com/v2';
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+const IMAGE_FETCH_TIMEOUT_MS = 30000; // 30 seconds
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 export class LinkedInClient {
   private ctx: ToolContext;
@@ -12,6 +15,22 @@ export class LinkedInClient {
   constructor(ctx: ToolContext, accessToken: string) {
     this.ctx = ctx;
     this.accessToken = accessToken;
+  }
+
+  private validateImageUrl(imageUrl: string): boolean {
+    try {
+      const url = new URL(imageUrl);
+      // Only allow HTTPS to prevent SSRF via HTTP
+      if (url.protocol !== 'https:') {
+        return false;
+      }
+      // Reject localhost and private IP ranges
+      const hostname = url.hostname;
+      const isPrivate = /^(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.)/.test(hostname);
+      return !isPrivate;
+    } catch {
+      return false;
+    }
   }
 
   private async request<T>(
@@ -96,14 +115,41 @@ export class LinkedInClient {
         return { error: 'Missing media reference object ID from asset registration response' };
       }
 
+      // Validate imageUrl to prevent SSRF
+      if (!this.validateImageUrl(imageUrl)) {
+        return { error: 'Image URL must be HTTPS and not point to private/internal networks' };
+      }
+
       let imageBuffer: Buffer;
       try {
-        const imageResponse = await fetch(imageUrl);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+
+        const imageResponse = await fetch(imageUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (!imageResponse.ok) {
           return { error: `Failed to fetch image from URL: ${imageResponse.status}` };
         }
-        imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+        // Validate content type
+        const contentType = imageResponse.headers.get('content-type');
+        if (!contentType || !ALLOWED_IMAGE_TYPES.some((type) => contentType.includes(type))) {
+          return { error: `Invalid image content-type: ${contentType || 'not specified'}. Expected image/jpeg, image/png, image/gif, or image/webp` };
+        }
+
+        const arrayBuffer = await imageResponse.arrayBuffer();
+
+        // Check size to prevent DoS
+        if (arrayBuffer.byteLength > MAX_IMAGE_SIZE) {
+          return { error: `Image exceeds maximum size of ${MAX_IMAGE_SIZE / (1024 * 1024)}MB` };
+        }
+
+        imageBuffer = Buffer.from(arrayBuffer);
       } catch (fetchErr) {
+        if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
+          return { error: `Image fetch timeout (exceeded ${IMAGE_FETCH_TIMEOUT_MS / 1000}s)` };
+        }
         return {
           error: `Failed to download image: ${fetchErr instanceof Error ? fetchErr.message : 'Unknown error'}`,
         };
@@ -190,6 +236,7 @@ export class LinkedInClient {
       return { error: result.error };
     }
 
+    // Extract post text from description (primary) or title (fallback); LinkedIn API typically provides main content in description field
     const posts =
       result.data?.elements?.map((post) => ({
         id: post.id,
@@ -210,6 +257,7 @@ export class LinkedInClient {
       return { error: result.error };
     }
 
+    // Extract post text from description (primary) or title (fallback); LinkedIn API typically provides main content in description field
     const posts =
       result.data?.elements?.map((post) => ({
         id: post.id,
