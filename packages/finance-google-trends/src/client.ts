@@ -177,7 +177,7 @@ export class GoogleTrendsClient {
           const time = itemObj.time;
           let value = itemObj.value;
           if (Array.isArray(value)) {
-            value = value[0];
+            value = value.length > 0 ? value[0] : undefined;
           }
           if (typeof time === 'number' && typeof value === 'number') {
             let timestamp = time;
