@@ -2,9 +2,9 @@
 
 export interface TrendData {
   date: string;
-  // Google Trends may return value as a single number or an array (e.g., [95, 98, ...]).
-  // If array, we extract the first element; if single number, we use it directly.
-  value: number | number[];
+  // Value is always a number after extraction/normalization in the client.
+  // Google Trends may return value as a single number or an array; we extract the first element if array.
+  value: number;
 }
 
 export interface RelatedQuery {

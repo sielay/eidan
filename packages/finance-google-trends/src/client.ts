@@ -37,9 +37,40 @@ const TIMEFRAME_MAP: Record<string, string> = {
 
 export class GoogleTrendsClient {
   private ctx: ToolContext;
+  private maxRetries = 3;
+  private initialBackoffMs = 1000;
 
   constructor(ctx: ToolContext) {
     this.ctx = ctx;
+  }
+
+  private async fetchWithRetry(url: string, options?: RequestInit): Promise<Response> {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        const res = await fetch(url, options);
+        // Don't retry on success or client errors (4xx) except rate limiting (429)
+        if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429)) {
+          return res;
+        }
+        // Retry on rate limiting (429), service unavailable (503), and server errors (5xx)
+        if (res.status === 429 || res.status === 503 || res.status >= 500) {
+          if (attempt < this.maxRetries) {
+            const backoffMs = this.initialBackoffMs * Math.pow(2, attempt);
+            await new Promise((resolve) => setTimeout(resolve, backoffMs));
+            continue;
+          }
+        }
+        return res;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt < this.maxRetries) {
+          const backoffMs = this.initialBackoffMs * Math.pow(2, attempt);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        }
+      }
+    }
+    throw lastError || new Error('Fetch failed after retries');
   }
 
   async searchTrends(
@@ -69,7 +100,7 @@ export class GoogleTrendsClient {
         category: cat,
       };
 
-      const res = await fetch(url.toString(), {
+      const res = await this.fetchWithRetry(url.toString(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
@@ -150,9 +181,11 @@ export class GoogleTrendsClient {
           }
           if (typeof time === 'number' && typeof value === 'number') {
             let timestamp = time;
-            // Heuristic: Google Trends timestamps can be in either seconds or milliseconds.
-            // Assume seconds if < 10^10 (timestamps before ~2286), multiply by 1000 to get milliseconds.
-            // This heuristic may fail if Google changes timestamp units or precision.
+            // FRAGILITY WARNING: Google Trends timestamps may be in either seconds or milliseconds.
+            // This heuristic assumes seconds if < 10^10 (timestamps before ~2286).
+            // If Google changes timestamp format, precision, or units, this will silently produce
+            // incorrect dates. Consider monitoring for sudden date shifts or implementing a
+            // configurable timestamp detection strategy if Google changes their API.
             if (timestamp < 10000000000) {
               timestamp = timestamp * 1000;
             }
@@ -199,7 +232,7 @@ export class GoogleTrendsClient {
       url.searchParams.append('cat', cat);
       if (d) url.searchParams.append('date', d);
 
-      const res = await fetch(url.toString());
+      const res = await this.fetchWithRetry(url.toString());
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         return {
@@ -308,7 +341,7 @@ export class GoogleTrendsClient {
       url.searchParams.append('geo', g);
       url.searchParams.append('type', 'rising');
 
-      const res = await fetch(url.toString());
+      const res = await this.fetchWithRetry(url.toString());
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         return {
@@ -375,7 +408,8 @@ export class GoogleTrendsClient {
               const itemObj = item as Record<string, unknown>;
               const q = String(itemObj.query || itemObj.title || '');
               // value may be missing in API response; if absent, it remains undefined in the result
-              const v = itemObj.value !== undefined ? Number(itemObj.value) : undefined;
+              // Check type explicitly to avoid NaN from Number(undefined) or non-numeric values
+              const v = typeof itemObj.value === 'number' ? itemObj.value : undefined;
               if (q) {
                 queries.push({ query: q, value: v });
               }
@@ -408,7 +442,7 @@ export class GoogleTrendsClient {
       url.searchParams.append('geo', g);
       url.searchParams.append('q', query);
 
-      const res = await fetch(url.toString());
+      const res = await this.fetchWithRetry(url.toString());
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         return {
@@ -475,7 +509,8 @@ export class GoogleTrendsClient {
                 const itemObj = item as Record<string, unknown>;
                 const q = String(itemObj.query || itemObj.title || '');
                 // value may be missing in API response; if absent, it remains undefined in the result
-                const v = itemObj.value !== undefined ? Number(itemObj.value) : undefined;
+                // Check type explicitly to avoid NaN from Number(undefined) or non-numeric values
+                const v = typeof itemObj.value === 'number' ? itemObj.value : undefined;
                 if (q) {
                   targetList.push({ query: q, value: v });
                 }
@@ -513,16 +548,19 @@ export class GoogleTrendsClient {
   private getHTTPErrorMessage(status: number, text?: string): string {
     // Detect common scraping issues and provide clear error messages
     if (status === 429) {
-      return 'HTTP 429: Rate limited or temporarily blocked. Try again later or reduce request frequency.';
+      return 'HTTP 429: Rate limited or temporarily blocked. Exponential backoff activated; retrying. If persistent, reduce request frequency or use official APIs.';
     }
     if (status === 403) {
       if (text && text.toLowerCase().includes('captcha')) {
-        return 'HTTP 403: CAPTCHA challenge detected. IP may be temporarily blocked. Try again later.';
+        // CAPTCHA detected: IP is likely flagged for suspicious activity
+        // The fetchWithRetry mechanism will retry with backoff, but repeated failures
+        // may indicate the IP needs time to cool down before recovery is possible.
+        return 'HTTP 403: CAPTCHA challenge detected. IP is likely flagged. Waiting before retry. If still failing after retries, the IP may need hours to recover; consider rotating IP or using a proxy.';
       }
-      return 'HTTP 403: Access forbidden. IP may be blocked or session expired.';
+      return 'HTTP 403: Access forbidden. IP may be blocked or session expired. Retrying with backoff.';
     }
     if (status === 503) {
-      return 'HTTP 503: Google Trends service unavailable. Try again later.';
+      return 'HTTP 503: Google Trends service unavailable. Retrying with exponential backoff; try again later if persistent.';
     }
     return `HTTP ${status}: Failed to fetch data`;
   }
