@@ -11,18 +11,16 @@ import type {
 const API_BASE = 'https://www.googleapis.com/youtube/v3';
 
 export class YouTubeClient {
-  private ctx: ToolContext;
   private accessToken: string;
 
-  constructor(ctx: ToolContext, accessToken: string) {
-    this.ctx = ctx;
+  constructor(accessToken: string) {
     this.accessToken = accessToken;
   }
 
   static async create(ctx: ToolContext): Promise<YouTubeClient | { error: string }> {
     try {
       const token = await secretRequired(ctx, 'YOUTUBE_ACCESS_TOKEN');
-      return new YouTubeClient(ctx, token);
+      return new YouTubeClient(token);
     } catch {
       return { error: 'YouTube not connected — set YOUTUBE_ACCESS_TOKEN in vault/env (Settings → Connections)' };
     }
@@ -34,12 +32,15 @@ export class YouTubeClient {
   ): Promise<T | { error: string }> {
     try {
       const url = new URL(`${API_BASE}${endpoint}`);
-      url.searchParams.set('access_token', this.accessToken);
       for (const [k, v] of Object.entries(params)) {
         url.searchParams.set(k, String(v));
       }
 
-      const res = await fetch(url.toString());
+      const res = await fetch(url.toString(), {
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+        },
+      });
       if (!res.ok) {
         const text = await res.text();
         return { error: `YouTube API error: ${res.status} ${text}` };
@@ -134,7 +135,6 @@ export class YouTubeClient {
 
     try {
       const url = new URL(`${API_BASE}/commentThreads`);
-      url.searchParams.set('access_token', this.accessToken);
       url.searchParams.set('part', 'snippet');
 
       const body = {
@@ -146,7 +146,10 @@ export class YouTubeClient {
 
       const res = await fetch(url.toString(), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(body),
       });
 
