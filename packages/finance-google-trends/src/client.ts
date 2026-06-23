@@ -82,23 +82,12 @@ export class GoogleTrendsClient {
         };
       }
 
-      const text = await res.text();
-      const startIdx = text.indexOf('[');
-      if (startIdx === -1) {
-        return {
-          query,
-          timeframe: tf,
-          geo: g,
-          category: cat,
-          trends: [],
-          error: 'Could not parse response data: no JSON array found',
-        };
-      }
+      let text = await res.text();
+      text = this.stripJSONPPrefix(text);
 
-      const jsonStr = text.substring(startIdx);
       let data: unknown;
       try {
-        data = JSON.parse(jsonStr);
+        data = JSON.parse(text);
       } catch {
         return {
           query,
@@ -110,24 +99,51 @@ export class GoogleTrendsClient {
         };
       }
 
-      if (!Array.isArray(data)) {
+      if (typeof data !== 'object' || data === null) {
         return {
           query,
           timeframe: tf,
           geo: g,
           category: cat,
           trends: [],
-          error: 'Could not parse response data: expected array',
+          error: 'Could not parse response data: expected object',
         };
       }
 
-      const trends: TrendData[] = data
+      const dataObj = data as Record<string, unknown>;
+      const defaultData = dataObj.default as Record<string, unknown> | undefined;
+      if (!defaultData || typeof defaultData !== 'object') {
+        return {
+          query,
+          timeframe: tf,
+          geo: g,
+          category: cat,
+          trends: [],
+          error: 'Could not parse response data: missing default object',
+        };
+      }
+
+      const timelineData = defaultData.timelineData;
+      if (!Array.isArray(timelineData)) {
+        return {
+          query,
+          timeframe: tf,
+          geo: g,
+          category: cat,
+          trends: [],
+          error: 'Could not parse response data: expected timelineData array',
+        };
+      }
+
+      const trends: TrendData[] = timelineData
         .map((item) => {
-          const arr = item as unknown[];
-          if (Array.isArray(arr) && arr.length >= 2) {
+          const itemObj = item as Record<string, unknown>;
+          const time = itemObj.time;
+          const value = itemObj.value;
+          if (typeof time === 'number' && typeof value === 'number') {
             return {
-              date: String(arr[0] || ''),
-              value: Number(arr[1] || 0),
+              date: String(time),
+              value,
             };
           }
           return null;
@@ -176,22 +192,12 @@ export class GoogleTrendsClient {
         };
       }
 
-      const text = await res.text();
-      const startIdx = text.indexOf('[');
-      if (startIdx === -1) {
-        return {
-          category: cat,
-          geo: g,
-          date: d,
-          charts: [],
-          error: 'Could not parse response data: no JSON array found',
-        };
-      }
+      let text = await res.text();
+      text = this.stripJSONPPrefix(text);
 
-      const jsonStr = text.substring(startIdx);
       let data: unknown;
       try {
-        data = JSON.parse(jsonStr);
+        data = JSON.parse(text);
       } catch {
         return {
           category: cat,
@@ -202,10 +208,33 @@ export class GoogleTrendsClient {
         };
       }
 
+      if (typeof data !== 'object' || data === null) {
+        return {
+          category: cat,
+          geo: g,
+          date: d,
+          charts: [],
+          error: 'Could not parse response data: expected object',
+        };
+      }
+
+      const dataObj = data as Record<string, unknown>;
+      const defaultData = dataObj.default as Record<string, unknown> | undefined;
+      if (!defaultData || typeof defaultData !== 'object') {
+        return {
+          category: cat,
+          geo: g,
+          date: d,
+          charts: [],
+          error: 'Could not parse response data: missing default object',
+        };
+      }
+
+      const rankedList = defaultData.rankedList;
       const charts: TopChart[] = [];
 
-      if (Array.isArray(data)) {
-        for (const item of data) {
+      if (Array.isArray(rankedList)) {
+        for (const item of rankedList) {
           const itemObj = item as Record<string, unknown>;
           charts.push({
             title: String(itemObj.title || ''),
@@ -252,21 +281,12 @@ export class GoogleTrendsClient {
         };
       }
 
-      const text = await res.text();
-      const startIdx = text.indexOf('{');
-      if (startIdx === -1) {
-        return {
-          category: cat,
-          geo: g,
-          queries: [],
-          error: 'Could not parse response data: no JSON object found',
-        };
-      }
+      let text = await res.text();
+      text = this.stripJSONPPrefix(text);
 
-      const jsonStr = text.substring(startIdx);
       let data: unknown;
       try {
-        data = JSON.parse(jsonStr);
+        data = JSON.parse(text);
       } catch {
         return {
           category: cat,
@@ -286,16 +306,32 @@ export class GoogleTrendsClient {
       }
 
       const dataObj = data as Record<string, unknown>;
-      const risingQueries = dataObj.default;
+      const defaultData = dataObj.default as Record<string, unknown> | undefined;
+      if (!defaultData || typeof defaultData !== 'object') {
+        return {
+          category: cat,
+          geo: g,
+          queries: [],
+          error: 'Could not parse response data: missing default object',
+        };
+      }
+
+      const rankedList = defaultData.rankedList;
       const queries: RelatedQuery[] = [];
 
-      if (Array.isArray(risingQueries)) {
-        for (const item of risingQueries) {
-          const itemObj = item as Record<string, unknown>;
-          queries.push({
-            query: String(itemObj.query || ''),
-            value: Number(itemObj.trafficPercent || 0),
-          });
+      if (Array.isArray(rankedList)) {
+        for (const rankItem of rankedList) {
+          const rankObj = rankItem as Record<string, unknown>;
+          const queryList = rankObj.queries;
+          if (Array.isArray(queryList)) {
+            for (const item of queryList) {
+              const itemObj = item as Record<string, unknown>;
+              queries.push({
+                query: String(itemObj.query || ''),
+                value: Number(itemObj.trafficPercent || 0),
+              });
+            }
+          }
         }
       }
 
@@ -334,22 +370,12 @@ export class GoogleTrendsClient {
         };
       }
 
-      const text = await res.text();
-      const startIdx = text.indexOf('{');
-      if (startIdx === -1) {
-        return {
-          query,
-          geo: g,
-          queries: [],
-          topics: [],
-          error: 'Could not parse response data: no JSON object found',
-        };
-      }
+      let text = await res.text();
+      text = this.stripJSONPPrefix(text);
 
-      const jsonStr = text.substring(startIdx);
       let data: unknown;
       try {
-        data = JSON.parse(jsonStr);
+        data = JSON.parse(text);
       } catch {
         return {
           query,
@@ -374,25 +400,24 @@ export class GoogleTrendsClient {
       const queries: RelatedQuery[] = [];
       const topics: RelatedQuery[] = [];
 
-      const topQueries = dataObj.default;
-      if (Array.isArray(topQueries)) {
-        for (const item of topQueries) {
-          const itemObj = item as Record<string, unknown>;
-          queries.push({
-            query: String(itemObj.query || ''),
-            value: Number(itemObj.value || 0),
-          });
-        }
-      }
-
-      const topTopics = dataObj.rising;
-      if (Array.isArray(topTopics)) {
-        for (const item of topTopics) {
-          const itemObj = item as Record<string, unknown>;
-          topics.push({
-            query: String(itemObj.query || ''),
-            value: Number(itemObj.value || 0),
-          });
+      const defaultData = dataObj.default as Record<string, unknown> | undefined;
+      if (defaultData && typeof defaultData === 'object') {
+        const rankedList = defaultData.rankedList;
+        if (Array.isArray(rankedList)) {
+          for (let i = 0; i < rankedList.length; i++) {
+            const rankObj = rankedList[i] as Record<string, unknown>;
+            const queryList = rankObj.queries;
+            if (Array.isArray(queryList)) {
+              const targetList = i === 0 ? queries : topics;
+              for (const item of queryList) {
+                const itemObj = item as Record<string, unknown>;
+                targetList.push({
+                  query: String(itemObj.query || ''),
+                  value: Number(itemObj.value || 0),
+                });
+              }
+            }
+          }
         }
       }
 
@@ -411,5 +436,13 @@ export class GoogleTrendsClient {
         error: `Error: ${exc instanceof Error ? exc.message : String(exc)}`,
       };
     }
+  }
+
+  private stripJSONPPrefix(text: string): string {
+    // Google Trends API responses may be prefixed with )]}' for JSONP security
+    if (text.startsWith(")]}'")) {
+      return text.substring(4);
+    }
+    return text;
   }
 }
