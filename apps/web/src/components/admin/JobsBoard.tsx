@@ -15,14 +15,15 @@ type SwimMode = "none" | "node" | "kind" | "agent";
 // Lifecycle PHASES (the kanban columns), derived from a job's status + result so the board reflects
 // where the work really is. A `done` status only means a PR was OPENED — not that it passed review or
 // merged — so we split it: "In review" (real PR, awaiting a check) vs "Needs work" (failed, or buried
-// with no PR — the lease-collision case). "Done" is reserved for work the operator has signed off
-// (archived; a future engine reconciler will also auto-advance a job here when its PR merges).
+// with no PR — the lease-collision case). "Done" is a job whose PR has merged and is still on the
+// board. Archiving a card CLEARS it off the board entirely (standard kanban: archive removes the
+// card, it is not a column) — archived jobs are never loaded, so they appear in no lane.
 const PHASE_LANES: { key: string; title: string; hint: string }[] = [
   { key: "queued", title: "Queued", hint: "waiting to be picked" },
   { key: "active", title: "Active", hint: "being worked on" },
   { key: "in_review", title: "In review", hint: "PR opened — needs a check" },
   { key: "needs_work", title: "Needs work", hint: "failed or rescheduled" },
-  { key: "done", title: "Done", hint: "signed off" },
+  { key: "done", title: "Done", hint: "merged — archive to clear" },
 ];
 
 function prUrlOf(result: Record<string, unknown> | undefined): string | null {
@@ -47,7 +48,6 @@ function phaseOf(j: JobInfo): string {
   const prState = result?.["pr_state"];
   if (prState === "merged") return "done"; // merged by anyone = review done
   if (prState === "closed" || prState === "ci_failed") return "needs_work";
-  if (j.archived_at) return "done"; // operator signed off
   return "in_review"; // PR open, awaiting a human/agent check
 }
 
@@ -102,9 +102,9 @@ export function JobsBoard(): React.ReactElement {
     if (!user) return;
     let cancelled = false;
     function load(): void {
-      // Always include archived: a signed-off (archived) job belongs in the "Done" phase column,
-      // not hidden — the phase model, not a toggle, decides where each job lands.
-      void listAdminJobs({ includeArchived: true })
+      // Live jobs only — archiving clears a card off the board (kanban semantics), so archived
+      // jobs are intentionally not loaded.
+      void listAdminJobs()
         .then((rows) => { if (!cancelled) { setJobs(rows); setError(null); } })
         .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); });
     }
