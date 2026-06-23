@@ -14,8 +14,12 @@ import type {
 // Note: This client uses undocumented Google Trends endpoints via scraping.
 // Google frequently changes its front-end structure and response formats,
 // which can invalidate parsing logic. Responses may fail to parse if Google
-// updates the API structure. Consider official Google APIs (e.g., Google Search
-// Console, Google Trends API via third-party wrappers) for production use.
+// updates the API structure. Also be aware that scraping can trigger:
+// - IP blocks (429 errors, slow responses)
+// - CAPTCHAs (403 errors with HTML responses)
+// - Rate limiting (backoff recommended)
+// Consider official Google APIs (e.g., Google Search Console, Google Trends
+// API via third-party wrappers) for production use.
 
 const TRENDS_BASE = 'https://trends.google.com';
 const GEO_DEFAULT = '';
@@ -72,13 +76,14 @@ export class GoogleTrendsClient {
       });
 
       if (!res.ok) {
+        const text = await res.text().catch(() => '');
         return {
           query,
           timeframe: tf,
           geo: g,
           category: cat,
           trends: [],
-          error: `HTTP ${res.status}: failed to fetch Google Trends`,
+          error: this.getHTTPErrorMessage(res.status, text),
         };
       }
 
@@ -144,10 +149,18 @@ export class GoogleTrendsClient {
             value = value[0];
           }
           if (typeof time === 'number' && typeof value === 'number') {
-            return {
-              date: new Date(time * 1000).toISOString().split('T')[0],
-              value,
-            };
+            let timestamp = time;
+            // Handle both seconds and milliseconds: if > 10^10, assume milliseconds
+            if (timestamp < 10000000000) {
+              timestamp = timestamp * 1000;
+            }
+            const date = new Date(timestamp);
+            if (!isNaN(date.getTime())) {
+              return {
+                date: date.toISOString().split('T')[0],
+                value,
+              };
+            }
           }
           return null;
         })
@@ -186,12 +199,13 @@ export class GoogleTrendsClient {
 
       const res = await fetch(url.toString());
       if (!res.ok) {
+        const text = await res.text().catch(() => '');
         return {
           category: cat,
           geo: g,
           date: d,
           charts: [],
-          error: `HTTP ${res.status}: failed to fetch top charts`,
+          error: this.getHTTPErrorMessage(res.status, text),
         };
       }
 
@@ -239,11 +253,29 @@ export class GoogleTrendsClient {
       if (Array.isArray(rankedList)) {
         for (const item of rankedList) {
           const itemObj = item as Record<string, unknown>;
-          charts.push({
-            title: String(itemObj.title || ''),
-            exploreUrl: String(itemObj.exploreUrl || ''),
-            deltaMonthOverMonth: Number(itemObj.deltaMonthOverMonth || 0),
-          });
+          // Handle both direct fields and nested `value` structure
+          let title = itemObj.title;
+          let exploreUrl = itemObj.exploreUrl;
+          let deltaMonthOverMonth = itemObj.deltaMonthOverMonth;
+
+          // If title is not present, check nested value object
+          if (!title || !exploreUrl) {
+            const valueObj = itemObj.value as Record<string, unknown> | undefined;
+            if (valueObj && typeof valueObj === 'object') {
+              title = title || valueObj.title;
+              exploreUrl = exploreUrl || valueObj.exploreUrl;
+              deltaMonthOverMonth = deltaMonthOverMonth || valueObj.deltaMonthOverMonth;
+            }
+          }
+
+          // Only add if we have at least a title
+          if (title) {
+            charts.push({
+              title: String(title),
+              exploreUrl: String(exploreUrl || ''),
+              deltaMonthOverMonth: Number(deltaMonthOverMonth || 0),
+            });
+          }
         }
       }
 
@@ -276,11 +308,12 @@ export class GoogleTrendsClient {
 
       const res = await fetch(url.toString());
       if (!res.ok) {
+        const text = await res.text().catch(() => '');
         return {
           category: cat,
           geo: g,
           queries: [],
-          error: `HTTP ${res.status}: failed to fetch rising queries`,
+          error: this.getHTTPErrorMessage(res.status, text),
         };
       }
 
@@ -325,14 +358,24 @@ export class GoogleTrendsClient {
       if (Array.isArray(rankedList)) {
         for (const rankItem of rankedList) {
           const rankObj = rankItem as Record<string, unknown>;
-          const queryList = rankObj.queries;
+          let queryList = rankObj.queries;
+
+          // Handle case where queries might be nested in a value object
+          if (!Array.isArray(queryList)) {
+            const valueObj = rankObj.value as Record<string, unknown> | undefined;
+            if (valueObj && typeof valueObj === 'object') {
+              queryList = valueObj.queries;
+            }
+          }
+
           if (Array.isArray(queryList)) {
             for (const item of queryList) {
               const itemObj = item as Record<string, unknown>;
-              queries.push({
-                query: String(itemObj.query || ''),
-                value: Number(itemObj.value || 0),
-              });
+              const q = String(itemObj.query || itemObj.title || '');
+              const v = Number(itemObj.value || 0);
+              if (q) {
+                queries.push({ query: q, value: v });
+              }
             }
           }
         }
@@ -364,12 +407,13 @@ export class GoogleTrendsClient {
 
       const res = await fetch(url.toString());
       if (!res.ok) {
+        const text = await res.text().catch(() => '');
         return {
           query,
           geo: g,
           queries: [],
           topics: [],
-          error: `HTTP ${res.status}: failed to fetch related queries`,
+          error: this.getHTTPErrorMessage(res.status, text),
         };
       }
 
@@ -407,17 +451,30 @@ export class GoogleTrendsClient {
       if (defaultData && typeof defaultData === 'object') {
         const rankedList = defaultData.rankedList;
         if (Array.isArray(rankedList)) {
-          for (let i = 0; i < rankedList.length; i++) {
-            const rankObj = rankedList[i] as Record<string, unknown>;
-            const queryList = rankObj.queries;
+          for (const rankItem of rankedList) {
+            const rankObj = rankItem as Record<string, unknown>;
+            // Identify whether this is a queries or topics section by looking for a `title` field
+            const title = String(rankObj.title || '').toLowerCase();
+            const isTopicsSection = title.includes('topic');
+
+            let queryList = rankObj.queries;
+            // Handle case where queries might be nested in a value object
+            if (!Array.isArray(queryList)) {
+              const valueObj = rankObj.value as Record<string, unknown> | undefined;
+              if (valueObj && typeof valueObj === 'object') {
+                queryList = valueObj.queries;
+              }
+            }
+
             if (Array.isArray(queryList)) {
-              const targetList = i === 0 ? queries : topics;
+              const targetList = isTopicsSection ? topics : queries;
               for (const item of queryList) {
                 const itemObj = item as Record<string, unknown>;
-                targetList.push({
-                  query: String(itemObj.query || ''),
-                  value: Number(itemObj.value || 0),
-                });
+                const q = String(itemObj.query || itemObj.title || '');
+                const v = Number(itemObj.value || 0);
+                if (q) {
+                  targetList.push({ query: q, value: v });
+                }
               }
             }
           }
@@ -447,5 +504,22 @@ export class GoogleTrendsClient {
       return text.substring(4);
     }
     return text;
+  }
+
+  private getHTTPErrorMessage(status: number, text?: string): string {
+    // Detect common scraping issues and provide clear error messages
+    if (status === 429) {
+      return 'HTTP 429: Rate limited or temporarily blocked. Try again later or reduce request frequency.';
+    }
+    if (status === 403) {
+      if (text && text.toLowerCase().includes('captcha')) {
+        return 'HTTP 403: CAPTCHA challenge detected. IP may be temporarily blocked. Try again later.';
+      }
+      return 'HTTP 403: Access forbidden. IP may be blocked or session expired.';
+    }
+    if (status === 503) {
+      return 'HTTP 503: Google Trends service unavailable. Try again later.';
+    }
+    return `HTTP ${status}: Failed to fetch data`;
   }
 }
