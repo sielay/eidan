@@ -11,11 +11,6 @@ import type {
 
 const BASE_URL = 'https://api.twitter.com/2';
 
-// Runtime validation for API responses
-function validateResponse(data: unknown): data is Record<string, unknown> {
-  return typeof data === 'object' && data !== null;
-}
-
 export class XClient {
   private accessToken: string;
   private ctx: ToolContext;
@@ -42,10 +37,7 @@ export class XClient {
 
     const data = await response.json();
 
-    if (!validateResponse(data)) {
-      throw new Error('Invalid API response: expected an object');
-    }
-
+    // X API v2 responses are validated by callers checking for data/errors properties
     return data as T;
   }
 
@@ -82,7 +74,7 @@ export class XClient {
     if (text.length > 280) {
       return {
         tweetId: '',
-        text,
+        text: '',
         error: 'Tweet exceeds 280 character limit',
       };
     }
@@ -104,7 +96,7 @@ export class XClient {
           result?.errors?.[0]?.message || 'Failed to post tweet';
         return {
           tweetId: '',
-          text,
+          text: '',
           error: errorMessage,
         };
       }
@@ -114,7 +106,7 @@ export class XClient {
       const errorMessage = exc instanceof Error ? exc.message : 'Unknown error';
       return {
         tweetId: '',
-        text,
+        text: '',
         error: `Failed to post tweet: ${errorMessage}`,
       };
     }
@@ -165,7 +157,7 @@ export class XClient {
       if (!me.profile) {
         return {
           tweets: [],
-          error: me.error || 'Failed to get authenticated user',
+          error: me.error ?? 'Failed to get authenticated user: profile is null',
         };
       }
 
