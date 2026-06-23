@@ -299,7 +299,7 @@ export class GoogleTrendsClient {
             if (valueObj && typeof valueObj === 'object') {
               title = title || valueObj.title;
               exploreUrl = exploreUrl || valueObj.exploreUrl;
-              deltaMonthOverMonth = deltaMonthOverMonth ?? valueObj.deltaMonthOverMonth;
+              deltaMonthOverMonth = itemObj.deltaMonthOverMonth !== undefined ? itemObj.deltaMonthOverMonth : valueObj.deltaMonthOverMonth;
             }
           }
 
@@ -331,7 +331,7 @@ export class GoogleTrendsClient {
     }
   }
 
-  async risingQueries(category?: string, geo?: string, query?: string): Promise<RisingQueriesResult> {
+  async risingQueries(category?: string, geo?: string): Promise<RisingQueriesResult> {
     const cat = category || CATEGORY_DEFAULT;
     const g = geo || GEO_DEFAULT;
 
@@ -340,9 +340,6 @@ export class GoogleTrendsClient {
       url.searchParams.append('tz', '0');
       url.searchParams.append('geo', g);
       url.searchParams.append('type', 'RISING');
-      if (query) {
-        url.searchParams.append('q', query);
-      }
 
       const res = await this.fetchWithRetry(url.toString());
       if (!res.ok) {
@@ -541,11 +538,13 @@ export class GoogleTrendsClient {
   }
 
   private stripJSONPPrefix(text: string): string {
-    // Google Trends API responses may be prefixed with )]}' for JSONP security
-    if (text.startsWith(")]}'")) {
-      return text.substring(4);
+    // Google Trends API responses may be prefixed with )]}' for JSONP security.
+    // This prefix is common in Google APIs to prevent JSONP injection attacks.
+    // If Google changes their response format, this may fail or return invalid JSON.
+    if (text && typeof text === 'string' && text.startsWith(")]}'")) {
+      return text.substring(4).trim();
     }
-    return text;
+    return text || '';
   }
 
   private getHTTPErrorMessage(status: number, text?: string): string {

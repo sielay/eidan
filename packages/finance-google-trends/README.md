@@ -260,6 +260,7 @@ Google Trends public API has implicit rate limiting:
 - Some regions/categories may have limited data availability
 - Search interest values are normalized (0-100 scale)
 - **Scraping fragility**: This plugin scrapes undocumented Google Trends endpoints. Google frequently changes its front-end structure, which can invalidate the parsing logic without warning. Parse errors indicate Google may have changed the API response format. If you encounter persistent parsing errors, the plugin may need updates to adapt to Google's changes.
+- **JSONP prefix dependency**: Responses are parsed by stripping the JSONP security prefix (`)]}'`). If Google changes this prefix format or response encoding, parsing will fail. This is another potential point of fragility in the scraping approach.
 
 ## Error Handling
 
