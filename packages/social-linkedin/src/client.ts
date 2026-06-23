@@ -50,8 +50,8 @@ export class LinkedInClient {
     // IPv6 private/reserved ranges
     const ipv6Patterns = [
       /^::1$/,            // loopback
-      /^fc00:/,           // unique local unicast (fc00::/7)
-      /^fe80:/,           // link-local unicast (fe80::/10)
+      /^f[c-d][0-9a-f]{2}:/,           // unique local unicast (fc00::/7)
+      /^fe[8-b][0-9a-f]:/,           // link-local unicast (fe80::/10)
       /^::ffff:127\./,    // IPv4-mapped loopback
       /^::ffff:10\./,     // IPv4-mapped private
       /^::ffff:172\.(1[6-9]|2\d|3[01])\./,  // IPv4-mapped private
