@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Buffer } from 'node:buffer';
 import { lookup } from 'node:dns';
 import { promisify } from 'node:util';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
@@ -219,12 +218,6 @@ export class LinkedInClient {
         return { error: 'Missing upload URL from asset registration response' };
       }
 
-      // Validate uploadUrl to prevent SSRF (though LinkedIn API should always return trusted domain)
-      // For additional security, consider whitelisting known LinkedIn upload domains.
-      if (!(await this.validateImageUrl(uploadMechanism.uploadUrl))) {
-        return { error: 'Upload URL from LinkedIn API is invalid or points to private/internal networks' };
-      }
-
       const urn = registerResult.data.value.mediaReferenceObjectId;
       if (!urn) {
         return { error: 'Missing media reference object ID from asset registration response' };
@@ -349,6 +342,10 @@ export class LinkedInClient {
     return { id: result.data.id };
   }
 
+  // Maps a raw LinkedIn post response to a flattened post structure.
+  // Fallback behavior: empty string for text if both description and title are missing,
+  // empty string for author if actor is undefined, and 0 for engagement metrics if not provided.
+  // This ensures agents always receive consistent non-null values.
   private mapPost(post: LinkedInPost): { id: string; text?: string; author?: string; likes: number; comments: number } {
     return {
       id: post.id,

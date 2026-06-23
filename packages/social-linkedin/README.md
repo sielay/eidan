@@ -2,6 +2,10 @@
 
 LinkedIn Social integration for Eidan: post to LinkedIn, search posts, get profile information, and read your feed via OAuth2.
 
+## Requirements
+
+- **Node.js 18+**: This plugin uses Node.js built-in modules (`node:dns`, `node:util`), so it requires a Node.js runtime. Browser environments are not supported.
+
 ## Setup
 
 1. **Create a LinkedIn Developer App**:
@@ -120,6 +124,25 @@ linkedin_list_feed({ limit: 30 })
    - Search via `/search/posts`
    - Profile via `/me`
    - Feed via `/feed`
+
+## Security Considerations
+
+### SSRF Protection
+
+This plugin validates image URLs to prevent Server-Side Request Forgery (SSRF) attacks:
+- **Enforces HTTPS**: Only HTTPS URLs are accepted
+- **Blocks private/internal IPs**: DNS lookups reject addresses in private ranges (10.0.0.0/8, 192.168.0.0/16, 127.0.0.0/8, etc.)
+- **Validates redirects**: Each redirect target is re-validated before following
+
+**Limitations:**
+- DNS rebinding attacks can bypass DNS-based validation if the DNS record is changed after the initial lookup
+- For high-security deployments, consider using an image proxy service or a domain whitelist instead of relying on DNS validation
+
+### Token Storage
+
+- Access tokens are stored encrypted in the Eidan vault (encrypted at-rest, never logged)
+- Token rotation: Generate a new token in LinkedIn developer settings if compromised
+- Note: LinkedIn tokens are typically valid for ~2 months; plan for regular rotation
 
 ## Troubleshooting
 
