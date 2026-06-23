@@ -33,19 +33,6 @@ export const plugin: MatbotPluginSpec = {
     const tools = makeGoogleTrendsTools();
     for (const t of tools) services.tools.register(t);
 
-    services.EidanSecrets?.declareSection({
-      plugin: 'finance-google-trends',
-      title: 'Google Trends',
-      fields: [
-        {
-          name: 'GOOGLE_TRENDS_API_KEY',
-          label: 'API Key (Optional)',
-          secret: true,
-          help: 'Optional: API key for Google Trends wrapper service (if using paid endpoints). Default uses public API.',
-        },
-      ],
-    });
-
     console.log(
       '[finance-google-trends] plugin loaded: google_trends_search, google_trends_top_charts, google_trends_rising_queries, google_trends_related'
     );

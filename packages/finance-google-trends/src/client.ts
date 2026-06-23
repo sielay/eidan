@@ -299,7 +299,7 @@ export class GoogleTrendsClient {
             if (valueObj && typeof valueObj === 'object') {
               title = title || valueObj.title;
               exploreUrl = exploreUrl || valueObj.exploreUrl;
-              deltaMonthOverMonth = deltaMonthOverMonth || valueObj.deltaMonthOverMonth;
+              deltaMonthOverMonth = deltaMonthOverMonth ?? valueObj.deltaMonthOverMonth;
             }
           }
 
@@ -308,7 +308,7 @@ export class GoogleTrendsClient {
             charts.push({
               title: String(title),
               exploreUrl: exploreUrl ? String(exploreUrl) : null,
-              deltaMonthOverMonth: Number(deltaMonthOverMonth || 0),
+              deltaMonthOverMonth: Number(deltaMonthOverMonth ?? 0),
             });
           }
         }
@@ -331,7 +331,7 @@ export class GoogleTrendsClient {
     }
   }
 
-  async risingQueries(category?: string, geo?: string): Promise<RisingQueriesResult> {
+  async risingQueries(category?: string, geo?: string, query?: string): Promise<RisingQueriesResult> {
     const cat = category || CATEGORY_DEFAULT;
     const g = geo || GEO_DEFAULT;
 
@@ -339,7 +339,10 @@ export class GoogleTrendsClient {
       const url = new URL(`${TRENDS_BASE}/trends/api/relatedqueries`);
       url.searchParams.append('tz', '0');
       url.searchParams.append('geo', g);
-      url.searchParams.append('type', 'rising');
+      url.searchParams.append('type', 'RISING');
+      if (query) {
+        url.searchParams.append('q', query);
+      }
 
       const res = await this.fetchWithRetry(url.toString());
       if (!res.ok) {
