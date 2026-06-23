@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Buffer } from 'node:buffer';
+import { lookup } from 'node:dns/promises';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretOpt } from './vault.js';
 import type { LinkedInPost, LinkedInProfileResponse, LinkedInFeedResponse, LinkedInUGCPostRequest, LinkedInAssetRegisterResponse } from './types.js';
@@ -18,17 +19,67 @@ export class LinkedInClient {
     this.accessToken = accessToken;
   }
 
-  private validateImageUrl(imageUrl: string): boolean {
+  private isPrivateIp(ip: string): boolean {
+    // IPv4 private ranges
+    const ipv4Patterns = [
+      /^127\./,           // loopback
+      /^10\./,            // private (10.0.0.0/8)
+      /^172\.(1[6-9]|2\d|3[01])\./, // private (172.16.0.0/12)
+      /^192\.168\./,      // private (192.168.0.0/16)
+      /^169\.254\./,      // link-local (169.254.0.0/16)
+      /^0\./,             // current network (0.0.0.0/8)
+      /^255\./,           // broadcast (255.0.0.0/8)
+      /^224\./,           // multicast (224.0.0.0/4)
+      /^240\./,           // reserved (240.0.0.0/4)
+    ];
+
+    // IPv6 private/reserved ranges
+    const ipv6Patterns = [
+      /^::1$/,            // loopback
+      /^fc00:/,           // unique local (fc00::/7)
+      /^fe80:/,           // link-local (fe80::/10)
+      /^ff00:/,           // multicast (ff00::/8)
+      /^::ffff:127\./,    // IPv4-mapped loopback
+      /^::ffff:10\./,     // IPv4-mapped private
+      /^::ffff:172\.(1[6-9]|2\d|3[01])\./,  // IPv4-mapped private
+      /^::ffff:192\.168\./, // IPv4-mapped private
+      /^::ffff:169\.254\./, // IPv4-mapped link-local
+      /^::/,              // unspecified address / other reserved
+    ];
+
+    const isPrivateIpv4 = ipv4Patterns.some((pattern) => pattern.test(ip));
+    const isPrivateIpv6 = ipv6Patterns.some((pattern) => pattern.test(ip));
+
+    return isPrivateIpv4 || isPrivateIpv6;
+  }
+
+  private async validateImageUrl(imageUrl: string): Promise<boolean> {
     try {
       const url = new URL(imageUrl);
       // Only allow HTTPS to prevent SSRF via HTTP
       if (url.protocol !== 'https:') {
         return false;
       }
-      // Reject localhost, private IP ranges, and other reserved ranges
+
       const hostname = url.hostname;
-      const isPrivate = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|0\.\d{1,3}\.\d{1,3}\.\d{1,3}|255\.\d{1,3}\.\d{1,3}\.\d{1,3}|224\.\d{1,3}\.\d{1,3}\.\d{1,3}|240\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.test(hostname);
-      return !isPrivate;
+
+      // Reject if hostname itself is a private IP
+      if (this.isPrivateIp(hostname)) {
+        return false;
+      }
+
+      // Resolve hostname to IP and validate the resolved IP is not private
+      try {
+        const { address } = await lookup(hostname);
+        if (this.isPrivateIp(address)) {
+          return false;
+        }
+      } catch {
+        // If DNS resolution fails, reject for safety
+        return false;
+      }
+
+      return true;
     } catch {
       return false;
     }
@@ -55,7 +106,7 @@ export class LinkedInClient {
             throw new Error(`Redirect with no Location header at ${currentUrl}`);
           }
 
-          if (!this.validateImageUrl(location)) {
+          if (!(await this.validateImageUrl(location))) {
             throw new Error(`Redirect to invalid URL: ${location}`);
           }
 
@@ -124,7 +175,7 @@ export class LinkedInClient {
   private async registerAsset(imageUrl: string): Promise<{ urn?: string; error?: string }> {
     try {
       // Validate imageUrl to prevent SSRF before making any external requests
-      if (!this.validateImageUrl(imageUrl)) {
+      if (!(await this.validateImageUrl(imageUrl))) {
         return { error: 'Image URL must be HTTPS and not point to private/internal networks' };
       }
 
