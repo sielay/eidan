@@ -66,6 +66,7 @@ export class LinkedInClient {
 
       // Resolve hostname to IP and validate all resolved IPs are not private
       // Note: DNS rebinding attacks may bypass this check if DNS is poisoned after resolution.
+      // TODO: Implement robust SSRF protection via domain whitelist or image proxy service for high-security deployments.
       // For production, consider additional protections (domain whitelist, image proxy service).
       try {
         const resolvedAddresses = await dnsLookup(hostname, { all: true });
@@ -217,7 +218,7 @@ export class LinkedInClient {
         return { error: 'Missing media reference object ID from asset registration response' };
       }
 
-      let imageBuffer: Buffer;
+      let imageBuffer: Uint8Array;
       let contentType = 'application/octet-stream';
       try {
         const imageResponse = await this.fetchImageWithRedirectValidation(imageUrl);
@@ -250,7 +251,7 @@ export class LinkedInClient {
           return { error: `Image exceeds maximum size of ${MAX_IMAGE_SIZE / (1024 * 1024)}MB` };
         }
 
-        imageBuffer = Buffer.from(arrayBuffer);
+        imageBuffer = new Uint8Array(arrayBuffer);
       } catch (fetchErr) {
         if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
           return { error: `Image fetch timeout (exceeded ${IMAGE_FETCH_TIMEOUT_MS / 1000}s)` };
@@ -337,14 +338,13 @@ export class LinkedInClient {
   }
 
   // Maps a raw LinkedIn post response to a flattened post structure.
-  // Fallback behavior: undefined for text if both description and title are missing (allows distinguishing
-  // between empty posts and missing content), empty string for author if actor is undefined, and 0 for
-  // engagement metrics if not provided.
-  private mapPost(post: LinkedInPost): { id: string; text?: string; author?: string; likes: number; comments: number } {
+  // Fallback behavior: empty string for text if both description and title are missing,
+  // empty string for author if actor is undefined, and 0 for engagement metrics if not provided.
+  private mapPost(post: LinkedInPost): { id: string; text: string; author?: string; likes: number; comments: number } {
     return {
       id: post.id,
-      // Prefer description over title; undefined if neither exists (API may omit content for some posts)
-      text: post.content?.description || post.content?.title,
+      // Prefer description over title; empty string if neither exists
+      text: post.content?.description || post.content?.title || '',
       // Actor is optional in API response; default to empty string if missing
       author: post.actor ?? '',
       // Default to 0 for missing engagement metrics (expected for posts with no engagement)
@@ -353,7 +353,7 @@ export class LinkedInClient {
     };
   }
 
-  async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text?: string; author?: string; likes: number; comments: number }>; error?: string }> {
+  async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text: string; author?: string; likes: number; comments: number }>; error?: string }> {
     const url = `/feed?count=${Math.min(limit, 100)}&sortBy=RECENT`;
     const result = await this.request<LinkedInFeedResponse>(url);
 
@@ -366,7 +366,7 @@ export class LinkedInClient {
     return { posts };
   }
 
-  async search(query: string, limit: number = 20): Promise<{ posts?: Array<{ id: string; text?: string; author?: string; likes: number; comments: number }>; error?: string }> {
+  async search(query: string, limit: number = 20): Promise<{ posts?: Array<{ id: string; text: string; author?: string; likes: number; comments: number }>; error?: string }> {
     const url = `/search/posts?keywords=${encodeURIComponent(query)}&count=${Math.min(limit, 100)}`;
     const result = await this.request<LinkedInFeedResponse>(url);
 
