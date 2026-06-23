@@ -139,10 +139,13 @@ export class GoogleTrendsClient {
         .map((item) => {
           const itemObj = item as Record<string, unknown>;
           const time = itemObj.time;
-          const value = itemObj.value;
+          let value = itemObj.value;
+          if (Array.isArray(value)) {
+            value = value[0];
+          }
           if (typeof time === 'number' && typeof value === 'number') {
             return {
-              date: String(time),
+              date: new Date(time * 1000).toISOString().split('T')[0],
               value,
             };
           }
@@ -328,7 +331,7 @@ export class GoogleTrendsClient {
               const itemObj = item as Record<string, unknown>;
               queries.push({
                 query: String(itemObj.query || ''),
-                value: Number(itemObj.trafficPercent || 0),
+                value: Number(itemObj.value || 0),
               });
             }
           }
