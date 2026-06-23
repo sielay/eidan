@@ -44,6 +44,8 @@ packages/*
 !packages/a2a-server/
 !packages/auth/
 !packages/finance-trading212/
+!packages/finance-stripe/
+!packages/finance-xero/
 !packages/frontend-agui/
 !packages/frontend-telegram/
 !packages/jobs/
