@@ -17,6 +17,7 @@ type SwimMode = "none" | "node" | "kind" | "agent";
 // merged — so we split it: "In review" (real PR, awaiting a check) vs "Needs work" (failed, or buried
 // with no PR — the lease-collision case). "Done" is reserved for work the operator has signed off
 // (archived; a future engine reconciler will also auto-advance a job here when its PR merges).
+// Archived jobs always land in Done, regardless of status, because archived == operator signed off.
 const PHASE_LANES: { key: string; title: string; hint: string }[] = [
   { key: "queued", title: "Queued", hint: "waiting to be picked" },
   { key: "active", title: "Active", hint: "being worked on" },
@@ -36,6 +37,7 @@ function prUrlOf(result: Record<string, unknown> | undefined): string | null {
 
 // Map a job to its lifecycle phase (see PHASE_LANES).
 function phaseOf(j: JobInfo): string {
+  if (j.archived_at) return "done"; // operator signed off
   if (j.status === "queued") return "queued";
   if (j.status === "claimed" || j.status === "running") return "active";
   if (j.status === "failed" || j.status === "cancelled") return "needs_work";
@@ -47,7 +49,6 @@ function phaseOf(j: JobInfo): string {
   const prState = result?.["pr_state"];
   if (prState === "merged") return "done"; // merged by anyone = review done
   if (prState === "closed" || prState === "ci_failed") return "needs_work";
-  if (j.archived_at) return "done"; // operator signed off
   return "in_review"; // PR open, awaiting a human/agent check
 }
 
