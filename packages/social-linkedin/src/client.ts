@@ -85,6 +85,11 @@ export class LinkedInClient {
 
   private async registerAsset(imageUrl: string): Promise<{ urn?: string; error?: string }> {
     try {
+      // Validate imageUrl to prevent SSRF before making any external requests
+      if (!this.validateImageUrl(imageUrl)) {
+        return { error: 'Image URL must be HTTPS and not point to private/internal networks' };
+      }
+
       const assetRegisterPayload = {
         registerRequest: {
           recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
@@ -114,11 +119,6 @@ export class LinkedInClient {
       const urn = registerResult.data.value.mediaReferenceObjectId;
       if (!urn) {
         return { error: 'Missing media reference object ID from asset registration response' };
-      }
-
-      // Validate imageUrl to prevent SSRF
-      if (!this.validateImageUrl(imageUrl)) {
-        return { error: 'Image URL must be HTTPS and not point to private/internal networks' };
       }
 
       let imageBuffer: Buffer;
@@ -229,6 +229,16 @@ export class LinkedInClient {
     return { id: result.data.id };
   }
 
+  private mapPost(post: LinkedInPost): { id: string; text?: string; author?: string; likes: number; comments: number } {
+    return {
+      id: post.id,
+      text: post.content?.description || post.content?.title || '',
+      author: post.actor ?? '',
+      likes: post.likesSummary?.totalLikes ?? 0,
+      comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
+    };
+  }
+
   async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text?: string; author?: string; likes: number; comments: number }>; error?: string }> {
     const url = `/feed?count=${Math.min(limit, 100)}&sortBy=RECENT`;
     const result = await this.request<LinkedInFeedResponse>(url);
@@ -237,14 +247,7 @@ export class LinkedInClient {
       return { error: result.error };
     }
 
-    const posts =
-      result.data?.elements?.map((post) => ({
-        id: post.id,
-        text: post.content?.description || post.content?.title || '',
-        author: post.actor ?? '',
-        likes: post.likesSummary?.totalLikes ?? 0,
-        comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
-      })) ?? [];
+    const posts = result.data?.elements?.map((post) => this.mapPost(post)) ?? [];
 
     return { posts };
   }
@@ -257,14 +260,7 @@ export class LinkedInClient {
       return { error: result.error };
     }
 
-    const posts =
-      result.data?.elements?.map((post) => ({
-        id: post.id,
-        text: post.content?.description || post.content?.title || '',
-        author: post.actor ?? '',
-        likes: post.likesSummary?.totalLikes ?? 0,
-        comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
-      })) ?? [];
+    const posts = result.data?.elements?.map((post) => this.mapPost(post)) ?? [];
 
     return { posts };
   }
