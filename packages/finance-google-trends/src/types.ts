@@ -2,17 +2,21 @@
 
 export interface TrendData {
   date: string;
-  value: number;
+  // Google Trends may return value as a single number or an array (e.g., [95, 98, ...]).
+  // If array, we extract the first element; if single number, we use it directly.
+  value: number | number[];
 }
 
 export interface RelatedQuery {
   query: string;
-  value: number;
+  // value may be missing in API response; defaults to 0 if absent
+  value?: number;
 }
 
 export interface TopChart {
   title: string;
-  exploreUrl: string;
+  // exploreUrl may not always be present in the API response
+  exploreUrl: string | null;
   deltaMonthOverMonth: number;
 }
 

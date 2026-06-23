@@ -66,7 +66,7 @@ export class GoogleTrendsClient {
             time: trendingTime,
           },
         ],
-        category: parseInt(cat, 10),
+        category: cat,
       };
 
       const res = await fetch(url.toString(), {
@@ -150,7 +150,9 @@ export class GoogleTrendsClient {
           }
           if (typeof time === 'number' && typeof value === 'number') {
             let timestamp = time;
-            // Handle both seconds and milliseconds: if > 10^10, assume milliseconds
+            // Heuristic: Google Trends timestamps can be in either seconds or milliseconds.
+            // Assume seconds if < 10^10 (timestamps before ~2286), multiply by 1000 to get milliseconds.
+            // This heuristic may fail if Google changes timestamp units or precision.
             if (timestamp < 10000000000) {
               timestamp = timestamp * 1000;
             }
@@ -272,7 +274,7 @@ export class GoogleTrendsClient {
           if (title) {
             charts.push({
               title: String(title),
-              exploreUrl: String(exploreUrl || ''),
+              exploreUrl: exploreUrl ? String(exploreUrl) : null,
               deltaMonthOverMonth: Number(deltaMonthOverMonth || 0),
             });
           }
@@ -372,7 +374,8 @@ export class GoogleTrendsClient {
             for (const item of queryList) {
               const itemObj = item as Record<string, unknown>;
               const q = String(itemObj.query || itemObj.title || '');
-              const v = Number(itemObj.value || 0);
+              // value may be missing in API response; if absent, it remains undefined in the result
+              const v = itemObj.value !== undefined ? Number(itemObj.value) : undefined;
               if (q) {
                 queries.push({ query: q, value: v });
               }
@@ -471,7 +474,8 @@ export class GoogleTrendsClient {
               for (const item of queryList) {
                 const itemObj = item as Record<string, unknown>;
                 const q = String(itemObj.query || itemObj.title || '');
-                const v = Number(itemObj.value || 0);
+                // value may be missing in API response; if absent, it remains undefined in the result
+                const v = itemObj.value !== undefined ? Number(itemObj.value) : undefined;
                 if (q) {
                   targetList.push({ query: q, value: v });
                 }
