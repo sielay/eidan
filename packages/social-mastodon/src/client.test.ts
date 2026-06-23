@@ -63,7 +63,7 @@ const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext 
       const key = name.replace(/^\$\{/, '').replace(/\}$/, '');
       const value = secrets[key];
       if (value === undefined) {
-        throw new MissingSecretError(key);
+        throw new MissingSecretError([key]);
       }
       return value;
     },

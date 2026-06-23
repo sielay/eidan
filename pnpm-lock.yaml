@@ -190,6 +190,18 @@ importers:
         version: 5.9.3
 
   packages/finance-google-search-console:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/finance-google-trends:
     dependencies:
       '@matatbread/matbot-plugin-api':
@@ -212,7 +224,6 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
-        version: 22.19.19
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -550,7 +561,33 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/social-instagram:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/social-linkedin:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/social-mastodon:
     dependencies:
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
@@ -589,19 +626,6 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
-  packages/social-mastodon:
-    dependencies:
-      '@matatbread/matbot-plugin-api':
-        specifier: link:../../external/matbot/packages/core/plugin-api
-        version: link:../../external/matbot/packages/core/plugin-api
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.19.19
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-
   packages/social-youtube:
     dependencies:
       '@matatbread/matbot-plugin-api':
@@ -610,20 +634,7 @@ importers:
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
-        version: 22.19.19
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-
-  packages/social-instagram:
-    dependencies:
-      '@matatbread/matbot-plugin-api':
-        specifier: link:../../external/matbot/packages/core/plugin-api
-        version: link:../../external/matbot/packages/core/plugin-api
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.19.19
+        version: 22.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3

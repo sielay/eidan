@@ -125,3 +125,6 @@ apps/mobile/**/build/
 apps/mobile/**/local.properties
 apps/mobile/**/xcuserdata/
 apps/mobile/**/*.xcuserstate
+
+# npm lockfiles — repo is pnpm-only
+package-lock.json
