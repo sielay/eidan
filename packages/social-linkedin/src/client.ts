@@ -95,7 +95,7 @@ export class LinkedInClient {
         if (!imageResponse.ok) {
           return { error: `Failed to fetch image from URL: ${imageResponse.status}` };
         }
-        imageBuffer = await imageResponse.arrayBuffer() as any as Buffer;
+        imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
       } catch (fetchErr) {
         return {
           error: `Failed to download image: ${fetchErr instanceof Error ? fetchErr.message : 'Unknown error'}`,
@@ -165,7 +165,7 @@ export class LinkedInClient {
       },
     };
 
-    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postPayload as unknown as Record<string, unknown>);
+    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postPayload as Record<string, unknown>);
     if (result.error) {
       return { error: result.error };
     }
