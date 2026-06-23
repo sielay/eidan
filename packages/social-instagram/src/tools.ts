@@ -29,7 +29,7 @@ const SEARCH_SCHEMA = {
     query: {
       type: 'string',
       minLength: 1,
-      description: 'Hashtag to search for (without # prefix). Only hashtag search is supported.',
+      description: 'Hashtag to search for (# prefix optional and will be stripped if present). Only hashtag search is supported.',
     },
     limit: {
       type: 'integer',

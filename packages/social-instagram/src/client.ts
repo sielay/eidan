@@ -21,9 +21,12 @@ export class InstagramAuthError extends Error {
 }
 
 export class InstagramAPIError extends Error {
-  constructor(message: string) {
+  status: number | null;
+
+  constructor(message: string, status?: number) {
     super(message);
     this.name = 'InstagramAPIError';
+    this.status = status ?? null;
   }
 }
 
@@ -52,8 +55,13 @@ export class InstagramClient {
 
   private async getUserId(): Promise<string | null> {
     if (this.userId !== undefined) return this.userId;
-    const user = await this.getAuthenticatedUser();
-    this.userId = user?.id ?? null;
+    try {
+      const user = await this.getAuthenticatedUser();
+      this.userId = user?.id ?? null;
+    } catch (err) {
+      this.userId = null;
+      throw err;
+    }
     return this.userId;
   }
 
@@ -75,7 +83,7 @@ export class InstagramClient {
     try {
       const res = await this.makeRequest('/me?fields=id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,ig_id,is_professional_account,website');
       if (!res.ok) {
-        throw new InstagramAPIError(`Failed to fetch user: ${res.status}`);
+        throw new InstagramAPIError(`Failed to fetch user: ${res.status}`, res.status);
       }
       const data = (await res.json()) as InstagramUser;
       return data;
@@ -83,7 +91,7 @@ export class InstagramClient {
       if (err instanceof InstagramAuthError) {
         throw err;
       }
-      if (err instanceof InstagramAPIError && err.message.includes('401')) {
+      if (err instanceof InstagramAPIError && err.status === 401) {
         return null;
       }
       throw err;
@@ -120,7 +128,7 @@ export class InstagramClient {
       const res = await this.makeRequest(`/ig_hashtag_search?user_id=${encodeURIComponent(userId)}&fields=id,name&query=${encodeURIComponent(hashtag_clean)}`);
 
       if (!res.ok) {
-        throw new InstagramAPIError(`Hashtag search failed: ${res.status}`);
+        throw new InstagramAPIError(`Hashtag search failed: ${res.status}`, res.status);
       }
 
       const data = (await res.json()) as InstagramHashtagSearch;
@@ -129,7 +137,7 @@ export class InstagramClient {
       if (err instanceof InstagramAuthError) {
         throw err;
       }
-      if (err instanceof InstagramAPIError && err.message.includes('404')) {
+      if (err instanceof InstagramAPIError && err.status === 404) {
         return null;
       }
       throw err;
@@ -204,7 +212,7 @@ export class InstagramClient {
       );
 
       if (!res.ok) {
-        throw new InstagramAPIError(`Failed to fetch hashtag media: ${res.status}`);
+        throw new InstagramAPIError(`Failed to fetch hashtag media: ${res.status}`, res.status);
       }
 
       const data = (await res.json()) as { data?: InstagramMedia[] };
@@ -213,7 +221,7 @@ export class InstagramClient {
       if (err instanceof InstagramAuthError) {
         throw err;
       }
-      if (err instanceof InstagramAPIError && err.message.includes('404')) {
+      if (err instanceof InstagramAPIError && err.status === 404) {
         return [];
       }
       throw err;
