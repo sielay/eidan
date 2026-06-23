@@ -1,18 +1,15 @@
 {
-  "//": "Copy to eidan.deploy.json (gitignored) and edit. Bundles are private sibling repos vendored into the build; targets are where you ship.",
+  "//": "Copy to eidan.deploy.json (gitignored) and edit. `bundles` lists the opt-in plugin packages a target loads; `targets` are where you ship.",
 
+  "//bundles-note": "Eidan's own thematic bundles live IN this repo under packages/<name> (AGPL, tracked). List them SOURCELESS — just name (+ kinds) — to include them in a target's plugin set without vendoring. Add a `path`/`git` source ONLY for your OWN external plugin repo (it gets vendored into packages/<name> at assemble time).",
   "bundles": [
-    {
-      "name": "sage",
-      "path": "../eidan-sage/packages/sage",
-      "kind": "code",
-      "//": "or fetch from git instead of a local path:",
-      "//git": "sielay/eidan-sage#matbot-port",
-      "//subdir": "packages/sage"
-    }
+    { "name": "sage", "kinds": ["code"] },
+    { "name": "charles-ventures" },
+    { "//external-example": "your own plugin from a local path or git:",
+      "//name": "my-plugin", "//path": "../my-plugin", "//git": "you/my-plugin#main", "//subdir": "packages/my-plugin" }
   ],
 
-  "//catalogue": "The bundle catalogue the wizard's 'Add a bundle' picks from lives in its OWN gitignored file eidan.catalogue.json (so it survives a from-zero re-init and keeps private repo names out of tracked code). Copy eidan.catalogue.example.json to start.",
+  "//catalogue": "The bundle catalogue the wizard's 'Add a bundle' picks from lives in its OWN gitignored file eidan.catalogue.json (so it survives a from-zero re-init and keeps any private repo names out of tracked code). Copy eidan.catalogue.example.json to start.",
 
   "//providers": "optional provider catalogue (overrides deploy/manifest.mjs DEFAULT_PROVIDERS). Each: { module, endpoint, model, key:<ENV name|null> }. Targets pick from these by name.",
 

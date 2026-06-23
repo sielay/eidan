@@ -2,7 +2,7 @@
 
 The **calendar** integration — read-through `.ics` / CalDAV feed reading
 over the operator's own named calendars. A matbot plugin (part of the
-eidan-pro baseline bundle): it registers the two calendar tools below plus
+AGPL core integration plugin): it registers the two calendar tools below plus
 an ambient system-context contribution, over the `plugin_ical.*` schema.
 
 Connection model: each calendar (a name, an agent-facing context note, and

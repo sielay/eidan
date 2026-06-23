@@ -1,7 +1,7 @@
 # @eidandev/gdrive
 
 The **Google Drive** integration — read-through Drive access over OAuth2. A
-matbot plugin (part of the eidan-pro baseline bundle): it registers the
+matbot plugin (an AGPL core integration plugin): it registers the
 three Drive tools below. It owns no schema of its own.
 
 Connection model: the tools resolve OAuth credentials from the shared

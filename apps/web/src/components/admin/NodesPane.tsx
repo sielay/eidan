@@ -241,8 +241,7 @@ function NodeServedKinds({
 
 function tierBadgeClass(tier: string): string {
   if (tier === "core") return "bg-slate-100 text-slate-700";
-  if (tier === "pro") return "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200";
-  if (tier === "commercial") return "bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200";
+  if (tier === "bundle") return "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200";
   return "bg-muted text-muted-foreground";
 }
 

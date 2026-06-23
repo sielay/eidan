@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Vendor the configured paid/extra bundles into packages/<name>/ and fold them into the engine
-// host config, so the built image carries them. Bundles are private sibling repos — packages/<name>
+// host config, so the built image carries them. Bundles are AGPL packages/<name> (eidan's own) or an operator's external plugin repo
 // is gitignored; this runs at build time, never committed. Idempotent.
 import { readFileSync, writeFileSync, cpSync, rmSync, existsSync, mkdtempSync, mkdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
@@ -63,10 +63,10 @@ export function bundleKinds(b) {
 }
 
 // Fold the bundles into infra/fly-mb/matbot.yaml in place (idempotent: strip any prior bundle lines,
-// then re-insert before the "# Paid bundles append here" slot). The committed file stays core-only.
+// then re-insert before the "# Bundles append here" slot). The committed file stays core-only.
 export function applyMatbotYaml(bundles) {
   const lines = readFileSync(MATBOT_YAML, "utf8").split("\n").filter((l) => !/# eidan-bundle:/.test(l));
-  const slot = lines.findIndex((l) => /# Paid bundles append here/.test(l));
+  const slot = lines.findIndex((l) => /# Bundles append here/.test(l));
   const inserts = bundles.map((b) => { const k = bundleKinds(b); return `  - ./packages/${b.name} # eidan-bundle: ${b.name} (kinds=${k.join("|") || "?"})`; });
   if (slot >= 0) lines.splice(slot, 0, ...inserts);
   else lines.push(...inserts);

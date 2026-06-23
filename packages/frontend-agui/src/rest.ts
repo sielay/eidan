@@ -107,7 +107,9 @@ function loadedPlugins(configPath: string | undefined): { name: string; spec: st
 // manifest (description, config keys), its package.json (version/license/authors), its README.md,
 // and the tools it registered. Sourced from the live registry; falls back to the YAML name list.
 
-type PluginTier = 'core' | 'pro' | 'commercial' | 'matbot';
+// 'core' = always-on (CORE_PLUGINS); 'bundle' = an opt-in AGPL thematic bundle (sage/charles/social/
+// finance/db/logs); 'matbot' = the vendored engine. (No paid tiers — everything is AGPL.)
+type PluginTier = 'core' | 'bundle' | 'matbot';
 
 interface PluginCard {
   name: string; // url-safe short id (basename, no scope) — what the UI routes on
@@ -244,8 +246,7 @@ function buildCard(p: LoadedPlugin, tools: readonly RegistryTool[], configPath: 
     } catch { /* no package.json on disk */ }
     try { readme = readFileSync(join(dir, 'README.md'), 'utf8'); } catch { readme = null; }
     if (/external[/\\]matbot[/\\]/.test(dir)) tier = 'matbot';
-    else if (/eidan-pro(?:[/\\]|$)/.test(dir)) tier = 'pro';
-    else if (/eidan-(?:charles|charlotte)(?:[/\\]|$)/.test(dir)) tier = 'commercial';
+    else if (/^(?:sage|db|logs|charles-|charlotte-|social-|finance-)/.test(short)) tier = 'bundle';
   }
   if (readme === null) readme = overlayReadme(base, short);
   const owned = tools.filter((t) => t.pluginName === p.name || t.pluginName === short);

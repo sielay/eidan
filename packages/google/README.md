@@ -1,7 +1,7 @@
 # @eidandev/google
 
 The **Google / Gmail** integration — read-through Gmail access over OAuth2.
-A matbot plugin (part of the eidan-pro baseline bundle): it registers the
+A matbot plugin (an AGPL core integration plugin): it registers the
 two Gmail tools below over the `plugin_google.*` schema, and publishes a
 shared `GoogleConnection` service so sibling plugins (e.g. `gdrive`) reuse
 one connected account.

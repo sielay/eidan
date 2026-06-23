@@ -4,7 +4,7 @@
 import * as React from "react";
 
 import { JobMarkdown } from "@/components/admin/JobMarkdown";
-import { jobAction, type JobInfo } from "@/lib/api/admin";
+import { jobAction, verifyJob, type JobInfo, type JobVerifyVerdict } from "@/lib/api/admin";
 import { formatAbsolute, formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
@@ -18,8 +18,8 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 const CANCELLABLE = new Set(["queued", "claimed", "running"]);
-// Retry is for work that didn't finish cleanly; a clean `done` job clones instead.
-const RETRYABLE = new Set(["failed", "cancelled"]);
+// Any settled job can be re-queued (retry) or have its claimed PR verified — a `done` job isn't
+// necessarily a real success (the old lease-collision bug buried no-PR jobs as done).
 const SETTLED = new Set(["done", "failed", "cancelled"]);
 
 // Only surface a worker-supplied result field as a link when it's an http(s)
@@ -54,12 +54,14 @@ export function JobDetailDrawer({
   onClose: () => void;
   onChanged: () => void;
 }): React.ReactElement | null {
-  const [busy, setBusy] = React.useState<null | "cancel" | "retry" | "archive" | "unarchive">(null);
+  const [busy, setBusy] = React.useState<null | "cancel" | "retry" | "archive" | "unarchive" | "verify">(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  const [verdict, setVerdict] = React.useState<JobVerifyVerdict | null>(null);
 
   // Reset transient UI when the selected job changes.
   React.useEffect(() => {
     setActionError(null);
+    setVerdict(null);
   }, [job?.id]);
 
   // Close on Escape while the drawer is open.
@@ -81,6 +83,21 @@ export function JobDetailDrawer({
     try {
       await jobAction(job.id, action);
       onChanged();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runVerify(): Promise<void> {
+    if (!job) return;
+    setBusy("verify");
+    setActionError(null);
+    setVerdict(null);
+    try {
+      setVerdict(await verifyJob(job.id));
+      onChanged(); // verify persists pr_state → reload so the board moves the job to its new phase
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -131,8 +148,11 @@ export function JobDetailDrawer({
             {CANCELLABLE.has(job.status) ? (
               <Action label="Cancel" busy={busy === "cancel"} disabled={busy !== null} onClick={() => void run("cancel")} />
             ) : null}
-            {RETRYABLE.has(job.status) ? (
-              <Action label="Retry" busy={busy === "retry"} disabled={busy !== null} onClick={() => void run("retry")} />
+            {SETTLED.has(job.status) ? (
+              <>
+                <Action label="Verify" busy={busy === "verify"} disabled={busy !== null} onClick={() => void runVerify()} />
+                <Action label="Retry" busy={busy === "retry"} disabled={busy !== null} onClick={() => void run("retry")} />
+              </>
             ) : null}
             <Action label="Clone" busy={false} disabled={busy !== null} onClick={onClone} />
             {job.archived_at ? (
@@ -180,6 +200,23 @@ export function JobDetailDrawer({
               <a href={prUrl} target="_blank" rel="noopener noreferrer" className="break-all text-blue-700 underline dark:text-blue-400">
                 {prUrl}
               </a>
+            </Field>
+          ) : null}
+
+          {verdict ? (
+            <Field label="Verify">
+              <p
+                className={cn(
+                  "rounded-md border p-2 text-[11px]",
+                  verdict.ok
+                    ? "border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300"
+                    : "border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300",
+                )}
+              >
+                {verdict.ok
+                  ? `✓ PR exists${verdict.state ? ` (${verdict.state})` : ""} — this job really opened a pull request.`
+                  : `⚠ ${verdict.reason ?? "no live PR found"}${verdict.state === "missing" ? "" : ""} Use Retry to re-run it.`}
+              </p>
             </Field>
           ) : null}
 
