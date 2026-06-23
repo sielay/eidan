@@ -308,7 +308,7 @@ export class GoogleTrendsClient {
             charts.push({
               title: String(title),
               exploreUrl: exploreUrl ? String(exploreUrl) : null,
-              deltaMonthOverMonth: Number(deltaMonthOverMonth ?? 0),
+              deltaMonthOverMonth: deltaMonthOverMonth === undefined ? undefined : Number(deltaMonthOverMonth),
             });
           }
         }
