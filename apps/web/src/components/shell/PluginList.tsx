@@ -97,7 +97,7 @@ export function PluginList(): React.ReactElement {
     );
   }
 
-  // Stable tier order: core (always present) → pro → commercial.
+  // Stable tier order: core (always present) → bundle.
   const grouped = groupByTier(plugins);
 
   return (

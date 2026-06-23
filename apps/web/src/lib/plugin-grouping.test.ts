@@ -18,13 +18,13 @@ function plugin(
 }
 
 describe("groupByTier", () => {
-  it("returns canonical tier order: core → pro → commercial", () => {
+  it("returns canonical tier order: core → bundle → matbot", () => {
     const out = groupByTier([
-      plugin({ tier: "commercial", display_name: "Acme" }),
+      plugin({ tier: "matbot", display_name: "Acme" }),
       plugin({ tier: "core", display_name: "Capture" }),
-      plugin({ tier: "pro", display_name: "Calendar" }),
+      plugin({ tier: "bundle", display_name: "Calendar" }),
     ]);
-    expect(out.map((b) => b.tier)).toEqual(["core", "pro", "commercial"]);
+    expect(out.map((b) => b.tier)).toEqual(["core", "bundle", "matbot"]);
   });
 
   it("sorts each tier alphabetically by display_name", () => {
@@ -58,13 +58,13 @@ describe("groupByTier", () => {
       plugin({ tier: "core", display_name: "A" }),
       plugin({ tier: "core", display_name: "B" }),
       plugin({ tier: "core", display_name: "C" }),
-      plugin({ tier: "pro", display_name: "D" }),
+      plugin({ tier: "bundle", display_name: "D" }),
     ]);
     expect(out[0].rows).toHaveLength(3);
     expect(out[1].rows).toHaveLength(1);
   });
 
   it("uses TIER_ORDER as the canonical ordering", () => {
-    expect(TIER_ORDER).toEqual(["core", "pro", "commercial"]);
+    expect(TIER_ORDER).toEqual(["core", "bundle", "matbot"]);
   });
 });

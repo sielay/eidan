@@ -11,7 +11,7 @@ import { authFetch } from "@/lib/auth";
 export interface PluginSummary {
   name: string;
   display_name: string;
-  tier: "core" | "pro" | "commercial" | "matbot";
+  tier: "core" | "bundle" | "matbot";
   version: string;
   description: string | null;
   enabled: boolean;
@@ -54,7 +54,7 @@ export interface PluginDetail {
   name: string;
   package_name?: string;
   display_name: string;
-  tier: "core" | "pro" | "commercial" | "matbot";
+  tier: "core" | "bundle" | "matbot";
   version: string;
   description: string | null;
   license: string | null;

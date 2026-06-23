@@ -42,12 +42,16 @@ EIDAN_DATABASE_URL=… pnpm --filter @eidandev/migrate migrate   # idempotent; t
 `migrations/sql/0001_baseline.sql` is the full schema snapshot; later changes are new numbered
 `.sql` files. **Update flow** = rebuild the image, redeploy, run `migrate`.
 
-## Paid bundles (pro / sage / …)
+## Bundles (sage / charles / …)
 
-Bundles are **private** and never live in the core repo (`packages/<bundle>/` is gitignored). A
-deploy that includes one **vendors** it into `packages/<bundle>/` before `docker build` (the image
-copies `packages/`), appends `- ./packages/<bundle>` to its `matbot.yaml`, and adds the bundle's job
-kind to `EIDAN_JOB_KINDS`. Until matbot is published to npm, a vendored bundle's
-`@matatbread/matbot-plugin-api` dep is rewritten to `link:../../external/matbot/packages/core/plugin-api`
-(the host's vendored copy). A bundle plugs in purely through string-keyed services
+Thematic bundles are AGPL plugins that live **in this repo** under `packages/<name>` (tracked,
+opt-in — not in `CORE_PLUGINS`). A target selects them in `eidan.deploy.json` (`"plugins": "*"` or a
+list); the deploy appends `- ./packages/<name>` to that target's `matbot.yaml` and adds the bundle's
+job kind to `EIDAN_JOB_KINDS`. Until matbot is published to npm, each package's
+`@matatbread/matbot-plugin-api` dep is `link:../../external/matbot/packages/core/plugin-api` (the
+host's vendored copy). A bundle plugs in purely through string-keyed services
 (`services.JobHandlers.register('code', …)`), so it stays decoupled from the core's package layout.
+
+(An operator can still point a deploy at an *external* plugin repo via `eidan.deploy.json` —
+`bundles[]` with a `path`/`git` source vendors it into `packages/<name>` at assemble time — for
+their own private plugins. Eidan's own bundles no longer use that path.)

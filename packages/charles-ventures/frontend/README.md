@@ -10,7 +10,7 @@ agent-tools half is in `../src`.
 | File | Role |
 |------|------|
 | `Ventures.tsx`  | The screen (default export). Venture profile + `ScopeSwitcher` (holding-tree scope control) + linked resources + other ventures, a responsive **identity context panel** (desktop aside / mobile card) with a Companies House lookup affordance, and the **attach-resource bottom sheet**. Live / loading / empty / error states. |
-| `api/route.ts`  | `GET /api/charles/ventures[?venture=<id>]` (list + current incl. identity + resources) and `POST` (attach a resource) — the deterministic data route over `plugin_ventures.*` (Next-reads-Postgres, owner-scoped). Shipped here because the schema is bundle-private. |
+| `api/route.ts`  | `GET /api/charles/ventures[?venture=<id>]` (list + current incl. identity + resources) and `POST` (attach a resource) — the deterministic data route over `plugin_ventures.*` (Next-reads-Postgres, owner-scoped). Shipped here because the schema is plugin-private. |
 | `api/create.ts` | `POST /api/charles/ventures/create` — create a venture (mirrors the `ventures_create` tool); the write behind the "Add venture" sheet. |
 | `api/lookup.ts` | `POST /api/charles/ventures/lookup` — the ⚡ hybrid Companies House lookup (mirrors the `venture_lookup_company` tool), folds the official record into `metadata.identity`. Self-contained. |
 | `charles.css`   | Only the screen-specific classes **not** already in core `globals.css` (scope-menu internals, `.res-row`, the responsive `.ven-layout`/identity panel, the bottom-sheet overlay). Authored against the same tokens — one design system. |

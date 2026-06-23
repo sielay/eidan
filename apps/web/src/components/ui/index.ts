@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // eidan control primitives (design brief §3) — the shared design-system controls
-// that core screens AND paid bundles build their scoped dashboards from. The CSS
+// that core screens AND opt-in bundles build their scoped dashboards from. The CSS
 // lives in globals.css; these are the typed React wrappers. Bundles import from
 // `@/components/ui` (vendored into apps/web at deploy time).
 //

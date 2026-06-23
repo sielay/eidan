@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # How a plugin ships its own UI
 
-A plugin (core or a paid bundle) can contribute **web UI** to the reference app — nav sections, full
+A plugin (core or an opt-in bundle) can contribute **web UI** to the reference app — nav sections, full
 pages, inline widgets, and its own deterministic API routes — **without editing core**. The deploy's
 `assemble` step vendors it in, parallel to how engine plugins are vendored into `packages/<name>/`.
 
@@ -31,7 +31,7 @@ piece this documents is the **assembly generator** that reads each plugin's mani
   `globals.css`. Imported globally.
 - **`routes`** — `web/<component>` (default export) mounts at `/p/<name>/<path>`.
 - **`api`** — each handler file (`@/server/*`-using `route.ts`) is mounted at the given path. Bundle
-  schemas are bundle-private, so the data route ships with the bundle (the REST→Postgres pattern).
+  schemas are plugin-private, so the data route ships with the bundle (the REST→Postgres pattern).
 - **`nav`** — a `NavContribution` (see `src/lib/shell/nav.ts`); its sections appear in the desktop rail
   (grouped by `group`) and the mobile bottom bar / More. Unknown `icon` names fall back to a glyph.
 
