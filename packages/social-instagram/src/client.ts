@@ -100,8 +100,12 @@ export class InstagramClient {
 
   async getUserFeed(limit: number = 20): Promise<InstagramMedia[]> {
     try {
+      const userId = await this.getUserId();
+      if (!userId) {
+        return [];
+      }
       const res = await this.makeRequest(
-        `/me/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=${Math.min(limit, 100)}`
+        `/me/media?user_id=${encodeURIComponent(userId)}&fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=${Math.min(limit, 100)}`
       );
 
       if (!res.ok) {
@@ -146,8 +150,13 @@ export class InstagramClient {
 
   async postMedia(imageUrl: string, caption?: string): Promise<{ id: string }> {
     try {
+      const userId = await this.getUserId();
+      if (!userId) {
+        throw new InstagramPostError('Failed to get user ID. Ensure INSTAGRAM_ACCESS_TOKEN is valid.');
+      }
+
       // Step 1: Create media container
-      const uploadRes = await this.makeRequest('/me/media', {
+      const uploadRes = await this.makeRequest(`/me/media?user_id=${encodeURIComponent(userId)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -171,7 +180,7 @@ export class InstagramClient {
       const creationId = createResult.id;
 
       // Step 2: Publish the media container
-      const publishRes = await this.makeRequest('/me/media_publish', {
+      const publishRes = await this.makeRequest(`/me/media_publish?user_id=${encodeURIComponent(userId)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
