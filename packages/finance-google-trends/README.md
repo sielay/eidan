@@ -2,6 +2,12 @@
 
 Google Trends finance plugin for eidan. Access search volume trends, top trending searches, rising queries, and related search terms via Google Trends public endpoints.
 
+## ⚠️ Fragility Notice
+
+**This plugin uses undocumented Google Trends endpoints via web scraping.** Google frequently changes its front-end structure and response formats without warning, which can break this plugin. Parse errors indicate Google may have changed the API format. Expect periodic maintenance needs and potential temporary unavailability.
+
+For production use cases requiring high reliability, consider official Google APIs (Google Search Console, Google Trends API via third-party wrappers).
+
 ## Features
 
 - **Search Volume Trends**: Get search interest over time for any query (1 hour to 5 years)
