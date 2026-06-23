@@ -49,11 +49,28 @@ export class GoogleTrendsClient {
     const cat = category || CATEGORY_DEFAULT;
 
     try {
-      const url = new URL(`${TRENDS_BASE}/trends/api/dailytrends`);
-      url.searchParams.append('tz', '0');
-      url.searchParams.append('geo', g);
+      const trendingTime = TIMEFRAME_MAP[tf] || TIMEFRAME_MAP['30d'];
 
-      const res = await fetch(url.toString());
+      const url = new URL(`${TRENDS_BASE}/trends/api/widgetdata`);
+      url.searchParams.append('tz', '0');
+
+      const req = {
+        comparisonItem: [
+          {
+            keyword: query,
+            geo: g,
+            time: trendingTime,
+          },
+        ],
+        category: parseInt(cat, 10),
+      };
+
+      const res = await fetch(url.toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+      });
+
       if (!res.ok) {
         return {
           query,
@@ -104,25 +121,18 @@ export class GoogleTrendsClient {
         };
       }
 
-      const trends: TrendData[] = [];
-      for (const day of data) {
-        const dayObj = day as Record<string, unknown>;
-        const articles = (dayObj.articles as Record<string, unknown>[]) || [];
-
-        for (const article of articles) {
-          const articleObj = article as Record<string, unknown>;
-          const title = String(articleObj.title || '');
-          const traffic = String(articleObj.traffic || '');
-
-          if (title.toLowerCase().includes(query.toLowerCase())) {
-            const value = parseInt(traffic.replace(/[^0-9]/g, ''), 10) || 0;
-            trends.push({
-              date: String(dayObj.date || ''),
-              value,
-            });
+      const trends: TrendData[] = data
+        .map((item) => {
+          const arr = item as unknown[];
+          if (Array.isArray(arr) && arr.length >= 2) {
+            return {
+              date: String(arr[0] || ''),
+              value: Number(arr[1] || 0),
+            };
           }
-        }
-      }
+          return null;
+        })
+        .filter((item): item is TrendData => item !== null);
 
       return {
         query,
@@ -149,7 +159,7 @@ export class GoogleTrendsClient {
     const d = date || '';
 
     try {
-      const url = new URL(`${TRENDS_BASE}/trends/api/explore`);
+      const url = new URL(`${TRENDS_BASE}/trends/api/topcharts`);
       url.searchParams.append('tz', '0');
       url.searchParams.append('geo', g);
       url.searchParams.append('cat', cat);
@@ -227,9 +237,10 @@ export class GoogleTrendsClient {
     const g = geo || GEO_DEFAULT;
 
     try {
-      const url = new URL(`${TRENDS_BASE}/trends/api/dailytrends`);
+      const url = new URL(`${TRENDS_BASE}/trends/api/relatedqueries`);
       url.searchParams.append('tz', '0');
       url.searchParams.append('geo', g);
+      url.searchParams.append('type', 'rising');
 
       const res = await fetch(url.toString());
       if (!res.ok) {
@@ -242,13 +253,13 @@ export class GoogleTrendsClient {
       }
 
       const text = await res.text();
-      const startIdx = text.indexOf('[');
+      const startIdx = text.indexOf('{');
       if (startIdx === -1) {
         return {
           category: cat,
           geo: g,
           queries: [],
-          error: 'Could not parse response data: no JSON array found',
+          error: 'Could not parse response data: no JSON object found',
         };
       }
 
@@ -265,39 +276,33 @@ export class GoogleTrendsClient {
         };
       }
 
-      if (!Array.isArray(data)) {
+      if (typeof data !== 'object' || data === null) {
         return {
           category: cat,
           geo: g,
           queries: [],
-          error: 'Could not parse response data: expected array',
+          error: 'Could not parse response data: expected object',
         };
       }
 
-      const queryMap = new Map<string, number>();
-      for (const day of data) {
-        const dayObj = day as Record<string, unknown>;
-        const articles = (dayObj.articles as Record<string, unknown>[]) || [];
+      const dataObj = data as Record<string, unknown>;
+      const risingQueries = dataObj.default;
+      const queries: RelatedQuery[] = [];
 
-        for (const article of articles) {
-          const articleObj = article as Record<string, unknown>;
-          const title = String(articleObj.title || '');
-          const traffic = String(articleObj.traffic || '');
-          const value = parseInt(traffic.replace(/[^0-9]/g, ''), 10) || 0;
-
-          queryMap.set(title, Math.max(queryMap.get(title) || 0, value));
+      if (Array.isArray(risingQueries)) {
+        for (const item of risingQueries) {
+          const itemObj = item as Record<string, unknown>;
+          queries.push({
+            query: String(itemObj.query || ''),
+            value: Number(itemObj.trafficPercent || 0),
+          });
         }
       }
-
-      const queries: RelatedQuery[] = Array.from(queryMap.entries())
-        .map(([query, value]) => ({ query, value }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 50);
 
       return {
         category: cat,
         geo: g,
-        queries,
+        queries: queries.slice(0, 50),
       };
     } catch (exc) {
       return {
@@ -313,7 +318,7 @@ export class GoogleTrendsClient {
     const g = geo || GEO_DEFAULT;
 
     try {
-      const url = new URL(`${TRENDS_BASE}/trends/api/explore`);
+      const url = new URL(`${TRENDS_BASE}/trends/api/relatedqueries`);
       url.searchParams.append('tz', '0');
       url.searchParams.append('geo', g);
       url.searchParams.append('q', query);
@@ -369,9 +374,9 @@ export class GoogleTrendsClient {
       const queries: RelatedQuery[] = [];
       const topics: RelatedQuery[] = [];
 
-      const relatedQueries = dataObj.relatedQueries;
-      if (Array.isArray(relatedQueries)) {
-        for (const item of relatedQueries) {
+      const topQueries = dataObj.default;
+      if (Array.isArray(topQueries)) {
+        for (const item of topQueries) {
           const itemObj = item as Record<string, unknown>;
           queries.push({
             query: String(itemObj.query || ''),
@@ -380,12 +385,12 @@ export class GoogleTrendsClient {
         }
       }
 
-      const relatedTopics = dataObj.relatedTopics;
-      if (Array.isArray(relatedTopics)) {
-        for (const item of relatedTopics) {
+      const topTopics = dataObj.rising;
+      if (Array.isArray(topTopics)) {
+        for (const item of topTopics) {
           const itemObj = item as Record<string, unknown>;
           topics.push({
-            query: String(itemObj.title || ''),
+            query: String(itemObj.query || ''),
             value: Number(itemObj.value || 0),
           });
         }
