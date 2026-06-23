@@ -25,17 +25,13 @@ export class LinkedInClient {
       if (url.protocol !== 'https:') {
         return false;
       }
-      // Reject localhost and private IP ranges
+      // Reject localhost, private IP ranges, and other reserved ranges
       const hostname = url.hostname;
-      const isPrivate = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})/.test(hostname);
+      const isPrivate = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|0\.\d{1,3}\.\d{1,3}\.\d{1,3}|255\.\d{1,3}\.\d{1,3}\.\d{1,3}|224\.\d{1,3}\.\d{1,3}\.\d{1,3}|240\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3})/.test(hostname);
       return !isPrivate;
     } catch {
       return false;
     }
-  }
-
-  private _getPostText(post: LinkedInPost): string {
-    return post.content?.description || post.content?.title || '';
   }
 
   private async request<T>(
@@ -244,7 +240,7 @@ export class LinkedInClient {
     const posts =
       result.data?.elements?.map((post) => ({
         id: post.id,
-        text: this._getPostText(post),
+        text: post.content?.description || post.content?.title || '',
         author: post.actor ?? '',
         likes: post.likesSummary?.totalLikes ?? 0,
         comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
@@ -264,7 +260,7 @@ export class LinkedInClient {
     const posts =
       result.data?.elements?.map((post) => ({
         id: post.id,
-        text: this._getPostText(post),
+        text: post.content?.description || post.content?.title || '',
         author: post.actor ?? '',
         likes: post.likesSummary?.totalLikes ?? 0,
         comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
