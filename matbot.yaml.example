@@ -42,6 +42,7 @@ plugins:
   - ./packages/social-linkedin # LinkedIn Social (linkedin_post, linkedin_search, linkedin_get_profile, linkedin_list_feed) via OAuth2 + vault
   - ./packages/social-mastodon # Mastodon Social (mastodon_post, mastodon_search, mastodon_get_profile, mastodon_list_timeline) via Mastodon API + bearer token + vault
   - ./packages/social-youtube # YouTube Social (youtube_post_comment, youtube_search, youtube_get_channel, youtube_list_videos) via YouTube Data API v3 + vault
+  - ./packages/finance-google-trends # Google Trends Finance (google_trends_search, google_trends_top_charts, google_trends_rising_queries, google_trends_related): search volume trends, top charts, and related queries via public Google Trends API
   # Paid bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
 
 providers:

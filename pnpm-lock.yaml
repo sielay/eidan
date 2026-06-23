@@ -190,6 +190,7 @@ importers:
         version: 5.9.3
 
   packages/finance-google-search-console:
+  packages/finance-google-trends:
     dependencies:
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
@@ -211,6 +212,7 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+        version: 22.19.19
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
