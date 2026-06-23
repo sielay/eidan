@@ -17,7 +17,7 @@ export interface TopChart {
   title: string;
   // exploreUrl may not always be present in the API response
   exploreUrl: string | null;
-  deltaMonthOverMonth: number;
+  deltaMonthOverMonth?: number;
 }
 
 export interface SearchTrendResult {

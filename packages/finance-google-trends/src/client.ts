@@ -282,7 +282,7 @@ export class GoogleTrendsClient {
         };
       }
 
-      const rankedList = defaultData.rankedList;
+      const rankedList: unknown[] | undefined = defaultData.rankedList;
       const charts: TopChart[] = [];
 
       if (Array.isArray(rankedList)) {
@@ -387,7 +387,7 @@ export class GoogleTrendsClient {
         };
       }
 
-      const rankedList = defaultData.rankedList;
+      const rankedList: unknown[] | undefined = defaultData.rankedList;
       const queries: RelatedQuery[] = [];
 
       if (Array.isArray(rankedList)) {
@@ -486,7 +486,7 @@ export class GoogleTrendsClient {
 
       const defaultData = dataObj.default as Record<string, unknown> | undefined;
       if (defaultData && typeof defaultData === 'object') {
-        const rankedList = defaultData.rankedList;
+        const rankedList: unknown[] | undefined = defaultData.rankedList;
         if (Array.isArray(rankedList)) {
           for (const rankItem of rankedList) {
             const rankObj = rankItem as Record<string, unknown>;
