@@ -27,10 +27,48 @@ export class LinkedInClient {
       }
       // Reject localhost, private IP ranges, and other reserved ranges
       const hostname = url.hostname;
-      const isPrivate = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|0\.\d{1,3}\.\d{1,3}\.\d{1,3}|255\.\d{1,3}\.\d{1,3}\.\d{1,3}|224\.\d{1,3}\.\d{1,3}\.\d{1,3}|240\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3})/.test(hostname);
+      const isPrivate = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|0\.\d{1,3}\.\d{1,3}\.\d{1,3}|255\.\d{1,3}\.\d{1,3}\.\d{1,3}|224\.\d{1,3}\.\d{1,3}\.\d{1,3}|240\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.test(hostname);
       return !isPrivate;
     } catch {
       return false;
+    }
+  }
+
+  private async fetchImageWithRedirectValidation(imageUrl: string): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+
+    try {
+      let currentUrl = imageUrl;
+      let redirectCount = 0;
+      const maxRedirects = 5;
+
+      while (redirectCount < maxRedirects) {
+        const response = await fetch(currentUrl, {
+          signal: controller.signal,
+          redirect: 'manual',
+        });
+
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location');
+          if (!location) {
+            throw new Error(`Redirect with no Location header at ${currentUrl}`);
+          }
+
+          if (!this.validateImageUrl(location)) {
+            throw new Error(`Redirect to invalid URL: ${location}`);
+          }
+
+          currentUrl = location;
+          redirectCount++;
+        } else {
+          return response;
+        }
+      }
+
+      throw new Error(`Too many redirects (more than ${maxRedirects})`);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -122,22 +160,21 @@ export class LinkedInClient {
       }
 
       let imageBuffer: Buffer;
+      let contentType = 'application/octet-stream';
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
-
-        const imageResponse = await fetch(imageUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
+        const imageResponse = await this.fetchImageWithRedirectValidation(imageUrl);
 
         if (!imageResponse.ok) {
           return { error: `Failed to fetch image from URL: ${imageResponse.status}` };
         }
 
         // Validate content type
-        const contentType = imageResponse.headers.get('content-type');
-        if (!contentType || !ALLOWED_IMAGE_TYPES.some((type) => contentType.includes(type))) {
-          return { error: `Invalid image content-type: ${contentType || 'not specified'}. Expected image/jpeg, image/png, image/gif, or image/webp` };
+        const responseContentType = imageResponse.headers.get('content-type');
+        if (!responseContentType || !ALLOWED_IMAGE_TYPES.some((type) => responseContentType.includes(type))) {
+          return { error: `Invalid image content-type: ${responseContentType || 'not specified'}. Expected image/jpeg, image/png, image/gif, or image/webp` };
         }
+
+        contentType = responseContentType;
 
         const arrayBuffer = await imageResponse.arrayBuffer();
 
@@ -160,7 +197,7 @@ export class LinkedInClient {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/octet-stream',
+          'Content-Type': contentType,
         },
         body: imageBuffer,
       });
