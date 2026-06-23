@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { Buffer } from 'node:buffer';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretOpt } from './vault.js';
 import type { LinkedInPost, LinkedInProfileResponse, LinkedInFeedResponse, LinkedInUGCPostRequest, LinkedInAssetRegisterResponse } from './types.js';
@@ -26,11 +27,15 @@ export class LinkedInClient {
       }
       // Reject localhost and private IP ranges
       const hostname = url.hostname;
-      const isPrivate = /^(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.)/.test(hostname);
+      const isPrivate = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})/.test(hostname);
       return !isPrivate;
     } catch {
       return false;
     }
+  }
+
+  private _getPostText(post: LinkedInPost): string {
+    return post.content?.description || post.content?.title || '';
   }
 
   private async request<T>(
@@ -236,11 +241,10 @@ export class LinkedInClient {
       return { error: result.error };
     }
 
-    // Extract post text from description (primary) or title (fallback); LinkedIn API typically provides main content in description field
     const posts =
       result.data?.elements?.map((post) => ({
         id: post.id,
-        text: post.content?.description || post.content?.title || '',
+        text: this._getPostText(post),
         author: post.actor ?? '',
         likes: post.likesSummary?.totalLikes ?? 0,
         comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
@@ -257,11 +261,10 @@ export class LinkedInClient {
       return { error: result.error };
     }
 
-    // Extract post text from description (primary) or title (fallback); LinkedIn API typically provides main content in description field
     const posts =
       result.data?.elements?.map((post) => ({
         id: post.id,
-        text: post.content?.description || post.content?.title || '',
+        text: this._getPostText(post),
         author: post.actor ?? '',
         likes: post.likesSummary?.totalLikes ?? 0,
         comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
