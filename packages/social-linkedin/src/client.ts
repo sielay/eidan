@@ -70,7 +70,7 @@ export class LinkedInClient {
 
       // Resolve hostname to IP and validate all resolved IPs are not private
       try {
-        const resolvedAddresses = await lookup(hostname);
+        const resolvedAddresses = await lookup(hostname, { all: true });
         for (const { address } of resolvedAddresses) {
           if (this.isPrivateIp(address)) {
             return false;
