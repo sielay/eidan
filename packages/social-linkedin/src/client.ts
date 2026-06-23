@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Buffer } from 'node:buffer';
-import { lookup } from 'node:dns/promises';
+import { lookup } from 'node:dns';
+import { promisify } from 'node:util';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretOpt } from './vault.js';
 import type { LinkedInPost, LinkedInProfileResponse, LinkedInFeedResponse, LinkedInUGCPostRequest, LinkedInAssetRegisterResponse } from './types.js';
+
+const dnsLookup = promisify(lookup);
 
 const API_BASE = 'https://api.linkedin.com/v2';
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -69,8 +72,10 @@ export class LinkedInClient {
       }
 
       // Resolve hostname to IP and validate all resolved IPs are not private
+      // Note: DNS rebinding attacks may bypass this check if DNS is poisoned after resolution.
+      // For production, consider additional protections (domain whitelist, image proxy service).
       try {
-        const resolvedAddresses = await lookup(hostname, { all: true });
+        const resolvedAddresses = await dnsLookup(hostname, { all: true });
         for (const { address } of resolvedAddresses) {
           if (this.isPrivateIp(address)) {
             return false;
@@ -89,6 +94,11 @@ export class LinkedInClient {
   }
 
   private async fetchImageWithRedirectValidation(imageUrl: string): Promise<Response> {
+    // Validate initial URL before making the first request
+    if (!(await this.validateImageUrl(imageUrl))) {
+      throw new Error('Image URL must be HTTPS and not point to private/internal networks');
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
 
@@ -209,7 +219,8 @@ export class LinkedInClient {
         return { error: 'Missing upload URL from asset registration response' };
       }
 
-      // Validate uploadUrl to prevent SSRF
+      // Validate uploadUrl to prevent SSRF (though LinkedIn API should always return trusted domain)
+      // For additional security, consider whitelisting known LinkedIn upload domains.
       if (!(await this.validateImageUrl(uploadMechanism.uploadUrl))) {
         return { error: 'Upload URL from LinkedIn API is invalid or points to private/internal networks' };
       }
@@ -256,6 +267,9 @@ export class LinkedInClient {
       } catch (fetchErr) {
         if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
           return { error: `Image fetch timeout (exceeded ${IMAGE_FETCH_TIMEOUT_MS / 1000}s)` };
+        }
+        if (fetchErr instanceof Error && fetchErr.message.includes('not point to private/internal networks')) {
+          return { error: fetchErr.message };
         }
         return {
           error: `Failed to download image: ${fetchErr instanceof Error ? fetchErr.message : 'Unknown error'}`,
@@ -338,8 +352,11 @@ export class LinkedInClient {
   private mapPost(post: LinkedInPost): { id: string; text?: string; author?: string; likes: number; comments: number } {
     return {
       id: post.id,
+      // Prefer description over title; empty string if neither exists (API may omit content for some posts)
       text: post.content?.description || post.content?.title || '',
+      // Actor is optional in API response; default to empty string if missing
       author: post.actor ?? '',
+      // Default to 0 for missing engagement metrics (expected for posts with no engagement)
       likes: post.likesSummary?.totalLikes ?? 0,
       comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
     };
