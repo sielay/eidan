@@ -21,11 +21,11 @@ export class ThreadsClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           text,
           media_url: mediaUrl || undefined,
-          access_token: accessToken,
         }),
       });
 
@@ -45,10 +45,11 @@ export class ThreadsClient {
       const accessToken = await secretRequired(this.ctx, 'THREADS_ACCESS_TOKEN');
 
       const response = await fetch(
-        `${API_BASE}/ig_hashtag_search?user_id=me&fields=id,name&q=${encodeURIComponent(query)}&limit=${Math.min(limit, 50)}&access_token=${accessToken}`,
+        `${API_BASE}/ig_hashtag_search?user_id=me&fields=id,name&q=${encodeURIComponent(query)}&limit=${Math.min(limit, 50)}`,
         {
           headers: {
             Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
           },
         }
       );
@@ -75,10 +76,11 @@ export class ThreadsClient {
       const userId = await secretRequired(this.ctx, 'THREADS_USER_ID');
 
       const response = await fetch(
-        `${API_BASE}/${userId}?fields=id,username,name,biography,profile_picture_url,followers_count&access_token=${accessToken}`,
+        `${API_BASE}/${userId}?fields=id,username,name,biography,profile_picture_url,followers_count`,
         {
           headers: {
             Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
           },
         }
       );

@@ -15,16 +15,15 @@ export class FacebookClient {
   async post(message: string): Promise<FacebookPostResult> {
     try {
       const accessToken = await secretRequired(this.ctx, 'FACEBOOK_ACCESS_TOKEN');
-      const userId = await secretRequired(this.ctx, 'FACEBOOK_USER_ID');
 
-      const response = await fetch(`${API_BASE}/${userId}/feed`, {
+      const response = await fetch(`${API_BASE}/me/feed`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           message,
-          access_token: accessToken,
         }),
       });
 
@@ -44,10 +43,11 @@ export class FacebookClient {
       const accessToken = await secretRequired(this.ctx, 'FACEBOOK_ACCESS_TOKEN');
 
       const response = await fetch(
-        `${API_BASE}/search?q=${encodeURIComponent(query)}&type=post&limit=${Math.min(limit, 100)}&access_token=${accessToken}`,
+        `${API_BASE}/search?q=${encodeURIComponent(query)}&type=post&limit=${Math.min(limit, 100)}`,
         {
           headers: {
             Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
           },
         }
       );
@@ -72,9 +72,10 @@ export class FacebookClient {
     try {
       const accessToken = await secretRequired(this.ctx, 'FACEBOOK_ACCESS_TOKEN');
 
-      const response = await fetch(`${API_BASE}/me?fields=id,name,email,picture&access_token=${accessToken}`, {
+      const response = await fetch(`${API_BASE}/me?fields=id,name,email,picture`, {
         headers: {
           Accept: 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 

@@ -21,12 +21,12 @@ export class InstagramClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           media_type: imageUrl ? 'IMAGE' : 'CAROUSEL',
           image_url: imageUrl,
           caption,
-          access_token: accessToken,
         }),
       });
 
@@ -47,10 +47,11 @@ export class InstagramClient {
       const businessAccountId = await secretRequired(this.ctx, 'INSTAGRAM_BUSINESS_ACCOUNT_ID');
 
       const response = await fetch(
-        `${API_BASE}/${businessAccountId}/recently_searched_hashtags?user_id=${businessAccountId}&fields=id,name&limit=${Math.min(limit, 50)}&access_token=${accessToken}`,
+        `${API_BASE}/${businessAccountId}/recently_searched_hashtags?user_id=${businessAccountId}&fields=id,name&limit=${Math.min(limit, 50)}`,
         {
           headers: {
             Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
           },
         }
       );
@@ -77,10 +78,11 @@ export class InstagramClient {
       const businessAccountId = await secretRequired(this.ctx, 'INSTAGRAM_BUSINESS_ACCOUNT_ID');
 
       const response = await fetch(
-        `${API_BASE}/${businessAccountId}?fields=id,username,name,biography,profile_picture_url,followers_count&access_token=${accessToken}`,
+        `${API_BASE}/${businessAccountId}?fields=id,username,name,biography,profile_picture_url,followers_count`,
         {
           headers: {
             Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
           },
         }
       );
