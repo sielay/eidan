@@ -61,6 +61,7 @@ packages/*
 !packages/social-linkedin/
 !packages/social-mastodon/
 !packages/social-youtube/
+!packages/social-instagram/
 !packages/storage-postgres/
 !packages/vault-postgres/
 !packages/agents/
