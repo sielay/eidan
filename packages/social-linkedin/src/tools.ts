@@ -17,7 +17,7 @@ const POST_SCHEMA = {
     image_url: {
       type: 'string',
       format: 'uri',
-      description: 'Optional image URL to attach to the post.',
+      description: 'Optional image URL to attach to the post. Must be HTTPS. Private/internal IPs are rejected for security.',
     },
   },
 };
@@ -76,6 +76,7 @@ export function makeLinkedInTools(): Tool[] {
           return;
         }
 
+        // Note: image_url is validated in client (HTTPS, no private IPs)
         try {
           const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
           const client = new LinkedInClient(ctx, token);
@@ -118,6 +119,7 @@ export function makeLinkedInTools(): Tool[] {
           return;
         }
 
+        // Note: inputSchema validates limit as integer 1-100; casting handles edge cases
         try {
           const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
           const client = new LinkedInClient(ctx, token);
@@ -166,6 +168,7 @@ export function makeLinkedInTools(): Tool[] {
           if (result.error) {
             yield { type: 'error', message: result.error };
           } else if (result.profile) {
+            // Extract profilePicture from deeply nested structure (empty string if any level is missing)
             const profilePicture =
               result.profile.profilePicture?.elements?.[0]?.identifiers?.[0]?.identifier || '';
             yield {
@@ -200,6 +203,7 @@ export function makeLinkedInTools(): Tool[] {
       async *execute(input: any, ctx: ToolContext) {
         const args = (input ?? {}) as { limit?: number };
 
+        // Note: inputSchema validates limit as integer 1-100 if provided; defaults to 20
         try {
           const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
           const client = new LinkedInClient(ctx, token);

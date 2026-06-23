@@ -23,7 +23,7 @@ export interface LinkedInElement {
 
 export interface LinkedInPost {
   id: string;
-  actor: string;
+  actor?: string;
   content?: {
     contentEntities?: Array<{ entityLocation: string }>;
     description?: string;
@@ -32,10 +32,10 @@ export interface LinkedInPost {
   created?: number;
   liked?: boolean;
   likesSummary?: {
-    totalLikes: number;
+    totalLikes?: number;
   };
   commentsSummary?: {
-    totalFirstLevelComments: number;
+    totalFirstLevelComments?: number;
   };
 }
 
@@ -62,7 +62,14 @@ export interface LinkedInCreatePostResponse {
 }
 
 export interface LinkedInAssetRegisterResponse {
-  value: string;
+  value: {
+    mediaReferenceObjectId?: string;
+    uploadMechanism?: {
+      'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'?: {
+        uploadUrl: string;
+      };
+    };
+  };
 }
 
 export interface LinkedInUGCPostRequest {

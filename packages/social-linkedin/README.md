@@ -2,6 +2,10 @@
 
 LinkedIn Social integration for Eidan: post to LinkedIn, search posts, get profile information, and read your feed via OAuth2.
 
+## Requirements
+
+- **Node.js 18+**: This plugin uses Node.js built-in modules (`node:dns`, `node:util`), so it requires a Node.js runtime. Browser environments are not supported.
+
 ## Setup
 
 1. **Create a LinkedIn Developer App**:
@@ -120,6 +124,42 @@ linkedin_list_feed({ limit: 30 })
    - Search via `/search/posts`
    - Profile via `/me`
    - Feed via `/feed`
+
+## Security Considerations
+
+### SSRF Protection
+
+This plugin validates image URLs to prevent Server-Side Request Forgery (SSRF) attacks:
+- **Enforces HTTPS**: Only HTTPS URLs are accepted
+- **Blocks private/internal IPs**: DNS lookups reject addresses in private ranges (10.0.0.0/8, 192.168.0.0/16, 127.0.0.0/8, etc.)
+- **Validates redirects**: Each redirect target is re-validated before following
+- **Domain whitelist**: Image URLs must come from trusted CDN/hosting domains (Cloudinary, Unsplash, Imgur, etc.)
+
+**Adding New Domains:**
+
+To allow images from additional domains, edit `packages/social-linkedin/src/client.ts` and add the domain to the `ALLOWED_IMAGE_DOMAINS` list (around line 16):
+
+```typescript
+const ALLOWED_IMAGE_DOMAINS = [
+  // existing domains...
+  'your-custom-cdn.com',    // Add your domain here
+];
+```
+
+Then redeploy. This approach prevents SSRF by requiring explicit configuration rather than allowing arbitrary domains. For frequent additions, consider:
+- Using a shared CDN that's already whitelisted
+- Running an internal proxy that re-hosts images from untrusted sources
+- Discussing a more flexible configuration approach (environment variables) with your team
+
+**Limitations:**
+- DNS rebinding attacks can bypass DNS-based validation if the DNS record is changed after the initial lookup
+- For high-security deployments, consider using an image proxy service or a firewall-level domain whitelist instead of relying on DNS validation
+
+### Token Storage
+
+- Access tokens are stored encrypted in the Eidan vault (encrypted at-rest, never logged)
+- Token rotation: Generate a new token in LinkedIn developer settings if compromised
+- Note: LinkedIn tokens are typically valid for ~2 months; plan for regular rotation
 
 ## Troubleshooting
 
