@@ -77,7 +77,7 @@ export class LinkedInClient {
         },
       };
 
-      const registerResult = await this.request<{ value: string }>('/assets', 'POST', assetRegisterPayload);
+      const registerResult = await this.request<LinkedInAssetRegisterResponse>('/assets', 'POST', assetRegisterPayload);
       if (registerResult.error) {
         return { error: registerResult.error };
       }
@@ -86,8 +86,15 @@ export class LinkedInClient {
         return { error: 'Failed to register image asset' };
       }
 
-      const urn = registerResult.data.value;
-      const uploadUrl = `${API_BASE}/assets?action=upload`;
+      const uploadMechanism = registerResult.data.value.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'];
+      if (!uploadMechanism?.uploadUrl) {
+        return { error: 'Missing upload URL from asset registration response' };
+      }
+
+      const urn = registerResult.data.value.mediaReferenceObjectId;
+      if (!urn) {
+        return { error: 'Missing media reference object ID from asset registration response' };
+      }
 
       let imageBuffer: Buffer;
       try {
@@ -102,7 +109,7 @@ export class LinkedInClient {
         };
       }
 
-      const uploadResponse = await fetch(uploadUrl, {
+      const uploadResponse = await fetch(uploadMechanism.uploadUrl, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,

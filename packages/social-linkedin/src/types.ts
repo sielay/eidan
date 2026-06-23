@@ -62,7 +62,14 @@ export interface LinkedInCreatePostResponse {
 }
 
 export interface LinkedInAssetRegisterResponse {
-  value: string;
+  value: {
+    mediaReferenceObjectId?: string;
+    uploadMechanism?: {
+      'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'?: {
+        uploadUrl: string;
+      };
+    };
+  };
 }
 
 export interface LinkedInUGCPostRequest {
