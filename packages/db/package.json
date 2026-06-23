@@ -4,7 +4,7 @@
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "description": "eidan-sage database bundle (matbot): connect to the operator's named databases (Postgres + MongoDB to start) and run read/write queries, plus a Databases admin screen. One registry, one vault key per connection.",
+  "description": "eidan db plugin (matbot): connect to the operator's named databases (Postgres + MongoDB to start) and run read/write queries, plus a Databases admin screen. One registry, one vault key per connection.",
   "matbotRuntime": ["node"],
   "exports": {
     ".": "./src/index.ts"

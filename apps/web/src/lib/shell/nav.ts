@@ -6,8 +6,8 @@
  * Sections are CONTRIBUTED by installed bundles — the design's
  * "the shell computes the rail + bottom bar from whichever bundles are
  * installed" (UI_DESIGN_BRIEF §4). Public core ships only the core
- * sections + the merge mechanism; paid bundles inject their own
- * sections at runtime (so bundle-private naming never lands in core).
+ * sections + the merge mechanism; opt-in bundles inject their own
+ * sections at runtime (so plugin-private naming never lands in core).
  *
  * From the merged catalogue the shell derives two surfaces:
  * - the desktop **rail** — Chat pinned at top, then domain groups, then

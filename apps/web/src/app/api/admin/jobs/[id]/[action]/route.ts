@@ -50,7 +50,7 @@ function prUrlOf(result: Record<string, unknown> | null): string | null {
   return null;
 }
 
-// Optional token so private-repo PRs (e.g. eidan-sage) can be verified too; public repos work unauth.
+// Optional token so PRs in a private repo can be verified too; public repos (incl. sielay/eidan) work unauth.
 function ghHeaders(): Record<string, string> {
   const h: Record<string, string> = { Accept: "application/vnd.github+json", "User-Agent": "eidan-jobs-verify" };
   const tok = process.env["EIDAN_GH_VERIFY_TOKEN"] ?? process.env["GITHUB_TOKEN"];

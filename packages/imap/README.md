@@ -2,8 +2,8 @@
 
 The **mail** integration — email as agent input *and* output: read-through
 IMAP (list / search / read, read-only) plus SMTP send, over the operator's
-own named mail accounts. A matbot plugin (part of the eidan-pro baseline
-bundle): it registers the four tools below over the `plugin_imap.*` schema.
+own named mail accounts. An AGPL core integration plugin: it registers the
+four tools below over the `plugin_imap.*` schema.
 
 Connection model: the operator registers named accounts in the
 **Integrations → Mail** screen (the plugin's frontend manifest). The

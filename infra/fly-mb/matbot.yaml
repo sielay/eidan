@@ -16,7 +16,7 @@ plugins:
   - ./packages/a2a-server # inbound A2A agent card + message/send (:8095)
   - ./packages/secrets-api # secure secrets HTTP API (:8092): LLM-free write path for the Settings UI (needs vault-postgres + auth)
   - ./packages/procedures # sandboxed agent-authored procedures (isolated-vm); EIDAN_PROCEDURE_TOOLS (default remember,recall)
-  # Paid bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
+  # Bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
 
 providers:
   claude:

@@ -3,7 +3,7 @@
 // is sealed in the vault (eidan.secrets_vault) under the connection's `pass_key`. This table holds
 // only the name and the non-secret connection coordinates (driver/host/port/database/username plus
 // a free-form `options` jsonb for ssl/authSource/replicaSet/srv flags) and that key ref. Modeled on
-// the eidan-pro mail bundle's account registry; principal-stamped like core's storage/memory plugins
+// the eidan mail integration's account registry; principal-stamped like core's storage/memory plugins
 // so RLS stays consistent if it's ever added.
 //
 // NB this is the registry of *which* databases the agent may reach, NOT the eidan control-plane DB.

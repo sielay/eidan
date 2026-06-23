@@ -20,7 +20,7 @@ Connections are registered per-user in **Integrations → Databases**. The non-s
 …) live in `plugin_db.connections`; **only the password is sealed in the vault** under
 `EIDAN_DB_PASS_<slug>`. The admin route seals it via the engine secrets-api (the LLM-free write
 path), and tools resolve it at call time with `ctx.vault.resolve('${…}')`. A secret value is never
-sent to a model. This mirrors the eidan-pro mail bundle's account model.
+sent to a model. This mirrors the eidan mail integration's account model.
 
 Passwordless databases (trust auth / local socket) are allowed — leave the password blank and no
 vault key is recorded.

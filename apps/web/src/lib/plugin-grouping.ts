@@ -10,8 +10,7 @@ import type { PluginSummary } from "@/lib/api/plugins";
  */
 export const TIER_ORDER: PluginSummary["tier"][] = [
   "core",
-  "pro",
-  "commercial",
+  "bundle",
   "matbot",
 ];
 

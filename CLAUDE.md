@@ -10,10 +10,11 @@ A self-hosted, plugin-extensible personal agent OS, built as **plugins on the ma
 Eidan adds the product layer: relational Postgres memory, the interop surfaces, jobs, auth, and the
 deploy story. Postgres (the `eidan` schema) is the source of truth.
 
-Core ships open source (AGPL). Paid functionality ships as **standalone private sibling repos** —
-one per bundle (coding/business/lifestyle) — that drop in as more matbot plugins. There is no
-business logic in this repo; bundle repos share no history with it, and the contract is the
-plugin/service interface.
+Everything ships **open source (AGPL-3.0-or-later)**. Thematic **bundles** (coding/business/
+lifestyle) are just more matbot plugins, folded into this repo as opt-in `packages/<name>` (tracked,
+AGPL, not in `CORE_PLUGINS` — a node loads them only when configured). The product isn't sold as
+paid bundles; monetisation is creator-style (education + consulting + an optional hosted tier). The
+plugin/service interface is still the contract between core and bundles — they just live in one repo.
 
 ## Top-level layout
 
@@ -77,7 +78,8 @@ append-only rows. Plugin-private data goes in a `plugin_<name>` schema the plugi
   body), no enums, no namespaces. `tsc` *allows* these, so only a real host run catches them.
 - **SPDX header on every new source file:** `SPDX-License-Identifier: AGPL-3.0-or-later` (TS/JS block
   comment). `License Header Check` enforces it on additions; the only exempt path is the vendored
-  `external/matbot/**` (Apache-2.0). Bundle code carries the bundle's proprietary header, not AGPL.
+  `external/matbot/**` (Apache-2.0) and vendored third-party under `packages/*/vendor/**` (their own
+  licence, listed in `.github/license_header_exempt.txt`). Bundle code is AGPL like the rest of core.
 - `snake_case` on the wire and in Postgres. (The AG-UI camelCase carve-out is matbot's chat wire,
   handled inside `frontend-agui`.) matbot's `Message.content` round-trips losslessly via the
   `content_blocks` jsonb column; the legacy `content`/`tool_calls`/`tool_results` columns are
@@ -118,8 +120,9 @@ fast-forwards cleanly and a contribution PR never carries private config across 
 - **Per-deploy choices come from env vars, secrets, and gitignored config** — the real `matbot.yaml`,
   `.data/`, `.plugins/`, `fly.toml`, and `.env` are gitignored; only `*.example` is tracked.
 - **Tracked artefacts ship generic** — the `infra/fly-mb/Dockerfile` has zero per-operator strings.
-- **Plugins (incl. paid bundles) are dropped in, not patched in** — a bundle is its own repo of
-  matbot plugins; adding one never edits core.
+- **An operator's own plugins drop in via config, not by patching core** — a third-party/private
+  plugin is added through `matbot.yaml` + the deploy CLI, never by editing tracked source. (Eidan's
+  own thematic bundles live in-tree under `packages/<name>`, AGPL + opt-in.)
 - **Runtime extension before code edits** — a fixed list (providers, routes, exposed tools) is an env
   var / config the operator passes in, not an append to tracked source.
 
@@ -130,8 +133,8 @@ path, or their own private repo — without touching this repo's tracked history
 
 **Never commit, stage with intent to commit, push, or open a PR without explicit operator
 confirmation in the current turn.** This repo is the AGPL public core; anything committed here is one
-merge from the public mirror. Bundle-private code, scratchpads, half-formed designs, and
-operator-internal notes belong in sibling repos or gitignored files — never in core history.
+merge from the public mirror. Operator-private deploy config, secrets, scratchpads, half-formed
+designs, and internal notes belong in gitignored files — never in tracked core history.
 
 - Default to "don't commit" unless the operator's current-turn message asks for it. A prior turn's
   authorisation does NOT carry forward.
@@ -140,11 +143,13 @@ operator-internal notes belong in sibling repos or gitignored files — never in
 - If a commit looks justified but the operator hasn't asked, stop and ask — list the staged files and
   the proposed message, and wait.
 - Stricter than the default "ask before destructive ops": one commit to the wrong repo can leak
-  canary / paid-bundle material to the public mirror. Treat every `git commit` here as load-bearing.
+  operator-private deploy config or secrets to the public mirror. Treat every `git commit` here as
+  load-bearing.
 
 ## Release shape
 
 The public mirror is a **flat commit per tagged release** — this repo's day-to-day history does not
 propagate. The forbidden-string grep (`release/forbidden-strings.txt`) is the hard release gate: it
-blocks private bundle/canary names and secrets from reaching the public mirror. Paid-bundle and
-landing code is never in this repo to begin with — it lives in the private sibling repos.
+blocks operator-private deploy names and secrets from reaching the public mirror. The thematic
+bundles are AGPL and live here; only the marketing **landing** site and operator-private deploy
+config (`.env`, `eidan.deploy.json`) stay out of this repo.
