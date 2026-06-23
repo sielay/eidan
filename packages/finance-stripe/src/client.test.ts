@@ -288,6 +288,67 @@ test('StripeClient.getRevenueTimeseries buckets by interval and currency', async
   teardownFetchMocks();
 });
 
+test('StripeClient.getSubscriptions computes per-sub MRR and a currency rollup', async () => {
+  setupFetchMocks();
+  const mockSubs = {
+    has_more: false,
+    data: [
+      {
+        id: 'sub_1', status: 'active', currency: 'usd', customer: { id: 'cus_1', name: 'Acme' },
+        items: { data: [{ quantity: 2, price: { id: 'price_1', currency: 'usd', unit_amount: 1000, recurring: { interval: 'month', interval_count: 1 } } }] },
+      },
+      {
+        id: 'sub_2', status: 'active', currency: 'usd', customer: { id: 'cus_2', name: 'Beta' },
+        // annual £12000/yr -> £1000/mo
+        items: { data: [{ quantity: 1, price: { id: 'price_2', currency: 'usd', unit_amount: 12000, recurring: { interval: 'year', interval_count: 1 } } }] },
+      },
+      {
+        id: 'sub_3', status: 'canceled', currency: 'usd', customer: { id: 'cus_3', name: 'Gone' },
+        items: { data: [{ quantity: 1, price: { id: 'price_3', currency: 'usd', unit_amount: 5000, recurring: { interval: 'month', interval_count: 1 } } }] },
+      },
+    ],
+  };
+  fetchResponses.set(
+    'https://api.stripe.com/v1/subscriptions?limit=100&status=active&expand[]=data.customer',
+    new Response(JSON.stringify(mockSubs), { status: 200 }),
+  );
+
+  const client = new StripeClient(mockCtx(), 'rk_test');
+  const result = await client.getSubscriptions();
+  assert.ok(!result.error);
+  const data = result.data!;
+  const sub1 = data.subscriptions.find((s) => s.id === 'sub_1')!;
+  assert.equal(sub1.mrr, 2000); // 1000 * 2 monthly
+  assert.equal(sub1.customer_name, 'Acme');
+  const sub2 = data.subscriptions.find((s) => s.id === 'sub_2')!;
+  assert.equal(sub2.mrr, 1000); // 12000 / 12
+  // Rollup excludes the canceled sub.
+  const usd = data.mrr_by_currency.find((c) => c.currency === 'usd')!;
+  assert.equal(usd.mrr, 3000);
+  assert.equal(usd.mrr_decimal, 30);
+  assert.equal(usd.active_count, 2);
+
+  teardownFetchMocks();
+});
+
+test('StripeClient.getPayouts parses payouts and converts dates', async () => {
+  setupFetchMocks();
+  fetchResponses.set(
+    'https://api.stripe.com/v1/payouts?limit=25',
+    new Response(JSON.stringify({ data: [{ id: 'po_1', amount: 50000, currency: 'gbp', status: 'paid', type: 'bank_account', method: 'standard', arrival_date: 1700000000, created: 1699990000 }] }), { status: 200 }),
+  );
+  const client = new StripeClient(mockCtx(), 'rk_test');
+  const result = await client.getPayouts(25);
+  assert.ok(!result.error);
+  const p = result.data!.payouts[0]!;
+  assert.equal(p.amount, 50000);
+  assert.equal(p.amount_decimal, 500);
+  assert.equal(p.status, 'paid');
+  assert.equal(p.arrival_date_at, new Date(1700000000 * 1000).toISOString());
+
+  teardownFetchMocks();
+});
+
 test('StripeClient.getBalance returns error on API failure with error.message', async () => {
   setupFetchMocks();
 

@@ -27,7 +27,7 @@ export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
     description:
-      'Stripe Finance: read-only balance, charges/transactions, invoices, revenue analytics, and a revenue timeseries (stripe_balance, stripe_transactions, stripe_invoices, stripe_analytics, stripe_revenue_timeseries) via the Stripe API with Bearer token auth and matbot vault secrets.',
+      'Stripe Finance: read-only balance, charges/transactions, invoices, revenue analytics, a revenue timeseries, subscriptions + MRR, and payouts (stripe_balance, stripe_transactions, stripe_invoices, stripe_analytics, stripe_revenue_timeseries, stripe_subscriptions, stripe_payouts) via the Stripe API with Bearer token auth and matbot vault secrets.',
   },
   async setup(services: MatbotServices) {
     const tools = makeStripeTools();
@@ -47,6 +47,6 @@ export const plugin: MatbotPluginSpec = {
       ],
     });
 
-    console.log('[finance-stripe] plugin loaded: stripe_balance, stripe_transactions, stripe_invoices, stripe_analytics, stripe_revenue_timeseries');
+    console.log('[finance-stripe] plugin loaded: stripe_balance, stripe_transactions, stripe_invoices, stripe_analytics, stripe_revenue_timeseries, stripe_subscriptions, stripe_payouts');
   },
 };

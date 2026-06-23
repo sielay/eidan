@@ -1,12 +1,12 @@
 # @eidandev/finance-stripe
 
-Read-only Stripe Finance integration for Eidan: account balance, recent charges/transactions, invoices, and revenue analytics via the Stripe API with Bearer token authentication. This plugin never performs writes — no charges, refunds, or mutations are exposed.
+Read-only Stripe Finance integration for Eidan: account balance, recent charges/transactions, invoices, revenue analytics, a revenue timeseries, subscriptions with MRR, and payouts — via the Stripe API with Bearer token authentication. This plugin never performs writes — no charges, refunds, or mutations are exposed.
 
 ## Setup
 
 1. **Generate a Stripe API key** (a restricted, read-only key is recommended):
    - Visit https://dashboard.stripe.com/apikeys
-   - Create a **restricted key** with read access to **Charges**, **Invoices**, and **Balance** (key prefix `rk_...`)
+   - Create a **restricted key** with read access to **Charges**, **Invoices**, **Balance**, **Subscriptions**, **Customers**, and **Payouts** (key prefix `rk_...`)
    - A full secret key (`sk_...`) also works, but a restricted read key is safer
    - Copy the key (keep it secret)
 
@@ -27,7 +27,7 @@ Read-only Stripe Finance integration for Eidan: account balance, recent charges/
 
 4. **Restart Eidan** and verify tools are loaded:
    ```
-   [finance-stripe] plugin loaded: stripe_balance, stripe_transactions, stripe_invoices, stripe_analytics
+   [finance-stripe] plugin loaded: stripe_balance, stripe_transactions, stripe_invoices, stripe_analytics, stripe_revenue_timeseries, stripe_subscriptions, stripe_payouts
    ```
 
 ## A note on amounts
@@ -133,10 +133,24 @@ Check:
 - Stripe API service status
 - Firewall/proxy blocking api.stripe.com
 
+### `stripe_subscriptions`
+
+List subscriptions and the recurring revenue they represent. Each subscription carries its normalised
+**MRR** (monthly-recurring amount, smallest unit), status, customer, billing interval, quantity, period
+end, and cancel-at-period-end. The response also rolls up **MRR per currency** across active/trialing
+subscriptions. Inputs: `status` (`active` default / `trialing` / `past_due` / `canceled` / `unpaid` /
+`all`), `limit` (≤100). Annual/weekly/daily prices are normalised to a monthly figure.
+
+### `stripe_payouts`
+
+List recent payouts — money transferred from the Stripe balance to your bank account. Returns id,
+amount (+ decimal) + currency, status, type/method, description, arrival date, and creation date. Use
+to see cash actually landing in the bank, distinct from gross charges. Input: `limit` (≤100, default 25).
+
 ## Architecture
 
-- **client.ts**: Stripe API client (HTTP requests, response parsing, amount/date conversion)
-- **tools.ts**: Agent tools (balance, transactions, invoices, analytics)
+- **client.ts**: Stripe API client (HTTP requests, response parsing, amount/date conversion, MRR math)
+- **tools.ts**: Agent tools (balance, transactions, invoices, analytics, revenue timeseries, subscriptions, payouts)
 - **vault.ts**: Secret resolution from matbot vault + env
 - **types.ts**: Stripe API TypeScript definitions
 

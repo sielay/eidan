@@ -93,6 +93,65 @@ export interface RevenueTimeseries {
   buckets: TimeseriesBucket[];
 }
 
+export interface Subscription {
+  id: string;
+  status: string | null; // active | trialing | past_due | canceled | …
+  customer_id: string | null;
+  customer_name: string | null;
+  currency: string;
+  mrr: number; // this subscription's monthly-recurring amount, smallest unit
+  mrr_decimal: number;
+  interval: string | null; // the dominant billing interval (month/year/week/day)
+  quantity: number;
+  current_period_end_at: string | null;
+  cancel_at_period_end: boolean;
+  created_at: string | null;
+  items: SubscriptionItemSummary[];
+}
+
+export interface SubscriptionItemSummary {
+  price_id: string | null;
+  nickname: string | null;
+  unit_amount: number | null;
+  unit_amount_decimal: number | null;
+  currency: string;
+  interval: string | null;
+  interval_count: number;
+  quantity: number;
+}
+
+export interface CurrencyMrr {
+  currency: string;
+  mrr: number;
+  mrr_decimal: number;
+  active_count: number;
+}
+
+export interface SubscriptionsResponse {
+  total: number;
+  capped: boolean;
+  mrr_by_currency: CurrencyMrr[];
+  subscriptions: Subscription[];
+}
+
+export interface Payout {
+  id: string;
+  amount: number | null;
+  amount_decimal: number | null;
+  currency: string;
+  status: string | null; // paid | pending | in_transit | canceled | failed
+  type: string | null; // bank_account | card
+  method: string | null; // standard | instant
+  description: string | null;
+  arrival_date_at: string | null;
+  created_at: string | null;
+}
+
+export interface PayoutsResponse {
+  payouts: Payout[];
+  total: number;
+}
+
 export interface ApiError {
   error_code?: string;
   message: string;

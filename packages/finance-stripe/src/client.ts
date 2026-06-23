@@ -9,6 +9,11 @@ import type {
   CurrencyAnalytics,
   RevenueTimeseries,
   TimeseriesBucket,
+  SubscriptionsResponse,
+  Subscription,
+  SubscriptionItemSummary,
+  CurrencyMrr,
+  PayoutsResponse,
   ApiError,
 } from './types.js';
 
@@ -35,6 +40,23 @@ function periodKey(unix: number, interval: 'day' | 'week' | 'month'): string {
     return monday.toISOString().slice(0, 10);
   }
   return `${y}-${m}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Normalise a recurring price to a MONTHLY amount (MRR), in the smallest currency unit. `amount` is
+// unit_amount * quantity; `interval`/`count` come from the Stripe price's `recurring`.
+function monthlyize(amount: number, interval: string | null, count: number): number {
+  const n = count > 0 ? count : 1;
+  switch (interval) {
+    case 'year':
+      return amount / (12 * n);
+    case 'week':
+      return (amount * 52) / (12 * n);
+    case 'day':
+      return (amount * 365) / (12 * n);
+    case 'month':
+    default:
+      return amount / n;
+  }
 }
 
 function toDecimal(amount: number | null): number | null {
@@ -363,6 +385,120 @@ export class StripeClient {
         buckets: list,
       },
     };
+  }
+
+  async getSubscriptions(opts?: {
+    status?: string;
+    limit?: number;
+  }): Promise<{ data?: SubscriptionsResponse; error?: ApiError }> {
+    const limit = Math.min(Math.max(opts?.limit ?? 100, 1), 100);
+    // status defaults to 'active'; 'all' returns every status.
+    const status = opts?.status ?? 'active';
+    let endpoint = `/subscriptions?limit=${limit}&status=${encodeURIComponent(status)}`;
+    // Surface the customer's name without a second round-trip.
+    endpoint += '&expand[]=data.customer';
+    const result = await this.request<any>(endpoint);
+    if (result.error) return { error: result.error };
+    if (!result.data) return { error: { message: 'Empty subscriptions response' } };
+
+    const mrrByCurrency = new Map<string, CurrencyMrr>();
+    const subscriptions: Subscription[] = (result.data.data ?? []).map((s: any) => {
+      const customer = typeof s.customer === 'object' && s.customer ? s.customer : null;
+      const rawItems: any[] = s.items?.data ?? [];
+      let subMrr = 0;
+      let subCurrency = String(s.currency || 'usd');
+      let dominantInterval: string | null = null;
+      let totalQty = 0;
+      const items: SubscriptionItemSummary[] = rawItems.map((it: any) => {
+        const price = it.price ?? {};
+        const recurring = price.recurring ?? {};
+        const unit = price.unit_amount === null || price.unit_amount === undefined ? null : Number(price.unit_amount);
+        const qty = Number(it.quantity) || (unit === null ? 0 : 1);
+        const interval = recurring.interval ?? null;
+        const intervalCount = Number(recurring.interval_count) || 1;
+        const cur = String(price.currency || subCurrency);
+        if (unit !== null) {
+          subMrr += monthlyize(unit * qty, interval, intervalCount);
+          subCurrency = cur;
+          dominantInterval = interval;
+          totalQty += qty;
+        }
+        return {
+          price_id: price.id ?? null,
+          nickname: price.nickname ?? null,
+          unit_amount: unit,
+          unit_amount_decimal: toDecimal(unit),
+          currency: cur,
+          interval,
+          interval_count: intervalCount,
+          quantity: qty,
+        };
+      });
+
+      const status = s.status ?? null;
+      subMrr = Math.round(subMrr);
+      if (status === 'active' || status === 'trialing') {
+        let agg = mrrByCurrency.get(subCurrency);
+        if (!agg) {
+          agg = { currency: subCurrency, mrr: 0, mrr_decimal: 0, active_count: 0 };
+          mrrByCurrency.set(subCurrency, agg);
+        }
+        agg.mrr += subMrr;
+        agg.active_count += 1;
+      }
+
+      return {
+        id: String(s.id || ''),
+        status,
+        customer_id: customer ? String(customer.id || '') : typeof s.customer === 'string' ? s.customer : null,
+        customer_name: customer ? (customer.name ?? customer.email ?? null) : null,
+        currency: subCurrency,
+        mrr: subMrr,
+        mrr_decimal: toDecimal(subMrr) ?? 0,
+        interval: dominantInterval,
+        quantity: totalQty,
+        current_period_end_at: toIso(s.current_period_end),
+        cancel_at_period_end: s.cancel_at_period_end === true,
+        created_at: toIso(s.created),
+        items,
+      };
+    });
+
+    for (const agg of mrrByCurrency.values()) agg.mrr_decimal = round2(agg.mrr / 100);
+
+    return {
+      data: {
+        total: subscriptions.length,
+        capped: (result.data.has_more === true),
+        mrr_by_currency: Array.from(mrrByCurrency.values()),
+        subscriptions,
+      },
+    };
+  }
+
+  async getPayouts(limit: number = 25): Promise<{ data?: PayoutsResponse; error?: ApiError }> {
+    const n = Math.min(Math.max(limit, 1), 100);
+    const result = await this.request<any>(`/payouts?limit=${n}`);
+    if (result.error) return { error: result.error };
+    if (!result.data) return { error: { message: 'Empty payouts response' } };
+
+    const payouts = (result.data.data ?? []).map((p: any) => {
+      const amount = p.amount === null || p.amount === undefined ? null : Number(p.amount);
+      return {
+        id: String(p.id || ''),
+        amount,
+        amount_decimal: toDecimal(amount),
+        currency: String(p.currency || 'usd'),
+        status: p.status ?? null,
+        type: p.type ?? null,
+        method: p.method ?? null,
+        description: p.description ?? null,
+        arrival_date_at: toIso(p.arrival_date),
+        created_at: toIso(p.created),
+      };
+    });
+
+    return { data: { payouts, total: payouts.length } };
   }
 }
 

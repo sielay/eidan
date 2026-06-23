@@ -75,6 +75,37 @@ const TIMESERIES_SCHEMA = {
   },
 };
 
+const SUBSCRIPTIONS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['active', 'trialing', 'past_due', 'canceled', 'unpaid', 'all'],
+      description: 'Subscription status to list (default active).',
+    },
+    limit: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 100,
+      description: 'Max subscriptions to return (default 100).',
+    },
+  },
+};
+
+const PAYOUTS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    limit: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 100,
+      description: 'Max payouts to return (default 25).',
+    },
+  },
+};
+
 export function makeStripeTools(): Tool[] {
   const balanceTool: Tool = {
     name: 'stripe_balance',
@@ -381,5 +412,94 @@ export function makeStripeTools(): Tool[] {
     },
   };
 
-  return [balanceTool, transactionsTool, invoicesTool, analyticsTool, timeseriesTool];
+  const subscriptionsTool: Tool = {
+    name: 'stripe_subscriptions',
+    description:
+      'List Stripe subscriptions and the recurring revenue they represent. Returns each subscription (status, customer, billing interval, quantity, period end, cancel-at-period-end) with its normalised MRR, plus an MRR-per-currency rollup across active/trialing subs. Use for recurring-revenue / churn questions. Read-only. Requires STRIPE_API_KEY vault secret.',
+    inputSchema: SUBSCRIPTIONS_SCHEMA,
+    executor: {
+      async *execute(input: any, ctx: ToolContext) {
+        const args = (input ?? {}) as { status?: string; limit?: number };
+        const status = args.status ? String(args.status) : undefined;
+        const limit = args.limit ? Math.min(Math.max(Number(args.limit), 1), 100) : undefined;
+
+        const clientResult = await createClient(ctx);
+        if (clientResult.error) {
+          yield { type: 'error', message: clientResult.error.message };
+          return;
+        }
+        if (!clientResult.client) {
+          yield { type: 'error', message: 'Stripe client initialization failed' };
+          return;
+        }
+
+        const result = await clientResult.client.getSubscriptions({
+          ...(status ? { status } : {}),
+          ...(limit ? { limit } : {}),
+        });
+        if (result.error) {
+          yield { type: 'error', message: result.error.message };
+        } else if (result.data) {
+          yield {
+            type: 'result',
+            value: {
+              subscriptions: {
+                total: result.data.total,
+                capped: result.data.capped,
+                mrr_by_currency: result.data.mrr_by_currency,
+                subscriptions: result.data.subscriptions,
+              },
+            },
+          };
+        } else {
+          yield { type: 'error', message: 'No subscriptions data received' };
+        }
+      },
+    },
+  };
+
+  const payoutsTool: Tool = {
+    name: 'stripe_payouts',
+    description:
+      'List recent Stripe payouts — money transferred from the Stripe balance to your bank. Returns id, amount (smallest unit + decimal) + currency, status, type/method, description, arrival date, and creation date. Use to see cash actually landing in the bank (vs gross charges). Read-only. Requires STRIPE_API_KEY vault secret.',
+    inputSchema: PAYOUTS_SCHEMA,
+    executor: {
+      async *execute(input: any, ctx: ToolContext) {
+        const args = (input ?? {}) as { limit?: number };
+        const limit = Math.min(Math.max(Number(args.limit) || 25, 1), 100);
+
+        const clientResult = await createClient(ctx);
+        if (clientResult.error) {
+          yield { type: 'error', message: clientResult.error.message };
+          return;
+        }
+        if (!clientResult.client) {
+          yield { type: 'error', message: 'Stripe client initialization failed' };
+          return;
+        }
+
+        const result = await clientResult.client.getPayouts(limit);
+        if (result.error) {
+          yield { type: 'error', message: result.error.message };
+        } else if (result.data) {
+          yield {
+            type: 'result',
+            value: { payouts: { total: result.data.total, payouts: result.data.payouts } },
+          };
+        } else {
+          yield { type: 'error', message: 'No payouts data received' };
+        }
+      },
+    },
+  };
+
+  return [
+    balanceTool,
+    transactionsTool,
+    invoicesTool,
+    analyticsTool,
+    timeseriesTool,
+    subscriptionsTool,
+    payoutsTool,
+  ];
 }
