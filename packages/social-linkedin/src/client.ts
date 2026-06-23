@@ -68,11 +68,13 @@ export class LinkedInClient {
         return false;
       }
 
-      // Resolve hostname to IP and validate the resolved IP is not private
+      // Resolve hostname to IP and validate all resolved IPs are not private
       try {
-        const { address } = await lookup(hostname);
-        if (this.isPrivateIp(address)) {
-          return false;
+        const addresses = await lookup(hostname);
+        for (const { address } of addresses) {
+          if (this.isPrivateIp(address)) {
+            return false;
+          }
         }
       } catch {
         // If DNS resolution fails, reject for safety
@@ -219,7 +221,7 @@ export class LinkedInClient {
           return { error: `Failed to fetch image from URL: ${imageResponse.status}` };
         }
 
-        // Validate content type
+        // Validate content-type header before downloading body
         const responseContentType = imageResponse.headers.get('content-type');
         if (!responseContentType || !ALLOWED_IMAGE_TYPES.some((type) => responseContentType.includes(type))) {
           return { error: `Invalid image content-type: ${responseContentType || 'not specified'}. Expected image/jpeg, image/png, image/gif, or image/webp` };
@@ -227,9 +229,18 @@ export class LinkedInClient {
 
         contentType = responseContentType;
 
+        // Check Content-Length header before downloading to prevent DoS
+        const contentLengthHeader = imageResponse.headers.get('content-length');
+        if (contentLengthHeader) {
+          const contentLength = parseInt(contentLengthHeader, 10);
+          if (isNaN(contentLength) || contentLength > MAX_IMAGE_SIZE) {
+            return { error: `Image exceeds maximum size of ${MAX_IMAGE_SIZE / (1024 * 1024)}MB` };
+          }
+        }
+
         const arrayBuffer = await imageResponse.arrayBuffer();
 
-        // Check size to prevent DoS
+        // Final size check to ensure no bypass of Content-Length check
         if (arrayBuffer.byteLength > MAX_IMAGE_SIZE) {
           return { error: `Image exceeds maximum size of ${MAX_IMAGE_SIZE / (1024 * 1024)}MB` };
         }
