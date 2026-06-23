@@ -13,27 +13,10 @@ export class XClient {
   }
 
   async post(text: string): Promise<XPostResult> {
-    try {
-      const accessToken = await secretRequired(this.ctx, 'X_ACCESS_TOKEN');
-
-      const response = await fetch(`${API_BASE}/tweets`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text }),
-      });
-
-      if (!response.ok) {
-        return { error: `X API error: ${response.status}` };
-      }
-
-      const result = (await response.json()) as { data?: { id?: string } };
-      return { id: result.data?.id };
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+    // ponytail: X API v2 POST /tweets requires OAuth 1.0a User Context, not Bearer (OAuth 2.0)
+    // Bearer tokens work only for read-only operations or app-only contexts
+    // upgrade path: implement OAuth 1.0a signing for write operations, or use the legacy v1.1 API
+    return { error: 'Posting tweets requires OAuth 1.0a User Context authentication. Configure X_CONSUMER_KEY, X_CONSUMER_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET.' };
   }
 
   async search(query: string, limit: number = 20): Promise<XSearchResult> {
@@ -41,7 +24,7 @@ export class XClient {
       const accessToken = await secretRequired(this.ctx, 'X_ACCESS_TOKEN');
 
       const response = await fetch(
-        `${API_BASE}/tweets/search/recent?query=${encodeURIComponent(query)}&max_results=${Math.min(limit, 100)}&tweet.fields=public_metrics,created_at&expansions=author_id`,
+        `${API_BASE}/tweets/search/recent?query=${encodeURIComponent(query)}&max_results=${Math.min(limit, 100)}&tweet.fields=public_metrics,created_at&expansions=author_id&user.fields=username`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -53,7 +36,13 @@ export class XClient {
         return { tweets: [], error: `X API error: ${response.status}` };
       }
 
-      const data = (await response.json()) as { data?: Array<{ id?: string; text?: string }> };
+      const data = (await response.json()) as {
+        data?: Array<{ id?: string; text?: string; author_id?: string }>;
+        includes?: { users?: Array<{ id?: string; username?: string }> };
+      };
+
+      const usersMap = new Map((data.includes?.users || []).map(u => [u.id, u]));
+
       return {
         tweets: (data.data || []).map((tweet) => ({
           id: tweet.id,
@@ -66,33 +55,9 @@ export class XClient {
   }
 
   async getProfile(): Promise<XProfileResult> {
-    try {
-      const accessToken = await secretRequired(this.ctx, 'X_ACCESS_TOKEN');
-
-      const response = await fetch(`${API_BASE}/users/me?user.fields=public_metrics,description`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        return { error: `X API error: ${response.status}` };
-      }
-
-      const result = (await response.json()) as { data?: any };
-      const user = result.data;
-
-      return {
-        user: {
-          id: user?.id,
-          name: user?.name,
-          username: user?.username,
-          description: user?.description,
-          followers_count: user?.public_metrics?.followers_count,
-        },
-      };
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+    // ponytail: X API v2 GET /users/me requires OAuth 1.0a User Context, not Bearer (OAuth 2.0)
+    // Bearer tokens work only for specific app-only contexts with limited data access
+    // upgrade path: implement OAuth 1.0a signing, or query public user endpoint with username
+    return { error: 'Retrieving authenticated user profile requires OAuth 1.0a User Context authentication.' };
   }
 }

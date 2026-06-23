@@ -3,7 +3,11 @@ import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretRequired } from './vault.js';
 import type { SearchTrendsResult, TopicsResult, RisingQueriesResult } from './types.js';
 
-const API_BASE = 'https://trends.google.com/trends/api/explore';
+// Note: Google Trends does not officially expose a public API. These endpoints are reverse-engineered from the web UI.
+// They are subject to change without notice and may fail at any time.
+// Consider using a third-party API service (SerpAPI, ValueSerps, etc.) for production use.
+const API_BASE_EXPLORE = 'https://trends.google.com/trends/api/explore';
+const API_BASE_DAILY = 'https://trends.google.com/trends/api/dailytrends';
 
 export class GoogleTrendsClient {
   private ctx: ToolContext;
@@ -17,7 +21,7 @@ export class GoogleTrendsClient {
       const apiKey = await secretRequired(this.ctx, 'GOOGLE_TRENDS_API_KEY');
 
       const response = await fetch(
-        `${API_BASE}?hl=en-US&tz=-360&req=${encodeURIComponent(JSON.stringify({
+        `${API_BASE_EXPLORE}?hl=en-US&tz=-360&req=${encodeURIComponent(JSON.stringify({
           comparisonItem: [{ keyword: query, geo: '', time: timeframe }],
           category: 0,
           property: '',
@@ -54,7 +58,7 @@ export class GoogleTrendsClient {
       const apiKey = await secretRequired(this.ctx, 'GOOGLE_TRENDS_API_KEY');
 
       const response = await fetch(
-        `https://trends.google.com/trends/api/dailytrends?hl=en-US&tz=-360&geo=US&key=${apiKey}`,
+        `${API_BASE_DAILY}?hl=en-US&tz=-360&geo=US&key=${apiKey}`,
         {
           headers: {
             Accept: 'application/json',
@@ -90,7 +94,7 @@ export class GoogleTrendsClient {
       const apiKey = await secretRequired(this.ctx, 'GOOGLE_TRENDS_API_KEY');
 
       const response = await fetch(
-        `https://trends.google.com/trends/api/explore?hl=en-US&tz=-360&req=${encodeURIComponent(JSON.stringify({
+        `${API_BASE_EXPLORE}?hl=en-US&tz=-360&req=${encodeURIComponent(JSON.stringify({
           comparisonItem: [{ keyword: query, geo: '', time: '' }],
           category: 0,
           property: '',

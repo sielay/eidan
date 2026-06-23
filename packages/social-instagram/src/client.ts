@@ -3,7 +3,7 @@ import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretRequired } from './vault.js';
 import type { InstagramSearchResult, InstagramPostResult, InstagramProfileResult } from './types.js';
 
-const API_BASE = 'https://graph.instagram.com/v18.0';
+const API_BASE = 'https://graph.instagram.com/v20.0';
 
 export class InstagramClient {
   private ctx: ToolContext;
@@ -42,34 +42,10 @@ export class InstagramClient {
   }
 
   async searchMedia(hashtag: string, limit: number = 10): Promise<InstagramSearchResult> {
-    try {
-      const accessToken = await secretRequired(this.ctx, 'INSTAGRAM_ACCESS_TOKEN');
-      const businessAccountId = await secretRequired(this.ctx, 'INSTAGRAM_BUSINESS_ACCOUNT_ID');
-
-      const response = await fetch(
-        `${API_BASE}/${businessAccountId}/recently_searched_hashtags?user_id=${businessAccountId}&fields=id,name&limit=${Math.min(limit, 50)}`,
-        {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        return { media: [], error: `Instagram API error: ${response.status}` };
-      }
-
-      const data = (await response.json()) as { data?: Array<{ id?: string; name?: string }> };
-      return {
-        media: (data.data || []).map((item) => ({
-          id: item.id,
-          caption: item.name,
-        })),
-      };
-    } catch (error) {
-      return { media: [], error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+    // ponytail: hashtag search requires 2-step process: search for hashtag ID, then get media for that hashtag
+    // current endpoint limitation: recently_searched_hashtags is for user's search history, not general search
+    // upgrade path: implement full 2-step hashtag search or use ig_hashtag_search -> media endpoint
+    return { media: [], error: 'Hashtag search requires 2-step API flow not currently implemented. Use account insights instead.' };
   }
 
   async getProfile(): Promise<InstagramProfileResult> {

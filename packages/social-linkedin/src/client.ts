@@ -49,28 +49,9 @@ export class LinkedInClient {
   }
 
   async search(query: string, limit: number = 10): Promise<LinkedInSearchResult> {
-    try {
-      const accessToken = await secretRequired(this.ctx, 'LINKEDIN_ACCESS_TOKEN');
-
-      const response = await fetch(
-        `${API_BASE}/search/queries?q=${encodeURIComponent(query)}&type=post&count=${Math.min(limit, 100)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'LinkedIn-Version': '202412',
-          },
-        }
-      );
-
-      if (!response.ok) {
-        return { posts: [], error: `LinkedIn API error: ${response.status}` };
-      }
-
-      const data = (await response.json()) as { elements?: Array<{ id?: string }> };
-      return { posts: (data.elements || []).map((e) => ({ id: e.id })) };
-    } catch (error) {
-      return { posts: [], error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+    // ponytail: public post search on LinkedIn is not available via the standard API
+    // upgrade path: use feed endpoint to search within user's own posts, or integrate LinkedIn Search API if available
+    return { posts: [], error: 'Public post search is not available via LinkedIn API. Use feed endpoint for personal posts.' };
   }
 
   async getProfile(): Promise<LinkedInProfileResult> {

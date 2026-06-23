@@ -3,6 +3,7 @@ import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretRequired } from './vault.js';
 import type { ThreadsSearchResult, ThreadsPostResult, ThreadsProfileResult } from './types.js';
 
+// Threads API is in limited rollout and endpoints subject to change. See: https://developers.facebook.com/docs/threads/overview
 const API_BASE = 'https://graph.threads.net/v1.0';
 
 export class ThreadsClient {
@@ -41,33 +42,9 @@ export class ThreadsClient {
   }
 
   async search(query: string, limit: number = 10): Promise<ThreadsSearchResult> {
-    try {
-      const accessToken = await secretRequired(this.ctx, 'THREADS_ACCESS_TOKEN');
-
-      const response = await fetch(
-        `${API_BASE}/ig_hashtag_search?user_id=me&fields=id,name&q=${encodeURIComponent(query)}&limit=${Math.min(limit, 50)}`,
-        {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        return { posts: [], error: `Threads API error: ${response.status}` };
-      }
-
-      const data = (await response.json()) as { data?: Array<{ id?: string; name?: string }> };
-      return {
-        posts: (data.data || []).map((item) => ({
-          id: item.id,
-          text: item.name,
-        })),
-      };
-    } catch (error) {
-      return { posts: [], error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+    // ponytail: Threads API search is not yet fully available in the public API; ig_hashtag_search is Instagram-specific
+    // upgrade path: monitor Threads API docs for search endpoint releases
+    return { posts: [], error: 'Threads search API is not yet available. Check developer docs for updates.' };
   }
 
   async getProfile(): Promise<ThreadsProfileResult> {

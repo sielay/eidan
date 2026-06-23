@@ -3,7 +3,7 @@ import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretRequired } from './vault.js';
 import type { FacebookSearchResult, FacebookPostResult, FacebookProfileResult } from './types.js';
 
-const API_BASE = 'https://graph.facebook.com/v18.0';
+const API_BASE = 'https://graph.facebook.com/v20.0';
 
 export class FacebookClient {
   private ctx: ToolContext;
@@ -39,33 +39,9 @@ export class FacebookClient {
   }
 
   async search(query: string, limit: number = 10): Promise<FacebookSearchResult> {
-    try {
-      const accessToken = await secretRequired(this.ctx, 'FACEBOOK_ACCESS_TOKEN');
-
-      const response = await fetch(
-        `${API_BASE}/search?q=${encodeURIComponent(query)}&type=post&limit=${Math.min(limit, 100)}`,
-        {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        return { posts: [], error: `Facebook API error: ${response.status}` };
-      }
-
-      const data = (await response.json()) as { data?: Array<{ id?: string; message?: string }> };
-      return {
-        posts: (data.data || []).map((post) => ({
-          id: post.id,
-          message: post.message,
-        })),
-      };
-    } catch (error) {
-      return { posts: [], error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+    // ponytail: public post search via /search is restricted by Facebook and not available for most apps
+    // upgrade path: use page/group-specific search or implement feed search within a user's own posts
+    return { posts: [], error: 'Public post search is not available via Facebook API for this app. Use page-specific searches instead.' };
   }
 
   async getProfile(): Promise<FacebookProfileResult> {

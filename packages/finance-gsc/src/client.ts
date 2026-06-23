@@ -28,7 +28,7 @@ export class GSCClient {
         body: JSON.stringify({
           startDate: startDate.toISOString().split('T')[0],
           endDate: new Date().toISOString().split('T')[0],
-          dimensions: ['page', 'query'],
+          dimensions: ['PAGE', 'QUERY'],
           rowLimit: limit,
           startRow: 0,
         }),
