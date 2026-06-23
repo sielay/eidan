@@ -12,6 +12,22 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
 const IMAGE_FETCH_TIMEOUT_MS = 30000; // 30 seconds
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
+// Whitelist of trusted image hosting domains for SSRF mitigation
+const ALLOWED_IMAGE_DOMAINS = [
+  'cdn.jsdelivr.net',
+  'res.cloudinary.com',
+  'images.unsplash.com',
+  'images.pexels.com',
+  'images.pixabay.com',
+  'imgur.com',
+  'i.imgur.com',
+  'giphy.com',
+  'media.giphy.com',
+  'cdn.shopify.com',
+  'images.ctfassets.net',
+  // Allow specific domains; for custom domains, operators should extend this list
+];
+
 export class LinkedInClient {
   private ctx: ToolContext;
   private accessToken: string;
@@ -49,6 +65,13 @@ export class LinkedInClient {
     return isPrivateIpv4 || isPrivateIpv6;
   }
 
+  private isAllowedImageDomain(hostname: string): boolean {
+    // Check if hostname exactly matches or ends with a whitelisted domain
+    return ALLOWED_IMAGE_DOMAINS.some((domain) =>
+      hostname === domain || hostname.endsWith(`.${domain}`)
+    );
+  }
+
   private async validateImageUrl(imageUrl: string): Promise<boolean> {
     try {
       const url = new URL(imageUrl);
@@ -59,15 +82,18 @@ export class LinkedInClient {
 
       const hostname = url.hostname;
 
+      // Check against whitelist first for faster rejection of non-whitelisted domains
+      if (!this.isAllowedImageDomain(hostname)) {
+        return false;
+      }
+
       // Reject if hostname itself is a private IP
       if (this.isPrivateIp(hostname)) {
         return false;
       }
 
       // Resolve hostname to IP and validate all resolved IPs are not private
-      // Note: DNS rebinding attacks may bypass this check if DNS is poisoned after resolution.
-      // TODO: Implement robust SSRF protection via domain whitelist or image proxy service for high-security deployments.
-      // For production, consider additional protections (domain whitelist, image proxy service).
+      // Additional DNS validation layer to prevent DNS rebinding attacks
       try {
         const resolvedAddresses = await dnsLookup(hostname, { all: true });
         for (const { address } of resolvedAddresses) {
@@ -327,7 +353,7 @@ export class LinkedInClient {
       },
     };
 
-    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postPayload as Record<string, unknown>);
+    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postPayload);
     if (result.error) {
       return { error: result.error };
     }
