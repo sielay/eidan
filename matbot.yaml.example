@@ -40,6 +40,10 @@ plugins:
   - ./packages/social-facebook # Facebook Social (facebook_post_feed, facebook_search, facebook_get_profile, facebook_list_feed) via Graph API OAuth2 + vault
   - ./packages/social-x # X (Twitter) Social (x_post_tweet, x_search, x_get_profile, x_list_timeline) via X API v2 OAuth2 + vault
   - ./packages/social-linkedin # LinkedIn Social (linkedin_post, linkedin_search, linkedin_get_profile, linkedin_list_feed) via OAuth2 + vault
+  - ./packages/social-mastodon # Mastodon Social (mastodon_post, mastodon_search, mastodon_get_profile, mastodon_list_timeline) via Mastodon API + bearer token + vault
+  - ./packages/social-youtube # YouTube Social (youtube_post_comment, youtube_search, youtube_get_channel, youtube_list_videos) via YouTube Data API v3 + vault
+  - ./packages/finance-google-trends # Google Trends Finance (google_trends_search, google_trends_top_charts, google_trends_rising_queries, google_trends_related): search volume trends, top charts, and related queries via public Google Trends API
+  - ./packages/social-instagram # Instagram Social (instagram_post_feed, instagram_search, instagram_list_feed, instagram_get_profile) via Instagram Graph API OAuth2 + vault
   # Bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
 
 providers:
