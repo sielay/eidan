@@ -34,18 +34,6 @@ const INDEXING_ERRORS_SCHEMA = {
   },
 };
 
-const CHECK_URL_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    url: {
-      type: 'string',
-      description: 'The URL to inspect (e.g., https://example.com/page).',
-    },
-  },
-  required: ['url'],
-};
-
 export function makeGscTools(): Tool[] {
   const gscPerformanceTool: Tool = {
     name: 'gsc_performance',
@@ -198,48 +186,5 @@ export function makeGscTools(): Tool[] {
     },
   };
 
-  const gscCheckUrlTool: Tool = {
-    name: 'gsc_check_url',
-    description:
-      'Inspect a specific URL in Google Search Console to check indexing status, crawl errors, mobile usability issues, and other problems. Requires GSC_ACCESS_TOKEN and GSC_PROPERTY_URL vault secrets.',
-    inputSchema: CHECK_URL_SCHEMA,
-    executor: {
-      async *execute(input, ctx) {
-        const args = (input ?? {}) as { url?: string };
-        if (!args.url) {
-          yield { type: 'error', message: 'URL parameter is required' };
-          return;
-        }
-
-        const gscResult = await makeGSCClient(ctx);
-        if (gscResult.error) {
-          yield { type: 'error', message: gscResult.error };
-          return;
-        }
-
-        if (!gscResult.client) {
-          yield { type: 'error', message: 'Failed to create GSC client' };
-          return;
-        }
-
-        const result = await gscResult.client.checkUrl(args.url);
-
-        if (result.error) {
-          yield { type: 'error', message: result.error };
-        } else {
-          yield {
-            type: 'result',
-            value: {
-              url: args.url,
-              indexed: result.indexed || false,
-              state: result.state || 'UNKNOWN',
-              issues: result.issues || [],
-            },
-          };
-        }
-      },
-    },
-  };
-
-  return [gscPerformanceTool, gscSitemapsTool, gscIndexingStatusTool, gscIndexingErrorsTool, gscCheckUrlTool];
+  return [gscPerformanceTool, gscSitemapsTool, gscIndexingStatusTool, gscIndexingErrorsTool];
 }

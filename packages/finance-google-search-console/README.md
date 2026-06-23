@@ -50,7 +50,7 @@ plugins:
 Verify tools are loaded:
 
 ```
-[finance-google-search-console] plugin loaded: gsc_performance, gsc_sitemaps, gsc_indexing_status, gsc_indexing_errors, gsc_check_url
+[finance-google-search-console] plugin loaded: gsc_performance, gsc_sitemaps, gsc_indexing_status, gsc_indexing_errors
 ```
 
 ## Tools
@@ -188,47 +188,6 @@ gsc_indexing_errors({
       "severity": "ERROR",
       "example": "Server error (5xx)"
     }
-  ]
-}
-```
-
-### `gsc_check_url`
-
-Inspect a specific URL to check its indexing status, crawl errors, mobile usability issues, and other problems in Google Search Console.
-
-**Parameters:**
-
-- `url` (required): The URL to inspect (e.g., `https://example.com/page`)
-
-**Example:**
-
-```json
-gsc_check_url({
-  url: "https://example.com/features"
-})
-```
-
-**Response:**
-
-```json
-{
-  "url": "https://example.com/features",
-  "indexed": true,
-  "state": "INDEXED",
-  "issues": []
-}
-```
-
-Or with issues:
-
-```json
-{
-  "url": "https://example.com/blocked",
-  "indexed": false,
-  "state": "BLOCKED_BY_ROBOTS_TXT",
-  "issues": [
-    "BLOCKED_BY_ROBOTS_TXT",
-    "RESOURCE_CRAWL_ERROR"
   ]
 }
 ```
@@ -380,20 +339,6 @@ Result:
     },
     ...
   ]
-}
-
-Agent: Is the page at https://example.com/features indexed?
-
-Agent → gsc_check_url({
-  url: "https://example.com/features"
-})
-
-Result:
-{
-  "url": "https://example.com/features",
-  "indexed": true,
-  "state": "INDEXED",
-  "issues": []
 }
 ```
 

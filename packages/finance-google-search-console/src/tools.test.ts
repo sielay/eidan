@@ -231,76 +231,6 @@ test('gsc_indexing_errors tool executes', async () => {
   }
 });
 
-test('gsc_check_url tool executes', async () => {
-  const responses = new Map();
-  responses.set(
-    'https://www.googleapis.com/webmasters/v3/urlInspection/v1/urlInspection:inspect',
-    {
-      inspectionResult: {
-        inspectionUrl: 'https://example.com/page',
-        indexingState: 'INDEXED',
-        crawlIssues: [],
-        mobileUsability: {
-          issues: [],
-        },
-      },
-    }
-  );
-
-  const restore = mockFetch(responses);
-  try {
-    const ctx = {
-      vault: {
-        resolve: async (key: string) => {
-          if (key === '${GSC_ACCESS_TOKEN}') return 'token123';
-          if (key === '${GSC_PROPERTY_URL}') return 'https://example.com';
-          throw new MissingSecretError(['UNKNOWN']);
-        },
-      },
-    } as unknown as ToolContext;
-
-    const tools = makeGscTools();
-    const checkUrlTool = tools.find((t) => t.name === 'gsc_check_url');
-    assert(checkUrlTool);
-
-    const results: unknown[] = [];
-    for await (const result of checkUrlTool.executor.execute({ url: 'https://example.com/page' }, ctx)) {
-      results.push(result);
-    }
-
-    assert.equal(results.length, 1);
-    const resultObj = results[0] as { type: string };
-    assert.equal(resultObj.type, 'result');
-  } finally {
-    restore();
-  }
-});
-
-test('gsc_check_url tool requires url parameter', async () => {
-  const ctx = {
-    vault: {
-      resolve: async (key: string) => {
-        if (key === '${GSC_ACCESS_TOKEN}') return 'token123';
-        if (key === '${GSC_PROPERTY_URL}') return 'https://example.com';
-        throw new MissingSecretError(['UNKNOWN']);
-      },
-    },
-  } as unknown as ToolContext;
-
-  const tools = makeGscTools();
-  const checkUrlTool = tools.find((t) => t.name === 'gsc_check_url');
-  assert(checkUrlTool);
-
-  const results: unknown[] = [];
-  for await (const result of checkUrlTool.executor.execute({}, ctx)) {
-    results.push(result);
-  }
-
-  assert.equal(results.length, 1);
-  const resultObj = results[0] as { type: string };
-  assert.equal(resultObj.type, 'error');
-});
-
 test('gsc tools return errors for missing secrets', async () => {
   const ctx = {
     vault: {
@@ -332,7 +262,6 @@ test('all tools have correct names and descriptions', () => {
   assert(names.has('gsc_sitemaps'));
   assert(names.has('gsc_indexing_status'));
   assert(names.has('gsc_indexing_errors'));
-  assert(names.has('gsc_check_url'));
 
   tools.forEach((tool) => {
     assert(tool.description);

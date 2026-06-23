@@ -202,47 +202,6 @@ export class GoogleSearchConsoleClient {
       return { error: exc instanceof Error ? exc.message : String(exc) };
     }
   }
-
-  async checkUrl(url: string): Promise<{
-    error?: string;
-    indexed?: boolean;
-    state?: string;
-    issues?: string[];
-  }> {
-    try {
-      const response = await this.request<IndexingErrorResponse>(
-        `/urlInspection/v1/urlInspection:inspect`,
-        {
-          method: 'POST',
-          body: {
-            inspectionUrl: url,
-            siteUrl: this.propertyUrl,
-          },
-        }
-      );
-
-      const result = response.inspectionResult;
-      if (!result) {
-        return { error: 'No inspection result' };
-      }
-
-      const indexed = result.indexingState === 'INDEXED';
-      const state = result.indexingState || 'UNKNOWN';
-      const issues: string[] = [];
-
-      if (result.crawlIssues?.length) {
-        issues.push(...result.crawlIssues.map((i) => i.issueType || 'unknown'));
-      }
-
-      if (result.mobileUsability?.issues?.length) {
-        issues.push(...result.mobileUsability.issues.map((i) => i.rule || 'unknown'));
-      }
-
-      return { indexed, state, issues };
-    } catch (exc) {
-      return { error: exc instanceof Error ? exc.message : String(exc) };
-    }
-  }
 }
 
 export async function makeGSCClient(ctx: ToolContext): Promise<{
