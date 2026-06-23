@@ -70,14 +70,15 @@ export class LinkedInClient {
 
       // Resolve hostname to IP and validate all resolved IPs are not private
       try {
-        const addresses = await lookup(hostname);
-        for (const { address } of addresses) {
+        const resolvedAddresses = await lookup(hostname);
+        for (const { address } of resolvedAddresses) {
           if (this.isPrivateIp(address)) {
             return false;
           }
         }
-      } catch {
+      } catch (error) {
         // If DNS resolution fails, reject for safety
+        console.error('DNS resolution failed for image URL:', hostname, error);
         return false;
       }
 
@@ -108,11 +109,12 @@ export class LinkedInClient {
             throw new Error(`Redirect with no Location header at ${currentUrl}`);
           }
 
-          if (!(await this.validateImageUrl(location))) {
-            throw new Error(`Redirect to invalid URL: ${location}`);
+          const resolvedLocation = new URL(location, currentUrl).toString();
+          if (!(await this.validateImageUrl(resolvedLocation))) {
+            throw new Error(`Redirect to invalid URL: ${resolvedLocation}`);
           }
 
-          currentUrl = location;
+          currentUrl = resolvedLocation;
           redirectCount++;
         } else {
           return response;
@@ -205,6 +207,11 @@ export class LinkedInClient {
       const uploadMechanism = registerResult.data.value.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'];
       if (!uploadMechanism?.uploadUrl) {
         return { error: 'Missing upload URL from asset registration response' };
+      }
+
+      // Validate uploadUrl to prevent SSRF
+      if (!(await this.validateImageUrl(uploadMechanism.uploadUrl))) {
+        return { error: 'Upload URL from LinkedIn API is invalid or points to private/internal networks' };
       }
 
       const urn = registerResult.data.value.mediaReferenceObjectId;
