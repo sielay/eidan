@@ -127,6 +127,9 @@ export class LinkedInClient {
       let redirectCount = 0;
       const maxRedirects = 5;
 
+      // Manual redirect handling allows SSRF validation at each step, preventing attacks
+      // where a redirect chain could lead to a private/internal network (e.g., via a
+      // whitelisted domain redirecting to 127.0.0.1). This is critical for security.
       while (redirectCount < maxRedirects) {
         const response = await fetch(currentUrl, {
           signal: controller.signal,
@@ -371,8 +374,8 @@ export class LinkedInClient {
       id: post.id,
       // Prefer description over title; empty string if neither exists
       text: post.content?.description || post.content?.title || '',
-      // Actor is optional in API response; default to empty string if missing
-      author: post.actor ?? '',
+      // Actor is optional in API response; undefined if missing (aligns with author?: string type)
+      author: post.actor,
       // Default to 0 for missing engagement metrics (expected for posts with no engagement)
       likes: post.likesSummary?.totalLikes ?? 0,
       comments: post.commentsSummary?.totalFirstLevelComments ?? 0,

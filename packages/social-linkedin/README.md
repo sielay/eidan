@@ -133,10 +133,27 @@ This plugin validates image URLs to prevent Server-Side Request Forgery (SSRF) a
 - **Enforces HTTPS**: Only HTTPS URLs are accepted
 - **Blocks private/internal IPs**: DNS lookups reject addresses in private ranges (10.0.0.0/8, 192.168.0.0/16, 127.0.0.0/8, etc.)
 - **Validates redirects**: Each redirect target is re-validated before following
+- **Domain whitelist**: Image URLs must come from trusted CDN/hosting domains (Cloudinary, Unsplash, Imgur, etc.)
+
+**Adding New Domains:**
+
+To allow images from additional domains, edit `packages/social-linkedin/src/client.ts` and add the domain to the `ALLOWED_IMAGE_DOMAINS` list (around line 16):
+
+```typescript
+const ALLOWED_IMAGE_DOMAINS = [
+  // existing domains...
+  'your-custom-cdn.com',    // Add your domain here
+];
+```
+
+Then redeploy. This approach prevents SSRF by requiring explicit configuration rather than allowing arbitrary domains. For frequent additions, consider:
+- Using a shared CDN that's already whitelisted
+- Running an internal proxy that re-hosts images from untrusted sources
+- Discussing a more flexible configuration approach (environment variables) with your team
 
 **Limitations:**
 - DNS rebinding attacks can bypass DNS-based validation if the DNS record is changed after the initial lookup
-- For high-security deployments, consider using an image proxy service or a domain whitelist instead of relying on DNS validation
+- For high-security deployments, consider using an image proxy service or a firewall-level domain whitelist instead of relying on DNS validation
 
 ### Token Storage
 
