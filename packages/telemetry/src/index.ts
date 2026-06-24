@@ -6,15 +6,23 @@ import { Db } from './db.js';
 import { calculateStaleThreshold } from './stale.js';
 
 const HEARTBEAT_MS = 30_000;
+const DEFAULT_REAPER_INTERVAL_MS = 300_000; // 5 minutes
 
-function parsePositiveInt(envVar: string | undefined, defaultValue: number): number {
+function parsePositiveInt(envVar: string | undefined, defaultValue: number, envVarName?: string): number;
+function parsePositiveInt(envVar: string | undefined, defaultValue: undefined, envVarName?: string): number | undefined;
+function parsePositiveInt(envVar: string | undefined, defaultValue: number | undefined = undefined, envVarName?: string): number | undefined {
   if (!envVar) return defaultValue;
   const parsed = Number(envVar);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) return defaultValue;
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    if (envVarName) {
+      console.warn(`[telemetry] ${envVarName}="${envVar}" is invalid; using default`);
+    }
+    return defaultValue;
+  }
   return parsed;
 }
 
-const REAPER_INTERVAL_MS = parsePositiveInt(process.env['EIDAN_REAPER_INTERVAL_MS'], 300000); // 5 minutes default
+const REAPER_INTERVAL_MS = parsePositiveInt(process.env['EIDAN_REAPER_INTERVAL_MS'], DEFAULT_REAPER_INTERVAL_MS, 'EIDAN_REAPER_INTERVAL_MS');
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // session.id is sometimes the conversation uuid and sometimes an opaque runner id; node_events
@@ -78,16 +86,7 @@ export const plugin: MatbotPluginSpec = {
     if (typeof timer.unref === 'function') timer.unref();
 
     // Stale-marking reaper: mark nodes offline if they haven't been seen in STALE_THRESHOLD_MS.
-    const staleEnv = process.env['EIDAN_NODE_STALE_MS'];
-    let staleMs: number | undefined;
-    if (staleEnv) {
-      const parsed = Number(staleEnv);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        staleMs = parsed;
-      } else {
-        console.warn(`[telemetry] EIDAN_NODE_STALE_MS="${staleEnv}" is invalid; using default (3x heartbeat interval)`);
-      }
-    }
+    const staleMs = parsePositiveInt(process.env['EIDAN_NODE_STALE_MS'], undefined, 'EIDAN_NODE_STALE_MS');
     const staleThreshold = calculateStaleThreshold(HEARTBEAT_MS, staleMs);
     const reap = async (): Promise<void> => {
       try {
