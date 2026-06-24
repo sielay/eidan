@@ -48,8 +48,19 @@ export class GoogleSearchConsoleClient {
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`GSC API error (${res.status}): ${text}`);
+      let errorMsg: string;
+      const contentType = res.headers.get('content-type') || '';
+      try {
+        if (contentType.includes('application/json')) {
+          const json = await res.json();
+          errorMsg = json.error?.message || JSON.stringify(json);
+        } else {
+          errorMsg = await res.text();
+        }
+      } catch {
+        errorMsg = await res.text();
+      }
+      throw new Error(`GSC API error (${res.status}): ${errorMsg}`);
     }
 
     return (await res.json()) as T;
@@ -89,12 +100,12 @@ export class GoogleSearchConsoleClient {
       );
 
       const data = (response.rows || []).map((row: PerformanceRow) => ({
-        query: row.keys?.[0] || 'unknown',
-        page: row.keys?.[1] || 'unknown',
-        clicks: row.clicks || 0,
-        impressions: row.impressions || 0,
-        ctr: row.ctr || 0,
-        avgPosition: row.position || 0,
+        query: row.keys && row.keys.length > 0 ? row.keys[0] : 'unknown',
+        page: row.keys && row.keys.length > 1 ? row.keys[1] : 'unknown',
+        clicks: typeof row.clicks === 'number' ? row.clicks : 0,
+        impressions: typeof row.impressions === 'number' ? row.impressions : 0,
+        ctr: typeof row.ctr === 'number' ? row.ctr : 0,
+        avgPosition: typeof row.position === 'number' ? row.position : 0,
       }));
 
       return { data };
@@ -121,7 +132,7 @@ export class GoogleSearchConsoleClient {
         path: sm.path || 'unknown',
         lastSubmitted: sm.lastSubmitted || 'Never',
         type: sm.type || 'sitemap',
-        indexed: sm.contents?.[0]?.indexed || 'Unknown',
+        indexed: sm.contents && sm.contents.length > 0 && sm.contents[0]?.indexed ? sm.contents[0].indexed : 'Unknown',
       }));
 
       return { sitemaps };
@@ -143,8 +154,8 @@ export class GoogleSearchConsoleClient {
         `/sites/${this.encodeProperty(this.propertyUrl)}/inspectionIndex/coverage`
       );
 
-      const indexed = response.coveredPages || '0';
-      const total = response.crawlablePages || 'unknown';
+      const indexed = String(response.coveredPages ?? '0');
+      const total = String(response.crawlablePages ?? 'unknown');
       const coverage = total === 'unknown' ? 'Unknown' : `${indexed}/${total}`;
 
       return {
@@ -181,7 +192,7 @@ export class GoogleSearchConsoleClient {
         const type = issue.issueType || 'unknown';
         const existing = issueMap.get(type) || { count: 0, severity: issue.severity || 'unknown' };
         existing.count += 1;
-        if (!existing.example && issue.details) {
+        if (!existing.example && issue.details && typeof issue.details === 'string') {
           existing.example = issue.details;
         }
         issueMap.set(type, existing);

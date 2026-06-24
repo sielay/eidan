@@ -54,8 +54,8 @@ export interface CoverageError {
 }
 
 export interface CoverageResponse {
-  coveredPages?: string;
-  crawlablePages?: string;
+  coveredPages?: string | number;
+  crawlablePages?: string | number;
   indexingState?: string;
   robotsTxt?: CoverageIndex;
   page?: CoverageIndex;
