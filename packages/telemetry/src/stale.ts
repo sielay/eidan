@@ -7,7 +7,6 @@ export function isStale(lastSeenMs: number, nowMs: number, thresholdMs: number):
 }
 
 export function calculateStaleThreshold(heartbeatMs: number, envMs?: number): number {
-  const defaultThreshold = 3 * heartbeatMs;
-  const threshold = Math.max(defaultThreshold, MIN_STALE_THRESHOLD_MS);
-  return envMs !== undefined ? Math.max(envMs, MIN_STALE_THRESHOLD_MS) : threshold;
+  const effectiveThreshold = envMs !== undefined ? envMs : 3 * heartbeatMs;
+  return Math.max(effectiveThreshold, MIN_STALE_THRESHOLD_MS);
 }

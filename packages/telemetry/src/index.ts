@@ -29,6 +29,7 @@ function nodeIdentity(): { nodeId: string; nodeType: string } {
 let db: Db | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
 let reaperTimer: ReturnType<typeof setInterval> | undefined;
+let lastReapPromise: Promise<void> = Promise.resolve();
 let nodeId: string | undefined;
 
 export const plugin: MatbotPluginSpec = {
@@ -78,7 +79,7 @@ export const plugin: MatbotPluginSpec = {
         console.warn('[telemetry] reaper failed:', (err as Error).message);
       }
     };
-    reaperTimer = setInterval(() => { void reap(); }, REAPER_INTERVAL_MS);
+    reaperTimer = setInterval(() => { lastReapPromise = reap(); }, REAPER_INTERVAL_MS);
     if (typeof reaperTimer.unref === 'function') reaperTimer.unref();
 
     // Activity stream. Both handlers are fire-and-forget observers — telemetry must never add latency
@@ -112,6 +113,9 @@ export const plugin: MatbotPluginSpec = {
   async teardown() {
     if (timer) clearInterval(timer);
     if (reaperTimer) clearInterval(reaperTimer);
+    try {
+      await lastReapPromise;
+    } catch { /* already logged in reap */ }
     if (db && nodeId) {
       try {
         await db.emitEvent({ nodeId, type: 'node.offline', payload: {}, conversationId: null });
