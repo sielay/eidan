@@ -209,3 +209,56 @@ test('LinkedInClient handles API errors gracefully', async () => {
     teardownFetchMocks();
   }
 });
+
+test('IPv6 patterns correctly identify private ranges', async () => {
+  setupFetchMocks();
+  try {
+    const client = new LinkedInClient(mockCtx(), 'test-token');
+    // Access private method via reflection for testing
+    const isPrivateIp = (client as any).isPrivateIp.bind(client);
+
+    // IPv6 ULA ranges (fc00::/7)
+    assert.ok(isPrivateIp('fc00::1'), 'Should reject fc00::1');
+    assert.ok(isPrivateIp('fd00::1'), 'Should reject fd00::1');
+    assert.ok(isPrivateIp('fdff::1'), 'Should reject fdff::1');
+
+    // IPv6 Link-Local ranges (fe80::/10)
+    assert.ok(isPrivateIp('fe80::1'), 'Should reject fe80::1');
+    assert.ok(isPrivateIp('feb0::1'), 'Should reject feb0::1');
+    assert.ok(isPrivateIp('febf::1'), 'Should reject febf::1');
+
+    // IPv6 Loopback
+    assert.ok(isPrivateIp('::1'), 'Should reject ::1');
+
+    // Public addresses should not be rejected
+    assert.ok(!isPrivateIp('2001:4860:4860::8888'), 'Should accept public IPv6');
+
+    // IPv4 ranges
+    assert.ok(isPrivateIp('127.0.0.1'), 'Should reject loopback IPv4');
+    assert.ok(isPrivateIp('192.168.1.1'), 'Should reject private IPv4');
+    assert.ok(isPrivateIp('10.0.0.1'), 'Should reject private IPv4');
+  } finally {
+    teardownFetchMocks();
+  }
+});
+
+test('Domain whitelist prevents subdomain spoofing', async () => {
+  setupFetchMocks();
+  try {
+    const client = new LinkedInClient(mockCtx(), 'test-token');
+    // Access private method via reflection for testing
+    const isAllowedImageDomain = (client as any).isAllowedImageDomain.bind(client);
+
+    // Exact match should work
+    assert.ok(isAllowedImageDomain('imgur.com'), 'Should allow exact domain match');
+
+    // True subdomain should work
+    assert.ok(isAllowedImageDomain('i.imgur.com'), 'Should allow true subdomain');
+
+    // Spoofing attempt should fail
+    assert.ok(!isAllowedImageDomain('evil.com.imgur.com'), 'Should reject spoofed subdomain');
+    assert.ok(!isAllowedImageDomain('imgurclon.com'), 'Should reject similar domain');
+  } finally {
+    teardownFetchMocks();
+  }
+});

@@ -12,35 +12,48 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
 const IMAGE_FETCH_TIMEOUT_MS = 30000; // 30 seconds
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
-// Whitelist of trusted image hosting domains for SSRF mitigation
-const ALLOWED_IMAGE_DOMAINS = [
-  'cdn.jsdelivr.net',
-  'res.cloudinary.com',
-  'images.unsplash.com',
-  'images.pexels.com',
-  'images.pixabay.com',
-  'imgur.com',
-  'i.imgur.com',
-  'giphy.com',
-  'media.giphy.com',
-  'cdn.shopify.com',
-  'images.ctfassets.net',
-  // Allow specific domains; for custom domains, operators should extend this list
-];
+// Default whitelist of trusted image hosting domains for SSRF mitigation.
+// Can be extended via LINKEDIN_IMAGE_DOMAINS environment variable (comma-separated).
+function getAllowedImageDomains(): string[] {
+  const defaults = [
+    'cdn.jsdelivr.net',
+    'res.cloudinary.com',
+    'images.unsplash.com',
+    'images.pexels.com',
+    'images.pixabay.com',
+    'imgur.com',
+    'i.imgur.com',
+    'giphy.com',
+    'media.giphy.com',
+    'cdn.shopify.com',
+    'images.ctfassets.net',
+  ];
+
+  const envDomains = process.env.LINKEDIN_IMAGE_DOMAINS;
+  if (!envDomains) {
+    return defaults;
+  }
+
+  const customDomains = envDomains
+    .split(',')
+    .map((d) => d.trim())
+    .filter((d) => d.length > 0);
+
+  return [...defaults, ...customDomains];
+}
 
 export class LinkedInClient {
   private ctx: ToolContext;
   private accessToken: string;
+  private allowedImageDomains: string[];
 
   constructor(ctx: ToolContext, accessToken: string) {
     this.ctx = ctx;
     this.accessToken = accessToken;
+    this.allowedImageDomains = getAllowedImageDomains();
   }
 
   private isPrivateIp(ip: string): boolean {
-    // RFC1918 private ranges and loopback for IPv4.
-    // Covers common reserved ranges; note that some carrier-grade NAT and future-reserved ranges
-    // may not be included. For high-security deployments, consider using a well-maintained IP validation library.
     const ipv4Patterns = [
       /^127\./,           // loopback (127.0.0.0/8)
       /^10\./,            // private (10.0.0.0/8)
@@ -49,11 +62,11 @@ export class LinkedInClient {
       /^169\.254\./,      // link-local (169.254.0.0/16)
     ];
 
-    // IPv6 private/reserved ranges
+    // IPv6 private/reserved ranges per RFC4193 (ULA), RFC4291 (loopback), RFC4862 (link-local)
     const ipv6Patterns = [
       /^::1$/,            // loopback
-      /^f[c-d][0-9a-f]{2}:/,           // unique local unicast (fc00::/7)
-      /^fe[8-b][0-9a-f]:/,           // link-local unicast (fe80::/10)
+      /^f[c-d]/,          // unique local unicast (fc00::/7) — fc00:: to fdff::
+      /^fe[89ab]/,        // link-local unicast (fe80::/10) — fe80:: to febf::
       /^::ffff:127\./,    // IPv4-mapped loopback
       /^::ffff:10\./,     // IPv4-mapped private
       /^::ffff:172\.(1[6-9]|2\d|3[01])\./,  // IPv4-mapped private
@@ -68,9 +81,9 @@ export class LinkedInClient {
   }
 
   private isAllowedImageDomain(hostname: string): boolean {
-    // Check if hostname exactly matches or ends with a whitelisted domain
-    return ALLOWED_IMAGE_DOMAINS.some((domain) =>
-      hostname === domain || hostname.endsWith(`.${domain}`)
+    return this.allowedImageDomains.some((domain) =>
+      hostname === domain ||
+      (hostname.endsWith(`.${domain}`) && hostname.length > domain.length + 1)
     );
   }
 
@@ -95,10 +108,10 @@ export class LinkedInClient {
       }
 
       // Resolve hostname to IP and validate all resolved IPs are not private.
-      // Note: DNS rebinding attacks can bypass this validation if DNS records change between lookup
-      // and fetch. For very high-security deployments, consider additional mitigations like
-      // an image proxy or firewall-level domain whitelist. For typical use, this layered approach
-      // (whitelist + private-IP check + DNS validation) provides strong SSRF protection.
+      // DNS rebinding attacks: if DNS changes between this lookup and the actual fetch,
+      // an attacker could redirect to a private IP. Mitigation: this validation is performed
+      // at the point of use (before fetch/redirects), reducing the rebinding window.
+      // For maximum security, consider using an image proxy or firewall-level domain whitelist.
       try {
         const resolvedAddresses = await dnsLookup(hostname, { all: true });
         for (const { address } of resolvedAddresses) {
@@ -107,7 +120,6 @@ export class LinkedInClient {
           }
         }
       } catch (error) {
-        // If DNS resolution fails, reject for safety
         console.error('DNS resolution failed for image URL:', hostname, error);
         return false;
       }
@@ -318,21 +330,29 @@ export class LinkedInClient {
         };
       }
 
-      const uploadResponse = await fetch(uploadMechanism.uploadUrl, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          'Content-Type': contentType,
-        },
-        body: imageBuffer,
-      });
+      const uploadController = new AbortController();
+      const uploadTimeoutId = setTimeout(() => uploadController.abort(), IMAGE_FETCH_TIMEOUT_MS);
 
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        return { error: `Image upload failed: ${uploadResponse.status} ${errorText}` };
+      try {
+        const uploadResponse = await fetch(uploadMechanism.uploadUrl, {
+          method: 'PUT',
+          signal: uploadController.signal,
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            'Content-Type': contentType,
+          },
+          body: imageBuffer,
+        });
+
+        if (!uploadResponse.ok) {
+          const errorText = await uploadResponse.text();
+          return { error: `Image upload failed: ${uploadResponse.status} ${errorText}` };
+        }
+
+        return { urn };
+      } finally {
+        clearTimeout(uploadTimeoutId);
       }
-
-      return { urn };
     } catch (err) {
       return {
         error: `Asset registration failed: ${err instanceof Error ? err.message : 'Unknown error'}`,

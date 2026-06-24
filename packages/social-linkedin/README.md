@@ -137,19 +137,16 @@ This plugin validates image URLs to prevent Server-Side Request Forgery (SSRF) a
 
 **Adding New Domains:**
 
-To allow images from additional domains, edit `packages/social-linkedin/src/client.ts` and add the domain to the `ALLOWED_IMAGE_DOMAINS` list (around line 16):
+To allow images from additional domains, set the `LINKEDIN_IMAGE_DOMAINS` environment variable with a comma-separated list:
 
-```typescript
-const ALLOWED_IMAGE_DOMAINS = [
-  // existing domains...
-  'your-custom-cdn.com',    // Add your domain here
-];
+```bash
+# In matbot.yaml or .env
+LINKEDIN_IMAGE_DOMAINS=your-cdn.com,another-cdn.com
 ```
 
-Then redeploy. This approach prevents SSRF by requiring explicit configuration rather than allowing arbitrary domains. For frequent additions, consider:
-- Using a shared CDN that's already whitelisted
-- Running an internal proxy that re-hosts images from untrusted sources
-- Discussing a more flexible configuration approach (environment variables) with your team
+This extends the default whitelist (Cloudinary, Unsplash, Imgur, etc.). For more control, alternatively:
+- Use a shared CDN that's already whitelisted
+- Run an internal proxy that re-hosts images from untrusted sources
 
 **Limitations:**
 - DNS rebinding attacks can bypass DNS-based validation if the DNS record is changed after the initial lookup
