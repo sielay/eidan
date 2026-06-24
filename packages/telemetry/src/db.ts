@@ -37,11 +37,14 @@ export class Db {
 
   async markOffline(nodeId: string): Promise<void> {
     await this.pool.query(
-      `update eidan.node_heartbeats set status = 'offline' where node_id = $1`,
+      `update eidan.node_heartbeats set status = 'offline', updated_at = now() where node_id = $1`,
       [nodeId],
     );
   }
 
+  // Mark nodes offline if last_seen is older than thresholdMs.
+  // thresholdMs is guaranteed to be positive by calculateStaleThreshold.
+  // Uses PostgreSQL-specific make_interval; equivalent logic: now() - last_seen > thresholdMs.
   async markStaleOffline(thresholdMs: number): Promise<void> {
     await this.pool.query(
       `update eidan.node_heartbeats

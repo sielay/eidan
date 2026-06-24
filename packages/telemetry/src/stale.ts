@@ -2,6 +2,8 @@
 
 const MIN_STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes minimum
 
+// Pure predicate for staleness: nowMs - lastSeenMs > thresholdMs.
+// Used for unit testing the staleness logic; the same logic is implemented in db.ts markStaleOffline's SQL query.
 export function isStale(lastSeenMs: number, nowMs: number, thresholdMs: number): boolean {
   return nowMs - lastSeenMs > thresholdMs;
 }
