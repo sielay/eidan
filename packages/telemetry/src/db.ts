@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import pg from 'pg';
+import { isStale } from './stale.js';
 
 // Both eidan.node_heartbeats and eidan.node_events are cluster-global (keyed by node_id, no RLS),
 // so this is a plain pool with no principal GUC. A small pool: a node writes one heartbeat every
@@ -43,12 +44,23 @@ export class Db {
   }
 
   async markStaleOffline(thresholdMs: number): Promise<void> {
-    const threshold = new Date(Date.now() - thresholdMs);
-    await this.pool.query(
-      `update eidan.node_heartbeats set status = 'offline', updated_at = now()
-       where status = 'online' and last_seen < $1`,
-      [threshold],
+    const result = await this.pool.query(
+      `select node_id, last_seen from eidan.node_heartbeats where status = 'online'`,
     );
+    const now = Date.now();
+    const staleNodeIds = result.rows
+      .filter((row: { node_id: string; last_seen: Date }) =>
+        isStale(row.last_seen.getTime(), now, thresholdMs),
+      )
+      .map((row: { node_id: string; last_seen: Date }) => row.node_id);
+
+    if (staleNodeIds.length > 0) {
+      await this.pool.query(
+        `update eidan.node_heartbeats set status = 'offline', updated_at = now()
+         where node_id = ANY($1)`,
+        [staleNodeIds],
+      );
+    }
   }
 
   // Append one activity event. seq is part of the (node_id, seq) PK with no DB default, so it is
