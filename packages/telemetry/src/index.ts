@@ -76,7 +76,8 @@ export const plugin: MatbotPluginSpec = {
       try {
         await db!.markStaleOffline(staleThreshold);
       } catch (err) {
-        console.warn('[telemetry] reaper failed:', (err as Error).message);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[telemetry] reaper failed:', msg);
       }
     };
     // Chain all reaps so teardown can await the final promise and know all pending reaps have completed.
@@ -115,9 +116,9 @@ export const plugin: MatbotPluginSpec = {
   async teardown() {
     if (timer) clearInterval(timer);
     if (reaperTimer) clearInterval(reaperTimer);
-    try {
-      await lastReapPromise;
-    } catch { /* already logged in reap */ }
+    // Wait for any pending reaps to complete. reap() catches all errors and returns successfully,
+    // so this promise will never reject (errors are logged by reap, not here).
+    await lastReapPromise;
     if (db && nodeId) {
       try {
         await db.emitEvent({ nodeId, type: 'node.offline', payload: {}, conversationId: null });
