@@ -80,7 +80,7 @@ export const plugin: MatbotPluginSpec = {
       }
     };
     // Chain all reaps so teardown can await the final promise and know all pending reaps have completed.
-    lastReapPromise = lastReapPromise.then(() => reap());
+    lastReapPromise = reap();
     reaperTimer = setInterval(() => { lastReapPromise = lastReapPromise.then(() => reap()); }, REAPER_INTERVAL_MS);
     if (typeof reaperTimer.unref === 'function') reaperTimer.unref();
 
