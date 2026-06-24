@@ -30,15 +30,14 @@ export class Db {
          last_seen    = now(),
          plugins      = excluded.plugins,
          served_kinds = excluded.served_kinds,
-         metadata     = excluded.metadata,
-         updated_at   = now()`,
+         metadata     = excluded.metadata`,
       [h.nodeId, h.nodeType, h.status, JSON.stringify(h.plugins), JSON.stringify(h.servedKinds), JSON.stringify(h.metadata)],
     );
   }
 
   async markOffline(nodeId: string): Promise<void> {
     await this.pool.query(
-      `update eidan.node_heartbeats set status = 'offline', updated_at = now() where node_id = $1`,
+      `update eidan.node_heartbeats set status = 'offline' where node_id = $1`,
       [nodeId],
     );
   }
@@ -56,7 +55,7 @@ export class Db {
 
     if (staleNodeIds.length > 0) {
       await this.pool.query(
-        `update eidan.node_heartbeats set status = 'offline', updated_at = now()
+        `update eidan.node_heartbeats set status = 'offline'
          where node_id = ANY($1::text[])`,
         [staleNodeIds],
       );
