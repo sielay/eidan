@@ -79,9 +79,9 @@ export const plugin: MatbotPluginSpec = {
         console.warn('[telemetry] reaper failed:', (err as Error).message);
       }
     };
-    // Initial reap call to clean up any stale nodes from before startup, guaranteed after db is set.
-    void lastReapPromise = reap();
-    reaperTimer = setInterval(() => { lastReapPromise = reap(); }, REAPER_INTERVAL_MS);
+    // Chain all reaps so teardown can await the final promise and know all pending reaps have completed.
+    lastReapPromise = lastReapPromise.then(() => reap());
+    reaperTimer = setInterval(() => { lastReapPromise = lastReapPromise.then(() => reap()); }, REAPER_INTERVAL_MS);
     if (typeof reaperTimer.unref === 'function') reaperTimer.unref();
 
     // Activity stream. Both handlers are fire-and-forget observers — telemetry must never add latency
