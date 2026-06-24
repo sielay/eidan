@@ -79,6 +79,8 @@ export const plugin: MatbotPluginSpec = {
         console.warn('[telemetry] reaper failed:', (err as Error).message);
       }
     };
+    // Initial reap call to clean up any stale nodes from before startup, guaranteed after db is set.
+    void lastReapPromise = reap();
     reaperTimer = setInterval(() => { lastReapPromise = reap(); }, REAPER_INTERVAL_MS);
     if (typeof reaperTimer.unref === 'function') reaperTimer.unref();
 
