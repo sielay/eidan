@@ -32,10 +32,13 @@ interface AccountRow {
 }
 
 function slugify(name: string): string {
+  // ReDoS-free trim (see note in _shared/socialAccountsRoute): collapse non-alnum to single '_', then
+  // trim one leading + one trailing '_' anchored without '+'.
   const s = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
+    .replace(/^_/, "")
+    .replace(/_$/, "")
     .slice(0, 40);
   return s || "account";
 }

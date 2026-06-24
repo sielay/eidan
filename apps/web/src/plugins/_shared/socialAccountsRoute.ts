@@ -26,7 +26,9 @@ export interface SocialRouteConfig {
 }
 
 function slugify(name: string): string {
-  const s = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  // ReDoS-free trim: a run of non-alnum already collapses to a single '_', so trimming one leading and
+  // one trailing '_' (anchored, no '+') suffices and can't backtrack (avoids /^_+|_+$/ polynomial).
+  const s = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_/, "").replace(/_$/, "").slice(0, 40);
   return s || "account";
 }
 function normHost(host: string): string {

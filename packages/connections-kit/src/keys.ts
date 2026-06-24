@@ -8,18 +8,24 @@
 // venture-scoped or shared connection is an RLS/policy change, never a key rename. See README.
 
 export function slugify(name: string): string {
+  // Collapse non-alphanumerics to single underscores (a run becomes one '_'), then trim a single
+  // leading/trailing '_' with a non-backtracking anchored regex (avoids the /^_+|_+$/ ReDoS).
   const s = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/^_/, '')
+    .replace(/_$/, '')
     .slice(0, 40);
   return s || 'account';
 }
 
 // Normalise a host (mastodon instance) for keying: drop scheme, path and trailing slash, lowercase.
-// 'https://Mastodon.Social/' -> 'mastodon.social'. Returns '' for a blank input.
+// 'https://Mastodon.Social/' -> 'mastodon.social'. Returns '' for a blank input. Uses indexOf to cut
+// the path (not a backtracking regex) to avoid polynomial ReDoS on slash-heavy input.
 export function normalizeHost(host: string): string {
-  const h = host.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\/+$/, '');
+  let h = host.trim().toLowerCase().replace(/^https?:\/\//, '');
+  const slash = h.indexOf('/');
+  if (slash !== -1) h = h.slice(0, slash);
   return h;
 }
 
