@@ -20,6 +20,18 @@ import { MastodonClient } from './client.js';
 import { mastodonAdapter } from './adapter.js';
 import { secretOpt } from './vault.js';
 
+// Strip HTML tags from Mastodon content/bio to plain text. Applied to a fixpoint so nested/broken
+// markup (e.g. `<<b>>`) can't survive a single pass — avoids the incomplete-sanitization footgun.
+function stripHtml(input: string): string {
+  let out = input;
+  let prev = '';
+  while (out !== prev) {
+    prev = out;
+    out = out.replace(/<[^>]*>/g, '');
+  }
+  return out;
+}
+
 const ACCOUNT_PROP = {
   account: {
     type: 'string',
@@ -188,7 +200,7 @@ export function makeMastodonTools(store: AccountStore | null, seal?: SealFn): To
               toots: statuses.map((status) => ({
                 id: status.id,
                 author: `${status.account.acct} (${status.account.display_name || status.account.username})`,
-                text: status.content.replace(/<[^>]*>/g, ''),
+                text: stripHtml(status.content),
                 favorites: status.favourites_count,
                 replies: status.replies_count,
                 reblogs: status.reblogs_count,
@@ -228,7 +240,7 @@ export function makeMastodonTools(store: AccountStore | null, seal?: SealFn): To
             value: {
               username: result.account.acct,
               display_name: result.account.display_name || result.account.username,
-              bio: result.account.note.replace(/<[^>]*>/g, ''),
+              bio: stripHtml(result.account.note),
               followers: result.account.followers_count,
               following: result.account.following_count,
               statuses: result.account.statuses_count,
@@ -271,7 +283,7 @@ export function makeMastodonTools(store: AccountStore | null, seal?: SealFn): To
               toots: statuses.map((status) => ({
                 id: status.id,
                 author: `${status.account.acct} (${status.account.display_name || status.account.username})`,
-                text: status.content.replace(/<[^>]*>/g, ''),
+                text: stripHtml(status.content),
                 favorites: status.favourites_count,
                 replies: status.replies_count,
                 reblogs: status.reblogs_count,
