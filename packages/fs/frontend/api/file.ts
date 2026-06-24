@@ -44,10 +44,12 @@ export async function GET(req: NextRequest): Promise<Response> {
     if (!result) return Response.json({ error: "file not found" }, { status: 404 });
 
     const { name, mime, data } = result;
-    const buffer = data instanceof Buffer ? data : Buffer.from(data as string, "binary");
-    return new Response(buffer, {
+    // Buffer-backed Uint8Array is a valid body at runtime; cast past the (ArrayBufferLike) variance
+    // quibble, same as apps/web/src/app/api/artifacts/[id]/route.ts.
+    const body = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    return new Response(body as unknown as BodyInit, {
       headers: {
-        "content-type": mime as string,
+        "content-type": (mime as string) || "application/octet-stream",
         "content-disposition": `attachment; filename="${encodeURIComponent(String(name))}"`,
       },
     });
