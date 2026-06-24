@@ -1,0 +1,60 @@
+{
+  "name": "@eidandev/charles-domains",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "Charles domains inventory: manual entry and registrar API import (GoDaddy + Cyberfolks) with web screen and venture-resource picker integration.",
+  "matbotRuntime": [
+    "node"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "charles.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Domains.tsx"
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/charles/domains",
+          "handler": "api/route.ts"
+        },
+        {
+          "path": "/api/charles/domains/registrars",
+          "handler": "api/registrars.ts"
+        }
+      ],
+      "nav": {
+        "group": "Charles · business",
+        "sections": [
+          {
+            "id": "domains",
+            "label": "Domains",
+            "icon": "link",
+            "href": "/p/charles-domains",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}
