@@ -6,7 +6,6 @@ import { Db } from './db.js';
 import { calculateStaleThreshold } from './stale.js';
 
 const HEARTBEAT_MS = 30_000;
-const MIN_STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes minimum
 const REAPER_INTERVAL_MS = Number(process.env['EIDAN_REAPER_INTERVAL_MS'] ?? '300000'); // 5 minutes default
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -70,9 +69,7 @@ export const plugin: MatbotPluginSpec = {
     if (typeof timer.unref === 'function') timer.unref();
 
     // Stale-marking reaper: mark nodes offline if they haven't been seen in STALE_THRESHOLD_MS.
-    const staleMs = process.env['EIDAN_NODE_STALE_MS']
-      ? Math.max(Number(process.env['EIDAN_NODE_STALE_MS']), MIN_STALE_THRESHOLD_MS)
-      : undefined;
+    const staleMs = process.env['EIDAN_NODE_STALE_MS'] ? Number(process.env['EIDAN_NODE_STALE_MS']) : undefined;
     const staleThreshold = calculateStaleThreshold(HEARTBEAT_MS, staleMs);
     const reap = async (): Promise<void> => {
       try {
