@@ -81,6 +81,7 @@ packages/*
 !packages/charles-ventures/
 !packages/charles-decks/
 !packages/charles-domains/
+!packages/fs/
 # sage coding bundle — folded into the AGPL core 2026-06-22 (was the private sielay/eidan-sage repo)
 !packages/sage/
 !packages/db/
