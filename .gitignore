@@ -90,6 +90,7 @@ packages/*
 !packages/finance-google-trends/
 # shared OAuth-connections engine kit (consumed by google + the social-* plugins)
 !packages/connections-kit/
+!packages/github/
 
 # Assembled plugin frontends: every subdir here is bundle-written. The committed *.generated.*
 # base-case files sit directly in the dir (not a subdir), so the trailing-slash glob leaves them.
