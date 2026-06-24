@@ -5,6 +5,39 @@ import { withUser } from "@/server/db";
 
 type FsNodePartial = { id: string; name: string };
 
+const SAFE_MIME_TYPES = new Set([
+  "text/plain",
+  "text/html",
+  "text/css",
+  "text/javascript",
+  "application/json",
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/svg+xml",
+  "audio/mpeg",
+  "audio/wav",
+  "video/mp4",
+  "video/webm",
+  "application/zip",
+  "application/gzip",
+]);
+
+function sanitizeMime(mimeType: string): string {
+  if (!mimeType) return "application/octet-stream";
+  const base = mimeType.split(";")[0].trim();
+  return SAFE_MIME_TYPES.has(base) ? base : "application/octet-stream";
+}
+
+function sanitizeFilename(name: string): string {
+  if (!name) throw new Error("filename cannot be empty");
+  return name
+    .replace(/[/\\:?*"<>|]/g, "_")
+    .replace(/^\./g, "_")
+    .substring(0, 255);
+}
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const config = {
@@ -69,10 +102,12 @@ export async function POST(req: NextRequest): Promise<Response> {
       const name = typeof body["name"] === "string" ? body["name"].trim() : "";
       const parentId = typeof body["parent_id"] === "string" ? body["parent_id"] : null;
       const content = typeof body["content"] === "string" ? body["content"] : "";
-      const mime = typeof body["mime"] === "string" ? body["mime"] : "text/plain";
+      const mimeInput = typeof body["mime"] === "string" ? body["mime"] : "text/plain";
 
       if (!name) return Response.json({ error: "name is required" }, { status: 400 });
 
+      const sanitizedName = sanitizeFilename(name);
+      const mime = sanitizeMime(mimeInput);
       const bytes = new TextEncoder().encode(content);
       const node = await withUser(sess.userId, async (c) => {
         const r = await c.query(
@@ -80,7 +115,7 @@ export async function POST(req: NextRequest): Promise<Response> {
               (user_id, parent_id, kind, name, storage_kind, mime, size_bytes)
            values ($1, $2, 'file', $3, 'local', $4, $5)
            returning id, name`,
-          [sess.userId, parentId, name, mime, bytes.length],
+          [sess.userId, parentId, sanitizedName, mime, bytes.length],
         );
         const nodeId = (r.rows[0] as FsNodePartial).id;
         await c.query(
@@ -98,6 +133,8 @@ export async function POST(req: NextRequest): Promise<Response> {
 
       if (!file) return Response.json({ error: "file is required" }, { status: 400 });
 
+      const sanitizedName = sanitizeFilename(file.name);
+      const mime = sanitizeMime(file.type);
       const bytes = new Uint8Array(await file.arrayBuffer());
       const node = await withUser(sess.userId, async (c) => {
         const r = await c.query(
@@ -105,7 +142,7 @@ export async function POST(req: NextRequest): Promise<Response> {
               (user_id, parent_id, kind, name, storage_kind, mime, size_bytes)
            values ($1, $2, 'file', $3, 'local', $4, $5)
            returning id, name`,
-          [sess.userId, parentId, file.name, file.type || "application/octet-stream", bytes.length],
+          [sess.userId, parentId, sanitizedName, mime, bytes.length],
         );
         const nodeId = (r.rows[0] as FsNodePartial).id;
         await c.query(

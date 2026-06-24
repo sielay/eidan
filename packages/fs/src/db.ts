@@ -148,18 +148,12 @@ export class FsDb {
     const p = tryCurrentPrincipal();
     if (!p) throw new Error('no principal');
     return this.withPrincipalTx(async (q) => {
-      const nodeId = await q(
+      const r = await q(
         `insert into ${this.schema}.fs_nodes
             (user_id, parent_id, kind, name, storage_kind, mime, size_bytes)
          values ($1, $2, 'file', $3, 'local', $4, $5)
-         returning id`,
+         returning id, user_id, parent_id, kind, name, storage_kind, storage_ref, mime, size_bytes, metadata, status, created_at, updated_at`,
         [p.id, parentId, name, mime, sizeBytes],
-      );
-      const id = (nodeId.rows[0] as Record<string, unknown>)['id'];
-      const r = await q(
-        `select id, user_id, parent_id, kind, name, storage_kind, storage_ref, mime, size_bytes, metadata, status, created_at, updated_at
-           from ${this.schema}.fs_nodes where id = $1`,
-        [id],
       );
       return this.rowToNode(r.rows[0] as Record<string, unknown>);
     });
@@ -171,8 +165,7 @@ export class FsDb {
     await this.withPrincipalTx(async (q) => {
       await q(
         `insert into ${this.schema}.fs_blobs (node_id, user_id, data)
-         values ($1, $2, $3)
-         on conflict (node_id) do update set data = excluded.data`,
+         values ($1, $2, $3)`,
         [nodeId, p.id, data],
       );
     });

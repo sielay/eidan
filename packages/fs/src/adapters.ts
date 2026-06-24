@@ -14,8 +14,15 @@ class LocalAdapter implements StorageAdapter {
 
   constructor(private db: FsDb) {}
 
-  async list(): Promise<Array<{ name: string; ref: string; kind: 'file' | 'folder'; mime?: string; size?: number }>> {
-    return [];
+  async list(mountRef: string): Promise<Array<{ name: string; ref: string; kind: 'file' | 'folder'; mime?: string; size?: number }>> {
+    const nodes = await this.db.listChildren(mountRef);
+    return nodes.map((node) => ({
+      name: node.name,
+      ref: node.id,
+      kind: node.kind,
+      mime: node.mime ?? undefined,
+      size: node.size_bytes ?? undefined,
+    }));
   }
 
   async read(ref: string): Promise<{ bytes: Uint8Array; mime: string }> {
@@ -30,8 +37,8 @@ class LocalAdapter implements StorageAdapter {
     await this.db.storeBlob(ref, bytes);
   }
 
-  async remove(): Promise<void> {
-    throw new Error('local adapter: remove not implemented');
+  async remove(ref: string): Promise<void> {
+    await this.db.archiveNode(ref);
   }
 }
 
