@@ -3,6 +3,7 @@ import os from 'node:os';
 import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
+import { calculateStaleThreshold } from './stale.js';
 
 const HEARTBEAT_MS = 30_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -26,6 +27,7 @@ function nodeIdentity(): { nodeId: string; nodeType: string } {
 
 let db: Db | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
+let reaperTimer: ReturnType<typeof setInterval> | undefined;
 let nodeId: string | undefined;
 
 export const plugin: MatbotPluginSpec = {
@@ -65,6 +67,21 @@ export const plugin: MatbotPluginSpec = {
     timer = setInterval(() => { void beat(); }, HEARTBEAT_MS);
     if (typeof timer.unref === 'function') timer.unref();
 
+    // Stale-marking reaper: mark nodes offline if they haven't been seen in STALE_THRESHOLD_MS.
+    const staleMs = process.env['EIDAN_NODE_STALE_MS']
+      ? Math.max(Number(process.env['EIDAN_NODE_STALE_MS']), 0)
+      : undefined;
+    const staleThreshold = calculateStaleThreshold(HEARTBEAT_MS, staleMs);
+    const reap = async (): Promise<void> => {
+      try {
+        await db!.markStaleOffline(staleThreshold);
+      } catch (err) {
+        console.warn('[telemetry] reaper failed:', (err as Error).message);
+      }
+    };
+    reaperTimer = setInterval(() => { void reap(); }, HEARTBEAT_MS);
+    if (typeof reaperTimer.unref === 'function') reaperTimer.unref();
+
     // Activity stream. Both handlers are fire-and-forget observers — telemetry must never add latency
     // to or throw into a turn, so they never await and emitEvent swallows its own errors.
     services.hooks.register({
@@ -95,6 +112,7 @@ export const plugin: MatbotPluginSpec = {
 
   async teardown() {
     if (timer) clearInterval(timer);
+    if (reaperTimer) clearInterval(reaperTimer);
     if (db && nodeId) {
       try {
         await db.emitEvent({ nodeId, type: 'node.offline', payload: {}, conversationId: null });

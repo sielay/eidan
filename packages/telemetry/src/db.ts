@@ -42,6 +42,15 @@ export class Db {
     );
   }
 
+  async markStaleOffline(thresholdMs: number): Promise<void> {
+    const threshold = new Date(Date.now() - thresholdMs);
+    await this.pool.query(
+      `update eidan.node_heartbeats set status = 'offline', updated_at = now()
+       where status = 'online' and last_seen < $1`,
+      [threshold],
+    );
+  }
+
   // Append one activity event. seq is part of the (node_id, seq) PK with no DB default, so it is
   // generated per node as max+1 in the same statement. Concurrent appends on one node can collide
   // on the PK; retry a few times, then drop — telemetry must never throw into the turn pipeline.
