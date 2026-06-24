@@ -176,8 +176,9 @@ export class GoogleTrendsClient {
           const itemObj = item as Record<string, unknown>;
           const time = itemObj.time;
           let value = itemObj.value;
+          // Extract first value if array (Google Trends may return array for multiple comparison items)
           if (Array.isArray(value)) {
-            value = value.length > 0 ? value[0] : undefined;
+            value = value.length > 0 && typeof value[0] === 'number' ? value[0] : undefined;
           }
           if (typeof time === 'number' && typeof value === 'number') {
             let timestamp = time;
@@ -441,6 +442,11 @@ export class GoogleTrendsClient {
       url.searchParams.append('tz', '0');
       url.searchParams.append('geo', g);
       url.searchParams.append('q', query);
+      // Explicitly request TOP related queries. Note: Google Trends API also supports type=RISING
+      // for rising related queries. This endpoint returns both top and rising sections by section title
+      // (e.g., "Top queries", "Rising queries"). To request only RISING, use type=RISING; leaving
+      // type unspecified or using type=TOP returns the default set (typically top queries).
+      url.searchParams.append('type', 'TOP');
 
       const res = await this.fetchWithRetry(url.toString());
       if (!res.ok) {
@@ -490,7 +496,10 @@ export class GoogleTrendsClient {
         if (Array.isArray(rankedList)) {
           for (const rankItem of rankedList) {
             const rankObj = rankItem as Record<string, unknown>;
-            // Identify whether this is a queries or topics section by looking for a `title` field
+            // FRAGILITY WARNING: Identify whether this is a queries or topics section by looking for 'topic' in the title field.
+            // This heuristic is fragile — the title field may change, or Google may restructure the response.
+            // If available, a more reliable approach would be to look for a specific type/kind field in the API response.
+            // For now, we assume sections with 'topic' in the title are topic sections; others are query sections.
             const title = String(rankObj.title || '').toLowerCase();
             const isTopicsSection = title.includes('topic');
 
@@ -554,9 +563,12 @@ export class GoogleTrendsClient {
     }
     if (status === 403) {
       if (text && text.toLowerCase().includes('captcha')) {
-        // CAPTCHA detected: IP is likely flagged for suspicious activity
-        // The fetchWithRetry mechanism will retry with backoff, but repeated failures
-        // may indicate the IP needs time to cool down before recovery is possible.
+        // CAPTCHA detected: heuristic check for 'captcha' in response text.
+        // NOTE: This heuristic is fragile. Google may change the CAPTCHA page content or structure,
+        // causing this detection to fail silently. If CAPTCHA detection is unreliable, manual
+        // intervention (IP rotation, proxy use, or waiting for IP cooldown) may be necessary.
+        // The fetchWithRetry mechanism will retry with backoff, but human interaction is typically
+        // required to solve the CAPTCHA itself.
         return 'HTTP 403: CAPTCHA challenge detected. IP is likely flagged. Waiting before retry. If still failing after retries, the IP may need hours to recover; consider rotating IP or using a proxy.';
       }
       return 'HTTP 403: Access forbidden. IP may be blocked or session expired. Retrying with backoff.';
