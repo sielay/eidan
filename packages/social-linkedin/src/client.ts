@@ -102,11 +102,6 @@ export class LinkedInClient {
         return false;
       }
 
-      // Reject if hostname itself is a private IP
-      if (this.isPrivateIp(hostname)) {
-        return false;
-      }
-
       // Resolve hostname to IP and validate all resolved IPs are not private.
       // DNS rebinding attacks: if DNS changes between this lookup and the actual fetch,
       // an attacker could redirect to a private IP. Mitigation: this validation is performed
@@ -362,8 +357,11 @@ export class LinkedInClient {
 
   async post(text: string, imageUrl?: string): Promise<{ id?: string; error?: string }> {
     const userResult = await this.request<{ id: string }>('/me');
-    if (userResult.error || !userResult.data?.id) {
-      return { error: 'Failed to get user ID' };
+    if (userResult.error) {
+      return { error: `Failed to get user ID: ${userResult.error}` };
+    }
+    if (!userResult.data?.id) {
+      return { error: 'No user ID received' };
     }
 
     const userId = userResult.data.id;

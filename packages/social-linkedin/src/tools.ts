@@ -97,7 +97,7 @@ export function makeLinkedInTools(): Tool[] {
         } catch (err) {
           yield {
             type: 'error',
-            message: `LinkedIn isn't connected — set LINKEDIN_ACCESS_TOKEN in vault/env (Settings → Connections)`,
+            message: `LinkedIn isn't connected — LINKEDIN_ACCESS_TOKEN is missing in vault/env (Settings → Connections)`,
           };
         }
       },
@@ -146,7 +146,7 @@ export function makeLinkedInTools(): Tool[] {
         } catch (err) {
           yield {
             type: 'error',
-            message: `LinkedIn isn't connected — set LINKEDIN_ACCESS_TOKEN in vault/env (Settings → Connections)`,
+            message: `LinkedIn isn't connected — LINKEDIN_ACCESS_TOKEN is missing in vault/env (Settings → Connections)`,
           };
         }
       },
@@ -191,7 +191,7 @@ export function makeLinkedInTools(): Tool[] {
         } catch (err) {
           yield {
             type: 'error',
-            message: `LinkedIn isn't connected — set LINKEDIN_ACCESS_TOKEN in vault/env (Settings → Connections)`,
+            message: `LinkedIn isn't connected — LINKEDIN_ACCESS_TOKEN is missing in vault/env (Settings → Connections)`,
           };
         }
       },
@@ -233,7 +233,7 @@ export function makeLinkedInTools(): Tool[] {
         } catch (err) {
           yield {
             type: 'error',
-            message: `LinkedIn isn't connected — set LINKEDIN_ACCESS_TOKEN in vault/env (Settings → Connections)`,
+            message: `LinkedIn isn't connected — LINKEDIN_ACCESS_TOKEN is missing in vault/env (Settings → Connections)`,
           };
         }
       },
