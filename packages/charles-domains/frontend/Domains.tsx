@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
+// Charles · Domains — the domains inventory screen (Surface B: Next-reads-Postgres over the bundle's
+// /api/charles/domains[/registrars] routes). Built on the core design system (tokens + .card/.field/
+// .input/.btn/.loglist/.pill/.screen-sub from globals.css) so it matches the Ventures screen.
+
 import * as React from "react";
+
 import { authFetch } from "@/lib/auth";
 
 interface Domain {
@@ -12,288 +17,245 @@ interface Domain {
   expires_at: string | null;
   auto_renew: boolean | null;
 }
-
 interface RegistrarAccount {
   id: string;
   registrar: string;
   name: string;
 }
 
-interface DomainsPayload {
-  domains: Domain[];
-}
-
-interface RegistrarsPayload {
-  accounts: RegistrarAccount[];
+const REGISTRARS: Array<[string, string]> = [["godaddy", "GoDaddy"], ["cyberfolks", "cyberfolks"]];
+function cap(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
 export default function Domains(): React.ReactElement {
   const [domains, setDomains] = React.useState<Domain[]>([]);
   const [accounts, setAccounts] = React.useState<RegistrarAccount[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState("");
-  const [showAddForm, setShowAddForm] = React.useState(false);
-  const [showConnectForm, setShowConnectForm] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const [info, setInfo] = React.useState<string | null>(null);
+  const [sheet, setSheet] = React.useState<null | "add" | "connect">(null);
+  const [busy, setBusy] = React.useState(false);
+  const [importing, setImporting] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const [domainsRes, registrarsRes] = await Promise.all([
-          authFetch("/api/charles/domains"),
-          authFetch("/api/charles/domains/registrars"),
-        ]);
-        if (domainsRes.ok && registrarsRes.ok) {
-          const domainData = (await domainsRes.json()) as DomainsPayload;
-          const registrarData = (await registrarsRes.json()) as RegistrarsPayload;
-          setDomains(domainData.domains);
-          setAccounts(registrarData.accounts);
-        } else {
-          setError("Failed to load data");
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
+  const loadDomains = React.useCallback(async () => {
+    const r = await authFetch("/api/charles/domains");
+    const j = (await r.json().catch(() => ({}))) as { domains?: Domain[] };
+    setDomains(j.domains ?? []);
+  }, []);
+  const loadAccounts = React.useCallback(async () => {
+    const r = await authFetch("/api/charles/domains/registrars");
+    const j = (await r.json().catch(() => ({}))) as { accounts?: RegistrarAccount[] };
+    setAccounts(j.accounts ?? []);
   }, []);
 
-  const handleAddDomain = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    const name = form.get("name") as string;
-    const registrar = form.get("registrar") as string;
-    const expiresAt = form.get("expires_at") as string;
-    const autoRenew = form.get("auto_renew") === "on";
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        await Promise.all([loadDomains(), loadAccounts()]);
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [loadDomains, loadAccounts]);
 
+  async function addDomain(e: React.FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    setBusy(true);
+    setErr(null);
     try {
-      const res = await authFetch("/api/charles/domains", {
+      const r = await authFetch("/api/charles/domains", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name,
-          registrar: registrar || "manual",
-          expires_at: expiresAt || undefined,
-          auto_renew: autoRenew || undefined,
+          name: String(f.get("name") ?? "").trim(),
+          registrar: String(f.get("registrar") ?? "manual"),
+          expires_at: String(f.get("expires_at") ?? "") || undefined,
+          auto_renew: f.get("auto_renew") === "on" || undefined,
         }),
       });
-      if (res.ok) {
-        setShowAddForm(false);
-        const payload = (await authFetch("/api/charles/domains")) as Response;
-        if (payload.ok) {
-          const data = (await payload.json()) as DomainsPayload;
-          setDomains(data.domains);
-        }
-      } else {
-        setError("Failed to add domain");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(j.error ?? `add failed (${r.status})`);
+      setSheet(null);
+      await loadDomains();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
-  };
+  }
 
-  const handleConnectRegistrar = async (e: React.FormEvent<HTMLFormElement>) => {
+  async function connectRegistrar(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    const registrar = form.get("registrar") as string;
-    const name = form.get("name") as string;
-    const apiKey = form.get("api_key") as string;
-    const apiSecret = form.get("api_secret") as string;
-
+    const f = new FormData(e.currentTarget);
+    setBusy(true);
+    setErr(null);
     try {
-      const res = await authFetch("/api/charles/domains/registrars", {
+      const r = await authFetch("/api/charles/domains/registrars", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           action: "connect",
-          registrar,
-          name,
-          api_key: apiKey,
-          api_secret: apiSecret,
+          registrar: String(f.get("registrar") ?? ""),
+          name: String(f.get("name") ?? "").trim(),
+          api_key: String(f.get("api_key") ?? ""),
+          api_secret: String(f.get("api_secret") ?? ""),
         }),
       });
-      if (res.ok) {
-        setShowConnectForm(false);
-        const payload = (await authFetch("/api/charles/domains/registrars")) as Response;
-        if (payload.ok) {
-          const data = (await payload.json()) as RegistrarsPayload;
-          setAccounts(data.accounts);
-        }
-      } else {
-        setError("Failed to connect registrar");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(j.error ?? `connect failed (${r.status})`);
+      setSheet(null);
+      await loadAccounts();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
-  };
+  }
 
-  const handleImport = async (accountId: string) => {
+  async function importDomains(accountId: string): Promise<void> {
+    setImporting(accountId);
+    setErr(null);
+    setInfo(null);
     try {
-      const res = await authFetch("/api/charles/domains/registrars", {
+      const r = await authFetch("/api/charles/domains/registrars", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "import",
-          account_id: accountId,
-        }),
+        body: JSON.stringify({ action: "import", account_id: accountId }),
       });
-      if (res.ok) {
-        const payload = (await authFetch("/api/charles/domains")) as Response;
-        if (payload.ok) {
-          const data = (await payload.json()) as DomainsPayload;
-          setDomains(data.domains);
-        }
-      } else {
-        setError("Failed to import domains");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      const j = (await r.json().catch(() => ({}))) as { error?: string; imported?: number; updated?: number };
+      if (!r.ok) throw new Error(j.error ?? `import failed (${r.status})`);
+      const n = (j.imported ?? 0) + (j.updated ?? 0);
+      setInfo(typeof j.imported === "number" ? `Imported ${j.imported ?? 0}, updated ${j.updated ?? 0}.` : `Imported ${n} domains.`);
+      await loadDomains();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(null);
     }
-  };
-
-  if (loading) return <div className="screen">Loading...</div>;
+  }
 
   return (
-    <div className="screen">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--s4)" }}>
-        <h1>Domains</h1>
-        <div style={{ display: "flex", gap: "var(--s2)" }}>
-          <button onClick={() => setShowAddForm(!showAddForm)} className="btn btn-primary">
-            + Add Domain
-          </button>
-          <button onClick={() => setShowConnectForm(!showConnectForm)} className="btn btn-secondary">
-            + Connect Registrar
-          </button>
+    <div style={{ padding: "var(--s5)", maxWidth: 880, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--s3)", marginBottom: "var(--s4)" }}>
+        <div>
+          <h2 style={{ fontSize: "var(--fs-20)" }}>Domains</h2>
+          <p className="screen-sub" style={{ margin: 0 }}>Your registered domains — add by hand or import from a registrar.</p>
+        </div>
+        <div style={{ display: "flex", gap: "var(--s2)", flexShrink: 0 }}>
+          <button className="btn btn--ghost" onClick={() => { setSheet(sheet === "connect" ? null : "connect"); setErr(null); }}>Connect registrar</button>
+          <button className="btn btn--primary" onClick={() => { setSheet(sheet === "add" ? null : "add"); setErr(null); }}>+ Add domain</button>
         </div>
       </div>
 
-      {error && <div style={{ color: "var(--color-error)", marginBottom: "var(--s3)" }}>{error}</div>}
+      {err ? <p className="screen-sub" style={{ color: "var(--alert)" }}>{err}</p> : null}
+      {info ? <p className="screen-sub" style={{ color: "var(--good, var(--muted))" }}>{info}</p> : null}
 
-      {showAddForm && (
-        <form onSubmit={handleAddDomain} style={{ marginBottom: "var(--s4)", padding: "var(--s3)", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }}>
-          <h3>Add Domain</h3>
-          <div style={{ marginBottom: "var(--s2)" }}>
-            <label>
-              Domain Name*
-              <input type="text" name="name" required placeholder="example.com" style={{ width: "100%" }} />
-            </label>
+      {sheet === "add" ? (
+        <form className="card" style={{ marginBottom: "var(--s4)", display: "flex", flexDirection: "column", gap: "var(--s3)" }} onSubmit={(e) => void addDomain(e)}>
+          <div className="card__head"><div className="card__title">Add domain</div></div>
+          <div className="field">
+            <label className="field__label" htmlFor="d-name">Domain</label>
+            <input id="d-name" name="name" className="input" required placeholder="example.com" />
           </div>
-          <div style={{ marginBottom: "var(--s2)" }}>
-            <label>
-              Registrar
-              <select name="registrar" style={{ width: "100%" }}>
-                <option value="manual">Manual</option>
-                <option value="godaddy">GoDaddy</option>
-                <option value="cyberfolks">Cyberfolks</option>
-              </select>
-            </label>
+          <div className="field">
+            <label className="field__label" htmlFor="d-reg">Registrar</label>
+            <select id="d-reg" name="registrar" className="input" defaultValue="manual">
+              <option value="manual">Manual</option>
+              {REGISTRARS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
           </div>
-          <div style={{ marginBottom: "var(--s2)" }}>
-            <label>
-              Expires At
-              <input type="datetime-local" name="expires_at" style={{ width: "100%" }} />
-            </label>
+          <div className="field">
+            <label className="field__label" htmlFor="d-exp">Expires <span style={{ fontWeight: 400 }}>(optional)</span></label>
+            <input id="d-exp" name="expires_at" type="date" className="input" />
           </div>
-          <div style={{ marginBottom: "var(--s2)" }}>
-            <label>
-              <input type="checkbox" name="auto_renew" /> Auto-renew
-            </label>
+          <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: "var(--s2)" }}>
+            <input type="checkbox" name="auto_renew" /> <span className="field__label" style={{ margin: 0 }}>Auto-renew</span>
+          </label>
+          <div style={{ display: "flex", gap: "var(--s2)" }}>
+            <button type="submit" className="btn btn--primary" disabled={busy}>{busy ? "Adding…" : "Add domain"}</button>
+            <button type="button" className="btn btn--ghost" onClick={() => setSheet(null)}>Cancel</button>
           </div>
-          <button type="submit" className="btn btn-primary">
-            Add
-          </button>
-          <button type="button" onClick={() => setShowAddForm(false)} className="btn btn-secondary" style={{ marginLeft: "var(--s2)" }}>
-            Cancel
-          </button>
         </form>
-      )}
+      ) : null}
 
-      {showConnectForm && (
-        <form
-          onSubmit={handleConnectRegistrar}
-          style={{ marginBottom: "var(--s4)", padding: "var(--s3)", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }}
-        >
-          <h3>Connect Registrar</h3>
-          <div style={{ marginBottom: "var(--s2)" }}>
-            <label>
-              Registrar*
-              <select name="registrar" required style={{ width: "100%" }}>
-                <option value="">Select...</option>
-                <option value="godaddy">GoDaddy</option>
-                <option value="cyberfolks">Cyberfolks</option>
-              </select>
-            </label>
+      {sheet === "connect" ? (
+        <form className="card" style={{ marginBottom: "var(--s4)", display: "flex", flexDirection: "column", gap: "var(--s3)" }} onSubmit={(e) => void connectRegistrar(e)}>
+          <div className="card__head"><div className="card__title">Connect registrar</div></div>
+          <div className="field">
+            <label className="field__label" htmlFor="c-reg">Registrar</label>
+            <select id="c-reg" name="registrar" className="input" required defaultValue="">
+              <option value="" disabled>Choose…</option>
+              {REGISTRARS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
           </div>
-          <div style={{ marginBottom: "var(--s2)" }}>
-            <label>
-              Account Name*
-              <input type="text" name="name" required placeholder="My GoDaddy Account" style={{ width: "100%" }} />
-            </label>
+          <div className="field">
+            <label className="field__label" htmlFor="c-name">Account name</label>
+            <input id="c-name" name="name" className="input" required placeholder="e.g. Personal GoDaddy" />
           </div>
-          <div style={{ marginBottom: "var(--s2)" }}>
-            <label>
-              API Key*
-              <input type="password" name="api_key" required style={{ width: "100%" }} />
-            </label>
+          <div className="field">
+            <label className="field__label" htmlFor="c-key">API key</label>
+            <input id="c-key" name="api_key" className="input" type="password" required autoComplete="off" />
           </div>
-          <div style={{ marginBottom: "var(--s2)" }}>
-            <label>
-              API Secret*
-              <input type="password" name="api_secret" required style={{ width: "100%" }} />
-            </label>
+          <div className="field">
+            <label className="field__label" htmlFor="c-secret">API secret</label>
+            <input id="c-secret" name="api_secret" className="input" type="password" required autoComplete="off" />
           </div>
-          <button type="submit" className="btn btn-primary">
-            Connect
-          </button>
-          <button type="button" onClick={() => setShowConnectForm(false)} className="btn btn-secondary" style={{ marginLeft: "var(--s2)" }}>
-            Cancel
-          </button>
+          <p className="screen-sub" style={{ margin: 0 }}>Keys are sealed in your vault — never shown again or sent to the model.</p>
+          <div style={{ display: "flex", gap: "var(--s2)" }}>
+            <button type="submit" className="btn btn--primary" disabled={busy}>{busy ? "Connecting…" : "Connect"}</button>
+            <button type="button" className="btn btn--ghost" onClick={() => setSheet(null)}>Cancel</button>
+          </div>
         </form>
-      )}
+      ) : null}
 
-      {accounts.length > 0 && (
-        <div style={{ marginBottom: "var(--s4)" }}>
-          <h3>Connected Registrars</h3>
-          <div style={{ display: "grid", gap: "var(--s2)" }}>
-            {accounts.map((account) => (
-              <div key={account.id} style={{ padding: "var(--s3)", border: "1px solid var(--color-border)", borderRadius: "var(--radius)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <strong>{account.registrar.charAt(0).toUpperCase() + account.registrar.slice(1)}</strong>
-                  <p style={{ margin: "var(--s1) 0 0 0", fontSize: "0.9em" }}>{account.name}</p>
-                </div>
-                <button onClick={() => void handleImport(account.id)} className="btn btn-secondary">
-                  Import Domains
+      {accounts.length > 0 ? (
+        <div className="card" style={{ marginBottom: "var(--s4)" }}>
+          <div className="card__head"><div className="card__title">Connected registrars</div></div>
+          <div className="loglist">
+            {accounts.map((a) => (
+              <div className="logrow" key={a.id}>
+                <span className="logrow__main">
+                  <span className="logrow__primary">{cap(a.registrar)}</span>
+                  <span className="logrow__meta">{a.name}</span>
+                </span>
+                <button className="btn btn--ghost" disabled={importing === a.id} onClick={() => void importDomains(a.id)}>
+                  {importing === a.id ? "Importing…" : "Import"}
                 </button>
               </div>
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
-      <div>
-        <h3>Domains ({domains.length})</h3>
-        {domains.length === 0 ? (
-          <p style={{ color: "var(--color-muted)" }}>No domains registered yet</p>
+      <div className="card">
+        <div className="card__head">
+          <div className="card__title">Domains</div>
+          <span className="screen-sub" style={{ margin: 0 }}>{domains.length}</span>
+        </div>
+        {loading ? (
+          <div className="skel" style={{ height: 120 }} />
+        ) : domains.length === 0 ? (
+          <p className="screen-sub" style={{ padding: "8px 0" }}>No domains yet — add one by hand, or connect a registrar and import.</p>
         ) : (
-          <div style={{ display: "grid", gap: "var(--s2)" }}>
-            {domains.map((domain) => (
-              <div key={domain.id} style={{ padding: "var(--s3)", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-                  <div>
-                    <strong>{domain.name}</strong>
-                    <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s1)", fontSize: "0.9em", color: "var(--color-muted)" }}>
-                      <span>{domain.registrar}</span>
-                      {domain.expires_at && <span>Expires: {new Date(domain.expires_at).toLocaleDateString()}</span>}
-                      {domain.auto_renew && <span>✓ Auto-renew</span>}
-                    </div>
-                  </div>
-                  <span style={{ fontSize: "0.85em", padding: "var(--s1) var(--s2)", backgroundColor: domain.status === "active" ? "var(--color-success-bg)" : "var(--color-muted-bg)", borderRadius: "var(--radius-sm)" }}>
-                    {domain.status}
+          <div className="loglist">
+            {domains.map((d) => (
+              <div className="logrow" key={d.id}>
+                <span className="logrow__main">
+                  <span className="logrow__primary">{d.name}</span>
+                  <span className="logrow__meta">
+                    {cap(d.registrar)}
+                    {d.expires_at ? ` · expires ${new Date(d.expires_at).toLocaleDateString()}` : ""}
+                    {d.auto_renew ? " · auto-renew" : ""}
                   </span>
-                </div>
+                </span>
+                <span className={"pill pill--" + (d.status === "active" ? "good" : "neutral")}><span className="pill__dot" />{d.status}</span>
               </div>
             ))}
           </div>
