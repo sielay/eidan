@@ -22,23 +22,22 @@ export class Db {
   }): Promise<void> {
     await this.pool.query(
       `insert into eidan.node_heartbeats
-         (node_id, node_type, status, last_seen, plugins, served_kinds, metadata, created_at, updated_at)
-       values ($1, $2, $3, now(), $4::jsonb, $5::jsonb, $6::jsonb, now(), now())
+         (node_id, node_type, status, last_seen, plugins, served_kinds, metadata, created_at)
+       values ($1, $2, $3, now(), $4::jsonb, $5::jsonb, $6::jsonb, now())
        on conflict (node_id) do update set
          node_type    = excluded.node_type,
          status       = excluded.status,
          last_seen    = now(),
          plugins      = excluded.plugins,
          served_kinds = excluded.served_kinds,
-         metadata     = excluded.metadata,
-         updated_at   = now()`,
+         metadata     = excluded.metadata`,
       [h.nodeId, h.nodeType, h.status, JSON.stringify(h.plugins), JSON.stringify(h.servedKinds), JSON.stringify(h.metadata)],
     );
   }
 
   async markOffline(nodeId: string): Promise<void> {
     await this.pool.query(
-      `update eidan.node_heartbeats set status = 'offline', updated_at = now() where node_id = $1`,
+      `update eidan.node_heartbeats set status = 'offline' where node_id = $1`,
       [nodeId],
     );
   }
@@ -56,7 +55,7 @@ export class Db {
 
     if (staleNodeIds.length > 0) {
       await this.pool.query(
-        `update eidan.node_heartbeats set status = 'offline', updated_at = now()
+        `update eidan.node_heartbeats set status = 'offline'
          where node_id = ANY($1)`,
         [staleNodeIds],
       );
