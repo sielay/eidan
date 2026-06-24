@@ -86,10 +86,10 @@ export const plugin: MatbotPluginSpec = {
     if (typeof timer.unref === 'function') timer.unref();
 
     // Stale-marking reaper: mark nodes offline if they haven't been seen in STALE_THRESHOLD_MS.
-    const staleMs = parsePositiveInt(process.env['EIDAN_NODE_STALE_MS'], undefined, 'EIDAN_NODE_STALE_MS');
-    const staleThreshold = calculateStaleThreshold(HEARTBEAT_MS, staleMs);
     const reap = async (): Promise<void> => {
       try {
+        const staleMs = parsePositiveInt(process.env['EIDAN_NODE_STALE_MS'], undefined, 'EIDAN_NODE_STALE_MS');
+        const staleThreshold = calculateStaleThreshold(HEARTBEAT_MS, staleMs);
         await db!.markStaleOffline(staleThreshold);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
