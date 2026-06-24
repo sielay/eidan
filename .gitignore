@@ -80,6 +80,7 @@ packages/*
 # thematic bundles folded into the AGPL core (kept as opt-in bundle plugins, not in CORE_PLUGINS)
 !packages/charles-ventures/
 !packages/charles-decks/
+!packages/charles-domains/
 # sage coding bundle — folded into the AGPL core 2026-06-22 (was the private sielay/eidan-sage repo)
 !packages/sage/
 !packages/db/
