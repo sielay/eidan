@@ -33,7 +33,7 @@ export class XClient {
       );
 
       if (!response.ok) {
-        return { tweets: [], error: `X API error: ${response.status}` };
+        return { tweets: [], error: 'Failed to search X.' };
       }
 
       const data = (await response.json()) as {
@@ -50,7 +50,7 @@ export class XClient {
         })),
       };
     } catch (error) {
-      return { tweets: [], error: error instanceof Error ? error.message : 'Unknown error' };
+      return { tweets: [], error: 'Failed to search X.' };
     }
   }
 

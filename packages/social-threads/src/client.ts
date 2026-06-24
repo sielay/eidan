@@ -31,13 +31,13 @@ export class ThreadsClient {
       });
 
       if (!response.ok) {
-        return { error: `Threads API error: ${response.status}` };
+        return { error: 'Failed to post to Threads.' };
       }
 
       const result = (await response.json()) as { id?: string };
       return { id: result.id };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to post to Threads.' };
     }
   }
 
@@ -63,7 +63,7 @@ export class ThreadsClient {
       );
 
       if (!response.ok) {
-        return { error: `Threads API error: ${response.status}` };
+        return { error: 'Failed to retrieve Threads profile.' };
       }
 
       const user = (await response.json()) as any;
@@ -79,7 +79,7 @@ export class ThreadsClient {
         },
       };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve Threads profile.' };
     }
   }
 }

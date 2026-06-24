@@ -23,13 +23,13 @@ export class Trading212Client {
       });
 
       if (!response.ok) {
-        return { error: `Trading 212 API error: ${response.status}` };
+        return { error: 'Failed to retrieve Trading 212 portfolio data.' };
       }
 
       const data = (await response.json()) as Portfolio;
       return { data };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve Trading 212 portfolio data.' };
     }
   }
 
@@ -44,13 +44,13 @@ export class Trading212Client {
       });
 
       if (!response.ok) {
-        return { error: `Trading 212 API error: ${response.status}` };
+        return { error: 'Failed to retrieve Trading 212 account data.' };
       }
 
       const data = (await response.json()) as Account;
       return { data };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve Trading 212 account data.' };
     }
   }
 
@@ -65,13 +65,13 @@ export class Trading212Client {
       });
 
       if (!response.ok) {
-        return { error: `Trading 212 API error: ${response.status}` };
+        return { error: 'Failed to retrieve Trading 212 trade history.' };
       }
 
       const data = (await response.json()) as { data?: Trade[] };
       return { data: data.data };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve Trading 212 trade history.' };
     }
   }
 }

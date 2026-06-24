@@ -38,13 +38,13 @@ export class LinkedInClient {
       });
 
       if (!response.ok) {
-        return { error: `LinkedIn API error: ${response.status}` };
+        return { error: 'Failed to post to LinkedIn.' };
       }
 
       const result = (await response.json()) as { id?: string };
       return { id: result.id };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to post to LinkedIn.' };
     }
   }
 
@@ -66,7 +66,7 @@ export class LinkedInClient {
       });
 
       if (!response.ok) {
-        return { error: `LinkedIn API error: ${response.status}` };
+        return { error: 'Failed to retrieve LinkedIn profile.' };
       }
 
       const profile = (await response.json()) as any;
@@ -78,7 +78,7 @@ export class LinkedInClient {
         },
       };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve LinkedIn profile.' };
     }
   }
 }

@@ -31,14 +31,14 @@ export class InstagramClient {
       });
 
       if (!containerResponse.ok) {
-        return { error: `Instagram API error: ${containerResponse.status}` };
+        return { error: 'Failed to post to Instagram.' };
       }
 
       const containerResult = (await containerResponse.json()) as { id?: string };
       const mediaId = containerResult.id;
 
       if (!mediaId) {
-        return { error: 'Failed to create media container: no ID returned' };
+        return { error: 'Failed to post to Instagram.' };
       }
 
       const publishResponse = await fetch(`${API_BASE}/${businessAccountId}/media_publish`, {
@@ -53,13 +53,13 @@ export class InstagramClient {
       });
 
       if (!publishResponse.ok) {
-        return { error: `Instagram API error publishing media: ${publishResponse.status}` };
+        return { error: 'Failed to post to Instagram.' };
       }
 
       const publishResult = (await publishResponse.json()) as { id?: string };
       return { id: publishResult.id };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to post to Instagram.' };
     }
   }
 
@@ -86,7 +86,7 @@ export class InstagramClient {
       );
 
       if (!response.ok) {
-        return { error: `Instagram API error: ${response.status}` };
+        return { error: 'Failed to retrieve Instagram profile.' };
       }
 
       const user = (await response.json()) as any;
@@ -102,7 +102,7 @@ export class InstagramClient {
         },
       };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve Instagram profile.' };
     }
   }
 }

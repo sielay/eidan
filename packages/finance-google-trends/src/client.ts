@@ -34,7 +34,7 @@ export class GoogleTrendsClient {
       );
 
       if (!response.ok) {
-        return { trends: [], error: `Google Trends API error: ${response.status}` };
+        return { trends: [], error: 'Failed to retrieve Google Trends data.' };
       }
 
       const text = await response.text();
@@ -49,7 +49,7 @@ export class GoogleTrendsClient {
 
       return { trends };
     } catch (error) {
-      return { trends: [], error: error instanceof Error ? error.message : 'Unknown error' };
+      return { trends: [], error: 'Failed to retrieve search trends.' };
     }
   }
 
@@ -67,7 +67,7 @@ export class GoogleTrendsClient {
       );
 
       if (!response.ok) {
-        return { topics: [], error: `Google Trends API error: ${response.status}` };
+        return { topics: [], error: 'Failed to retrieve trending topics.' };
       }
 
       const text = await response.text();
@@ -85,7 +85,7 @@ export class GoogleTrendsClient {
 
       return { topics };
     } catch (error) {
-      return { topics: [], error: error instanceof Error ? error.message : 'Unknown error' };
+      return { topics: [], error: 'Failed to retrieve trending topics.' };
     }
   }
 
@@ -107,7 +107,7 @@ export class GoogleTrendsClient {
       );
 
       if (!response.ok) {
-        return { queries: [], error: `Google Trends API error: ${response.status}` };
+        return { queries: [], error: 'Failed to retrieve rising queries.' };
       }
 
       const text = await response.text();
@@ -123,7 +123,7 @@ export class GoogleTrendsClient {
 
       return { queries };
     } catch (error) {
-      return { queries: [], error: error instanceof Error ? error.message : 'Unknown error' };
+      return { queries: [], error: 'Failed to retrieve rising queries.' };
     }
   }
 }

@@ -28,13 +28,13 @@ export class FacebookClient {
       });
 
       if (!response.ok) {
-        return { error: `Facebook API error: ${response.status}` };
+        return { error: 'Failed to post to Facebook.' };
       }
 
       const result = (await response.json()) as { id?: string };
       return { id: result.id };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to post to Facebook.' };
     }
   }
 
@@ -56,7 +56,7 @@ export class FacebookClient {
       });
 
       if (!response.ok) {
-        return { error: `Facebook API error: ${response.status}` };
+        return { error: 'Failed to retrieve Facebook profile.' };
       }
 
       const user = (await response.json()) as any;
@@ -70,7 +70,7 @@ export class FacebookClient {
         },
       };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve Facebook profile.' };
     }
   }
 }

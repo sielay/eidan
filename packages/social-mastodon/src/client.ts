@@ -30,13 +30,13 @@ export class MastodonClient {
       });
 
       if (!response.ok) {
-        return { error: `Mastodon API error: ${response.status}` };
+        return { error: 'Failed to post to Mastodon.' };
       }
 
       const result = (await response.json()) as { id?: string; uri?: string };
       return { id: result.id, uri: result.uri };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to post to Mastodon.' };
     }
   }
 
@@ -54,7 +54,7 @@ export class MastodonClient {
       );
 
       if (!response.ok) {
-        return { statuses: [], error: `Mastodon API error: ${response.status}` };
+        return { statuses: [], error: 'Failed to search Mastodon.' };
       }
 
       const data = (await response.json()) as { statuses?: Array<{ id?: string; content?: string }> };
@@ -65,7 +65,7 @@ export class MastodonClient {
         })),
       };
     } catch (error) {
-      return { statuses: [], error: error instanceof Error ? error.message : 'Unknown error' };
+      return { statuses: [], error: 'Failed to search Mastodon.' };
     }
   }
 
@@ -80,7 +80,7 @@ export class MastodonClient {
       });
 
       if (!response.ok) {
-        return { error: `Mastodon API error: ${response.status}` };
+        return { error: 'Failed to retrieve Mastodon profile.' };
       }
 
       const account = (await response.json()) as any;
@@ -94,7 +94,7 @@ export class MastodonClient {
         },
       };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve Mastodon profile.' };
     }
   }
 }

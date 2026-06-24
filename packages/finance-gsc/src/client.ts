@@ -36,13 +36,13 @@ export class GSCClient {
       });
 
       if (!response.ok) {
-        return { error: `GSC API error: ${response.status}` };
+        return { error: 'Failed to retrieve GSC performance data.' };
       }
 
       const data = (await response.json()) as { rows?: Array<any> };
       return { data: data.rows || [] };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve GSC performance data.' };
     }
   }
 
@@ -57,13 +57,13 @@ export class GSCClient {
       });
 
       if (!response.ok) {
-        return { error: `GSC API error: ${response.status}` };
+        return { error: 'Failed to retrieve GSC sitemaps.' };
       }
 
       const data = (await response.json()) as { sitemap?: Array<any> };
       return { data: data.sitemap || [] };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve GSC sitemaps.' };
     }
   }
 
@@ -78,7 +78,7 @@ export class GSCClient {
       });
 
       if (!response.ok) {
-        return { error: `GSC API error: ${response.status}` };
+        return { error: 'Failed to retrieve GSC indexing status.' };
       }
 
       const data = (await response.json()) as any;
@@ -89,7 +89,7 @@ export class GSCClient {
         },
       };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve GSC indexing status.' };
     }
   }
 }

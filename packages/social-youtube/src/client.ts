@@ -26,7 +26,7 @@ export class YouTubeClient {
       );
 
       if (!response.ok) {
-        return { videos: [], error: `YouTube API error: ${response.status}` };
+        return { videos: [], error: 'Failed to search YouTube.' };
       }
 
       const data = (await response.json()) as { items?: Array<{ id?: { videoId?: string }; snippet?: { title?: string } }> };
@@ -37,7 +37,7 @@ export class YouTubeClient {
         })),
       };
     } catch (error) {
-      return { videos: [], error: error instanceof Error ? error.message : 'Unknown error' };
+      return { videos: [], error: 'Failed to search YouTube.' };
     }
   }
 
@@ -52,7 +52,7 @@ export class YouTubeClient {
       });
 
       if (!response.ok) {
-        return { error: `YouTube API error: ${response.status}` };
+        return { error: 'Failed to retrieve YouTube channel information.' };
       }
 
       const data = (await response.json()) as { items?: Array<{ id?: string; snippet?: any; statistics?: any }> };
@@ -68,7 +68,7 @@ export class YouTubeClient {
         },
       };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to retrieve YouTube channel information.' };
     }
   }
 
@@ -96,13 +96,13 @@ export class YouTubeClient {
       });
 
       if (!response.ok) {
-        return { error: `YouTube API error: ${response.status}` };
+        return { error: 'Failed to upload video metadata to YouTube.' };
       }
 
       const result = (await response.json()) as { id?: string };
       return { id: result.id };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      return { error: 'Failed to upload video metadata to YouTube.' };
     }
   }
 }
