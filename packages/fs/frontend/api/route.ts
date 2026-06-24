@@ -11,8 +11,12 @@ interface FsNode {
   storage_kind: string;
   mime: string | null;
   size_bytes: number | null;
+  storage_ref: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
+
+type FsNodePartial = { id: string; name: string; kind: string };
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,7 +79,7 @@ export async function POST(req: NextRequest): Promise<Response> {
            returning id, name, kind`,
           [sess.userId, parentId, name],
         );
-        return r.rows[0] as Record<string, unknown>;
+        return r.rows[0] as FsNodePartial;
       });
       return Response.json({ ok: true, node }, { status: 201 });
     } catch (err) {

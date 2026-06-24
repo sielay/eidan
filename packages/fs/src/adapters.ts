@@ -26,7 +26,7 @@ class LocalAdapter implements StorageAdapter {
     return { bytes, mime: node.mime ?? 'application/octet-stream' };
   }
 
-  async write(ref: string, bytes: Uint8Array): Promise<void> {
+  async write(ref: string, bytes: Uint8Array, mime: string): Promise<void> {
     await this.db.storeBlob(ref, bytes);
   }
 

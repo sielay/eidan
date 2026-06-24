@@ -12,6 +12,8 @@ interface FsNode {
   storage_kind: string;
   mime: string | null;
   size_bytes: number | null;
+  storage_ref: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 

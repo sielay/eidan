@@ -3,6 +3,8 @@ import type { NextRequest } from "next/server";
 import { verifyBearer } from "@/server/auth";
 import { withUser } from "@/server/db";
 
+type FsNodePartial = { id: string; name: string };
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const config = {
@@ -35,8 +37,8 @@ export async function GET(req: NextRequest): Promise<Response> {
         [id, sess.userId],
       );
       if (!blobRes.rows.length) throw new Error("blob not found");
-      const blob = blobRes.rows[0] as Record<string, unknown>;
-      return { name: node["name"], mime: node["mime"], data: blob["data"] };
+      const blob = blobRes.rows[0] as { data: Buffer };
+      return { name: node["name"], mime: node["mime"], data: blob.data };
     });
 
     if (!result) return Response.json({ error: "file not found" }, { status: 404 });
@@ -80,12 +82,12 @@ export async function POST(req: NextRequest): Promise<Response> {
            returning id, name`,
           [sess.userId, parentId, name, mime, bytes.length],
         );
-        const nodeId = (r.rows[0] as Record<string, unknown>)["id"];
+        const nodeId = (r.rows[0] as FsNodePartial).id;
         await c.query(
           `insert into plugin_fs.fs_blobs (node_id, user_id, data) values ($1, $2, $3)`,
           [nodeId, sess.userId, bytes],
         );
-        return r.rows[0] as Record<string, unknown>;
+        return r.rows[0] as FsNodePartial;
       });
 
       return Response.json({ ok: true, node }, { status: 201 });
@@ -105,12 +107,12 @@ export async function POST(req: NextRequest): Promise<Response> {
            returning id, name`,
           [sess.userId, parentId, file.name, file.type || "application/octet-stream", bytes.length],
         );
-        const nodeId = (r.rows[0] as Record<string, unknown>)["id"];
+        const nodeId = (r.rows[0] as FsNodePartial).id;
         await c.query(
           `insert into plugin_fs.fs_blobs (node_id, user_id, data) values ($1, $2, $3)`,
           [nodeId, sess.userId, bytes],
         );
-        return r.rows[0] as Record<string, unknown>;
+        return r.rows[0] as FsNodePartial;
       });
 
       return Response.json({ ok: true, node }, { status: 201 });
