@@ -2,6 +2,8 @@
 // GitHub API client using a Personal Access Token. Stateless: the constructor takes a PAT
 // (supplied by the resolver from a connected account). Each call uses the PAT directly in the
 // Authorization header. Base host is fixed to https://api.github.com (no SSRF).
+import { Buffer } from 'buffer';
+
 const API_BASE = 'https://api.github.com';
 const API_VERSION = '2022-11-28';
 const USER_AGENT = 'eidan-github-plugin';
@@ -105,7 +107,7 @@ export class GitHubClient {
     if (login) {
       return { ok: true, login };
     }
-    return { ok: true };
+    return { ok: true, login: undefined };
   }
 
   // List repos accessible to the authenticated user.
