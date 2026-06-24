@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MatbotPluginSpec, MatbotServices, ToolContext } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
-import { Db } from './db.js';
+import { Registry, startOAuthServer, type SealFn } from '@eidandev/connections-kit';
 import { makeGmailTools, resolveFromRegistry } from './tools.js';
-import { startGoogleOAuthServer } from './oauth-server.js';
+import { googleAdapter } from './adapter.js';
 
 // Optional integration with the eidan secrets catalog (@eidandev/vault-postgres): declare the
 // credentials this plugin needs so Settings → Connections renders a secure section for them.
@@ -29,16 +29,14 @@ declare module '@matatbread/matbot-plugin-api' {
   }
 }
 
-// A registry-less stand-in: when no database is configured the plugin still loads and serves the
-// legacy single-account EIDAN_GOOGLE_* env/secret path (no per-account registry, no OAuth screen).
-const NO_DB = { listAccounts: async () => [], close: async () => {} } as unknown as Db;
-
-// eidan `google` plugin: read the operator's Gmail via OAuth2. Accounts are connected in the
-// Connections screen (the plugin's frontend manifest) — the OAuth client id/secret + refresh token
-// are sealed in the vault per account, the registry lives in plugin_google.accounts. Each call mints
-// a short-lived access token from the stored refresh token. Read-only; nothing stored beyond the
-// registry. Falls back to legacy EIDAN_GOOGLE_* secrets when no account is registered.
-let db: Db | undefined;
+// eidan `google` plugin: read the operator's Gmail via OAuth2 on the shared connections kit. Accounts
+// are connected in the Connections screen (the plugin's frontend manifest) — the OAuth client
+// id/secret + refresh token are sealed in the vault per account, the registry lives in
+// plugin_google.accounts. Each call mints a short-lived access token from the stored refresh token.
+// Read-only; nothing stored beyond the registry. Falls back to legacy EIDAN_GOOGLE_* secrets when no
+// account is registered.
+const SCHEMA = 'plugin_google';
+let registry: Registry | undefined;
 let stopOAuthServer: (() => void) | undefined;
 
 export const plugin: MatbotPluginSpec = {
@@ -51,18 +49,34 @@ export const plugin: MatbotPluginSpec = {
   },
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
-    let registry: Db = NO_DB;
-    if (url) {
-      db = new Db(url);
-      await db.ensureSchema();
-      registry = db;
-    }
-    for (const tool of makeGmailTools(registry)) services.tools.register(tool);
+    const seal: SealFn | undefined = services.EidanSecrets
+      ? (name, value) => services.EidanSecrets!.setSecret(name, value)
+      : undefined;
 
-    // Expose the registry-resolved connected account so other plugins (e.g. gdrive) reuse it. No
-    // legacy fallback here — that stays gmail-private inside resolveCreds; the shared surface is the
-    // connected-account path only, returning null when nothing is connected.
-    await services.register('GoogleConnection', { resolveCreds: (ctx) => resolveFromRegistry(registry, ctx) });
+    if (url) {
+      registry = new Registry(url, { schema: SCHEMA });
+      await registry.ensureSchema();
+      for (const tool of makeGmailTools(registry, seal)) services.tools.register(tool);
+
+      // Expose the registry-resolved connected account so other plugins (e.g. gdrive) reuse it. No
+      // legacy fallback here — that stays gmail-private inside the tools; the shared surface is the
+      // connected-account path only, returning null when nothing is connected.
+      const reg = registry;
+      await services.register('GoogleConnection', { resolveCreds: (ctx) => resolveFromRegistry(reg, ctx) });
+
+      // Server-side connect/reconnect: the web is a write-only vault client and can't read the sealed
+      // OAuth client back to rebuild the consent URL or exchange the code — the engine can. Expose the
+      // endpoints behind the AG-UI panel-proxy.
+      const port = Number(process.env['MATBOT_GOOGLE_OAUTH_PORT'] ?? 8094);
+      stopOAuthServer = startOAuthServer(services, registry, googleAdapter, { port, prefix: '/api/me/google/oauth' });
+      console.log(`[google] plugin loaded (oauth on :${port})`);
+    } else {
+      // No DB: legacy single-secret mode only.
+      for (const tool of makeGmailTools(null, seal)) services.tools.register(tool);
+      // The shared connected-account surface has nothing to resolve without a registry.
+      await services.register('GoogleConnection', { resolveCreds: async () => null });
+      console.log('[google] plugin loaded (legacy single-secret mode — no database)');
+    }
 
     services.EidanSecrets?.declareSection({
       plugin: 'google',
@@ -73,18 +87,9 @@ export const plugin: MatbotPluginSpec = {
         { name: 'EIDAN_GOOGLE_REFRESH_TOKEN', label: 'OAuth refresh token', secret: true, required: true, help: 'Obtained via the OAuth consent flow with the gmail.readonly scope.' },
       ],
     });
-
-    // Server-side OAuth reconnect: the web is a write-only vault client and can't read the sealed
-    // OAuth client back to rebuild the consent URL or exchange the code — the engine can. Expose the
-    // two reconnect endpoints behind the AG-UI panel-proxy. Only meaningful when the registry exists.
-    if (db) {
-      const port = Number(process.env['MATBOT_GOOGLE_OAUTH_PORT'] ?? 8094);
-      stopOAuthServer = startGoogleOAuthServer(services, db, { port });
-      console.log(`[google-oauth] on :${port}`);
-    }
   },
   async teardown() {
     if (stopOAuthServer) stopOAuthServer();
-    if (db) await db.close();
+    if (registry) await registry.close();
   },
 };

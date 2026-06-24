@@ -5,7 +5,9 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "eidan Facebook Social (matbot): post to Facebook, search, read feed, get profile (facebook_post_feed, facebook_search, facebook_get_profile, facebook_list_feed) via Facebook Graph API with OAuth2 token and matbot vault secrets.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,11 +15,48 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "facebook.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Connections.tsx"
+        },
+        {
+          "path": "/callback",
+          "component": "Callback.tsx"
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/social-facebook/accounts",
+          "handler": "api/route.ts"
+        }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          {
+            "id": "social-facebook",
+            "label": "Facebook",
+            "icon": "share",
+            "href": "/p/social-facebook",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
   "dependencies": {
-    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+    "@eidandev/connections-kit": "link:../connections-kit",
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.8.0"
   }
 }

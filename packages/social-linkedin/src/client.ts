@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// LinkedIn API v2 client. Constructed with an already-resolved access token (the connections kit
+// resolves the per-account token before the tools build a client) — this class never touches the
+// vault. Posting supports an optional image with strict SSRF mitigation (HTTPS-only, domain
+// whitelist, DNS-rebinding guard, per-redirect re-validation, size + content-type checks).
 import { lookup } from 'node:dns';
 import { promisify } from 'node:util';
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { secretOpt } from './vault.js';
-import type { LinkedInPost, LinkedInProfileResponse, LinkedInFeedResponse, LinkedInUGCPostRequest, LinkedInAssetRegisterResponse } from './types.js';
+import type { LinkedInUGCPostRequest, LinkedInAssetRegisterResponse } from './types.js';
 
 const dnsLookup = promisify(lookup);
 
@@ -28,13 +30,22 @@ const ALLOWED_IMAGE_DOMAINS = [
   // Allow specific domains; for custom domains, operators should extend this list
 ];
 
-export class LinkedInClient {
-  private ctx: ToolContext;
-  private accessToken: string;
+const REST_BASE = 'https://api.linkedin.com/rest';
+const LINKEDIN_VERSION = '202506';
 
-  constructor(ctx: ToolContext, accessToken: string) {
-    this.ctx = ctx;
+export class LinkedInClient {
+  private accessToken: string;
+  // The author URN to act as: `urn:li:person:{id}` (member) or `urn:li:organization:{id}` (Page/org).
+  private author: string;
+  // 'member' | 'organization' — drives which identity/read endpoints apply.
+  private type: string;
+  private handle: string;
+
+  constructor(accessToken: string, opts?: { author?: string; type?: string; handle?: string }) {
     this.accessToken = accessToken;
+    this.author = opts?.author ?? '';
+    this.type = opts?.type ?? '';
+    this.handle = opts?.handle ?? '';
   }
 
   private isPrivateIp(ip: string): boolean {
@@ -163,18 +174,22 @@ export class LinkedInClient {
   private async request<T>(
     endpoint: string,
     method: string = 'GET',
-    body?: Record<string, unknown>
+    body?: Record<string, unknown>,
+    opts?: { versioned?: boolean }
   ): Promise<{ data?: T; error?: string }> {
     try {
-      const url = `${API_BASE}${endpoint}`;
-      const options: RequestInit = {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-          'LinkedIn-Version': '202312',
-        },
+      // Versioned Community Management endpoints live under /rest with a LinkedIn-Version header; the
+      // legacy /v2 endpoints (e.g. userinfo) must NOT carry a version header.
+      const url = `${opts?.versioned ? REST_BASE : API_BASE}${endpoint}`;
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${this.accessToken}`,
+        'Content-Type': 'application/json',
       };
+      if (opts?.versioned) {
+        headers['LinkedIn-Version'] = LINKEDIN_VERSION;
+        headers['X-Restli-Protocol-Version'] = '2.0.0';
+      }
+      const options: RequestInit = { method, headers };
 
       if (body) {
         options.body = JSON.stringify(body);
@@ -198,15 +213,46 @@ export class LinkedInClient {
     }
   }
 
-  async getProfile(): Promise<{ profile?: LinkedInProfileResponse; error?: string }> {
-    const result = await this.request<LinkedInProfileResponse>('/me');
-    if (result.error) {
-      return { error: result.error };
+  async getProfile(): Promise<{
+    profile?: { id: string; name: string; kind: string; headline?: string; picture?: string; email?: string };
+    error?: string;
+  }> {
+    const isOrg = this.type === 'organization' || this.author.startsWith('urn:li:organization:');
+    if (isOrg) {
+      // Member /me & /userinfo don't apply to an org connection; look the organization up (best effort —
+      // needs r_organization_admin/rw_organization_admin), else return the identity we already hold.
+      const id = this.author.split(':').pop() ?? '';
+      const r = await this.request<{ localizedName?: string; vanityName?: string }>(
+        `/organizations/${id}`,
+        'GET',
+        undefined,
+        { versioned: true },
+      );
+      if (r.data?.localizedName) {
+        return {
+          profile: {
+            id: this.author,
+            name: r.data.localizedName,
+            kind: 'organization',
+            ...(r.data.vanityName ? { headline: r.data.vanityName } : {}),
+          },
+        };
+      }
+      return { profile: { id: this.author || id, name: this.handle || this.author || 'organization', kind: 'organization' } };
     }
-    if (!result.data) {
-      return { error: 'No profile data received' };
-    }
-    return { profile: result.data };
+    // Member: OpenID userinfo (the modern replacement for /me, which the OpenID token can't access).
+    const r = await this.request<{ sub?: string; name?: string; email?: string; picture?: string }>('/userinfo');
+    if (r.error) return { error: r.error };
+    const d = r.data ?? {};
+    return {
+      profile: {
+        id: d.sub ?? this.author,
+        name: d.name ?? this.handle ?? '',
+        kind: 'member',
+        ...(d.picture ? { picture: d.picture } : {}),
+        ...(d.email ? { email: d.email } : {}),
+      },
+    };
   }
 
   private async registerAsset(imageUrl: string): Promise<{ urn?: string; error?: string }> {
@@ -299,7 +345,7 @@ export class LinkedInClient {
           Authorization: `Bearer ${this.accessToken}`,
           'Content-Type': contentType,
         },
-        body: imageBuffer,
+        body: imageBuffer as unknown as BodyInit,
       });
 
       if (!uploadResponse.ok) {
@@ -316,12 +362,16 @@ export class LinkedInClient {
   }
 
   async post(text: string, imageUrl?: string): Promise<{ id?: string; error?: string }> {
-    const userResult = await this.request<{ id: string }>('/me');
-    if (userResult.error || !userResult.data?.id) {
-      return { error: 'Failed to get user ID' };
+    // Member connections post as the person URN; organization (Page) connections post as the org URN
+    // (set on the client). Only fall back to /me when no author was supplied (legacy member token).
+    let author = this.author;
+    if (!author) {
+      const userResult = await this.request<{ id: string }>('/me');
+      if (userResult.error || !userResult.data?.id) {
+        return { error: 'Failed to get user ID — for an organization connection this needs the org URN' };
+      }
+      author = `urn:li:person:${userResult.data.id}`;
     }
-
-    const userId = userResult.data.id;
 
     let mediaUrn: string | undefined;
     if (imageUrl) {
@@ -333,7 +383,7 @@ export class LinkedInClient {
     }
 
     const postPayload: LinkedInUGCPostRequest = {
-      author: `urn:li:person:${userId}`,
+      author,
       lifecycleState: 'PUBLISHED',
       specificContent: {
         'com.linkedin.ugc.ShareContent': {
@@ -356,7 +406,7 @@ export class LinkedInClient {
       },
     };
 
-    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postPayload);
+    const result = await this.request<{ id: string }>('/ugcPosts', 'POST', postPayload as unknown as Record<string, unknown>);
     if (result.error) {
       return { error: result.error };
     }
@@ -366,45 +416,29 @@ export class LinkedInClient {
     return { id: result.data.id };
   }
 
-  // Maps a raw LinkedIn post response to a flattened post structure.
-  // Fallback behavior: empty string for text if both description and title are missing,
-  // empty string for author if actor is undefined, and 0 for engagement metrics if not provided.
-  private mapPost(post: LinkedInPost): { id: string; text: string; author?: string; likes: number; comments: number } {
-    return {
-      id: post.id,
-      // Prefer description over title; empty string if neither exists
-      text: post.content?.description || post.content?.title || '',
-      // Actor is optional in API response; undefined if missing (aligns with author?: string type)
-      author: post.actor,
-      // Default to 0 for missing engagement metrics (expected for posts with no engagement)
-      likes: post.likesSummary?.totalLikes ?? 0,
-      comments: post.commentsSummary?.totalFirstLevelComments ?? 0,
-    };
-  }
-
-  async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text: string; author?: string; likes: number; comments: number }>; error?: string }> {
-    const url = `/feed?count=${Math.min(limit, 100)}&sortBy=RECENT`;
-    const result = await this.request<LinkedInFeedResponse>(url);
-
+  // Recent posts published BY this connection (the member's own posts, or the organization's). LinkedIn
+  // has no "read another member's feed" API and no public post-search API, so this lists this account's
+  // own authored posts via the versioned Community Management /rest/posts?q=author endpoint.
+  async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text: string; likes: number; comments: number }>; error?: string }> {
+    if (!this.author) {
+      return { error: 'this connection has no author URN yet — reconnect it (org connections need rw_organization_admin)' };
+    }
+    const author = encodeURIComponent(this.author);
+    const result = await this.request<{ elements?: Array<{ id?: string; commentary?: string }> }>(
+      `/posts?q=author&author=${author}&count=${Math.min(limit, 100)}&sortBy=LAST_MODIFIED`,
+      'GET',
+      undefined,
+      { versioned: true },
+    );
     if (result.error) {
       return { error: result.error };
     }
-
-    const posts = result.data?.elements?.map((post) => this.mapPost(post)) ?? [];
-
-    return { posts };
-  }
-
-  async search(query: string, limit: number = 20): Promise<{ posts?: Array<{ id: string; text: string; author?: string; likes: number; comments: number }>; error?: string }> {
-    const url = `/search/posts?keywords=${encodeURIComponent(query)}&count=${Math.min(limit, 100)}`;
-    const result = await this.request<LinkedInFeedResponse>(url);
-
-    if (result.error) {
-      return { error: result.error };
-    }
-
-    const posts = result.data?.elements?.map((post) => this.mapPost(post)) ?? [];
-
+    const posts = (result.data?.elements ?? []).map((p) => ({
+      id: p.id ?? '',
+      text: p.commentary ?? '',
+      likes: 0,
+      comments: 0,
+    }));
     return { posts };
   }
 }

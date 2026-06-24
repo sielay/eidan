@@ -5,7 +5,9 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "eidan Threads Social (matbot): post to Threads, search, get profile, read timeline (threads_post_thread, threads_search, threads_get_profile, threads_list_timeline) via Meta Threads API with OAuth2 bearer token and matbot vault secrets.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,11 +15,48 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "threads.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Connections.tsx"
+        },
+        {
+          "path": "/callback",
+          "component": "Callback.tsx"
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/social-threads/accounts",
+          "handler": "api/route.ts"
+        }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          {
+            "id": "social-threads",
+            "label": "Threads",
+            "icon": "share",
+            "href": "/p/social-threads",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
   "dependencies": {
-    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+    "@eidandev/connections-kit": "link:../connections-kit",
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.8.0"
   }
 }

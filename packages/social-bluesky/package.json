@@ -5,7 +5,9 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "eidan Bluesky Social (matbot): post to Bluesky, search, read feed (bluesky_post, bluesky_search, bluesky_read_feed) via AT Protocol with OAuth app-password flow and matbot vault secrets.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,11 +15,44 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "bluesky.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Connections.tsx"
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/social-bluesky/accounts",
+          "handler": "api/route.ts"
+        }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          {
+            "id": "social-bluesky",
+            "label": "Bluesky",
+            "icon": "share",
+            "href": "/p/social-bluesky",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
   "dependencies": {
-    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+    "@eidandev/connections-kit": "link:../connections-kit",
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.8.0"
   }
 }

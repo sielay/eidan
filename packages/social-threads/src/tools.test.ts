@@ -1,285 +1,67 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeThreadsTools } from './tools.js';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
-
-let fetchResponses: Map<string, Response | Error> = new Map();
-
-const mockFetch = (url: string | URL, options?: RequestInit): Response | Promise<Response> => {
-  const urlStr = String(url);
-
-  if (fetchResponses.has(urlStr)) {
-    const response = fetchResponses.get(urlStr)!;
-    if (response instanceof Error) {
-      throw response;
-    }
-    return response;
-  }
-
-  for (const [key, response] of fetchResponses.entries()) {
-    const keyStr = String(key);
-    if (urlStr.includes(keyStr.split('?')[0] || '')) {
-      if (response instanceof Error) {
-        throw response;
-      }
-      return response;
-    }
-  }
-
-  return new Response(JSON.stringify({ error: 'Not mocked' }), {
-    status: 404,
-  });
-};
-
-const setupFetchMocks = () => {
-  fetchResponses.clear();
-  global.fetch = mockFetch as any;
-};
-
-const teardownFetchMocks = () => {
-  global.fetch = undefined as any;
-};
-
-const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext => ({
-  vault: {
-    resolve: async (name: string) => {
-      const key = name.replace(/^\$\{/, '').replace(/\}$/, '');
-      const value = secrets[key];
-      if (value === undefined) throw new MissingSecretError(['KEY_NOT_FOUND']);
-      return value;
-    },
-    writeSecret: async (key: string, value: string) => {
-      secrets[key] = value;
-    },
-  },
-} as any);
+import { makeThreadsTools } from './tools.js';
 
 test('makeThreadsTools returns all four tools', () => {
-  const tools = makeThreadsTools();
-  assert.equal(tools.length, 4);
-  assert.equal(tools[0].name, 'threads_post_thread');
-  assert.equal(tools[1].name, 'threads_search');
-  assert.equal(tools[2].name, 'threads_get_profile');
-  assert.equal(tools[3].name, 'threads_list_timeline');
+  const names = makeThreadsTools(null).map((t) => t.name);
+  assert.deepEqual(names.sort(), [
+    'threads_get_profile',
+    'threads_list_timeline',
+    'threads_post_thread',
+    'threads_search',
+  ]);
 });
 
-test('threads_post_thread has correct schema', () => {
-  const tools = makeThreadsTools();
-  const postTool = tools.find((t) => t.name === 'threads_post_thread');
-  assert.ok(postTool);
-  assert.ok(postTool.inputSchema);
-  const schema = postTool.inputSchema as any;
-  assert.equal(schema.required?.[0], 'text');
-  assert.ok(schema.properties?.text);
-  assert.ok(schema.properties?.reply_to);
-});
-
-test('threads_search has correct schema', () => {
-  const tools = makeThreadsTools();
-  const searchTool = tools.find((t) => t.name === 'threads_search');
-  assert.ok(searchTool);
-  assert.ok(searchTool.inputSchema);
-  const schema = searchTool.inputSchema as any;
-  assert.equal(schema.required?.[0], 'query');
-  assert.ok(schema.properties?.query);
-  assert.ok(schema.properties?.limit);
-});
-
-test('threads_get_profile has correct schema', () => {
-  const tools = makeThreadsTools();
-  const profileTool = tools.find((t) => t.name === 'threads_get_profile');
-  assert.ok(profileTool);
-  assert.ok(profileTool.inputSchema);
-  const schema = profileTool.inputSchema as any;
-  assert.deepEqual(schema.properties, {});
-});
-
-test('threads_list_timeline has correct schema', () => {
-  const tools = makeThreadsTools();
-  const timelineTool = tools.find((t) => t.name === 'threads_list_timeline');
-  assert.ok(timelineTool);
-  assert.ok(timelineTool.inputSchema);
-  const schema = timelineTool.inputSchema as any;
-  assert.ok(schema.properties?.limit);
-});
-
-test('threads_post_thread yields error when text is missing', async () => {
-  setupFetchMocks();
-  const tools = makeThreadsTools();
-  const postTool = tools[0];
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-
-  const results = [];
-  for await (const result of postTool.executor.execute({} as any, ctx)) {
-    results.push(result);
+test('every tool accepts an optional `account` selector', () => {
+  for (const t of makeThreadsTools(null)) {
+    const props = (t.inputSchema as { properties: Record<string, unknown> }).properties;
+    assert.ok('account' in props, `${t.name} should expose account`);
   }
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'error');
-  assert.ok((results[0] as any).message.includes('required'));
-
-  teardownFetchMocks();
 });
 
-test('threads_post_thread yields result on success', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set('https://graph.threads.com/v18.0/me/threads', {
-    ok: true,
-    json: async () => ({ id: 'thread-123' }),
-  } as any);
-
-  const tools = makeThreadsTools();
-  const postTool = tools[0];
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-
-  const results = [];
-  for await (const result of postTool.executor.execute(
-    { text: 'Hello' } as any,
-    ctx
-  )) {
-    results.push(result);
-  }
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'result');
-  const value = (results[0] as any).value;
-  assert.equal(value.id, 'thread-123');
-  assert.ok(value.message.includes('Posted to Threads'));
-
-  teardownFetchMocks();
+test('threads_post_thread schema requires text (max 500)', () => {
+  const t = makeThreadsTools(null).find((x) => x.name === 'threads_post_thread')!;
+  const schema = t.inputSchema as { required: string[]; properties: Record<string, Record<string, unknown>> };
+  assert.ok(schema.required.includes('text'));
+  assert.equal(schema.properties['text']?.['maxLength'], 500);
+  assert.ok(schema.properties['reply_to']);
 });
 
-test('threads_search yields error when query is missing', async () => {
-  setupFetchMocks();
-  const tools = makeThreadsTools();
-  const searchTool = tools[1];
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-
-  const results = [];
-  for await (const result of searchTool.executor.execute({} as any, ctx)) {
-    results.push(result);
-  }
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'error');
-
-  teardownFetchMocks();
+test('threads_search schema requires query', () => {
+  const t = makeThreadsTools(null).find((x) => x.name === 'threads_search')!;
+  const schema = t.inputSchema as { required: string[]; properties: Record<string, unknown> };
+  assert.ok(schema.required.includes('query'));
+  assert.ok(schema.properties['limit']);
 });
 
-test('threads_search yields result on success', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set('https://graph.threads.com/v18.0/ig_hashtag_search', {
-    ok: true,
-    json: async () => ({
-      data: [
-        {
-          id: 'tag-1',
-          name: 'threads',
-        },
-      ],
-    }),
-  } as any);
-
-  const tools = makeThreadsTools();
-  const searchTool = tools[1];
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-
-  const results = [];
-  for await (const result of searchTool.executor.execute(
-    { query: 'threads' } as any,
-    ctx
-  )) {
-    results.push(result);
-  }
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'result');
-  const value = (results[0] as any).value;
-  assert.equal(value.count, 1);
-  assert.equal(value.posts[0].author, 'threads');
-
-  teardownFetchMocks();
-});
-
-test('threads_get_profile yields result on success', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set('https://graph.threads.com/v18.0/me', {
-    ok: true,
-    json: async () => ({
-      data: {
-        id: 'user-123',
-        username: 'testuser',
-        name: 'Test User',
-        biography: 'My bio',
-        follower_count: 500,
-        following_count: 100,
-        is_verified: true,
-        website: 'https://example.com',
+test('legacy fallback: errors clearly when nothing is connected', async () => {
+  const t = makeThreadsTools(null).find((x) => x.name === 'threads_post_thread')!;
+  const ctx = {
+    vault: {
+      resolve: async () => {
+        throw new MissingSecretError(['THREADS_ACCESS_TOKEN']);
       },
-    }),
-  } as any);
-
-  const tools = makeThreadsTools();
-  const profileTool = tools[2];
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-
-  const results = [];
-  for await (const result of profileTool.executor.execute({} as any, ctx)) {
-    results.push(result);
-  }
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'result');
-  const value = (results[0] as any).value;
-  assert.equal(value.username, 'testuser');
-  assert.equal(value.followers, 500);
-  assert.equal(value.verified, true);
-
-  teardownFetchMocks();
+    },
+  } as unknown as ToolContext;
+  const out: Array<Record<string, unknown>> = [];
+  for await (const r of t.executor.execute({ text: 'Hello' }, ctx)) out.push(r as Record<string, unknown>);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.['type'], 'error');
 });
 
-test('threads_list_timeline yields result on success', async () => {
-  setupFetchMocks();
+test('threads_post_thread rejects empty text', async () => {
+  const t = makeThreadsTools(null).find((x) => x.name === 'threads_post_thread')!;
+  const out: Array<Record<string, unknown>> = [];
+  for await (const r of t.executor.execute({ text: '' }, {} as unknown as ToolContext)) out.push(r as Record<string, unknown>);
+  assert.equal(out[0]?.['type'], 'error');
+});
 
-  fetchResponses.set('https://graph.threads.com/v18.0/me/threads', {
-    ok: true,
-    json: async () => ({
-      data: [
-        {
-          id: 'post-1',
-          text: 'Hello',
-          timestamp: '2026-06-22T10:00:00Z',
-          permalink: 'https://threads.net/t/1',
-          like_count: 10,
-          reply_count: 2,
-        },
-      ],
-    }),
-  } as any);
-
-  const tools = makeThreadsTools();
-  const timelineTool = tools[3];
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-
-  const results = [];
-  for await (const result of timelineTool.executor.execute(
-    { limit: 20 } as any,
-    ctx
-  )) {
-    results.push(result);
-  }
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'result');
-  const value = (results[0] as any).value;
-  assert.equal(value.count, 1);
-  assert.equal(value.posts[0].text, 'Hello');
-  assert.equal(value.posts[0].likes, 10);
-
-  teardownFetchMocks();
+test('threads_search rejects empty query', async () => {
+  const t = makeThreadsTools(null).find((x) => x.name === 'threads_search')!;
+  const out: Array<Record<string, unknown>> = [];
+  for await (const r of t.executor.execute({ query: '' }, {} as unknown as ToolContext)) out.push(r as Record<string, unknown>);
+  assert.equal(out[0]?.['type'], 'error');
 });

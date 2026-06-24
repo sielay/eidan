@@ -12,22 +12,28 @@ import {
   plannedProvidersByKind,
 } from './providers.js';
 
-test('V1: only adapter-backed (manual) providers are available today', () => {
-  assert.deepEqual(availableProviders(), ['manual']);
+test('V1: manual is available for every kind; social platforms are now connectable', () => {
   for (const kind of ['social_account', 'mailing_list', 'analytics_property'] as const) {
-    assert.deepEqual(availableProvidersByKind()[kind], ['manual']);
     assert.ok(isAvailable(kind, 'manual'));
+  }
+  // social_account: the live social-* plugins make these attachable (handle validated against the
+  // connection registry at attach time). mailing_list / analytics_property are still manual-only.
+  assert.deepEqual(availableProvidersByKind()['mailing_list'], ['manual']);
+  assert.deepEqual(availableProvidersByKind()['analytics_property'], ['manual']);
+  for (const p of ['x', 'linkedin', 'instagram', 'facebook', 'threads', 'bluesky', 'mastodon', 'youtube']) {
+    assert.ok(isAvailable('social_account', p), `${p} should be available`);
   }
 });
 
-test('V1: vendor/platform providers are planned, not attachable', () => {
-  assert.ok(!isAvailable('social_account', 'linkedin'));
+test('V1: providers without an adapter stay planned, not attachable', () => {
+  // tiktok has no eidan social plugin yet → still planned.
+  assert.ok(!isAvailable('social_account', 'tiktok'));
   assert.ok(!isAvailable('mailing_list', 'mailchimp'));
   assert.ok(!isAvailable('analytics_property', 'ga4'));
-  assert.ok(plannedProvidersByKind()['social_account'].includes('linkedin'));
+  assert.ok(plannedProvidersByKind()['social_account'].includes('tiktok'));
   assert.ok(plannedProvidersByKind()['mailing_list'].includes('mailchimp'));
   // a planned provider carries no resolver (no adapter yet)
-  assert.equal(getAdapter('social_account', 'linkedin')?.resolveRef, undefined);
+  assert.equal(getAdapter('social_account', 'tiktok')?.resolveRef, undefined);
 });
 
 test('V1: unknown kinds/providers are rejected', () => {

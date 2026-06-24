@@ -64,17 +64,20 @@ function resolveManualName(ref: string): ResolvedRef {
 // roadmapped vendors/platforms, planned until their adapter ships. Keep the provider names in step
 // with the vr_provider_chk CHECK in sql/0004_venture_resource_provider.sql (the DB backstop).
 export const REGISTRY: ProviderAdapter[] = [
-  // social_account — publish-self platforms (a future `social` adapter), managed handles.
+  // social_account — publish-self platforms. The eidan social-* plugins now ship live OAuth/account
+  // connections, so these are AVAILABLE: external_ref is the public handle (normalised here), and the
+  // attach tool additionally checks it against the live connection registry (the SocialConnections
+  // service) when that plugin is loaded. `manual` stays available as the doctrine-mandated fallback.
   { kind: 'social_account', provider: 'manual', label: 'Manual (operator-tracked)', status: 'available', resolveRef: resolveManualHandle },
-  { kind: 'social_account', provider: 'x', label: 'X / Twitter', status: 'planned' },
-  { kind: 'social_account', provider: 'linkedin', label: 'LinkedIn', status: 'planned' },
-  { kind: 'social_account', provider: 'instagram', label: 'Instagram', status: 'planned' },
-  { kind: 'social_account', provider: 'facebook', label: 'Facebook', status: 'planned' },
-  { kind: 'social_account', provider: 'threads', label: 'Threads', status: 'planned' },
-  { kind: 'social_account', provider: 'bluesky', label: 'Bluesky', status: 'planned' },
-  { kind: 'social_account', provider: 'mastodon', label: 'Mastodon', status: 'planned' },
+  { kind: 'social_account', provider: 'x', label: 'X / Twitter', status: 'available', resolveRef: resolveManualHandle },
+  { kind: 'social_account', provider: 'linkedin', label: 'LinkedIn', status: 'available', resolveRef: resolveManualHandle },
+  { kind: 'social_account', provider: 'instagram', label: 'Instagram', status: 'available', resolveRef: resolveManualHandle },
+  { kind: 'social_account', provider: 'facebook', label: 'Facebook', status: 'available', resolveRef: resolveManualHandle },
+  { kind: 'social_account', provider: 'threads', label: 'Threads', status: 'available', resolveRef: resolveManualHandle },
+  { kind: 'social_account', provider: 'bluesky', label: 'Bluesky', status: 'available', resolveRef: resolveManualHandle },
+  { kind: 'social_account', provider: 'mastodon', label: 'Mastodon', status: 'available', resolveRef: resolveManualHandle },
   { kind: 'social_account', provider: 'tiktok', label: 'TikTok', status: 'planned' },
-  { kind: 'social_account', provider: 'youtube', label: 'YouTube', status: 'planned' },
+  { kind: 'social_account', provider: 'youtube', label: 'YouTube', status: 'available', resolveRef: resolveManualHandle },
   // mailing_list — audience backends (a future `social`/mailing adapter).
   { kind: 'mailing_list', provider: 'manual', label: 'Manual (operator-tracked)', status: 'available', resolveRef: resolveManualName },
   { kind: 'mailing_list', provider: 'mailchimp', label: 'Mailchimp', status: 'planned' },

@@ -5,7 +5,9 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "eidan Instagram Social (matbot): post to Instagram, search hashtags/users, read feed, get profile (instagram_post_feed, instagram_search, instagram_get_profile, instagram_list_feed) via Instagram Graph API with OAuth2 long-lived token and matbot vault secrets.",
-  "matbotRuntime": ["node"],
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,11 +15,48 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "instagram.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Connections.tsx"
+        },
+        {
+          "path": "/callback",
+          "component": "Callback.tsx"
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/social-instagram/accounts",
+          "handler": "api/route.ts"
+        }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          {
+            "id": "social-instagram",
+            "label": "Instagram",
+            "icon": "share",
+            "href": "/p/social-instagram",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
   "dependencies": {
-    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+    "@eidandev/connections-kit": "link:../connections-kit",
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.8.0"
   }
 }

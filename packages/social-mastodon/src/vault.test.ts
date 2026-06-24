@@ -5,21 +5,19 @@ import { secretOpt, secretRequired } from './vault.js';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
-const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext => ({
-  vault: {
-    resolve: async (name: string) => {
-      const key = name.replace(/^\$\{/, '').replace(/\}$/, '');
-      const value = secrets[key];
-      if (value === undefined) {
-        throw new MissingSecretError([key]);
-      }
-      return value;
+const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext =>
+  ({
+    vault: {
+      resolve: async (name: string) => {
+        const key = name.replace(/^\$\{/, '').replace(/\}$/, '');
+        const value = secrets[key];
+        if (value === undefined) {
+          throw new MissingSecretError([key]);
+        }
+        return value;
+      },
     },
-    writeSecret: async () => {},
-  },
-  tools: { call: async () => ({ type: 'error', message: 'mock' }) },
-  emit: async () => {},
-});
+  }) as unknown as ToolContext;
 
 test('secretOpt - returns secret when present', async () => {
   const ctx = mockCtx({ TEST_SECRET: 'test-value' });

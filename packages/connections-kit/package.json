@@ -1,0 +1,25 @@
+{
+  "name": "@eidandev/connections-kit",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "eidan connections kit (matbot): shared engine-side machinery for BYO-client OAuth integrations — a per-plugin account registry over plugin_<name>.accounts (multi-account, optional per-host), the OAuth protocol skeleton + per-platform adapter interface, a server-side connect/reconnect HTTP server behind the AG-UI panel-proxy, per-account vault key derivation, transparent token refresh, and a SocialConnections lookup so Charles can validate a connected handle. Consumed by google and the social-* plugins.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

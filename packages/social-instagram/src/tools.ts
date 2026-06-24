@@ -1,6 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// Agent tools for the `social-instagram` plugin — post/search/read on Instagram.
+//
+// Per-account OAuth: the operator connects one or more Instagram accounts in the Connections screen.
+// Each account's OAuth client (sealed under client_vault_key) + access token (token key) live in the
+// vault; the registry rows live in plugin_social_instagram.accounts. At call time the tools pick the
+// requested account (or the first), resolve an access token via the connections kit, then call the
+// Instagram Graph API. Falls back to the legacy single INSTAGRAM_ACCESS_TOKEN secret when no account
+// is connected, so older setups keep working.
 import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
-import { InstagramClient, InstagramAuthError, InstagramAPIError, InstagramPostError } from './client.js';
+import {
+  type AccountStore,
+  type SealFn,
+  AccountResolveError,
+  NotConnectedError,
+  resolveAccessToken,
+} from '@eidandev/connections-kit';
+import { InstagramClient, InstagramAPIError, InstagramPostError } from './client.js';
+import { instagramAdapter } from './adapter.js';
+import { secretOpt } from './vault.js';
+
+const ACCOUNT_PROP = {
+  account: {
+    type: 'string',
+    description: 'Which connected Instagram account (name or slug). Omit to use the first connected account.',
+  },
+} as const;
 
 const POST_FEED_SCHEMA = {
   type: 'object',
@@ -18,6 +42,7 @@ const POST_FEED_SCHEMA = {
       format: 'uri',
       description: 'Public image URL to post (JPEG or PNG, min 1080x1350 px).',
     },
+    ...ACCOUNT_PROP,
   },
 };
 
@@ -37,13 +62,14 @@ const SEARCH_SCHEMA = {
       maximum: 100,
       description: 'Max results (default 20).',
     },
+    ...ACCOUNT_PROP,
   },
 };
 
 const PROFILE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  properties: {},
+  properties: { ...ACCOUNT_PROP },
 };
 
 const FEED_SCHEMA = {
@@ -56,18 +82,50 @@ const FEED_SCHEMA = {
       maximum: 100,
       description: 'Max posts (default 20).',
     },
+    ...ACCOUNT_PROP,
   },
 };
 
-export function makeInstagramTools(): Tool[] {
+// Resolve an Instagram client for the selected account: registry first, then the legacy single
+// INSTAGRAM_ACCESS_TOKEN secret. Returns an error string when nothing usable resolves.
+async function resolveClient(
+  ctx: ToolContext,
+  store: AccountStore | null,
+  seal: SealFn | undefined,
+  account: string | undefined,
+): Promise<{ client?: InstagramClient; error?: string }> {
+  if (store) {
+    try {
+      const { accessToken } = await resolveAccessToken(store, instagramAdapter, ctx, {
+        ...(account ? { accountSelector: account } : {}),
+        ...(seal ? { seal } : {}),
+      });
+      return { client: new InstagramClient(accessToken) };
+    } catch (exc) {
+      if (exc instanceof AccountResolveError) return { error: exc.message };
+      if (!(exc instanceof NotConnectedError)) {
+        return { error: exc instanceof Error ? exc.message : 'failed to resolve Instagram account' };
+      }
+      // NotConnectedError → fall through to the legacy single-secret path.
+    }
+  }
+  const token = await secretOpt(ctx, 'INSTAGRAM_ACCESS_TOKEN');
+  if (token) return { client: new InstagramClient(token) };
+  return {
+    error:
+      "Instagram isn't connected — add an account under Connections, or set the legacy INSTAGRAM_ACCESS_TOKEN vault secret.",
+  };
+}
+
+export function makeInstagramTools(store: AccountStore | null, seal?: SealFn): Tool[] {
   const instagramPostFeedTool: Tool = {
     name: 'instagram_post_feed',
     description:
-      'Post an image with caption to your Instagram feed. Requires a public image URL. The image must be JPEG or PNG format, minimum 1080x1350 pixels. Requires INSTAGRAM_ACCESS_TOKEN vault secret (long-lived OAuth2 token from Instagram Graph API).',
+      'Post an image with caption to a connected Instagram feed. Requires a public image URL (JPEG or PNG, min 1080x1350 px). Use `account` to pick which connected Instagram account.',
     inputSchema: POST_FEED_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const args = (input ?? {}) as { text?: string; image_url?: string };
+        const args = (input ?? {}) as { text?: string; image_url?: string; account?: string };
         const text = String(args.text ?? '').trim();
         const imageUrl = String(args.image_url ?? '').trim();
 
@@ -81,7 +139,11 @@ export function makeInstagramTools(): Tool[] {
           return;
         }
 
-        const client = new InstagramClient(ctx);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create Instagram client' };
+          return;
+        }
 
         try {
           const result = await client.postMedia(imageUrl, text);
@@ -95,9 +157,7 @@ export function makeInstagramTools(): Tool[] {
             },
           };
         } catch (err) {
-          if (err instanceof InstagramAuthError) {
-            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
-          } else if (err instanceof InstagramPostError) {
+          if (err instanceof InstagramPostError) {
             yield { type: 'error', message: err.message };
           } else {
             throw err;
@@ -110,11 +170,11 @@ export function makeInstagramTools(): Tool[] {
   const instagramSearchTool: Tool = {
     name: 'instagram_search',
     description:
-      'Search Instagram hashtags and view recent posts under those hashtags. Returns hashtag metadata and recent media. Note: This tool searches hashtags only; user and keyword search are not supported by Instagram Graph API. Requires INSTAGRAM_ACCESS_TOKEN vault secret.',
+      'Search Instagram hashtags and view recent posts under those hashtags. Returns hashtag metadata and recent media. Note: This tool searches hashtags only; user and keyword search are not supported by Instagram Graph API. Use `account` to pick which connected Instagram account.',
     inputSchema: SEARCH_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const args = (input ?? {}) as { query?: string; limit?: number };
+        const args = (input ?? {}) as { query?: string; limit?: number; account?: string };
         const query = String(args.query ?? '').trim();
 
         if (!query) {
@@ -122,7 +182,11 @@ export function makeInstagramTools(): Tool[] {
           return;
         }
 
-        const client = new InstagramClient(ctx);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create Instagram client' };
+          return;
+        }
 
         try {
           const hashtag = await client.searchHashtag(query);
@@ -159,9 +223,7 @@ export function makeInstagramTools(): Tool[] {
             },
           };
         } catch (err) {
-          if (err instanceof InstagramAuthError) {
-            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
-          } else if (err instanceof InstagramAPIError) {
+          if (err instanceof InstagramAPIError) {
             yield { type: 'error', message: err.message };
           } else {
             throw err;
@@ -174,40 +236,37 @@ export function makeInstagramTools(): Tool[] {
   const instagramGetProfileTool: Tool = {
     name: 'instagram_get_profile',
     description:
-      'Get authenticated user Instagram profile information including followers, bio, follower/following counts, and verification status. Requires INSTAGRAM_ACCESS_TOKEN vault secret.',
+      "Get a connected Instagram account's profile information including followers, bio, follower/following counts, and verification status. Use `account` to pick which connected Instagram account.",
     inputSchema: PROFILE_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const client = new InstagramClient(ctx);
+        const args = (input ?? {}) as { account?: string };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create Instagram client' };
+          return;
+        }
 
-        try {
-          const profile = await client.getAuthenticatedUser();
+        const profile = await client.getAuthenticatedUser();
 
-          if (!profile) {
-            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
-          } else {
-            yield {
-              type: 'result',
-              value: {
-                username: profile.username,
-                name: profile.name || profile.username,
-                bio: profile.biography || '',
-                followers: profile.followers_count ?? 0,
-                following: profile.follows_count ?? 0,
-                posts: profile.media_count ?? 0,
-                profile_picture: profile.profile_picture_url || '',
-                is_professional: profile.is_professional_account ?? false,
-                website: profile.website || '',
-                id: profile.id,
-              },
-            };
-          }
-        } catch (err) {
-          if (err instanceof InstagramAuthError) {
-            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
-          } else {
-            throw err;
-          }
+        if (!profile) {
+          yield { type: 'error', message: 'Profile not found' };
+        } else {
+          yield {
+            type: 'result',
+            value: {
+              username: profile.username,
+              name: profile.name || profile.username,
+              bio: profile.biography || '',
+              followers: profile.followers_count ?? 0,
+              following: profile.follows_count ?? 0,
+              posts: profile.media_count ?? 0,
+              profile_picture: profile.profile_picture_url || '',
+              is_professional: profile.is_professional_account ?? false,
+              website: profile.website || '',
+              id: profile.id,
+            },
+          };
         }
       },
     },
@@ -216,12 +275,16 @@ export function makeInstagramTools(): Tool[] {
   const instagramListFeedTool: Tool = {
     name: 'instagram_list_feed',
     description:
-      'Get authenticated user recent Instagram posts from your feed/account. Returns post captions, engagement metrics, and media URLs. Requires INSTAGRAM_ACCESS_TOKEN vault secret.',
+      "Get a connected Instagram account's recent posts from your feed/account. Returns post captions, engagement metrics, and media URLs. Use `account` to pick which connected Instagram account.",
     inputSchema: FEED_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const args = (input ?? {}) as { limit?: number };
-        const client = new InstagramClient(ctx);
+        const args = (input ?? {}) as { limit?: number; account?: string };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create Instagram client' };
+          return;
+        }
 
         try {
           const feed = await client.getUserFeed(Number(args.limit) || 20);
@@ -254,9 +317,7 @@ export function makeInstagramTools(): Tool[] {
             };
           }
         } catch (err) {
-          if (err instanceof InstagramAuthError) {
-            yield { type: 'error', message: "Instagram isn't connected — set INSTAGRAM_ACCESS_TOKEN in vault/env (Settings → Connections)" };
-          } else if (err instanceof InstagramAPIError) {
+          if (err instanceof InstagramAPIError) {
             yield { type: 'error', message: err.message };
           } else {
             throw err;

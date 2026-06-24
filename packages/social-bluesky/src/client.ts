@@ -1,131 +1,50 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { secretOpt, secretRequired } from './vault.js';
-import type {
-  CreateSessionResponse,
-  RefreshSessionResponse,
-  SessionState,
-  JwtPayload,
-  Facet,
-  FacetIndex,
-} from './types.js';
+// Bluesky (AT Protocol) client. Stateless across the vault: the constructor takes a handle + app
+// password (+ optional service host) — supplied by the resolver from a connected account, or by the
+// legacy single-secret fallback. Each call mints a fresh session JWT from the app password via
+// com.atproto.server.createSession, then posts/searches/reads the feed.
+import type { Facet, CreateSessionResponse, SessionState } from './types.js';
 
 const DEFAULT_SERVICE = 'https://bsky.social';
-const REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
 export class BlueskyClient {
+  private handle: string;
+  private appPassword: string;
   private service: string;
-  private ctx: ToolContext;
+  private session: SessionState | null;
 
-  constructor(
-    ctx: ToolContext,
-    service?: string
-  ) {
-    this.ctx = ctx;
+  constructor(handle: string, appPassword: string, service?: string) {
+    this.handle = handle;
+    this.appPassword = appPassword;
     this.service = service || DEFAULT_SERVICE;
+    this.session = null;
   }
 
-  private decodeJwtExpiry(jwt: string): Date | null {
-    const parts = jwt.split('.');
-    if (parts.length !== 3) return null;
+  private async createSession(): Promise<SessionState | null> {
+    if (this.session) return this.session;
+    if (!this.handle || !this.appPassword) return null;
     try {
-      const middle = parts[1];
-      if (!middle) return null;
-      const padded = middle.replace(/-/g, '+').replace(/_/g, '/');
-      const b64 = padded + '='.repeat((4 - (padded.length % 4)) % 4);
-      const json = Buffer.from(b64, 'base64').toString('utf-8');
-      const payload = JSON.parse(json) as { exp?: number };
-      if (typeof payload.exp !== 'number') return null;
-      return new Date(payload.exp * 1000);
+      const res = await fetch(`${this.service}/xrpc/com.atproto.server.createSession`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: this.handle, password: this.appPassword }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as CreateSessionResponse;
+      this.session = { accessJwt: data.accessJwt, did: data.did, service: this.service };
+      return this.session;
     } catch {
       return null;
     }
   }
 
-  private async createSession(identifier: string, password: string): Promise<CreateSessionResponse> {
-    const res = await fetch(`${this.service}/xrpc/com.atproto.server.createSession`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, password }),
-    });
-    if (!res.ok) {
-      throw new Error(`createSession failed: ${res.status} ${await res.text()}`);
-    }
-    return (await res.json()) as CreateSessionResponse;
-  }
-
-  private async refreshSession(refreshJwt: string): Promise<RefreshSessionResponse | null> {
-    const res = await fetch(`${this.service}/xrpc/com.atproto.server.refreshSession`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${refreshJwt}` },
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as RefreshSessionResponse;
-  }
-
-  async getValidAccessJwt(): Promise<SessionState | null> {
-    const handle = await secretOpt(this.ctx, 'BLUESKY_HANDLE');
-    const appPassword = await secretOpt(this.ctx, 'BLUESKY_APP_PASSWORD');
-
-    if (!handle || !appPassword) {
-      return null;
-    }
-
-    const accessJwtKey = 'BLUESKY_ACCESS_JWT';
-    const refreshJwtKey = 'BLUESKY_REFRESH_JWT';
-    const expiryKey = 'BLUESKY_ACCESS_JWT_EXPIRY';
-    const didKey = 'BLUESKY_DID';
-
-    // Fast path: cached access JWT not yet near expiry
-    const expiryStr = await secretOpt(this.ctx, expiryKey);
-    const accessJwt = await secretOpt(this.ctx, accessJwtKey);
-    const did = await secretOpt(this.ctx, didKey);
-
-    if (accessJwt && expiryStr && did) {
-      const expMs = new Date(expiryStr).getTime();
-      if (expMs - Date.now() > REFRESH_WINDOW_MS) {
-        return { accessJwt, did, service: this.service };
-      }
-    }
-
-    // Try refresh
-    const refreshJwt = await secretOpt(this.ctx, refreshJwtKey);
-    if (refreshJwt) {
-      const refreshed = await this.refreshSession(refreshJwt);
-      if (refreshed) {
-        const accessExp = this.decodeJwtExpiry(refreshed.accessJwt);
-        if (accessExp) {
-          await this.ctx.vault.writeSecret(accessJwtKey, refreshed.accessJwt);
-          await this.ctx.vault.writeSecret(refreshJwtKey, refreshed.refreshJwt);
-          await this.ctx.vault.writeSecret(expiryKey, accessExp.toISOString());
-          await this.ctx.vault.writeSecret(didKey, refreshed.did);
-        }
-        return {
-          accessJwt: refreshed.accessJwt,
-          did: refreshed.did,
-          service: this.service,
-        };
-      }
-    }
-
-    // Last resort: re-mint from app password
-    try {
-      const session = await this.createSession(handle, appPassword);
-      const accessExp = this.decodeJwtExpiry(session.accessJwt);
-      if (accessExp) {
-        await this.ctx.vault.writeSecret(accessJwtKey, session.accessJwt);
-        await this.ctx.vault.writeSecret(refreshJwtKey, session.refreshJwt);
-        await this.ctx.vault.writeSecret(expiryKey, accessExp.toISOString());
-        await this.ctx.vault.writeSecret(didKey, session.did);
-      }
-      return {
-        accessJwt: session.accessJwt,
-        did: session.did,
-        service: this.service,
-      };
-    } catch {
-      return null;
-    }
+  // Public connection probe: mint a session with the stored handle + app password. Returns the DID
+  // on success, or an error reason. Used by the Connections "Test" button (via the adapter).
+  async verify(): Promise<{ ok: boolean; did?: string; error?: string }> {
+    if (!this.handle || !this.appPassword) return { ok: false, error: 'handle and app password are required' };
+    const session = await this.createSession();
+    if (!session) return { ok: false, error: 'sign-in failed — check the handle, app password and service URL' };
+    return { ok: true, did: session.did };
   }
 
   private detectFacets(text: string): Facet[] {
@@ -182,22 +101,20 @@ export class BlueskyClient {
   }
 
   private graphemeCount(text: string): number {
-    if (typeof Intl !== 'undefined' && typeof (Intl as any).Segmenter === 'function') {
-      const seg = new (Intl as any).Segmenter('en', { granularity: 'grapheme' });
+    if (typeof Intl !== 'undefined' && typeof (Intl as { Segmenter?: unknown }).Segmenter === 'function') {
+      const seg = new (Intl as unknown as { Segmenter: new (l: string, o: { granularity: string }) => { segment(t: string): Iterable<unknown> } }).Segmenter(
+        'en',
+        { granularity: 'grapheme' },
+      );
       return Array.from(seg.segment(text)).length;
     }
     return Array.from(text).length;
   }
 
   async post(text: string, replyTo?: string): Promise<{ uri: string; cid: string; error?: string }> {
-    const session = await this.getValidAccessJwt();
+    const session = await this.createSession();
     if (!session) {
-      return {
-        uri: '',
-        cid: '',
-        error:
-          "Bluesky isn't connected — set BLUESKY_HANDLE and BLUESKY_APP_PASSWORD in vault/env (Settings → Connections)",
-      };
+      return { uri: '', cid: '', error: 'Bluesky session could not be created — check the handle and app password.' };
     }
 
     if (this.graphemeCount(text) > 300) {
@@ -244,22 +161,14 @@ export class BlueskyClient {
       const data = (await res.json()) as { uri: string; cid: string };
       return { uri: data.uri, cid: data.cid };
     } catch {
-      return {
-        uri: '',
-        cid: '',
-        error: 'Failed to post to Bluesky',
-      };
+      return { uri: '', cid: '', error: 'Failed to post to Bluesky' };
     }
   }
 
-  async readFeed(limit: number = 20): Promise<{ posts: Array<any>; error?: string }> {
-    const session = await this.getValidAccessJwt();
+  async readFeed(limit: number = 20): Promise<{ posts: Array<Record<string, unknown>>; error?: string }> {
+    const session = await this.createSession();
     if (!session) {
-      return {
-        posts: [],
-        error:
-          "Bluesky isn't connected — set BLUESKY_HANDLE and BLUESKY_APP_PASSWORD in vault/env (Settings → Connections)",
-      };
+      return { posts: [], error: 'Bluesky session could not be created — check the handle and app password.' };
     }
 
     try {
@@ -275,24 +184,17 @@ export class BlueskyClient {
         return { posts: [], error: `Feed fetch failed: ${res.status}` };
       }
 
-      const data = (await res.json()) as { feed?: Array<{ post: any }> };
+      const data = (await res.json()) as { feed?: Array<{ post: Record<string, unknown> }> };
       return { posts: data.feed?.map((item) => item.post) ?? [] };
     } catch {
-      return {
-        posts: [],
-        error: 'Failed to read feed from Bluesky',
-      };
+      return { posts: [], error: 'Failed to read feed from Bluesky' };
     }
   }
 
-  async search(query: string, limit: number = 20): Promise<{ posts: Array<any>; error?: string }> {
-    const session = await this.getValidAccessJwt();
+  async search(query: string, limit: number = 20): Promise<{ posts: Array<Record<string, unknown>>; error?: string }> {
+    const session = await this.createSession();
     if (!session) {
-      return {
-        posts: [],
-        error:
-          "Bluesky isn't connected — set BLUESKY_HANDLE and BLUESKY_APP_PASSWORD in vault/env (Settings → Connections)",
-      };
+      return { posts: [], error: 'Bluesky session could not be created — check the handle and app password.' };
     }
 
     try {
@@ -308,20 +210,14 @@ export class BlueskyClient {
         return { posts: [], error: `Search failed: ${res.status}` };
       }
 
-      const data = (await res.json()) as { posts?: Array<any> };
+      const data = (await res.json()) as { posts?: Array<Record<string, unknown>> };
       return { posts: data.posts ?? [] };
     } catch {
-      return {
-        posts: [],
-        error: 'Failed to search Bluesky',
-      };
+      return { posts: [], error: 'Failed to search Bluesky' };
     }
   }
 
-  private async fetchPostRef(
-    accessJwt: string,
-    uri: string
-  ): Promise<{ uri: string; cid: string } | null> {
+  private async fetchPostRef(accessJwt: string, uri: string): Promise<{ uri: string; cid: string } | null> {
     const url = new URL(`${this.service}/xrpc/app.bsky.feed.getPosts`);
     url.searchParams.set('uris', uri);
     const res = await fetch(url.toString(), {

@@ -1,29 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { secretOpt, secretRequired } from './vault.js';
+// Mastodon API client. Federated: bound to a single instance host + a bearer access token. The token
+// and host come from a connected account (resolved by the kit) or the legacy single-secret fallback.
 import type { Status, Account, SearchResults, CreateStatusRequest } from './types.js';
 
 export class MastodonClient {
   private instance: string;
   private accessToken: string;
-  private ctx: ToolContext;
 
-  constructor(ctx: ToolContext, instance: string, accessToken: string) {
-    this.ctx = ctx;
-    this.instance = instance.replace(/\/$/, '');
+  constructor(accessToken: string, host: string) {
     this.accessToken = accessToken;
-  }
-
-  static async create(ctx: ToolContext): Promise<MastodonClient | null> {
-    const instance = await secretOpt(ctx, 'MASTODON_INSTANCE');
-    const accessToken = await secretOpt(ctx, 'MASTODON_ACCESS_TOKEN');
-
-    if (!instance || !accessToken) {
-      return null;
-    }
-
-    const normalizedInstance = instance.startsWith('http') ? instance : `https://${instance}`;
-    return new MastodonClient(ctx, normalizedInstance, accessToken);
+    const h = host.startsWith('http') ? host : `https://${host}`;
+    this.instance = h.replace(/\/$/, '');
   }
 
   private getHeaders(): HeadersInit {

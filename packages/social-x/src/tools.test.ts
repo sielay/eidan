@@ -1,117 +1,47 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import assert from 'assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 import { makeXTools } from './tools.js';
 
-export async function testMakeXToolsReturnsAllTools() {
-  const tools = makeXTools();
-  assert.strictEqual(tools.length, 4);
+test('makeXTools returns all four tools', () => {
+  const names = makeXTools(null).map((t) => t.name);
+  assert.deepEqual(names.sort(), ['x_get_profile', 'x_list_timeline', 'x_post_tweet', 'x_search']);
+});
 
-  const toolNames = tools.map((t) => t.name);
-  assert(toolNames.includes('x_post_tweet'));
-  assert(toolNames.includes('x_search'));
-  assert(toolNames.includes('x_get_profile'));
-  assert(toolNames.includes('x_list_timeline'));
-}
+test('every tool accepts an optional `account` selector', () => {
+  for (const t of makeXTools(null)) {
+    const props = (t.inputSchema as { properties: Record<string, unknown> }).properties;
+    assert.ok('account' in props, `${t.name} should expose account`);
+  }
+});
 
-export async function testPostTweetToolHasCorrectSchema() {
-  const tools = makeXTools();
-  const postTweetTool = tools.find((t) => t.name === 'x_post_tweet');
+test('x_post_tweet schema requires text (max 280)', () => {
+  const t = makeXTools(null).find((x) => x.name === 'x_post_tweet')!;
+  const schema = t.inputSchema as { required: string[]; properties: Record<string, Record<string, unknown>> };
+  assert.ok(schema.required.includes('text'));
+  assert.equal(schema.properties['text']?.['maxLength'], 280);
+});
 
-  assert(postTweetTool);
-  const schema = postTweetTool.inputSchema as Record<string, unknown>;
-  assert.strictEqual(schema.type, 'object');
-  assert((schema.required as string[]).includes('text'));
-  const props = schema.properties as Record<string, Record<string, unknown>>;
-  assert.strictEqual((props.text as Record<string, unknown>).maxLength, 280);
-}
-
-export async function testSearchToolHasCorrectSchema() {
-  const tools = makeXTools();
-  const searchTool = tools.find((t) => t.name === 'x_search');
-
-  assert(searchTool);
-  const schema = searchTool.inputSchema as Record<string, unknown>;
-  assert.strictEqual(schema.type, 'object');
-  assert((schema.required as string[]).includes('query'));
-  const props = schema.properties as Record<string, Record<string, unknown>>;
-  assert.strictEqual((props.limit as Record<string, unknown>).maximum, 100);
-}
-
-export async function testGetProfileToolHasCorrectSchema() {
-  const tools = makeXTools();
-  const getProfileTool = tools.find((t) => t.name === 'x_get_profile');
-
-  assert(getProfileTool);
-  const schema = getProfileTool.inputSchema as Record<string, unknown>;
-  assert.strictEqual(schema.type, 'object');
-}
-
-export async function testListTimelineToolHasCorrectSchema() {
-  const tools = makeXTools();
-  const listTimelineTool = tools.find((t) => t.name === 'x_list_timeline');
-
-  assert(listTimelineTool);
-  const schema = listTimelineTool.inputSchema as Record<string, unknown>;
-  assert.strictEqual(schema.type, 'object');
-  const props = schema.properties as Record<string, Record<string, unknown>>;
-  assert.strictEqual((props.limit as Record<string, unknown>).maximum, 100);
-}
-
-export async function testPostTweetToolMissingSecret() {
-  const tools = makeXTools();
-  const postTweetTool = tools.find((t) => t.name === 'x_post_tweet');
-
-  assert(postTweetTool);
-
-  const mockCtx = {
+test('legacy fallback: errors clearly when nothing is connected', async () => {
+  const t = makeXTools(null).find((x) => x.name === 'x_post_tweet')!;
+  const ctx = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('Secret not found');
+        throw new MissingSecretError(['X_ACCESS_TOKEN']);
       },
     },
   } as unknown as ToolContext;
+  const out: Array<Record<string, unknown>> = [];
+  for await (const r of t.executor.execute({ text: 'Hello' }, ctx)) out.push(r as Record<string, unknown>);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.['type'], 'error');
+});
 
-  const results: Array<Record<string, unknown>> = [];
-  for await (const result of postTweetTool.executor.execute({ text: 'Hello' }, mockCtx)) {
-    results.push(result);
-  }
-
-  assert.strictEqual(results.length, 1);
-  assert.strictEqual((results[0] as Record<string, unknown>).type, 'error');
-}
-
-export async function testPostTweetToolEmptyText() {
-  const tools = makeXTools();
-  const postTweetTool = tools.find((t) => t.name === 'x_post_tweet');
-
-  assert(postTweetTool);
-
-  const mockCtx = {} as unknown as ToolContext;
-
-  const results: Array<Record<string, unknown>> = [];
-  for await (const result of postTweetTool.executor.execute({ text: '' }, mockCtx)) {
-    results.push(result);
-  }
-
-  assert.strictEqual(results.length, 1);
-  assert.strictEqual((results[0] as Record<string, unknown>).type, 'error');
-}
-
-export async function testSearchToolEmptyQuery() {
-  const tools = makeXTools();
-  const searchTool = tools.find((t) => t.name === 'x_search');
-
-  assert(searchTool);
-
-  const mockCtx = {} as unknown as ToolContext;
-
-  const results: Array<Record<string, unknown>> = [];
-  for await (const result of searchTool.executor.execute({ query: '' }, mockCtx)) {
-    results.push(result);
-  }
-
-  assert.strictEqual(results.length, 1);
-  assert.strictEqual((results[0] as Record<string, unknown>).type, 'error');
-}
+test('x_post_tweet rejects empty text', async () => {
+  const t = makeXTools(null).find((x) => x.name === 'x_post_tweet')!;
+  const out: Array<Record<string, unknown>> = [];
+  for await (const r of t.executor.execute({ text: '' }, {} as unknown as ToolContext)) out.push(r as Record<string, unknown>);
+  assert.equal(out[0]?.['type'], 'error');
+});

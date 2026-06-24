@@ -1,38 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { secretOpt } from './vault.js';
 import type {
   ThreadsPost,
   ThreadsUser,
   CreateThreadResponse,
-  SearchResponse,
-  TimelineResponse,
   ProfileResponse,
 } from './types.js';
 
 const THREADS_API_BASE = 'https://graph.threads.com/v18.0';
 
 export class ThreadsClient {
-  private ctx: ToolContext;
+  private accessToken: string;
 
-  constructor(ctx: ToolContext) {
-    this.ctx = ctx;
-  }
-
-  private async getAccessToken(): Promise<string | null> {
-    return await secretOpt(this.ctx, 'THREADS_ACCESS_TOKEN');
+  constructor(accessToken: string) {
+    this.accessToken = accessToken;
   }
 
   async post(text: string, replyTo?: string): Promise<{ id: string; error?: string }> {
-    const token = await this.getAccessToken();
-    if (!token) {
-      return {
-        id: '',
-        error:
-          "Threads isn't connected — set THREADS_ACCESS_TOKEN in vault/env (Settings → Connections)",
-      };
-    }
-
     if (text.length === 0) {
       return { id: '', error: 'Post text is required' };
     }
@@ -52,7 +35,7 @@ export class ThreadsClient {
       const res = await fetch(url.toString(), {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
@@ -73,15 +56,6 @@ export class ThreadsClient {
   }
 
   async search(query: string, limit: number = 20): Promise<{ posts: ThreadsPost[]; error?: string }> {
-    const token = await this.getAccessToken();
-    if (!token) {
-      return {
-        posts: [],
-        error:
-          "Threads isn't connected — set THREADS_ACCESS_TOKEN in vault/env (Settings → Connections)",
-      };
-    }
-
     if (!query.trim()) {
       return { posts: [], error: 'Search query is required' };
     }
@@ -95,7 +69,7 @@ export class ThreadsClient {
 
       const res = await fetch(url.toString(), {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${this.accessToken}`,
         },
       });
 
@@ -103,12 +77,12 @@ export class ThreadsClient {
         return { posts: [], error: `Search failed: ${res.status}` };
       }
 
-      const data = (await res.json()) as any;
+      const data = (await res.json()) as { data?: Array<{ id: string; name: string }> };
       const hashtags = data.data || [];
 
       const posts: ThreadsPost[] = hashtags
         .slice(0, Math.min(limit, 100))
-        .map((tag: any) => ({
+        .map((tag) => ({
           id: tag.id,
           text: `#${tag.name}`,
           timestamp: new Date().toISOString(),
@@ -129,15 +103,6 @@ export class ThreadsClient {
   }
 
   async getProfile(): Promise<{ user: ThreadsUser | null; error?: string }> {
-    const token = await this.getAccessToken();
-    if (!token) {
-      return {
-        user: null,
-        error:
-          "Threads isn't connected — set THREADS_ACCESS_TOKEN in vault/env (Settings → Connections)",
-      };
-    }
-
     try {
       const url = new URL(`${THREADS_API_BASE}/me`);
       url.searchParams.set(
@@ -147,7 +112,7 @@ export class ThreadsClient {
 
       const res = await fetch(url.toString(), {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${this.accessToken}`,
         },
       });
 
@@ -169,15 +134,6 @@ export class ThreadsClient {
   }
 
   async listTimeline(limit: number = 20): Promise<{ posts: ThreadsPost[]; error?: string }> {
-    const token = await this.getAccessToken();
-    if (!token) {
-      return {
-        posts: [],
-        error:
-          "Threads isn't connected — set THREADS_ACCESS_TOKEN in vault/env (Settings → Connections)",
-      };
-    }
-
     try {
       const url = new URL(`${THREADS_API_BASE}/me/threads`);
       url.searchParams.set('limit', String(Math.min(limit, 100)));
@@ -185,7 +141,7 @@ export class ThreadsClient {
 
       const res = await fetch(url.toString(), {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${this.accessToken}`,
         },
       });
 
@@ -193,19 +149,29 @@ export class ThreadsClient {
         return { posts: [], error: `Timeline fetch failed: ${res.status}` };
       }
 
-      const data = (await res.json()) as TimelineResponse;
+      const data = (await res.json()) as {
+        data?: Array<{
+          id: string;
+          text?: string;
+          timestamp: string;
+          permalink: string;
+          like_count?: number;
+          reply_count?: number;
+          repost_count?: number;
+        }>;
+      };
       const postsData = data.data || [];
 
       const posts: ThreadsPost[] = postsData
         .slice(0, Math.min(limit, 100))
-        .map((post: any) => ({
+        .map((post) => ({
           id: post.id,
-          text: post.text,
+          ...(post.text !== undefined ? { text: post.text } : {}),
           timestamp: post.timestamp,
           permalink: post.permalink,
-          like_count: post.like_count,
-          reply_count: post.reply_count,
-          repost_count: post.repost_count,
+          ...(post.like_count !== undefined ? { like_count: post.like_count } : {}),
+          ...(post.reply_count !== undefined ? { reply_count: post.reply_count } : {}),
+          ...(post.repost_count !== undefined ? { repost_count: post.repost_count } : {}),
           author: {
             id: 'me',
             username: 'me',
