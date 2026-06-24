@@ -2,6 +2,7 @@
 import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { DomainsDb } from './db.js';
+import { startImportServer } from './import-server.js';
 import { buildDomainsTools } from './tools.js';
 
 export const plugin: MatbotPluginSpec = {
@@ -17,6 +18,9 @@ export const plugin: MatbotPluginSpec = {
     const db = new DomainsDb(url);
     await db.ensureSchema();
     for (const tool of buildDomainsTools(db)) services.tools.register(tool);
-    console.log('[charles-domains] registered domains tools');
+    // Engine-side registrar import behind PanelProxy (vault key is read here, never in the browser).
+    const port = Number(process.env['EIDAN_DOMAINS_PORT'] ?? 8109);
+    startImportServer(services, db, { port, prefix: '/api/me/charles-domains' });
+    console.log(`[charles-domains] registered domains tools + import server on :${port}`);
   },
 };

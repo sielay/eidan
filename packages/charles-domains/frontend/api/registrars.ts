@@ -123,10 +123,11 @@ export async function POST(req: NextRequest): Promise<Response> {
         return Response.json({ error: "account not found" }, { status: 404 });
       }
 
-      // Proxy to engine tool endpoint to run domain_import with sealed credentials
-      // The engine tool has access to the vault and can decrypt the credentials
-      const engineUrl = new URL(process.env.EIDAN_ENGINE_URL || "http://localhost:8091");
-      engineUrl.pathname = "/api/tool/domain_import";
+      // Run the import on the engine (behind PanelProxy): it reads the sealed registrar key from the
+      // vault — which the web can never decrypt — and calls the registrar API under the caller's
+      // principal. See packages/charles-domains/src/import-server.ts.
+      const engineUrl = new URL(process.env.EIDAN_ENGINE_URL || "http://localhost:8090");
+      engineUrl.pathname = "/api/me/charles-domains/import";
 
       const engineRes = await fetch(engineUrl, {
         method: "POST",

@@ -52,8 +52,7 @@ export class DomainsDb {
            key_vault_key        text NOT NULL,
            status               text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
            created_at           timestamptz NOT NULL DEFAULT now(),
-           updated_at           timestamptz NOT NULL DEFAULT now(),
-           UNIQUE (user_id, registrar, name) WHERE status = 'active'
+           updated_at           timestamptz NOT NULL DEFAULT now()
          )`,
       );
       await c.query(
@@ -70,8 +69,7 @@ export class DomainsDb {
            nameservers          jsonb,
            metadata             jsonb NOT NULL DEFAULT '{}'::jsonb,
            created_at           timestamptz NOT NULL DEFAULT now(),
-           updated_at           timestamptz NOT NULL DEFAULT now(),
-           UNIQUE (user_id, lower(name)) WHERE status = 'active'
+           updated_at           timestamptz NOT NULL DEFAULT now()
          )`,
       );
       await c.query(
@@ -79,6 +77,14 @@ export class DomainsDb {
       );
       await c.query(
         `create index if not exists idx_${this.schema}_accounts_user on ${this.schema}.registrar_accounts (user_id)`,
+      );
+      // Partial uniques must be standalone indexes — a `UNIQUE (...) WHERE …` clause is NOT valid
+      // inside CREATE TABLE in Postgres (it parses but errors at runtime).
+      await c.query(
+        `create unique index if not exists uq_${this.schema}_accounts_active on ${this.schema}.registrar_accounts (user_id, registrar, name) where status = 'active'`,
+      );
+      await c.query(
+        `create unique index if not exists uq_${this.schema}_domains_active on ${this.schema}.domains (user_id, lower(name)) where status = 'active'`,
       );
     } finally {
       c.release();
