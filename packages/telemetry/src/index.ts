@@ -6,7 +6,15 @@ import { Db } from './db.js';
 import { calculateStaleThreshold } from './stale.js';
 
 const HEARTBEAT_MS = 30_000;
-const REAPER_INTERVAL_MS = Number(process.env['EIDAN_REAPER_INTERVAL_MS'] ?? '300000'); // 5 minutes default
+
+function parsePositiveInt(envVar: string | undefined, defaultValue: number): number {
+  if (!envVar) return defaultValue;
+  const parsed = Number(envVar);
+  if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
+  return parsed;
+}
+
+const REAPER_INTERVAL_MS = parsePositiveInt(process.env['EIDAN_REAPER_INTERVAL_MS'], 300000); // 5 minutes default
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // session.id is sometimes the conversation uuid and sometimes an opaque runner id; node_events
@@ -70,7 +78,11 @@ export const plugin: MatbotPluginSpec = {
     if (typeof timer.unref === 'function') timer.unref();
 
     // Stale-marking reaper: mark nodes offline if they haven't been seen in STALE_THRESHOLD_MS.
-    const staleMs = process.env['EIDAN_NODE_STALE_MS'] ? Number(process.env['EIDAN_NODE_STALE_MS']) : undefined;
+    const staleEnv = process.env['EIDAN_NODE_STALE_MS'];
+    const staleMs = staleEnv ? (() => {
+      const parsed = Number(staleEnv);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    })() : undefined;
     const staleThreshold = calculateStaleThreshold(HEARTBEAT_MS, staleMs);
     const reap = async (): Promise<void> => {
       try {

@@ -50,7 +50,7 @@ export class Db {
       `update eidan.node_heartbeats
        set status = 'offline', updated_at = now()
        where status = 'online' and last_seen < now() - make_interval(millis => $1)`,
-      [thresholdMs],
+      [Math.floor(thresholdMs)],
     );
   }
 
