@@ -8,5 +8,6 @@ export function calculateStaleThreshold(heartbeatMs: number, envMs?: number): nu
   const defaultThreshold = 3 * heartbeatMs;
   const floor = 5 * 60 * 1000; // 5 minutes
   const threshold = Math.max(defaultThreshold, floor);
-  return envMs !== undefined ? Math.max(envMs, floor) : threshold;
+  // envMs is pre-floored by the caller (index.ts), so use it directly if provided
+  return envMs !== undefined ? envMs : threshold;
 }

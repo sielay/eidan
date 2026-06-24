@@ -6,6 +6,8 @@ import { Db } from './db.js';
 import { calculateStaleThreshold } from './stale.js';
 
 const HEARTBEAT_MS = 30_000;
+const MIN_STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes minimum
+const REAPER_INTERVAL_MS = Number(process.env['EIDAN_REAPER_INTERVAL_MS'] ?? '300000'); // 5 minutes default
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // session.id is sometimes the conversation uuid and sometimes an opaque runner id; node_events
@@ -69,7 +71,7 @@ export const plugin: MatbotPluginSpec = {
 
     // Stale-marking reaper: mark nodes offline if they haven't been seen in STALE_THRESHOLD_MS.
     const staleMs = process.env['EIDAN_NODE_STALE_MS']
-      ? Math.max(Number(process.env['EIDAN_NODE_STALE_MS']), 0)
+      ? Math.max(Number(process.env['EIDAN_NODE_STALE_MS']), MIN_STALE_THRESHOLD_MS)
       : undefined;
     const staleThreshold = calculateStaleThreshold(HEARTBEAT_MS, staleMs);
     const reap = async (): Promise<void> => {
@@ -79,7 +81,7 @@ export const plugin: MatbotPluginSpec = {
         console.warn('[telemetry] reaper failed:', (err as Error).message);
       }
     };
-    reaperTimer = setInterval(() => { void reap(); }, HEARTBEAT_MS);
+    reaperTimer = setInterval(() => { void reap(); }, REAPER_INTERVAL_MS);
     if (typeof reaperTimer.unref === 'function') reaperTimer.unref();
 
     // Activity stream. Both handlers are fire-and-forget observers — telemetry must never add latency
