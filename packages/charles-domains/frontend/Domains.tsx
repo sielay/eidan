@@ -82,7 +82,7 @@ export default function Domains(): React.ReactElement {
       });
       if (res.ok) {
         setShowAddForm(false);
-        const payload = (await authFetch("/api/charles/domains")) as Response;
+        const payload = await authFetch("/api/charles/domains");
         if (payload.ok) {
           const data = (await payload.json()) as DomainsPayload;
           setDomains(data.domains);
@@ -117,7 +117,7 @@ export default function Domains(): React.ReactElement {
       });
       if (res.ok) {
         setShowConnectForm(false);
-        const payload = (await authFetch("/api/charles/domains/registrars")) as Response;
+        const payload = await authFetch("/api/charles/domains/registrars");
         if (payload.ok) {
           const data = (await payload.json()) as RegistrarsPayload;
           setAccounts(data.accounts);
@@ -141,7 +141,7 @@ export default function Domains(): React.ReactElement {
         }),
       });
       if (res.ok) {
-        const payload = (await authFetch("/api/charles/domains")) as Response;
+        const payload = await authFetch("/api/charles/domains");
         if (payload.ok) {
           const data = (await payload.json()) as DomainsPayload;
           setDomains(data.domains);

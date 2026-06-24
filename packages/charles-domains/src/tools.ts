@@ -290,7 +290,7 @@ export function buildDomainsTools(db: DomainsDb): MatbotTool[] {
             if (accountId) upsertFields.registrarAccountId = accountId;
             if (domain.expiresAt) upsertFields.expiresAt = domain.expiresAt;
             if (domain.autoRenew !== null) upsertFields.autoRenew = domain.autoRenew;
-            if (domain.nameservers && domain.nameservers.length > 0) upsertFields.nameservers = domain.nameservers;
+            if (domain.nameservers) upsertFields.nameservers = domain.nameservers;
             await db.upsertDomain(upsertFields);
             if (existing) updated++;
             else imported++;

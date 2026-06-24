@@ -335,6 +335,16 @@ export class DomainsDb {
   }
 
   private rowToDomain(row: Record<string, unknown>): Domain {
+    const nameserversRaw = row['nameservers'];
+    let nameservers: string[] | null = null;
+    if (nameserversRaw) {
+      if (typeof nameserversRaw === 'string') {
+        nameservers = JSON.parse(nameserversRaw);
+      } else {
+        nameservers = nameserversRaw as string[];
+      }
+    }
+
     return {
       id: String(row['id']),
       user_id: String(row['user_id']),
@@ -345,7 +355,7 @@ export class DomainsDb {
       status: String(row['status']),
       expires_at: (row['expires_at'] as Date | null) ?? null,
       auto_renew: (row['auto_renew'] as boolean | null) ?? null,
-      nameservers: (row['nameservers'] as string[] | null) ?? null,
+      nameservers,
       metadata: (row['metadata'] as Record<string, unknown>) ?? {},
       created_at: row['created_at'] as Date,
       updated_at: row['updated_at'] as Date,
