@@ -4,7 +4,10 @@
 // plugin_ventures.* schema, owner-scoped. Shipped in the bundle's frontend package because the data
 // is private to the Charles bundle; the build-context assembly mounts it under apps/web.
 //   GET  ?venture=<id>  → { ventures, current (incl. identity), resources }
-//   POST { venture_id, kind, provider, external_ref, label? } → attach a resource
+//   POST { venture_id, kind, provider, external_ref, label?, connection_id? } → attach a resource.
+//     connection_id (when the web picker resolved a real connected account) is stored under
+//     metadata.connection_id — the same stable binding the venture_attach_resource agent tool writes,
+//     so a venture asset points at a live plugin connection rather than free-text.
 import type { NextRequest } from "next/server";
 
 import { verifyBearer } from "@/server/auth";
@@ -33,7 +36,7 @@ interface ResourceRow {
   status: string;
 }
 
-const RES_KINDS = ["social_account", "mailing_list", "analytics_property"];
+const RES_KINDS = ["social_account", "mailing_list", "analytics_property", "github_repo", "webpage", "domain"];
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,6 +98,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   const provider = typeof body["provider"] === "string" ? body["provider"].trim() : "";
   const externalRef = typeof body["external_ref"] === "string" ? body["external_ref"].trim() : "";
   const label = typeof body["label"] === "string" && body["label"].trim() ? body["label"].trim() : null;
+  const connectionId = typeof body["connection_id"] === "string" && body["connection_id"].trim() ? body["connection_id"].trim() : null;
+  const metadata = connectionId ? { connection_id: connectionId } : {};
 
   if (!ventureId) return Response.json({ error: "venture_id is required" }, { status: 400 });
   if (!RES_KINDS.includes(kind)) return Response.json({ error: `kind must be one of ${RES_KINDS.join(", ")}` }, { status: 400 });
@@ -112,10 +117,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (owns.rowCount === 0) return null;
       const r = await c.query(
         `insert into plugin_ventures.venture_resources
-            (venture_id, user_id, kind, provider, external_ref, label)
-         values ($1, $2, $3, $4, $5, $6)
+            (venture_id, user_id, kind, provider, external_ref, label, metadata)
+         values ($1, $2, $3, $4, $5, $6, $7::jsonb)
          returning id, kind, provider, external_ref, label, status`,
-        [ventureId, sess.userId, kind, provider, externalRef, label],
+        [ventureId, sess.userId, kind, provider, externalRef, label, JSON.stringify(metadata)],
       );
       return r.rows[0] as ResourceRow;
     });
@@ -129,4 +134,58 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     return Response.json({ error: "could not attach resource" }, { status: 500 });
   }
+}
+
+// PUT { id, label } → rename an attached resource (the human label only; the underlying connection
+// binding — provider/external_ref/connection_id — is immutable here, change it by re-attaching).
+export async function PUT(req: NextRequest): Promise<Response> {
+  const sess = verifyBearer(req);
+  if (!sess) return new Response("unauthorized", { status: 401 });
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+
+  const id = typeof body["id"] === "string" ? body["id"].trim() : "";
+  // An empty/whitespace label clears it (the row falls back to showing the provider in the UI).
+  const label = typeof body["label"] === "string" && body["label"].trim() ? body["label"].trim() : null;
+  if (!id) return Response.json({ error: "id is required" }, { status: 400 });
+
+  const resource = await withUser(sess.userId, async (c) => {
+    const r = await c.query(
+      `update plugin_ventures.venture_resources
+          set label = $3, updated_at = now()
+        where id = $1 and user_id = $2 and status = 'active'
+      returning id, kind, provider, external_ref, label, status`,
+      [id, sess.userId, label],
+    );
+    return r.rows[0] as ResourceRow | undefined;
+  });
+  if (!resource) return Response.json({ error: "no such resource" }, { status: 404 });
+  return Response.json({ ok: true, resource });
+}
+
+// DELETE ?id=<id> → detach a resource (soft: status→archived, freeing the active-unique slot so the
+// same account can be re-attached later, here or to another venture).
+export async function DELETE(req: NextRequest): Promise<Response> {
+  const sess = verifyBearer(req);
+  if (!sess) return new Response("unauthorized", { status: 401 });
+
+  const id = req.nextUrl.searchParams.get("id")?.trim() ?? "";
+  if (!id) return Response.json({ error: "id is required" }, { status: 400 });
+
+  const ok = await withUser(sess.userId, async (c) => {
+    const r = await c.query(
+      `update plugin_ventures.venture_resources
+          set status = 'archived', updated_at = now()
+        where id = $1 and user_id = $2 and status = 'active'`,
+      [id, sess.userId],
+    );
+    return (r.rowCount ?? 0) > 0;
+  });
+  if (!ok) return Response.json({ error: "no such resource" }, { status: 404 });
+  return Response.json({ ok: true });
 }

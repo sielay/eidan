@@ -13,7 +13,7 @@
 // mandates first) — the operator records the handle/id by hand; there is no live integration. Every
 // vendor/platform is `planned` until its adapter ships.
 
-export const RESOURCE_KINDS = ['social_account', 'mailing_list', 'analytics_property'] as const;
+export const RESOURCE_KINDS = ['social_account', 'mailing_list', 'analytics_property', 'github_repo', 'webpage', 'domain'] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 export type ProviderStatus = 'available' | 'planned';
 
@@ -60,6 +60,40 @@ function resolveManualName(ref: string): ResolvedRef {
   return { ok: true, value: v };
 }
 
+// A GitHub repo, as "owner/name" — accept either that bare form or any github.com URL and reduce to
+// the canonical owner/name. (Regexes are linear / char-class only — no nested quantifiers / ReDoS.)
+function resolveRepo(ref: string): ResolvedRef {
+  let v = ref.trim();
+  if (!v) return { ok: false, error: 'a repo (owner/name) or GitHub URL is required' };
+  const m = v.match(/github\.com\/([^/\s]+)\/([^/\s#?]+)/i);
+  if (m) v = `${m[1]}/${m[2]}`;
+  v = v.replace(/\.git$/i, '').replace(/^\/+|\/+$/g, '');
+  if (/\s/.test(v)) return { ok: false, error: 'a repo must not contain spaces' };
+  const parts = v.split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return { ok: false, error: 'expected "owner/name" or a GitHub repo URL' };
+  return { ok: true, value: v };
+}
+
+// A web address — default the scheme to https:// and require a host with a dot.
+function resolveUrl(ref: string): ResolvedRef {
+  let v = ref.trim();
+  if (!v) return { ok: false, error: 'a URL is required' };
+  if (/\s/.test(v)) return { ok: false, error: 'a URL must not contain spaces' };
+  if (!/^https?:\/\//i.test(v)) v = `https://${v}`;
+  if (!/^https?:\/\/[^/\s.]+\.[^/\s]+/i.test(v)) return { ok: false, error: 'enter a valid web address' };
+  return { ok: true, value: v };
+}
+
+// A domain name — strip any scheme / leading www / path, lowercase, require a dotted hostname.
+function resolveDomain(ref: string): ResolvedRef {
+  let v = ref.trim().toLowerCase();
+  if (!v) return { ok: false, error: 'a domain is required' };
+  v = v.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+  if (/\s/.test(v)) return { ok: false, error: 'a domain must not contain spaces' };
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(v)) return { ok: false, error: 'enter a valid domain (e.g. example.com)' };
+  return { ok: true, value: v };
+}
+
 // The known universe of providers per kind. `manual` is available for every kind; the rest are the
 // roadmapped vendors/platforms, planned until their adapter ships. Keep the provider names in step
 // with the vr_provider_chk CHECK in sql/0004_venture_resource_provider.sql (the DB backstop).
@@ -87,6 +121,17 @@ export const REGISTRY: ProviderAdapter[] = [
   { kind: 'analytics_property', provider: 'ga4', label: 'Google Analytics 4', status: 'planned' },
   { kind: 'analytics_property', provider: 'vercel', label: 'Vercel Analytics', status: 'planned' },
   { kind: 'analytics_property', provider: 'plausible', label: 'Plausible', status: 'planned' },
+  // github_repo — a source repository under the venture. Manual today (owner/name); `github` becomes
+  // available when a GitHub connection adapter ships (list repos from a connection).
+  { kind: 'github_repo', provider: 'manual', label: 'Manual (owner/name)', status: 'available', resolveRef: resolveRepo },
+  { kind: 'github_repo', provider: 'github', label: 'GitHub', status: 'planned' },
+  // webpage — any web address tied to the venture (site, doc, dashboard). Manual URLs.
+  { kind: 'webpage', provider: 'manual', label: 'Manual (URL)', status: 'available', resolveRef: resolveUrl },
+  // domain — a registered domain. `manual` for hand-tracked; godaddy/cyberfolks are imported into the
+  // charles-domains inventory and attached by id. external_ref is the bare domain name (public).
+  { kind: 'domain', provider: 'manual', label: 'Manual (domain)', status: 'available', resolveRef: resolveDomain },
+  { kind: 'domain', provider: 'godaddy', label: 'GoDaddy', status: 'available', resolveRef: resolveDomain },
+  { kind: 'domain', provider: 'cyberfolks', label: 'cyberfolks', status: 'available', resolveRef: resolveDomain },
 ];
 
 export function isResourceKind(kind: string): kind is ResourceKind {

@@ -36,6 +36,14 @@
         {
           "path": "/api/charles/ventures/lookup",
           "handler": "api/lookup.ts"
+        },
+        {
+          "path": "/api/charles/ventures/items",
+          "handler": "api/items.ts"
+        },
+        {
+          "path": "/api/charles/ventures/boards",
+          "handler": "api/boards.ts"
         }
       ],
       "nav": {

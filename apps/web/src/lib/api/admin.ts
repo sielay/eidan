@@ -11,17 +11,6 @@ import { authFetch } from "@/lib/auth";
  * codegen emits — see the schemas commit for the rationale.
  */
 
-export interface NodePluginInfo {
-  name: string;
-  version: string;
-  tier: "core" | "pro" | "commercial" | string;
-}
-
-export interface NodeServedKind {
-  kind: string;
-  capacity: number;
-}
-
 export interface NodeInfo {
   node_id: string;
   node_type: "pi" | "fly" | "heroku" | "k8s" | "local" | string;
@@ -29,10 +18,10 @@ export interface NodeInfo {
   last_seen: string;
   seconds_since: number;
   metadata: Record<string, unknown>;
-  plugins: NodePluginInfo[];
-  // Job kinds this node serves from eidan.jobs, with per-kind capacity
-  // (issue #249). Optional: legacy nodes / older backends omit it.
-  served_kinds?: NodeServedKind[];
+  // The telemetry heartbeat writes these as plain string arrays: `plugins` = the node's tool names
+  // (services.tools.list()), `served_kinds` = the job kinds it serves (EIDAN_JOB_KINDS).
+  plugins: string[];
+  served_kinds?: string[];
 }
 
 interface NodeListResponse {

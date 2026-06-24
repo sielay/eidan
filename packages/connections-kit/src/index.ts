@@ -33,5 +33,5 @@ export {
 } from './resolve.js';
 export type { ResolvedToken, ResolveOpts, SealFn } from './resolve.js';
 export { registerSocialConnection } from './social-connections.js';
-export type { SocialConnectionsService, SocialIdentity } from './social-connections.js';
+export type { SocialConnectionsService, SocialIdentity, ConnectableRef } from './social-connections.js';
 export { makeAccountsTool } from './accounts-tool.js';

@@ -1,0 +1,111 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+   Charles domains — screen-specific styles. Extends core tokens + primitives (.btn/.card/.grid/etc). */
+
+/* Forms and sections */
+.domains-form {
+  padding: var(--s3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.domains-form h3 {
+  font-size: var(--fs-18);
+  margin-bottom: var(--s3);
+}
+
+.domains-form label {
+  display: block;
+  margin-bottom: var(--s1);
+  font-size: var(--fs-14);
+  font-weight: 500;
+}
+
+.domains-form input,
+.domains-form select {
+  width: 100%;
+  padding: var(--s2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-14);
+  font-family: inherit;
+}
+
+.domains-form input:focus,
+.domains-form select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-tint);
+}
+
+/* Domain cards */
+.domain-card {
+  padding: var(--s3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s3);
+}
+
+.domain-card strong {
+  font-size: var(--fs-16);
+  display: block;
+  margin-bottom: var(--s1);
+}
+
+.domain-meta {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s1);
+  font-size: var(--fs-13);
+  color: var(--color-muted);
+}
+
+.domain-status {
+  font-size: var(--fs-12);
+  padding: var(--s1) var(--s2);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.domain-status.active {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.domain-status.archived {
+  background: var(--color-muted-bg);
+  color: var(--color-muted);
+}
+
+/* Registrar accounts section */
+.registrar-list {
+  display: grid;
+  gap: var(--s2);
+}
+
+.registrar-card {
+  padding: var(--s3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.registrar-card > div:first-child strong {
+  display: block;
+  margin-bottom: var(--s1);
+  text-transform: capitalize;
+}
+
+.registrar-card > div:first-child p {
+  margin: 0;
+  font-size: var(--fs-13);
+  color: var(--color-muted);
+}

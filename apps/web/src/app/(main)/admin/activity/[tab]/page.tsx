@@ -2,39 +2,21 @@
 import { notFound } from "next/navigation";
 
 import { ActivityChrome } from "@/components/admin/ActivityChrome";
-import { ConversationsPane } from "@/components/admin/ConversationsPane";
-import { CursorsPane } from "@/components/admin/CursorsPane";
 import { DashboardPane } from "@/components/admin/DashboardPane";
-import { JobsBoard } from "@/components/admin/JobsBoard";
-import { LivePane } from "@/components/admin/LivePane";
 import { LogsPane } from "@/components/admin/LogsPane";
 import { NodesPane } from "@/components/admin/NodesPane";
-import { RoutinesPane } from "@/components/admin/RoutinesPane";
-import { TriggersPane } from "@/components/admin/TriggersPane";
 
+// Admin is intentionally lean: conversations have their own surface (/c/…); jobs have theirs (/jobs);
+// triggers/routines were retired into agents (eidan.agent_triggers); the cursors pane only ever showed
+// data when the gitignored EIDAN_ADMIN_PANELS was set. log + live merged into one streaming, searchable
+// "live" view (the LogsPane). Trimmed 2026-06-24.
 const TAB_COMPONENTS: Record<string, () => React.ReactElement> = {
   dashboard: DashboardPane,
-  conversations: ConversationsPane,
   nodes: NodesPane,
-  triggers: TriggersPane,
-  routines: RoutinesPane,
-  jobs: JobsBoard,
-  cursors: CursorsPane,
-  log: LogsPane,
-  live: LivePane,
+  live: LogsPane,
 };
 
-const TAB_ORDER = [
-  "dashboard",
-  "conversations",
-  "nodes",
-  "triggers",
-  "routines",
-  "jobs",
-  "cursors",
-  "log",
-  "live",
-] as const;
+const TAB_ORDER = ["dashboard", "nodes", "live"] as const;
 
 /**
  * Tab router for `/admin/activity/[tab]` (docs/014 §3 admin row).

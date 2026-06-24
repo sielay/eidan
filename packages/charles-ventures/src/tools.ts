@@ -14,6 +14,7 @@ declare module '@matatbread/matbot-plugin-api' {
     SocialConnections?: {
       providers(): string[];
       lookup(provider: string, handle: string): Promise<{ externalId: string; handle: string } | null>;
+      list(provider: string): Promise<Array<{ id: string; handle: string; label: string }>>;
     };
   }
 }
@@ -215,6 +216,50 @@ async function resolveVentureRef(q: Q, userId: string, ref: string): Promise<str
 /** Build the venture tools, closed over the plugin's Db. */
 export function buildVenturesTools(db: Db, social?: SocialConnectionsLookup): Tool[] {
   return [
+    {
+      name: 'venture_connectable_resources',
+      description:
+        'List the REAL plugin connections you can attach to a venture for a given kind + provider — e.g. the ' +
+        "operator's connected social accounts. Attach a specific connection, not free text: call this for a " +
+        'social_account before venture_attach_resource, then pass a returned `ref` as external_ref.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['kind', 'provider'],
+        properties: {
+          kind: { type: 'string', description: `Resource kind (one of ${RES_KINDS.join(', ')}).` },
+          provider: { type: 'string', description: 'Provider, e.g. x, linkedin, mastodon.' },
+        },
+      },
+      executor: {
+        async *execute(input) {
+          const args = (input ?? {}) as Record<string, unknown>;
+          const kind = str(args['kind']);
+          const provider = str(args['provider']).trim();
+          if (!isResourceKind(kind)) return yield { type: 'error', message: `kind must be one of ${RES_KINDS.join(', ')}` };
+          if (kind === 'social_account' && social && social.providers().includes(provider)) {
+            const items = await social.list(provider);
+            return yield {
+              type: 'result',
+              value: {
+                kind,
+                provider,
+                connectable: items.map((c) => ({ ref: c.handle, id: c.id, label: c.label })),
+              },
+            };
+          }
+          return yield {
+            type: 'result',
+            value: {
+              kind,
+              provider,
+              connectable: [],
+              note: `no live connections for ${provider} — connect one under Connections, or attach as provider 'manual'.`,
+            },
+          };
+        },
+      },
+    },
     {
       name: 'ventures_create',
       description:
@@ -527,17 +572,22 @@ export function buildVenturesTools(db: Db, social?: SocialConnectionsLookup): To
           // Live check: when a social-* plugin is loaded and backs this provider, require the handle to
           // be an actually-connected account (and canonicalise to its registry handle). Skipped when the
           // plugin isn't loaded so Charles still works standalone (and for non-social providers).
+          let connectionMeta: Record<string, unknown> | undefined;
           if (social && kind === 'social_account' && social.providers().includes(provider)) {
             const found = await social.lookup(provider, externalRef);
             if (!found) {
+              const opts = (await social.list(provider)).map((c) => c.handle).filter(Boolean);
+              const hint = opts.length ? ` Connected ${provider} accounts: ${opts.join(', ')}.` : '';
               return yield {
                 type: 'error',
                 message:
                   `no connected ${provider} account matches "${externalRef}" — connect it under ` +
-                  `Connections first, or attach it as provider 'manual' to track it by hand.`,
+                  `Connections first, or attach it as provider 'manual' to track it by hand.${hint}`,
               };
             }
             externalRef = found.handle || externalRef;
+            // Bind the asset to the actual connection by its stable id (survives a handle/name change).
+            if (found.externalId) connectionMeta = { connection_id: found.externalId };
           }
           const label = args['label'] == null ? null : str(args['label']);
           const row = await db.withPrincipalTx((q) =>
@@ -548,6 +598,7 @@ export function buildVenturesTools(db: Db, social?: SocialConnectionsLookup): To
               provider,
               externalRef,
               label,
+              ...(connectionMeta ? { metadata: connectionMeta } : {}),
             }),
           );
           if (!row) return yield { type: 'error', message: 'could not attach resource' };

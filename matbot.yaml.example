@@ -26,7 +26,7 @@ plugins:
   - ./packages/auth # WebPrincipalResolver: Bearer JWT (HS256) -> per-request Principal (RLS)
   - ./packages/notify # topic->channel routing (Slack/Telegram); dry-run unless EIDAN_NOTIFY_ROUTES
   - ./packages/jobs # delegation work-queue worker (eidan.jobs); bundles add kind handlers
-  - ./packages/routines # recurring scheduled prompts (eidan.routines): poll loop runs each due routine as a turn (owner tz) and delivers via notify topic "routine". After notify + jobs. Tune with EIDAN_ROUTINE_POLL_MS / EIDAN_ROUTINE_GRACE_MIN
+  - ./packages/agents # user-defined agents + composable triggers (schedule|sensor|webhook); the schedule trigger replaces the retired @eidandev/routines. Dispatch loop runs due triggers as turns (owner tz, cross-node deduped) and delivers via notify topic "agent".
   - ./packages/frontend-agui # AG-UI turn stream + conversation REST (:8090)
   - ./packages/frontend-telegram # inbound Telegram chat surface (long-poll) + potem-style account linking. Bot token from vault ${EIDAN_TELEGRAM_BOT_TOKEN} OR env EIDAN_TELEGRAM_BOT_TOKEN/TELEGRAM_BOT_TOKEN; set EIDAN_WEB_URL for the /start link. A chat binds to a user via /start -> web sign-in; ${EIDAN_TELEGRAM_ALLOWLIST} (JSON {telegram_id: principal_id}) is an optional fallback. Registers TelegramChats for outbound (routines/replies). Multi-node: set EIDAN_TELEGRAM_POLL=false on all but ONE node (only one may long-poll a bot)
   - ./packages/mcp-server # inbound MCP (JSON-RPC) (:8091)

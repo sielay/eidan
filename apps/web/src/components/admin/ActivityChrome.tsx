@@ -6,13 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/components/providers/auth-provider";
 import * as React from "react";
 
-import {
-  listAdminJobs,
-  listAdminNodes,
-  listAdminRoutines,
-  listAdminTriggers,
-} from "@/lib/api/admin";
-import { listConversations } from "@/lib/api/conversations";
+import { listAdminJobs, listAdminNodes } from "@/lib/api/admin";
 import { cn } from "@/lib/utils";
 
 const ACTIVE_JOB_STATUSES = new Set(["queued", "claimed", "running"]);
@@ -35,17 +29,10 @@ const ACTIVE_JOB_STATUSES = new Set(["queued", "claimed", "running"]);
  * while staying cheap on a deployment with a hand-counted plugin
  * count.
  */
-const ACTIVITY_TABS = [
-  "dashboard",
-  "conversations",
-  "nodes",
-  "triggers",
-  "routines",
-  "jobs",
-  "cursors",
-  "log",
-  "live",
-] as const;
+const ACTIVITY_TABS = ["dashboard", "nodes", "live"] as const;
+
+// Tabs that want the full content width (the wide live log table) rather than the reading-width column.
+const WIDE_TABS = new Set<string>(["live"]);
 
 export function ActivityChrome({
   activeTab,
@@ -57,12 +44,6 @@ export function ActivityChrome({
   const { user } = useAuth();
   const [nodesOnline, setNodesOnline] = React.useState<number | null>(null);
   const [nodesTotal, setNodesTotal] = React.useState<number | null>(null);
-  const [conversationsCount, setConversationsCount] = React.useState<number | null>(
-    null,
-  );
-  const [triggersCount, setTriggersCount] = React.useState<number | null>(null);
-  const [routinesCount, setRoutinesCount] = React.useState<number | null>(null);
-  const [dlqCount, setDlqCount] = React.useState<number | null>(null);
   const [jobsActive, setJobsActive] = React.useState<number | null>(null);
 
   React.useEffect(() => {
@@ -78,25 +59,6 @@ export function ActivityChrome({
           // stored row status.
           setNodesOnline(rows.filter((n) => n.seconds_since <= 90).length);
           setNodesTotal(rows.length);
-        })
-        .catch(() => {});
-      void listConversations({ limit: 100 })
-        .then(({ conversations }) => {
-          if (cancelled) return;
-          setConversationsCount(conversations.length);
-        })
-        .catch(() => {});
-      void listAdminTriggers()
-        .then((body) => {
-          if (cancelled) return;
-          setTriggersCount(body.triggers.length);
-          setDlqCount(body.dlq_count);
-        })
-        .catch(() => {});
-      void listAdminRoutines()
-        .then((rows) => {
-          if (cancelled) return;
-          setRoutinesCount(rows.filter((r) => r.enabled).length);
         })
         .catch(() => {});
       void listAdminJobs()
@@ -118,7 +80,7 @@ export function ActivityChrome({
   }, [user]);
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4 px-6 py-6">
+    <div className={cn("mx-auto flex flex-col gap-4 px-6 py-6", WIDE_TABS.has(activeTab) ? "max-w-none" : "max-w-4xl")}>
       <header className="flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="text-xl font-semibold tracking-tight">Activity</h1>
         <div className="flex flex-wrap items-center gap-3 font-mono text-xs text-muted-foreground">
@@ -126,18 +88,7 @@ export function ActivityChrome({
             {nodesOnline ?? "—"} / {nodesTotal ?? "—"} nodes online
           </span>
           <span>·</span>
-          <span>{conversationsCount ?? "—"} conversations</span>
-          <span>·</span>
-          <span>{triggersCount ?? "—"} triggers</span>
-          <span>·</span>
-          <span>{routinesCount ?? "—"} routines</span>
-          <span>·</span>
           <span>{jobsActive ?? "—"} jobs active</span>
-          {dlqCount !== null && dlqCount > 0 ? (
-            <span className="rounded bg-red-100 dark:bg-red-900/50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-red-800 dark:text-red-200">
-              {dlqCount} dlq
-            </span>
-          ) : null}
         </div>
       </header>
 

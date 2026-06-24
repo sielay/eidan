@@ -18,7 +18,7 @@ import { join } from "node:path";
 // from the DB vault for later plugins).
 export const CORE_PLUGINS = [
   "storage-postgres", "vault-postgres", "llm-calls", "telemetry", "tool-guard", "transcribe", "memory", "tool-store", "decisions", "auth", "notify", "jobs",
-  "frontend-agui", "mcp-server", "a2a-server", "secrets-api", "procedures", "escalations", "routines", "agents", "frontend-telegram",
+  "frontend-agui", "mcp-server", "a2a-server", "secrets-api", "procedures", "escalations", "agents", "frontend-telegram",
   // integrations: read-through mail / calendar / drive / gmail over the operator's vault-sealed
   // accounts, each with its own admin screen.
   "imap", "ical", "google", "gdrive",

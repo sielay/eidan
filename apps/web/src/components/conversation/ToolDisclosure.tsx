@@ -3,9 +3,77 @@
 
 import * as React from "react";
 
+import { authFetch } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 import type { PairedToolCall } from "./Thread";
+
+interface ArtifactRef {
+  artifact_id: string;
+  filename: string;
+  format?: string;
+}
+
+// Tools that produce downloadable files (e.g. render_deck) return `{ artifacts: [{ artifact_id,
+// filename, … }] }`. Parse those out of the result JSON so we can show Open/Download chips.
+function parseArtifacts(result: string | null): ArtifactRef[] {
+  if (!result) return [];
+  try {
+    const j = JSON.parse(result) as { artifacts?: unknown };
+    if (!Array.isArray(j.artifacts)) return [];
+    return j.artifacts
+      .map((a) => a as Record<string, unknown>)
+      .filter((a) => typeof a["artifact_id"] === "string" && typeof a["filename"] === "string")
+      .map((a) => ({ artifact_id: a["artifact_id"] as string, filename: a["filename"] as string, format: a["format"] as string | undefined }));
+  } catch {
+    return [];
+  }
+}
+
+// Fetch the artifact WITH the bearer (the route is owner-scoped), then open/download via an object URL
+// — so there's never an un-authed public URL. HTML/PDF open inline (a deck renders as slides).
+async function openArtifact(id: string, filename: string, download: boolean): Promise<void> {
+  const r = await authFetch(`/api/artifacts/${encodeURIComponent(id)}`);
+  if (!r.ok) return;
+  const url = URL.createObjectURL(await r.blob());
+  if (download) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } else {
+    window.open(url, "_blank", "noopener");
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function ArtifactChips({ artifacts }: { artifacts: ArtifactRef[] }): React.ReactElement {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-border/60 bg-background/60 px-2.5 py-2">
+      {artifacts.map((a) => (
+        <span key={a.artifact_id} className="inline-flex items-center gap-1 rounded border border-border/70 bg-muted/40 px-2 py-1 text-[11px]">
+          <span className="font-mono">{a.filename}</span>
+          <button
+            type="button"
+            className="rounded border border-border/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider hover:border-border hover:text-foreground"
+            onClick={() => void openArtifact(a.artifact_id, a.filename, false)}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            className="rounded border border-border/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider hover:border-border hover:text-foreground"
+            onClick={() => void openArtifact(a.artifact_id, a.filename, true)}
+          >
+            Download
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 /**
  * The "tool work" disclosure pinned in `docs/014 §4.2`: a single
@@ -75,6 +143,7 @@ function ToolCallCard({ call }: { call: PairedToolCall }): React.ReactElement {
   const inputSummary = summariseInput(call.input);
   const resultPreview = previewResult(call.result);
   const status = call.is_error ? "error" : call.result === null ? "pending" : "done";
+  const artifacts = parseArtifacts(call.result);
 
   return (
     <div
@@ -114,6 +183,7 @@ function ToolCallCard({ call }: { call: PairedToolCall }): React.ReactElement {
         </span>
         <Chevron open={open} className="ml-auto shrink-0" />
       </button>
+      {artifacts.length > 0 && <ArtifactChips artifacts={artifacts} />}
       {open && (
         <div className="border-t border-border/60 bg-muted/20">
           <DetailSection
