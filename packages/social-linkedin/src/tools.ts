@@ -168,7 +168,11 @@ export function makeLinkedInTools(): Tool[] {
           if (result.error) {
             yield { type: 'error', message: result.error };
           } else if (result.profile) {
-            // Extract profilePicture from deeply nested structure (empty string if any level is missing)
+            // Extract profilePicture from deeply nested LinkedIn API structure:
+            // profile.profilePicture.elements[0].identifiers[0].identifier
+            // This path is fragile; it defaults to empty string if any level is undefined.
+            // If a profile picture is expected but not found, check that the LinkedIn API
+            // request includes the ?projectionFields=profilePicture query parameter.
             const profilePicture =
               result.profile.profilePicture?.elements?.[0]?.identifiers?.[0]?.identifier || '';
             yield {

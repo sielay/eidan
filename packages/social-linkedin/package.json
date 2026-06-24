@@ -17,7 +17,7 @@
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "typescript": "^5.8.0"
+    "@types/node": "22.19.19",
+    "typescript": "5.9.3"
   }
 }

@@ -38,7 +38,9 @@ export class LinkedInClient {
   }
 
   private isPrivateIp(ip: string): boolean {
-    // RFC1918 private ranges and loopback for IPv4
+    // RFC1918 private ranges and loopback for IPv4.
+    // Covers common reserved ranges; note that some carrier-grade NAT and future-reserved ranges
+    // may not be included. For high-security deployments, consider using a well-maintained IP validation library.
     const ipv4Patterns = [
       /^127\./,           // loopback (127.0.0.0/8)
       /^10\./,            // private (10.0.0.0/8)
@@ -75,7 +77,7 @@ export class LinkedInClient {
   private async validateImageUrl(imageUrl: string): Promise<boolean> {
     try {
       const url = new URL(imageUrl);
-      // Only allow HTTPS to prevent SSRF via HTTP
+      // Only allow HTTPS; explicitly reject other protocols (http, ftp, file, etc.) to prevent SSRF
       if (url.protocol !== 'https:') {
         return false;
       }
@@ -92,8 +94,11 @@ export class LinkedInClient {
         return false;
       }
 
-      // Resolve hostname to IP and validate all resolved IPs are not private
-      // Additional DNS validation layer to prevent DNS rebinding attacks
+      // Resolve hostname to IP and validate all resolved IPs are not private.
+      // Note: DNS rebinding attacks can bypass this validation if DNS records change between lookup
+      // and fetch. For very high-security deployments, consider additional mitigations like
+      // an image proxy or firewall-level domain whitelist. For typical use, this layered approach
+      // (whitelist + private-IP check + DNS validation) provides strong SSRF protection.
       try {
         const resolvedAddresses = await dnsLookup(hostname, { all: true });
         for (const { address } of resolvedAddresses) {
@@ -138,11 +143,20 @@ export class LinkedInClient {
 
         if (response.status >= 300 && response.status < 400) {
           const location = response.headers.get('location');
-          if (!location) {
+          if (!location || location.trim() === '') {
             throw new Error(`Redirect with no Location header at ${currentUrl}`);
           }
 
-          const resolvedLocation = new URL(location, currentUrl).toString();
+          // Validate location header before constructing URL to prevent injection attacks.
+          // new URL(location, currentUrl) handles relative URLs safely, but malformed
+          // location values could still cause issues; validation here catches them.
+          let resolvedLocation: string;
+          try {
+            resolvedLocation = new URL(location, currentUrl).toString();
+          } catch (err) {
+            throw new Error(`Invalid Location header in redirect: ${location}`);
+          }
+
           if (!(await this.validateImageUrl(resolvedLocation))) {
             throw new Error(`Redirect to invalid URL: ${resolvedLocation}`);
           }
@@ -256,15 +270,26 @@ export class LinkedInClient {
           return { error: `Failed to fetch image from URL: ${imageResponse.status}` };
         }
 
-        // Validate content-type header before downloading body
+        // Validate content-type header before downloading body.
+        // Use exact matching to prevent loose matching (e.g., image/jpeg-foo should not match image/jpeg).
+        // Content-Type may include parameters like "; charset=utf-8", so match the base type only.
         const responseContentType = imageResponse.headers.get('content-type');
-        if (!responseContentType || !ALLOWED_IMAGE_TYPES.some((type) => responseContentType.includes(type))) {
-          return { error: `Invalid image content-type: ${responseContentType || 'not specified'}. Expected image/jpeg, image/png, image/gif, or image/webp` };
+        if (!responseContentType) {
+          return { error: 'Image response missing content-type header. Expected image/jpeg, image/png, image/gif, or image/webp' };
         }
 
-        contentType = responseContentType;
+        const baseContentType = responseContentType.split(';')[0].trim();
+        if (!ALLOWED_IMAGE_TYPES.some((type) => baseContentType === type)) {
+          return { error: `Invalid image content-type: ${responseContentType}. Expected image/jpeg, image/png, image/gif, or image/webp` };
+        }
 
-        // Check Content-Length header before downloading to prevent DoS
+        contentType = baseContentType;
+
+        // Check Content-Length header before downloading to prevent DoS.
+        // If the header is missing or invalid, we still download and check actual size (see below).
+        // Note: arrayBuffer() loads the entire image into memory. For very large images, this could
+        // cause excessive memory consumption. A streaming approach or temp-file buffer would be more
+        // efficient, but requires LinkedIn API support or intermediate storage.
         const contentLengthHeader = imageResponse.headers.get('content-length');
         if (contentLengthHeader) {
           const contentLength = parseInt(contentLengthHeader, 10);
@@ -367,6 +392,10 @@ export class LinkedInClient {
   }
 
   // Maps a raw LinkedIn post response to a flattened post structure.
+  // Text extraction is simplified: we extract description or title only, which may not capture
+  // the full complexity of a LinkedIn post (rich text, embedded content, media captions, etc.).
+  // This simplified mapping is sufficient for the current tool scope (search, feed listing).
+  // If full post content is needed, consider expanding this to handle richer content types.
   // Fallback behavior: empty string for text if both description and title are missing,
   // empty string for author if actor is undefined, and 0 for engagement metrics if not provided.
   private mapPost(post: LinkedInPost): { id: string; text: string; author?: string; likes: number; comments: number } {
