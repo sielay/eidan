@@ -2,8 +2,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FacebookClient } from './client.js';
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
 let fetchCalls: Array<{ url: string; options: RequestInit | undefined }> = [];
 let fetchResponses: Map<string, Response | Error> = new Map();
@@ -39,41 +37,6 @@ const teardownFetchMocks = () => {
   global.fetch = undefined as any;
 };
 
-const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext => ({
-  vault: {
-    resolve: async (name: string) => {
-      const key = name.replace(/^\$\{/, '').replace(/\}$/, '');
-      const value = secrets[key];
-      if (!value) throw new MissingSecretError(['KEY_NOT_FOUND']);
-      return value;
-    },
-    writeSecret: async () => {},
-  },
-} as any);
-
-test('FacebookClient.create returns null when token missing', async () => {
-  const ctx = mockCtx({});
-  const client = await FacebookClient.create(ctx);
-  assert.equal(client, null);
-});
-
-test('FacebookClient.create returns client when token present', async () => {
-  const ctx = mockCtx({ FACEBOOK_ACCESS_TOKEN: 'test-token' });
-  const client = await FacebookClient.create(ctx);
-  assert.ok(client);
-});
-
-test('FacebookClient.create includes pageId when provided', async () => {
-  setupFetchMocks();
-  const ctx = mockCtx({
-    FACEBOOK_ACCESS_TOKEN: 'test-token',
-    FACEBOOK_PAGE_ID: '12345',
-  });
-  const client = await FacebookClient.create(ctx);
-  assert.ok(client);
-  teardownFetchMocks();
-});
-
 test('postFeed returns success response', async () => {
   setupFetchMocks();
   fetchResponses.set(
@@ -81,11 +44,8 @@ test('postFeed returns success response', async () => {
     new Response(JSON.stringify({ id: 'post-123' }), { status: 200 })
   );
 
-  const ctx = mockCtx({ FACEBOOK_ACCESS_TOKEN: 'test-token' });
-  const client = await FacebookClient.create(ctx);
-  assert.ok(client);
-
-  const result = await client!.postFeed('Test post');
+  const client = new FacebookClient('test-token');
+  const result = await client.postFeed('Test post');
   assert.equal(result.id, 'post-123');
   assert.equal(result.error, undefined);
   teardownFetchMocks();
@@ -98,13 +58,26 @@ test('postFeed returns error on API failure', async () => {
     new Response(JSON.stringify({ error: { message: 'Invalid request' } }), { status: 400 })
   );
 
-  const ctx = mockCtx({ FACEBOOK_ACCESS_TOKEN: 'test-token' });
-  const client = await FacebookClient.create(ctx);
-  assert.ok(client);
-
-  const result = await client!.postFeed('Test post');
+  const client = new FacebookClient('test-token');
+  const result = await client.postFeed('Test post');
   assert.equal(result.id, '');
   assert.ok(result.error);
+  teardownFetchMocks();
+});
+
+test('postFeed targets the page feed when a pageId is given', async () => {
+  setupFetchMocks();
+  fetchResponses.set(
+    'https://graph.facebook.com/v18.0/9999/feed',
+    new Response(JSON.stringify({ id: 'post-page' }), { status: 200 })
+  );
+
+  const client = new FacebookClient('test-token', '9999');
+  const result = await client.postFeed('Hello page');
+  assert.equal(result.id, 'post-page');
+  const postCall = fetchCalls.find((c) => c.options?.method === 'POST');
+  assert.ok(postCall);
+  assert.ok(postCall.url.includes('/9999/feed'));
   teardownFetchMocks();
 });
 
@@ -123,11 +96,8 @@ test('getProfile returns user info', async () => {
     )
   );
 
-  const ctx = mockCtx({ FACEBOOK_ACCESS_TOKEN: 'test-token' });
-  const client = await FacebookClient.create(ctx);
-  assert.ok(client);
-
-  const result = await client!.getProfile();
+  const client = new FacebookClient('test-token');
+  const result = await client.getProfile();
   assert.equal(result.profile?.id, 'user-123');
   assert.equal(result.profile?.name, 'Test User');
   assert.equal(result.error, undefined);
@@ -141,11 +111,8 @@ test('getProfile returns error on failure', async () => {
     new Response(JSON.stringify({ error: { message: 'Unauthorized' } }), { status: 401 })
   );
 
-  const ctx = mockCtx({ FACEBOOK_ACCESS_TOKEN: 'invalid-token' });
-  const client = await FacebookClient.create(ctx);
-  assert.ok(client);
-
-  const result = await client!.getProfile();
+  const client = new FacebookClient('invalid-token');
+  const result = await client.getProfile();
   assert.equal(result.profile, null);
   assert.ok(result.error);
   teardownFetchMocks();
@@ -172,11 +139,8 @@ test('listFeed returns posts', async () => {
     )
   );
 
-  const ctx = mockCtx({ FACEBOOK_ACCESS_TOKEN: 'test-token' });
-  const client = await FacebookClient.create(ctx);
-  assert.ok(client);
-
-  const result = await client!.listFeed(10);
+  const client = new FacebookClient('test-token');
+  const result = await client.listFeed(10);
   assert.equal(result.posts.length, 1);
   assert.equal(result.posts[0]?.id, 'post-1');
   assert.equal(result.error, undefined);
@@ -201,11 +165,8 @@ test('search returns posts', async () => {
     )
   );
 
-  const ctx = mockCtx({ FACEBOOK_ACCESS_TOKEN: 'test-token' });
-  const client = await FacebookClient.create(ctx);
-  assert.ok(client);
-
-  const result = await client!.search('test query');
+  const client = new FacebookClient('test-token');
+  const result = await client.search('test query');
   assert.equal(result.posts.length, 1);
   assert.equal(result.posts[0]?.id, 'post-1');
   assert.equal(result.error, undefined);
@@ -219,11 +180,8 @@ test('postFeed with image_url includes URL in request', async () => {
     new Response(JSON.stringify({ id: 'post-456' }), { status: 200 })
   );
 
-  const ctx = mockCtx({ FACEBOOK_ACCESS_TOKEN: 'test-token' });
-  const client = await FacebookClient.create(ctx);
-  assert.ok(client);
-
-  const result = await client!.postFeed('Test post', 'https://example.com/image.jpg');
+  const client = new FacebookClient('test-token');
+  const result = await client.postFeed('Test post', 'https://example.com/image.jpg');
   assert.equal(result.id, 'post-456');
 
   const postCall = fetchCalls.find((c) => c.options?.method === 'POST');

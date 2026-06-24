@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { secretOpt, secretRequired } from './vault.js';
 import type { FacebookPost, FacebookUser, FacebookFeed, FacebookSearchResponse, FacebookPostResponse } from './types.js';
 
 const DEFAULT_API_VERSION = 'v18.0';
@@ -8,20 +6,11 @@ const GRAPH_API_BASE = 'https://graph.facebook.com';
 
 export class FacebookClient {
   private accessToken: string;
-  private pageId: string | undefined;
-  private ctx: ToolContext;
+  private pageId: string;
 
-  constructor(ctx: ToolContext, accessToken: string, pageId?: string) {
-    this.ctx = ctx;
+  constructor(accessToken: string, pageId: string = '') {
     this.accessToken = accessToken;
     this.pageId = pageId;
-  }
-
-  static async create(ctx: ToolContext): Promise<FacebookClient | null> {
-    const token = await secretOpt(ctx, 'FACEBOOK_ACCESS_TOKEN');
-    if (!token) return null;
-    const pageId = await secretOpt(ctx, 'FACEBOOK_PAGE_ID');
-    return new FacebookClient(ctx, token, pageId);
   }
 
   private async request<T>(

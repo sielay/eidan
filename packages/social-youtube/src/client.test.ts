@@ -2,7 +2,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert';
 import { YouTubeClient } from './client.js';
-import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
 const mockFetch = (responses: Map<string, any>) => {
   (global as any).fetch = async (url: string) => {
@@ -24,31 +23,6 @@ const mockFetch = (responses: Map<string, any>) => {
     };
   };
 };
-
-test('YouTubeClient.create: succeeds with valid token', async () => {
-  const mockCtx = {
-    vault: {
-      resolve: async () => 'valid-token',
-    },
-  } as any;
-
-  const result = await YouTubeClient.create(mockCtx);
-  assert.ok(!('error' in result));
-});
-
-test('YouTubeClient.create: returns error when token is missing', async () => {
-  const mockCtx = {
-    vault: {
-      resolve: async () => {
-        throw new MissingSecretError('YOUTUBE_ACCESS_TOKEN');
-      },
-    },
-  } as any;
-
-  const result = await YouTubeClient.create(mockCtx);
-  assert.ok('error' in result);
-  assert.match(result.error, /YouTube not connected/);
-});
 
 test('YouTubeClient.search: returns videos', async () => {
   const responses = new Map([
@@ -78,8 +52,7 @@ test('YouTubeClient.search: returns videos', async () => {
   ]);
   mockFetch(responses);
 
-  const mockCtx = { vault: {} } as any;
-  const client = new YouTubeClient(mockCtx, 'test-token');
+  const client = new YouTubeClient('test-token');
   const result = await client.search('test query', 10);
 
   assert.ok(!result.error);
@@ -121,8 +94,7 @@ test('YouTubeClient.getChannel: returns channel info', async () => {
   ]);
   mockFetch(responses);
 
-  const mockCtx = { vault: {} } as any;
-  const client = new YouTubeClient(mockCtx, 'test-token');
+  const client = new YouTubeClient('test-token');
   const result = await client.getChannel();
 
   assert.ok(!result.error);
@@ -174,8 +146,7 @@ test('YouTubeClient.listVideos: returns user videos', async () => {
   ]);
   mockFetch(responses);
 
-  const mockCtx = { vault: {} } as any;
-  const client = new YouTubeClient(mockCtx, 'test-token');
+  const client = new YouTubeClient('test-token');
   const result = await client.listVideos(10);
 
   assert.ok(!result.error);
@@ -212,10 +183,15 @@ test('YouTubeClient.postComment: returns comment ID', async () => {
   ]);
   mockFetch(responses);
 
-  const mockCtx = { vault: {} } as any;
-  const client = new YouTubeClient(mockCtx, 'test-token');
+  const client = new YouTubeClient('test-token');
   const result = await client.postComment('vid123', 'Great video!');
 
   assert.ok(!result.error);
   assert.strictEqual(result.commentId, 'comment-xyz-123');
+});
+
+test('YouTubeClient.postComment: rejects > 10000 chars without a request', async () => {
+  const client = new YouTubeClient('test-token');
+  const result = await client.postComment('vid123', 'a'.repeat(10001));
+  assert.ok(result.error?.includes('10,000'));
 });

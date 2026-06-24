@@ -2,412 +2,199 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ThreadsClient } from './client.js';
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
-let fetchCalls: Array<{ url: string; options: RequestInit | undefined }> = [];
-let fetchResponses: Map<string, Response | Error> = new Map();
-
-const mockFetch = (url: string | URL, options?: RequestInit): Response | Promise<Response> => {
-  const urlStr = String(url);
-  fetchCalls.push({ url: urlStr, options });
-
-  if (fetchResponses.has(urlStr)) {
-    const response = fetchResponses.get(urlStr)!;
-    if (response instanceof Error) {
-      throw response;
-    }
-    return response;
-  }
-
-  for (const [key, response] of fetchResponses.entries()) {
-    let matches = false;
-    if (key instanceof RegExp) {
-      matches = key.test(urlStr);
-    } else {
-      const keyStr = String(key);
-      const basePart = keyStr.split('?')[0] || '';
-      if (urlStr.includes(basePart) && keyStr.includes('?')) {
-        const keyUrl = new URL(keyStr);
-        const givenUrl = new URL(urlStr);
-        matches = true;
-        for (const [param, value] of keyUrl.searchParams.entries()) {
-          if (givenUrl.searchParams.get(param) !== value) {
-            matches = false;
-            break;
-          }
-        }
-      }
-    }
-    if (matches) {
-      if (response instanceof Error) {
-        throw response;
-      }
-      return response;
-    }
-  }
-
-  return new Response(JSON.stringify({ error: 'Not mocked' }), {
-    status: 404,
-  });
-};
-
-const setupFetchMocks = () => {
-  fetchCalls = [];
-  fetchResponses.clear();
-  global.fetch = mockFetch as any;
-};
-
-const teardownFetchMocks = () => {
-  global.fetch = undefined as any;
-};
-
-const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext => ({
-  vault: {
-    resolve: async (name: string) => {
-      const key = name.replace(/^\$\{/, '').replace(/\}$/, '');
-      const value = secrets[key];
-      if (!value) throw new MissingSecretError(['KEY_NOT_FOUND']);
-      return value;
-    },
-    writeSecret: async (key: string, value: string) => {
-      secrets[key] = value;
-    },
-  },
-} as any);
-
-test('ThreadsClient constructor succeeds', () => {
-  setupFetchMocks();
-  const ctx = mockCtx();
-  const client = new ThreadsClient(ctx);
-  assert.ok(client);
-  teardownFetchMocks();
-});
-
-test('post returns error when not authenticated', async () => {
-  setupFetchMocks();
-  const ctx = mockCtx({});
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.post('Hello world');
-
-  assert.equal(result.id, '');
-  assert.ok(result.error);
-  assert.ok(result.error.includes("isn't connected"));
-
-  teardownFetchMocks();
-});
+function mockFetch(handler: (url: string, options?: RequestInit) => { ok?: boolean; json: () => unknown } | Error): () => void {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, options?: RequestInit) => {
+    const out = handler(String(url), options);
+    if (out instanceof Error) throw out;
+    return { ok: out.ok ?? true, status: 200, json: async () => out.json() } as Response;
+  }) as typeof fetch;
+  return () => {
+    globalThis.fetch = original;
+  };
+}
 
 test('post returns error when text is empty', async () => {
-  setupFetchMocks();
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.post('');
-
-  assert.equal(result.id, '');
-  assert.ok(result.error);
-  assert.ok(result.error.includes('required'));
-
-  teardownFetchMocks();
+  const r = await new ThreadsClient('token123').post('');
+  assert.equal(r.id, '');
+  assert.ok(r.error?.includes('required'));
 });
 
 test('post returns error when text exceeds 500 characters', async () => {
-  setupFetchMocks();
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const longText = 'x'.repeat(501);
-  const result = await client.post(longText);
-
-  assert.equal(result.id, '');
-  assert.ok(result.error);
-  assert.ok(result.error.includes('500 character limit'));
-
-  teardownFetchMocks();
+  const r = await new ThreadsClient('token123').post('x'.repeat(501));
+  assert.equal(r.id, '');
+  assert.ok(r.error?.includes('500 character limit'));
 });
 
 test('post succeeds with valid text', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set('https://graph.threads.com/v18.0/me/threads', {
-    ok: true,
-    json: async () => ({
-      id: 'thread-123',
-      thread_id: 'thread-123',
-    }),
-  } as any);
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.post('Hello Threads!');
-
-  assert.equal(result.id, 'thread-123');
-  assert.equal(result.error, undefined);
-
-  teardownFetchMocks();
+  let seen = '';
+  const restore = mockFetch((url, options) => {
+    seen = url;
+    assert.equal((options?.headers as Record<string, string>)?.Authorization, 'Bearer token123');
+    return { json: () => ({ id: 'thread-123', thread_id: 'thread-123' }) };
+  });
+  try {
+    const r = await new ThreadsClient('token123').post('Hello Threads!');
+    assert.ok(seen.includes('/me/threads'));
+    assert.equal(r.id, 'thread-123');
+    assert.equal(r.error, undefined);
+  } finally {
+    restore();
+  }
 });
 
 test('post with reply_to includes reply_to_id', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set('https://graph.threads.com/v18.0/me/threads', {
-    ok: true,
-    json: async () => ({
-      id: 'thread-reply-123',
-      thread_id: 'thread-reply-123',
-    }),
-  } as any);
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.post('Reply text', 'parent-thread-123');
-
-  assert.equal(result.id, 'thread-reply-123');
-  assert.equal(result.error, undefined);
-
-  const postCall = fetchCalls.find((call) => call.url.includes('/me/threads'));
-  assert.ok(postCall);
-  const capturedBody = JSON.parse(postCall!.options!.body as string);
-  assert.equal(capturedBody.reply_to_id, 'parent-thread-123');
-
-  teardownFetchMocks();
+  let capturedBody: Record<string, unknown> = {};
+  const restore = mockFetch((_url, options) => {
+    capturedBody = JSON.parse(options!.body as string);
+    return { json: () => ({ id: 'thread-reply-123', thread_id: 'thread-reply-123' }) };
+  });
+  try {
+    const r = await new ThreadsClient('token123').post('Reply text', 'parent-thread-123');
+    assert.equal(r.id, 'thread-reply-123');
+    assert.equal(capturedBody['reply_to_id'], 'parent-thread-123');
+  } finally {
+    restore();
+  }
 });
 
 test('post handles network error gracefully', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set('https://graph.threads.com/v18.0/me/threads', new Error('Network error'));
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.post('Hello world');
-
-  assert.equal(result.id, '');
-  assert.ok(result.error);
-  assert.ok(result.error.includes('Failed to post'));
-
-  teardownFetchMocks();
-});
-
-test('search returns error when not authenticated', async () => {
-  setupFetchMocks();
-  const ctx = mockCtx({});
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.search('test');
-
-  assert.deepEqual(result.posts, []);
-  assert.ok(result.error);
-  assert.ok(result.error.includes("isn't connected"));
-
-  teardownFetchMocks();
+  const restore = mockFetch(() => new Error('Network error'));
+  try {
+    const r = await new ThreadsClient('token123').post('Hello world');
+    assert.equal(r.id, '');
+    assert.ok(r.error?.includes('Failed to post'));
+  } finally {
+    restore();
+  }
 });
 
 test('search returns error when query is empty', async () => {
-  setupFetchMocks();
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.search('   ');
-
-  assert.deepEqual(result.posts, []);
-  assert.ok(result.error);
-  assert.ok(result.error.includes('required'));
-
-  teardownFetchMocks();
+  const r = await new ThreadsClient('token123').search('   ');
+  assert.deepEqual(r.posts, []);
+  assert.ok(r.error?.includes('required'));
 });
 
 test('search succeeds with valid query', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set(/graph\.threads\.com.*ig_hashtag_search/, {
-    ok: true,
-    json: async () => ({
-      data: [
-        {
-          id: 'hashtag-123',
-          name: 'threads',
-        },
-      ],
-    }),
-  } as any);
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.search('threads');
-
-  assert.equal(result.posts.length, 1);
-  assert.equal(result.posts[0].text, '#threads');
-  assert.equal(result.error, undefined);
-
-  teardownFetchMocks();
+  const restore = mockFetch((url) => {
+    assert.ok(url.includes('ig_hashtag_search'));
+    return { json: () => ({ data: [{ id: 'hashtag-123', name: 'threads' }] }) };
+  });
+  try {
+    const r = await new ThreadsClient('token123').search('threads');
+    assert.equal(r.posts.length, 1);
+    assert.equal(r.posts[0]?.text, '#threads');
+    assert.equal(r.error, undefined);
+  } finally {
+    restore();
+  }
 });
 
 test('search respects limit parameter', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set(/graph\.threads\.com.*ig_hashtag_search/, {
-    ok: true,
-    json: async () => ({
+  const restore = mockFetch(() => ({
+    json: () => ({
       data: [
         { id: 'tag1', name: 'threads' },
         { id: 'tag2', name: 'testing' },
         { id: 'tag3', name: 'ai' },
       ],
     }),
-  } as any);
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.search('test', 2);
-
-  assert.equal(result.posts.length, 2);
-  assert.equal(result.error, undefined);
-
-  teardownFetchMocks();
+  }));
+  try {
+    const r = await new ThreadsClient('token123').search('test', 2);
+    assert.equal(r.posts.length, 2);
+    assert.equal(r.error, undefined);
+  } finally {
+    restore();
+  }
 });
 
 test('search handles network error gracefully', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set(/graph\.threads\.com.*ig_hashtag_search/, new Error('Network error'));
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.search('test');
-
-  assert.deepEqual(result.posts, []);
-  assert.ok(result.error);
-  assert.ok(result.error.includes('Failed to search'));
-
-  teardownFetchMocks();
-});
-
-test('getProfile returns error when not authenticated', async () => {
-  setupFetchMocks();
-  const ctx = mockCtx({});
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.getProfile();
-
-  assert.equal(result.user, null);
-  assert.ok(result.error);
-  assert.ok(result.error.includes("isn't connected"));
-
-  teardownFetchMocks();
+  const restore = mockFetch(() => new Error('Network error'));
+  try {
+    const r = await new ThreadsClient('token123').search('test');
+    assert.deepEqual(r.posts, []);
+    assert.ok(r.error?.includes('Failed to search'));
+  } finally {
+    restore();
+  }
 });
 
 test('getProfile succeeds with valid token', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set(/graph\.threads\.com.*\/me/, {
-    ok: true,
-    json: async () => ({
-      data: {
-        id: 'user-123',
-        username: 'testuser',
-        name: 'Test User',
-        biography: 'Test bio',
-        profile_picture_url: 'https://example.com/pic.jpg',
-        follower_count: 1000,
-        following_count: 500,
-        is_verified: true,
-        website: 'https://example.com',
-      },
-    }),
-  } as any);
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.getProfile();
-
-  assert.ok(result.user);
-  assert.equal(result.user.username, 'testuser');
-  assert.equal(result.user.follower_count, 1000);
-  assert.equal(result.user.is_verified, true);
-  assert.equal(result.error, undefined);
-
-  teardownFetchMocks();
+  const restore = mockFetch((url) => {
+    assert.ok(url.includes('/me'));
+    return {
+      json: () => ({
+        data: {
+          id: 'user-123',
+          username: 'testuser',
+          name: 'Test User',
+          biography: 'Test bio',
+          follower_count: 1000,
+          following_count: 500,
+          is_verified: true,
+          website: 'https://example.com',
+        },
+      }),
+    };
+  });
+  try {
+    const r = await new ThreadsClient('token123').getProfile();
+    assert.ok(r.user);
+    assert.equal(r.user?.username, 'testuser');
+    assert.equal(r.user?.follower_count, 1000);
+    assert.equal(r.user?.is_verified, true);
+    assert.equal(r.error, undefined);
+  } finally {
+    restore();
+  }
 });
 
 test('getProfile handles network error gracefully', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set(/graph\.threads\.com.*\/me/, new Error('Network error'));
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.getProfile();
-
-  assert.equal(result.user, null);
-  assert.ok(result.error);
-  assert.ok(result.error.includes('Failed to get profile'));
-
-  teardownFetchMocks();
-});
-
-test('listTimeline returns error when not authenticated', async () => {
-  setupFetchMocks();
-  const ctx = mockCtx({});
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.listTimeline();
-
-  assert.deepEqual(result.posts, []);
-  assert.ok(result.error);
-  assert.ok(result.error.includes("isn't connected"));
-
-  teardownFetchMocks();
+  const restore = mockFetch(() => new Error('Network error'));
+  try {
+    const r = await new ThreadsClient('token123').getProfile();
+    assert.equal(r.user, null);
+    assert.ok(r.error?.includes('Failed to get profile'));
+  } finally {
+    restore();
+  }
 });
 
 test('listTimeline succeeds with valid token', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set(/graph\.threads\.com.*\/me\/threads/, {
-    ok: true,
-    json: async () => ({
-      data: [
-        {
-          id: 'post-1',
-          text: 'Hello Threads!',
-          timestamp: '2026-06-22T10:00:00Z',
-          permalink: 'https://threads.net/t/123',
-          like_count: 42,
-          reply_count: 5,
-          repost_count: 3,
-        },
-      ],
-    }),
-  } as any);
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.listTimeline();
-
-  assert.equal(result.posts.length, 1);
-  assert.equal(result.posts[0].text, 'Hello Threads!');
-  assert.equal(result.posts[0].like_count, 42);
-  assert.equal(result.error, undefined);
-
-  teardownFetchMocks();
+  const restore = mockFetch((url) => {
+    assert.ok(url.includes('/me/threads'));
+    return {
+      json: () => ({
+        data: [
+          {
+            id: 'post-1',
+            text: 'Hello Threads!',
+            timestamp: '2026-06-22T10:00:00Z',
+            permalink: 'https://threads.net/t/123',
+            like_count: 42,
+            reply_count: 5,
+            repost_count: 3,
+          },
+        ],
+      }),
+    };
+  });
+  try {
+    const r = await new ThreadsClient('token123').listTimeline();
+    assert.equal(r.posts.length, 1);
+    assert.equal(r.posts[0]?.text, 'Hello Threads!');
+    assert.equal(r.posts[0]?.like_count, 42);
+    assert.equal(r.error, undefined);
+  } finally {
+    restore();
+  }
 });
 
 test('listTimeline respects limit parameter', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set(/graph\.threads\.com.*\/me\/threads/, {
-    ok: true,
-    json: async () => ({
+  const restore = mockFetch(() => ({
+    json: () => ({
       data: Array.from({ length: 5 }, (_, i) => ({
         id: `post-${i}`,
         text: `Post ${i}`,
@@ -415,32 +202,23 @@ test('listTimeline respects limit parameter', async () => {
         permalink: `https://threads.net/t/${i}`,
       })),
     }),
-  } as any);
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.listTimeline(3);
-
-  assert.equal(result.posts.length, 3);
-  assert.equal(result.error, undefined);
-
-  teardownFetchMocks();
+  }));
+  try {
+    const r = await new ThreadsClient('token123').listTimeline(3);
+    assert.equal(r.posts.length, 3);
+    assert.equal(r.error, undefined);
+  } finally {
+    restore();
+  }
 });
 
 test('listTimeline handles network error gracefully', async () => {
-  setupFetchMocks();
-
-  fetchResponses.set(/graph\.threads\.com.*\/me\/threads/, new Error('Network error'));
-
-  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
-  const client = new ThreadsClient(ctx);
-
-  const result = await client.listTimeline();
-
-  assert.deepEqual(result.posts, []);
-  assert.ok(result.error);
-  assert.ok(result.error.includes('Failed to list timeline'));
-
-  teardownFetchMocks();
+  const restore = mockFetch(() => new Error('Network error'));
+  try {
+    const r = await new ThreadsClient('token123').listTimeline();
+    assert.deepEqual(r.posts, []);
+    assert.ok(r.error?.includes('Failed to list timeline'));
+  } finally {
+    restore();
+  }
 });

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeLinkedInTools } from './tools.js';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
+import { makeLinkedinTools } from './tools.js';
 
 let fetchCalls: Array<{ url: string; options: RequestInit | undefined }> = [];
 let fetchResponses: Map<string, Response | Error> = new Map();
@@ -50,11 +50,11 @@ const mockFetch = (url: string | URL, options?: RequestInit): Response | Promise
 const setupFetchMocks = () => {
   fetchCalls = [];
   fetchResponses.clear();
-  global.fetch = mockFetch as any;
+  global.fetch = mockFetch as unknown as typeof fetch;
 };
 
 const teardownFetchMocks = () => {
-  global.fetch = undefined as any;
+  global.fetch = undefined as unknown as typeof fetch;
 };
 
 const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext => ({
@@ -65,13 +65,29 @@ const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext 
       if (!value) throw new MissingSecretError(['KEY_NOT_FOUND']);
       return value;
     },
-    writeSecret: async (key: string, value: string) => {
-      secrets[key] = value;
-    },
   },
-} as any);
+} as unknown as ToolContext);
 
-test('linkedin_post tool with valid input yields result', async () => {
+test('makeLinkedinTools returns the post/profile/feed tools (no search — LinkedIn has no search API)', () => {
+  const names = makeLinkedinTools(null).map((t) => t.name);
+  assert.deepEqual(names.sort(), ['linkedin_get_profile', 'linkedin_list_feed', 'linkedin_post']);
+});
+
+test('every tool accepts an optional `account` selector', () => {
+  for (const t of makeLinkedinTools(null)) {
+    const props = (t.inputSchema as { properties: Record<string, unknown> }).properties;
+    assert.ok('account' in props, `${t.name} should expose account`);
+  }
+});
+
+test('linkedin_post schema requires text (max 3000)', () => {
+  const t = makeLinkedinTools(null).find((x) => x.name === 'linkedin_post')!;
+  const schema = t.inputSchema as { required: string[]; properties: Record<string, Record<string, unknown>> };
+  assert.ok(schema.required.includes('text'));
+  assert.equal(schema.properties['text']?.['maxLength'], 3000);
+});
+
+test('linkedin_post tool with valid input yields result (legacy secret)', async () => {
   setupFetchMocks();
   try {
     fetchResponses.set('https://api.linkedin.com/v2/me',
@@ -81,177 +97,76 @@ test('linkedin_post tool with valid input yields result', async () => {
       new Response(JSON.stringify({ id: 'post456' }), { status: 201 })
     );
 
-    const tools = makeLinkedInTools();
-    const postTool = tools.find((t) => t.name === 'linkedin_post');
-    assert.ok(postTool);
-
-    const results: any[] = [];
-    for await (const result of postTool!.executor.execute(
+    const postTool = makeLinkedinTools(null).find((t) => t.name === 'linkedin_post')!;
+    const results: Array<Record<string, unknown>> = [];
+    for await (const result of postTool.executor.execute(
       { text: 'Hello LinkedIn!' },
       mockCtx({ LINKEDIN_ACCESS_TOKEN: 'test-token' })
     )) {
-      results.push(result);
+      results.push(result as Record<string, unknown>);
     }
 
     assert.equal(results.length, 1);
-    assert.equal(results[0].type, 'result');
-    assert.equal(results[0].value.message, 'Posted to LinkedIn');
+    assert.equal(results[0]?.['type'], 'result');
+    assert.equal((results[0]?.['value'] as Record<string, unknown>)['message'], 'Posted to LinkedIn');
   } finally {
     teardownFetchMocks();
   }
 });
 
 test('linkedin_post tool without text yields error', async () => {
-  const tools = makeLinkedInTools();
-  const postTool = tools.find((t) => t.name === 'linkedin_post');
-  assert.ok(postTool);
-
-  const results: any[] = [];
-  for await (const result of postTool!.executor.execute(
+  const postTool = makeLinkedinTools(null).find((t) => t.name === 'linkedin_post')!;
+  const results: Array<Record<string, unknown>> = [];
+  for await (const result of postTool.executor.execute(
     { text: '' },
     mockCtx({ LINKEDIN_ACCESS_TOKEN: 'test-token' })
   )) {
-    results.push(result);
+    results.push(result as Record<string, unknown>);
   }
 
   assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'error');
+  assert.equal(results[0]?.['type'], 'error');
 });
 
-test('linkedin_search tool returns posts', async () => {
+test('linkedin_get_profile tool returns profile via userinfo (legacy secret = member)', async () => {
   setupFetchMocks();
   try {
-    const searchData = {
-      elements: [
-        {
-          id: 'post1',
-          actor: 'urn:li:person:user1',
-          content: { description: 'AI post' },
-          likesSummary: { totalLikes: 50 },
-          commentsSummary: { totalFirstLevelComments: 10 },
-        },
-      ],
-    };
-
-    const url = new URL('https://api.linkedin.com/v2/search/posts');
-    url.searchParams.set('keywords', 'AI');
-    url.searchParams.set('count', '20');
-    fetchResponses.set(url.toString(),
-      new Response(JSON.stringify(searchData), { status: 200 })
+    fetchResponses.set('https://api.linkedin.com/v2/userinfo',
+      new Response(JSON.stringify({ sub: 'user123', name: 'John Doe', email: 'john@example.com' }), { status: 200 })
     );
-
-    const tools = makeLinkedInTools();
-    const searchTool = tools.find((t) => t.name === 'linkedin_search');
-    assert.ok(searchTool);
-
-    const results: any[] = [];
-    for await (const result of searchTool!.executor.execute(
-      { query: 'AI', limit: 20 },
-      mockCtx({ LINKEDIN_ACCESS_TOKEN: 'test-token' })
-    )) {
-      results.push(result);
+    const profileTool = makeLinkedinTools(null).find((t) => t.name === 'linkedin_get_profile')!;
+    const results: Array<Record<string, unknown>> = [];
+    for await (const result of profileTool.executor.execute({}, mockCtx({ LINKEDIN_ACCESS_TOKEN: 'test-token' }))) {
+      results.push(result as Record<string, unknown>);
     }
-
     assert.equal(results.length, 1);
-    assert.equal(results[0].type, 'result');
-    assert.equal(results[0].value.posts.length, 1);
-    assert.equal(results[0].value.query, 'AI');
+    assert.equal(results[0]?.['type'], 'result');
+    const value = results[0]?.['value'] as { name: string; kind: string };
+    assert.equal(value.name, 'John Doe');
+    assert.equal(value.kind, 'member');
   } finally {
     teardownFetchMocks();
   }
 });
 
-test('linkedin_get_profile tool returns profile', async () => {
-  setupFetchMocks();
-  try {
-    const profileData = {
-      id: 'user123',
-      localizedFirstName: 'John',
-      localizedLastName: 'Doe',
-      localizedHeadline: 'Software Engineer',
-    };
-
-    fetchResponses.set('https://api.linkedin.com/v2/me',
-      new Response(JSON.stringify(profileData), { status: 200 })
-    );
-
-    const tools = makeLinkedInTools();
-    const profileTool = tools.find((t) => t.name === 'linkedin_get_profile');
-    assert.ok(profileTool);
-
-    const results: any[] = [];
-    for await (const result of profileTool!.executor.execute(
-      {},
-      mockCtx({ LINKEDIN_ACCESS_TOKEN: 'test-token' })
-    )) {
-      results.push(result);
-    }
-
-    assert.equal(results.length, 1);
-    assert.equal(results[0].type, 'result');
-    assert.equal(results[0].value.firstName, 'John');
-    assert.equal(results[0].value.headline, 'Software Engineer');
-  } finally {
-    teardownFetchMocks();
+test('linkedin_list_feed errors on the legacy path (no author URN to query posts by)', async () => {
+  const feedTool = makeLinkedinTools(null).find((t) => t.name === 'linkedin_list_feed')!;
+  const results: Array<Record<string, unknown>> = [];
+  for await (const result of feedTool.executor.execute({ limit: 20 }, mockCtx({ LINKEDIN_ACCESS_TOKEN: 'test-token' }))) {
+    results.push(result as Record<string, unknown>);
   }
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.['type'], 'error');
 });
 
-test('linkedin_list_feed tool returns posts', async () => {
-  setupFetchMocks();
-  try {
-    const feedData = {
-      elements: [
-        {
-          id: 'post1',
-          actor: 'urn:li:person:user1',
-          content: { description: 'Feed post' },
-          likesSummary: { totalLikes: 25 },
-          commentsSummary: { totalFirstLevelComments: 3 },
-        },
-      ],
-    };
-
-    const url = new URL('https://api.linkedin.com/v2/feed');
-    url.searchParams.set('count', '20');
-    url.searchParams.set('sortBy', 'RECENT');
-    fetchResponses.set(url.toString(),
-      new Response(JSON.stringify(feedData), { status: 200 })
-    );
-
-    const tools = makeLinkedInTools();
-    const feedTool = tools.find((t) => t.name === 'linkedin_list_feed');
-    assert.ok(feedTool);
-
-    const results: any[] = [];
-    for await (const result of feedTool!.executor.execute(
-      { limit: 20 },
-      mockCtx({ LINKEDIN_ACCESS_TOKEN: 'test-token' })
-    )) {
-      results.push(result);
-    }
-
-    assert.equal(results.length, 1);
-    assert.equal(results[0].type, 'result');
-    assert.equal(results[0].value.posts.length, 1);
-  } finally {
-    teardownFetchMocks();
-  }
-});
-
-test('tools yield error when token is missing', async () => {
-  const tools = makeLinkedInTools();
-  const postTool = tools.find((t) => t.name === 'linkedin_post');
-  assert.ok(postTool);
-
-  const results: any[] = [];
-  for await (const result of postTool!.executor.execute(
-    { text: 'Hello' },
-    mockCtx({})
-  )) {
-    results.push(result);
+test('legacy fallback: errors clearly when nothing is connected', async () => {
+  const postTool = makeLinkedinTools(null).find((t) => t.name === 'linkedin_post')!;
+  const results: Array<Record<string, unknown>> = [];
+  for await (const result of postTool.executor.execute({ text: 'Hello' }, mockCtx({}))) {
+    results.push(result as Record<string, unknown>);
   }
 
   assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'error');
-  assert.match(results[0].message, /isn't connected/);
+  assert.equal(results[0]?.['type'], 'error');
+  assert.match(String(results[0]?.['message']), /isn't connected/);
 });

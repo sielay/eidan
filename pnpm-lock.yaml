@@ -135,6 +135,25 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/connections-kit:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/db:
     dependencies:
       '@matatbread/matbot-plugin-api':
@@ -215,6 +234,19 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/finance-stripe:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/finance-trading212:
     dependencies:
       '@matatbread/matbot-plugin-api':
@@ -224,6 +256,28 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/finance-xero:
+    dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -282,8 +336,24 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/glue:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/google:
     dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
@@ -537,104 +607,176 @@ importers:
 
   packages/social-bluesky:
     dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
 
   packages/social-facebook:
     dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
 
   packages/social-instagram:
     dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
 
   packages/social-linkedin:
     dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
 
   packages/social-mastodon:
     dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
 
   packages/social-threads:
     dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
 
   packages/social-x:
     dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
 
   packages/social-youtube:
     dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3

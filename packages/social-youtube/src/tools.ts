@@ -1,6 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// Agent tools for the `social-youtube` plugin — post comments, search, read channel/videos on YouTube.
+//
+// Per-account OAuth: the operator connects one or more YouTube accounts in the Connections screen.
+// Each account's OAuth client (sealed under client_vault_key) + access/refresh tokens (token/refresh
+// keys) live in the vault; the registry rows live in plugin_social_youtube.accounts. At call time the
+// tools pick the requested account (or the first), mint/refresh an access token via the connections
+// kit (Google offline access), then call the YouTube Data API v3. Falls back to the legacy single
+// YOUTUBE_ACCESS_TOKEN secret when no account is connected, so older setups keep working.
 import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
+import {
+  type AccountStore,
+  type SealFn,
+  AccountResolveError,
+  NotConnectedError,
+  resolveAccessToken,
+} from '@eidandev/connections-kit';
 import { YouTubeClient } from './client.js';
+import { youtubeAdapter } from './adapter.js';
+import { secretOpt } from './vault.js';
+
+const ACCOUNT_PROP = {
+  account: {
+    type: 'string',
+    description: 'Which connected YouTube account (name or slug). Omit to use the first connected account.',
+  },
+} as const;
 
 const POST_COMMENT_SCHEMA = {
   type: 'object',
@@ -18,6 +42,7 @@ const POST_COMMENT_SCHEMA = {
       maxLength: 10000,
       description: 'Comment text (max 10,000 characters).',
     },
+    ...ACCOUNT_PROP,
   },
 };
 
@@ -37,6 +62,7 @@ const SEARCH_SCHEMA = {
       maximum: 50,
       description: 'Max results (default 20).',
     },
+    ...ACCOUNT_PROP,
   },
 };
 
@@ -44,7 +70,7 @@ const GET_CHANNEL_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: [],
-  properties: {},
+  properties: { ...ACCOUNT_PROP },
 };
 
 const LIST_VIDEOS_SCHEMA = {
@@ -57,18 +83,50 @@ const LIST_VIDEOS_SCHEMA = {
       maximum: 50,
       description: 'Max videos (default 20).',
     },
+    ...ACCOUNT_PROP,
   },
 };
 
-export function makeYouTubeTools(): Tool[] {
+// Resolve a YouTube client for the selected account: registry first (with transparent refresh), then
+// the legacy single YOUTUBE_ACCESS_TOKEN secret. Returns an error string when nothing usable resolves.
+async function resolveClient(
+  ctx: ToolContext,
+  store: AccountStore | null,
+  seal: SealFn | undefined,
+  account: string | undefined,
+): Promise<{ client?: YouTubeClient; error?: string }> {
+  if (store) {
+    try {
+      const { accessToken } = await resolveAccessToken(store, youtubeAdapter, ctx, {
+        ...(account ? { accountSelector: account } : {}),
+        ...(seal ? { seal } : {}),
+      });
+      return { client: new YouTubeClient(accessToken) };
+    } catch (exc) {
+      if (exc instanceof AccountResolveError) return { error: exc.message };
+      if (!(exc instanceof NotConnectedError)) {
+        return { error: exc instanceof Error ? exc.message : 'failed to resolve YouTube account' };
+      }
+      // NotConnectedError → fall through to the legacy single-secret path.
+    }
+  }
+  const token = await secretOpt(ctx, 'YOUTUBE_ACCESS_TOKEN');
+  if (token) return { client: new YouTubeClient(token) };
+  return {
+    error:
+      "YouTube isn't connected — add an account under Connections, or set the legacy YOUTUBE_ACCESS_TOKEN vault secret.",
+  };
+}
+
+export function makeYoutubeTools(store: AccountStore | null, seal?: SealFn): Tool[] {
   const postCommentTool: Tool = {
     name: 'youtube_post_comment',
     description:
-      'Post a comment on a YouTube video. Requires YOUTUBE_ACCESS_TOKEN vault secret (OAuth2 bearer token).',
+      'Post a comment on a YouTube video from a connected account. Use `account` to pick which connected YouTube account.',
     inputSchema: POST_COMMENT_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const args = (input ?? {}) as { video_id?: string; text?: string };
+        const args = (input ?? {}) as { video_id?: string; text?: string; account?: string };
         const videoId = String(args.video_id ?? '').trim();
         const text = String(args.text ?? '').trim();
 
@@ -82,13 +140,13 @@ export function makeYouTubeTools(): Tool[] {
           return;
         }
 
-        const clientOrError = await YouTubeClient.create(ctx);
-        if ('error' in clientOrError) {
-          yield { type: 'error', message: clientOrError.error };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create YouTube client' };
           return;
         }
 
-        const result = await clientOrError.postComment(videoId, text);
+        const result = await client.postComment(videoId, text);
         if (result.error) {
           yield { type: 'error', message: result.error };
         } else {
@@ -109,11 +167,11 @@ export function makeYouTubeTools(): Tool[] {
   const searchTool: Tool = {
     name: 'youtube_search',
     description:
-      'Search YouTube for videos by keywords, channel name, or title. Returns matching videos with metadata.',
+      'Search YouTube for videos by keywords, channel name, or title. Use `account` to pick which connected YouTube account.',
     inputSchema: SEARCH_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const args = (input ?? {}) as { query?: string; limit?: number };
+        const args = (input ?? {}) as { query?: string; limit?: number; account?: string };
         const query = String(args.query ?? '').trim();
 
         if (!query) {
@@ -121,13 +179,13 @@ export function makeYouTubeTools(): Tool[] {
           return;
         }
 
-        const clientOrError = await YouTubeClient.create(ctx);
-        if ('error' in clientOrError) {
-          yield { type: 'error', message: clientOrError.error };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create YouTube client' };
           return;
         }
 
-        const result = await clientOrError.search(query, Number(args.limit) || 20);
+        const result = await client.search(query, Number(args.limit) || 20);
         if (result.error) {
           yield { type: 'error', message: result.error };
         } else {
@@ -153,17 +211,18 @@ export function makeYouTubeTools(): Tool[] {
   const getChannelTool: Tool = {
     name: 'youtube_get_channel',
     description:
-      'Get the authenticated user\'s YouTube channel information (name, description, subscriber count, view count, video count). Requires YOUTUBE_ACCESS_TOKEN vault secret.',
+      "Get a connected YouTube account's channel info (name, description, subscriber count, view count, video count). Use `account` to pick which connected YouTube account.",
     inputSchema: GET_CHANNEL_SCHEMA,
     executor: {
-      async *execute(_input: unknown, ctx: ToolContext) {
-        const clientOrError = await YouTubeClient.create(ctx);
-        if ('error' in clientOrError) {
-          yield { type: 'error', message: clientOrError.error };
+      async *execute(input: unknown, ctx: ToolContext) {
+        const args = (input ?? {}) as { account?: string };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create YouTube client' };
           return;
         }
 
-        const result = await clientOrError.getChannel();
+        const result = await client.getChannel();
         if (result.error) {
           yield { type: 'error', message: result.error };
         } else {
@@ -186,19 +245,19 @@ export function makeYouTubeTools(): Tool[] {
   const listVideosTool: Tool = {
     name: 'youtube_list_videos',
     description:
-      'List the authenticated user\'s uploaded YouTube videos. Returns video metadata (title, description, publish date, etc). Requires YOUTUBE_ACCESS_TOKEN vault secret.',
+      "List a connected YouTube account's uploaded videos. Use `account` to pick which connected YouTube account.",
     inputSchema: LIST_VIDEOS_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const args = (input ?? {}) as { limit?: number };
+        const args = (input ?? {}) as { limit?: number; account?: string };
 
-        const clientOrError = await YouTubeClient.create(ctx);
-        if ('error' in clientOrError) {
-          yield { type: 'error', message: clientOrError.error };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create YouTube client' };
           return;
         }
 
-        const result = await clientOrError.listVideos(Number(args.limit) || 20);
+        const result = await client.listVideos(Number(args.limit) || 20);
         if (result.error) {
           yield { type: 'error', message: result.error };
         } else {

@@ -1,31 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { secretRequired } from './vault.js';
 import type {
   YouTubeSearchResult,
   ChannelResponse,
-  VideoListResponse,
   CommentInsertResponse,
 } from './types.js';
 
 const API_BASE = 'https://www.googleapis.com/youtube/v3';
 
 export class YouTubeClient {
-  private ctx: ToolContext;
   private accessToken: string;
 
-  constructor(ctx: ToolContext, accessToken: string) {
-    this.ctx = ctx;
+  constructor(accessToken: string) {
     this.accessToken = accessToken;
-  }
-
-  static async create(ctx: ToolContext): Promise<YouTubeClient | { error: string }> {
-    try {
-      const token = await secretRequired(ctx, 'YOUTUBE_ACCESS_TOKEN');
-      return new YouTubeClient(ctx, token);
-    } catch {
-      return { error: 'YouTube not connected — set YOUTUBE_ACCESS_TOKEN in vault/env (Settings → Connections)' };
-    }
   }
 
   private async fetch<T>(

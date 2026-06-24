@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { secretOpt } from './vault.js';
 import type {
   XUserProfile,
   XTweet,
@@ -13,10 +11,8 @@ const BASE_URL = 'https://api.twitter.com/2';
 
 export class XClient {
   private accessToken: string;
-  private ctx: ToolContext;
 
-  constructor(ctx: ToolContext, accessToken: string) {
-    this.ctx = ctx;
+  constructor(accessToken: string) {
     this.accessToken = accessToken;
   }
 
@@ -191,25 +187,3 @@ export class XClient {
   }
 }
 
-export async function createXClient(
-  ctx: ToolContext
-): Promise<{ client: XClient | null; error?: string }> {
-  try {
-    const accessToken = await secretOpt(ctx, 'X_ACCESS_TOKEN');
-
-    if (!accessToken) {
-      return {
-        client: null,
-        error: "X isn't connected — set X_ACCESS_TOKEN in vault (Settings → Connections)",
-      };
-    }
-
-    return { client: new XClient(ctx, accessToken) };
-  } catch (exc) {
-    const errorMessage = exc instanceof Error ? exc.message : 'Unknown vault error';
-    return {
-      client: null,
-      error: `Failed to access X credentials: ${errorMessage}`,
-    };
-  }
-}

@@ -1,6 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// Agent tools for the `social-facebook` plugin — post/search/read on Facebook.
+//
+// Per-account OAuth: the operator connects one or more Facebook accounts in the Connections screen.
+// Each account's OAuth client + access token live in the vault; the registry rows live in
+// plugin_social_facebook.accounts. At call time the tools pick the requested account (or the first),
+// resolve an access token via the connections kit, then call the Graph API. Falls back to the legacy
+// single FACEBOOK_ACCESS_TOKEN secret (and optional FACEBOOK_PAGE_ID) when no account is connected,
+// so older setups keep working.
 import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
+import {
+  type AccountStore,
+  type SealFn,
+  AccountResolveError,
+  NotConnectedError,
+  resolveAccessToken,
+} from '@eidandev/connections-kit';
 import { FacebookClient } from './client.js';
+import { facebookAdapter } from './adapter.js';
+import { secretOpt } from './vault.js';
+
+const ACCOUNT_PROP = {
+  account: {
+    type: 'string',
+    description: 'Which connected Facebook account (name or slug). Omit to use the first connected account.',
+  },
+} as const;
 
 const POST_FEED_SCHEMA = {
   type: 'object',
@@ -16,6 +40,7 @@ const POST_FEED_SCHEMA = {
       type: 'string',
       description: 'Optional image URL to attach to the post.',
     },
+    ...ACCOUNT_PROP,
   },
 };
 
@@ -26,13 +51,14 @@ const SEARCH_SCHEMA = {
   properties: {
     query: { type: 'string', minLength: 1, description: 'Search query (keywords, hashtags, user names).' },
     limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max results (default 20).' },
+    ...ACCOUNT_PROP,
   },
 };
 
 const PROFILE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  properties: {},
+  properties: { ...ACCOUNT_PROP },
 };
 
 const FEED_SCHEMA = {
@@ -40,18 +66,54 @@ const FEED_SCHEMA = {
   additionalProperties: false,
   properties: {
     limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max posts (default 20).' },
+    ...ACCOUNT_PROP,
   },
 };
 
-export function makeFacebookTools(): Tool[] {
+// Resolve a Facebook client for the selected account: registry first, then the legacy single
+// FACEBOOK_ACCESS_TOKEN secret (with optional FACEBOOK_PAGE_ID). Returns an error string when nothing
+// usable resolves.
+async function resolveClient(
+  ctx: ToolContext,
+  store: AccountStore | null,
+  seal: SealFn | undefined,
+  account: string | undefined,
+): Promise<{ client?: FacebookClient; error?: string }> {
+  if (store) {
+    try {
+      const { accessToken } = await resolveAccessToken(store, facebookAdapter, ctx, {
+        ...(account ? { accountSelector: account } : {}),
+        ...(seal ? { seal } : {}),
+      });
+      return { client: new FacebookClient(accessToken) };
+    } catch (exc) {
+      if (exc instanceof AccountResolveError) return { error: exc.message };
+      if (!(exc instanceof NotConnectedError)) {
+        return { error: exc instanceof Error ? exc.message : 'failed to resolve Facebook account' };
+      }
+      // NotConnectedError → fall through to the legacy single-secret path.
+    }
+  }
+  const token = await secretOpt(ctx, 'FACEBOOK_ACCESS_TOKEN');
+  if (token) {
+    const pageId = (await secretOpt(ctx, 'FACEBOOK_PAGE_ID')) ?? '';
+    return { client: new FacebookClient(token, pageId) };
+  }
+  return {
+    error:
+      "Facebook isn't connected — add an account under Connections, or set the legacy FACEBOOK_ACCESS_TOKEN vault secret.",
+  };
+}
+
+export function makeFacebookTools(store: AccountStore | null, seal?: SealFn): Tool[] {
   const facebookPostFeedTool: Tool = {
     name: 'facebook_post_feed',
     description:
-      'Post a message to the operator\'s Facebook feed or page. Optionally attach an image URL. Requires FACEBOOK_ACCESS_TOKEN vault secret; optionally use FACEBOOK_PAGE_ID to post as a page instead of personal feed.',
+      "Post a message to a connected Facebook feed or page. Optionally attach an image URL. Use `account` to pick which connected Facebook account.",
     inputSchema: POST_FEED_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const args = (input ?? {}) as { text?: string; image_url?: string };
+        const args = (input ?? {}) as { text?: string; image_url?: string; account?: string };
         const text = String(args.text ?? '').trim();
 
         if (!text) {
@@ -59,13 +121,9 @@ export function makeFacebookTools(): Tool[] {
           return;
         }
 
-        const client = await FacebookClient.create(ctx);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
         if (!client) {
-          yield {
-            type: 'error',
-            message:
-              'Facebook isn\'t connected — set FACEBOOK_ACCESS_TOKEN in vault/env (Settings → Connections)',
-          };
+          yield { type: 'error', message: error ?? 'Failed to create Facebook client' };
           return;
         }
 
@@ -90,11 +148,11 @@ export function makeFacebookTools(): Tool[] {
   const facebookSearchTool: Tool = {
     name: 'facebook_search',
     description:
-      'Search Facebook for posts by keyword, hashtag, or user name. Returns matching posts with author info and engagement metrics.',
+      'Search Facebook for posts by keyword, hashtag, or user name. Use `account` to pick which connected Facebook account.',
     inputSchema: SEARCH_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const args = (input ?? {}) as { query?: string; limit?: number };
+        const args = (input ?? {}) as { query?: string; limit?: number; account?: string };
         const query = String(args.query ?? '').trim();
 
         if (!query) {
@@ -102,13 +160,9 @@ export function makeFacebookTools(): Tool[] {
           return;
         }
 
-        const client = await FacebookClient.create(ctx);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
         if (!client) {
-          yield {
-            type: 'error',
-            message:
-              'Facebook isn\'t connected — set FACEBOOK_ACCESS_TOKEN in vault/env (Settings → Connections)',
-          };
+          yield { type: 'error', message: error ?? 'Failed to create Facebook client' };
           return;
         }
 
@@ -141,17 +195,14 @@ export function makeFacebookTools(): Tool[] {
   const facebookGetProfileTool: Tool = {
     name: 'facebook_get_profile',
     description:
-      'Get the authenticated user\'s Facebook profile info (name, friend count, bio). Requires FACEBOOK_ACCESS_TOKEN vault secret.',
+      "Get a connected Facebook account's profile info (name, friend count, bio). Use `account` to pick which connected Facebook account.",
     inputSchema: PROFILE_SCHEMA,
     executor: {
-      async *execute(_input: unknown, ctx: ToolContext) {
-        const client = await FacebookClient.create(ctx);
+      async *execute(input: unknown, ctx: ToolContext) {
+        const args = (input ?? {}) as { account?: string };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
         if (!client) {
-          yield {
-            type: 'error',
-            message:
-              'Facebook isn\'t connected — set FACEBOOK_ACCESS_TOKEN in vault/env (Settings → Connections)',
-          };
+          yield { type: 'error', message: error ?? 'Failed to create Facebook client' };
           return;
         }
 
@@ -178,19 +229,15 @@ export function makeFacebookTools(): Tool[] {
   const facebookListFeedTool: Tool = {
     name: 'facebook_list_feed',
     description:
-      'Read the operator\'s Facebook feed or page timeline. Returns recent posts with engagement metrics (likes, comments, shares). Requires FACEBOOK_ACCESS_TOKEN vault secret; optionally uses FACEBOOK_PAGE_ID to read a page feed instead of personal feed.',
+      "Read a connected Facebook feed or page timeline. Returns recent posts with engagement metrics (likes, comments, shares). Use `account` to pick which connected Facebook account.",
     inputSchema: FEED_SCHEMA,
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
-        const args = (input ?? {}) as { limit?: number };
+        const args = (input ?? {}) as { limit?: number; account?: string };
 
-        const client = await FacebookClient.create(ctx);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
         if (!client) {
-          yield {
-            type: 'error',
-            message:
-              'Facebook isn\'t connected — set FACEBOOK_ACCESS_TOKEN in vault/env (Settings → Connections)',
-          };
+          yield { type: 'error', message: error ?? 'Failed to create Facebook client' };
           return;
         }
 

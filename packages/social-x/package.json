@@ -4,8 +4,10 @@
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "description": "eidan X (Twitter) Social (matbot): post tweets, search, read profile, and list timeline (x_post_tweet, x_search, x_get_profile, x_list_timeline) via X API v2 with OAuth2 bearer token and matbot vault secrets.",
-  "matbotRuntime": ["node"],
+  "description": "eidan X (Twitter) Social (matbot): post tweets, search, read profile, and list timeline across the operator's connected X accounts (x_post_tweet, x_search, x_get_profile, x_list_timeline) via X API v2, OAuth2 + PKCE, multi-account vault-sealed credentials, and a Connections admin screen.",
+  "matbotRuntime": [
+    "node"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,11 +15,48 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "x.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Connections.tsx"
+        },
+        {
+          "path": "/callback",
+          "component": "Callback.tsx"
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/social-x/accounts",
+          "handler": "api/route.ts"
+        }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          {
+            "id": "social-x",
+            "label": "X (Twitter)",
+            "icon": "share",
+            "href": "/p/social-x",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
   "dependencies": {
-    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+    "@eidandev/connections-kit": "link:../connections-kit",
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.8.0"
   }
 }

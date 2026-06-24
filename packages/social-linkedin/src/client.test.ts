@@ -2,8 +2,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LinkedInClient } from './client.js';
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
 let fetchCalls: Array<{ url: string; options: RequestInit | undefined }> = [];
 let fetchResponses: Map<string, Response | Error> = new Map();
@@ -50,66 +48,55 @@ const mockFetch = (url: string | URL, options?: RequestInit): Response | Promise
 const setupFetchMocks = () => {
   fetchCalls = [];
   fetchResponses.clear();
-  global.fetch = mockFetch as any;
+  global.fetch = mockFetch as unknown as typeof fetch;
 };
 
 const teardownFetchMocks = () => {
-  global.fetch = undefined as any;
+  global.fetch = undefined as unknown as typeof fetch;
 };
 
-const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext => ({
-  vault: {
-    resolve: async (name: string) => {
-      const key = name.replace(/^\$\{/, '').replace(/\}$/, '');
-      const value = secrets[key];
-      if (!value) throw new MissingSecretError(['KEY_NOT_FOUND']);
-      return value;
-    },
-    writeSecret: async (key: string, value: string) => {
-      secrets[key] = value;
-    },
-  },
-} as any);
-
-test('LinkedInClient.getProfile returns profile info', async () => {
+test('LinkedInClient.getProfile (member) reads OpenID userinfo', async () => {
   setupFetchMocks();
   try {
-    const profileData = {
-      id: '123456',
-      localizedFirstName: 'John',
-      localizedLastName: 'Doe',
-      localizedHeadline: 'Software Engineer',
-    };
-
-    fetchResponses.set('https://api.linkedin.com/v2/me',
-      new Response(JSON.stringify(profileData), { status: 200 })
+    fetchResponses.set('https://api.linkedin.com/v2/userinfo',
+      new Response(JSON.stringify({ sub: '123456', name: 'John Doe', email: 'john@example.com' }), { status: 200 })
     );
-
-    const client = new LinkedInClient(mockCtx(), 'test-token');
+    const client = new LinkedInClient('test-token', { type: 'member' });
     const result = await client.getProfile();
-
     assert.equal(result.profile?.id, '123456');
-    assert.equal(result.profile?.localizedFirstName, 'John');
+    assert.equal(result.profile?.name, 'John Doe');
+    assert.equal(result.profile?.kind, 'member');
     assert.equal(result.error, undefined);
   } finally {
     teardownFetchMocks();
   }
 });
 
-test('LinkedInClient.post creates a post', async () => {
+test('LinkedInClient.getProfile (organization) falls back to held identity', async () => {
+  setupFetchMocks();
+  try {
+    // org lookup likely 404s without admin scope → client returns the identity it already holds
+    const client = new LinkedInClient('test-token', { type: 'organization', author: 'urn:li:organization:42', handle: 'Eidan' });
+    const result = await client.getProfile();
+    assert.equal(result.profile?.kind, 'organization');
+    assert.equal(result.profile?.id, 'urn:li:organization:42');
+    assert.equal(result.profile?.name, 'Eidan');
+  } finally {
+    teardownFetchMocks();
+  }
+});
+
+test('LinkedInClient.post creates a post (member, falls back to /me for author)', async () => {
   setupFetchMocks();
   try {
     fetchResponses.set('https://api.linkedin.com/v2/me',
       new Response(JSON.stringify({ id: 'user123' }), { status: 200 })
     );
-
     fetchResponses.set('https://api.linkedin.com/v2/ugcPosts',
       new Response(JSON.stringify({ id: 'post456' }), { status: 201 })
     );
-
-    const client = new LinkedInClient(mockCtx(), 'test-token');
+    const client = new LinkedInClient('test-token');
     const result = await client.post('Hello LinkedIn!');
-
     assert.equal(result.id, 'post456');
     assert.equal(result.error, undefined);
   } finally {
@@ -117,93 +104,44 @@ test('LinkedInClient.post creates a post', async () => {
   }
 });
 
-test('LinkedInClient.listFeed returns feed posts', async () => {
+test('LinkedInClient.listFeed lists the author\x27s own posts (versioned /rest/posts)', async () => {
   setupFetchMocks();
   try {
-    const feedData = {
-      elements: [
-        {
-          id: 'post1',
-          actor: 'urn:li:person:user1',
-          content: { description: 'First post' },
-          likesSummary: { totalLikes: 10 },
-          commentsSummary: { totalFirstLevelComments: 2 },
-        },
-        {
-          id: 'post2',
-          actor: 'urn:li:person:user2',
-          content: { description: 'Second post' },
-          likesSummary: { totalLikes: 20 },
-          commentsSummary: { totalFirstLevelComments: 5 },
-        },
-      ],
-      paging: { start: 0, count: 2, total: 100 },
-    };
-
-    const url = new URL('https://api.linkedin.com/v2/feed');
-    url.searchParams.set('count', '20');
-    url.searchParams.set('sortBy', 'RECENT');
+    const url = new URL('https://api.linkedin.com/rest/posts');
+    url.searchParams.set('q', 'author');
     fetchResponses.set(url.toString(),
-      new Response(JSON.stringify(feedData), { status: 200 })
+      new Response(JSON.stringify({ elements: [{ id: 'urn:li:share:1', commentary: 'First post' }] }), { status: 200 })
     );
-
-    const client = new LinkedInClient(mockCtx(), 'test-token');
+    const client = new LinkedInClient('test-token', { author: 'urn:li:organization:42' });
     const result = await client.listFeed(20);
-
-    assert.ok(result.posts);
-    assert.equal(result.posts.length, 2);
-    assert.equal(result.posts[0]?.id, 'post1');
-    assert.equal(result.error, undefined);
-  } finally {
-    teardownFetchMocks();
-  }
-});
-
-test('LinkedInClient.search returns search results', async () => {
-  setupFetchMocks();
-  try {
-    const searchData = {
-      elements: [
-        {
-          id: 'post1',
-          actor: 'urn:li:person:user1',
-          content: { description: 'Relevant post' },
-          likesSummary: { totalLikes: 50 },
-          commentsSummary: { totalFirstLevelComments: 10 },
-        },
-      ],
-      paging: { start: 0, count: 1, total: 50 },
-    };
-
-    const url = new URL('https://api.linkedin.com/v2/search/posts');
-    url.searchParams.set('keywords', 'AI');
-    url.searchParams.set('count', '20');
-    fetchResponses.set(url.toString(),
-      new Response(JSON.stringify(searchData), { status: 200 })
-    );
-
-    const client = new LinkedInClient(mockCtx(), 'test-token');
-    const result = await client.search('AI', 20);
-
     assert.ok(result.posts);
     assert.equal(result.posts.length, 1);
-    assert.equal(result.posts[0]?.text, 'Relevant post');
+    assert.equal(result.posts[0]?.text, 'First post');
     assert.equal(result.error, undefined);
   } finally {
     teardownFetchMocks();
   }
 });
 
-test('LinkedInClient handles API errors gracefully', async () => {
+test('LinkedInClient.listFeed errors without an author URN', async () => {
   setupFetchMocks();
   try {
-    fetchResponses.set('https://api.linkedin.com/v2/me',
+    const client = new LinkedInClient('test-token');
+    const result = await client.listFeed(20);
+    assert.ok(result.error);
+  } finally {
+    teardownFetchMocks();
+  }
+});
+
+test('LinkedInClient.getProfile surfaces API errors', async () => {
+  setupFetchMocks();
+  try {
+    fetchResponses.set('https://api.linkedin.com/v2/userinfo',
       new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
     );
-
-    const client = new LinkedInClient(mockCtx(), 'invalid-token');
+    const client = new LinkedInClient('invalid-token', { type: 'member' });
     const result = await client.getProfile();
-
     assert.match(result.error!, /LinkedIn API error/);
   } finally {
     teardownFetchMocks();

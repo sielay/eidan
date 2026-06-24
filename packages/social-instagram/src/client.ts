@@ -1,24 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { secretOpt } from './vault.js';
 import type {
   InstagramUser,
   InstagramMedia,
   InstagramHashtagSearch,
-  InstagramMediaSearchResponse,
-  InstagramUserResponse,
   InstagramMediaUploadResponse,
 } from './types.js';
 
 const API_VERSION = 'v19.0';
 const BASE_URL = `https://graph.instagram.com/${API_VERSION}`;
-
-export class InstagramAuthError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'InstagramAuthError';
-  }
-}
 
 export class InstagramAPIError extends Error {
   status: number | null;
@@ -38,43 +27,25 @@ export class InstagramPostError extends Error {
 }
 
 export class InstagramClient {
-  private ctx: ToolContext;
-  private accessToken: string | null | undefined;
+  private accessToken: string;
   private userId: string | null | undefined;
 
-  constructor(ctx: ToolContext) {
-    this.ctx = ctx;
-  }
-
-  private async getAccessToken(): Promise<string | null> {
-    if (this.accessToken) return this.accessToken;
-    const token = await secretOpt(this.ctx, 'INSTAGRAM_ACCESS_TOKEN');
-    this.accessToken = token ?? null;
-    return this.accessToken;
+  constructor(accessToken: string) {
+    this.accessToken = accessToken;
   }
 
   private async getUserId(): Promise<string | null> {
     if (this.userId !== undefined) return this.userId;
-    try {
-      const user = await this.getAuthenticatedUser();
-      this.userId = user?.id ?? null;
-    } catch (err) {
-      this.userId = null;
-      throw err;
-    }
+    const user = await this.getAuthenticatedUser();
+    this.userId = user?.id ?? null;
     return this.userId;
   }
 
   private async makeRequest(path: string, options?: RequestInit & { body?: string | undefined }): Promise<Response> {
-    const token = await this.getAccessToken();
-    if (!token) {
-      throw new InstagramAuthError('Instagram access token not configured. Set INSTAGRAM_ACCESS_TOKEN in vault/env.');
-    }
-
     const url = new URL(path, BASE_URL).toString();
     const headers = {
       ...((options?.headers as Record<string, string>) ?? {}),
-      'Authorization': `Bearer ${token}`,
+      'Authorization': `Bearer ${this.accessToken}`,
     };
     return fetch(url, { ...options, headers });
   }
@@ -88,9 +59,6 @@ export class InstagramClient {
       const data = (await res.json()) as InstagramUser;
       return data;
     } catch (err) {
-      if (err instanceof InstagramAuthError) {
-        throw err;
-      }
       if (err instanceof InstagramAPIError && err.status === 401) {
         return null;
       }
@@ -99,27 +67,20 @@ export class InstagramClient {
   }
 
   async getUserFeed(limit: number = 20): Promise<InstagramMedia[]> {
-    try {
-      const userId = await this.getUserId();
-      if (!userId) {
-        return [];
-      }
-      const res = await this.makeRequest(
-        `/me/media?user_id=${encodeURIComponent(userId)}&fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=${Math.min(limit, 100)}`
-      );
-
-      if (!res.ok) {
-        return [];
-      }
-
-      const data = (await res.json()) as { data?: InstagramMedia[] };
-      return data.data ?? [];
-    } catch (err) {
-      if (err instanceof InstagramAuthError) {
-        throw err;
-      }
+    const userId = await this.getUserId();
+    if (!userId) {
       return [];
     }
+    const res = await this.makeRequest(
+      `/me/media?user_id=${encodeURIComponent(userId)}&fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&limit=${Math.min(limit, 100)}`
+    );
+
+    if (!res.ok) {
+      return [];
+    }
+
+    const data = (await res.json()) as { data?: InstagramMedia[] };
+    return data.data ?? [];
   }
 
   async searchHashtag(hashtag: string): Promise<{ id: string; name: string } | null> {
@@ -138,9 +99,6 @@ export class InstagramClient {
       const data = (await res.json()) as InstagramHashtagSearch;
       return data.data?.[0] ?? null;
     } catch (err) {
-      if (err instanceof InstagramAuthError) {
-        throw err;
-      }
       if (err instanceof InstagramAPIError && err.status === 404) {
         return null;
       }
@@ -152,7 +110,7 @@ export class InstagramClient {
     try {
       const userId = await this.getUserId();
       if (!userId) {
-        throw new InstagramPostError('Failed to get user ID. Ensure INSTAGRAM_ACCESS_TOKEN is valid.');
+        throw new InstagramPostError('Failed to get user ID. Ensure the connected Instagram account is valid.');
       }
 
       // Step 1: Create media container
@@ -202,7 +160,7 @@ export class InstagramClient {
 
       return { id: publishResult.id };
     } catch (err) {
-      if (err instanceof InstagramPostError || err instanceof InstagramAuthError) {
+      if (err instanceof InstagramPostError) {
         throw err;
       }
       const message = err instanceof Error ? err.message : 'Failed to post media';
@@ -227,9 +185,6 @@ export class InstagramClient {
       const data = (await res.json()) as { data?: InstagramMedia[] };
       return data.data ?? [];
     } catch (err) {
-      if (err instanceof InstagramAuthError) {
-        throw err;
-      }
       if (err instanceof InstagramAPIError && err.status === 404) {
         return [];
       }

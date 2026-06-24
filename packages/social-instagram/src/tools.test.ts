@@ -1,145 +1,79 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeInstagramTools } from './tools.js';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
+import { makeInstagramTools } from './tools.js';
 
-const mockCtx = (secrets: Record<string, string | undefined> = {}): ToolContext => ({
-  vault: {
-    resolve: async (name: string) => {
-      const key = name.replace(/^\$\{/, '').replace(/\}$/, '');
-      const value = secrets[key];
-      if (!value) throw new MissingSecretError(['KEY_NOT_FOUND']);
-      return value;
-    },
-    writeSecret: async (key: string, value: string) => {
-      secrets[key] = value;
-    },
-  },
-} as any);
-
-const collectYields = async (generator: AsyncIterable<any>): Promise<Array<any>> => {
-  const results: Array<any> = [];
-  for await (const item of generator) {
-    results.push(item);
-  }
-  return results;
-};
-
-test('makeInstagramTools returns four tools', () => {
-  const tools = makeInstagramTools();
-  assert.equal(tools.length, 4);
-
-  const names = tools.map((t) => t.name);
-  assert.ok(names.includes('instagram_post_feed'));
-  assert.ok(names.includes('instagram_search'));
-  assert.ok(names.includes('instagram_get_profile'));
-  assert.ok(names.includes('instagram_list_feed'));
+test('makeInstagramTools returns all four tools', () => {
+  const names = makeInstagramTools(null).map((t) => t.name);
+  assert.deepEqual(names.sort(), [
+    'instagram_get_profile',
+    'instagram_list_feed',
+    'instagram_post_feed',
+    'instagram_search',
+  ]);
 });
 
-test('instagram_post_feed tool has correct schema', () => {
-  const tools = makeInstagramTools();
-  const postTool = tools.find((t) => t.name === 'instagram_post_feed');
+test('every tool accepts an optional `account` selector', () => {
+  for (const t of makeInstagramTools(null)) {
+    const props = (t.inputSchema as { properties: Record<string, unknown> }).properties;
+    assert.ok('account' in props, `${t.name} should expose account`);
+  }
+});
 
-  assert.ok(postTool);
-  const schema = postTool?.inputSchema as any;
-  assert.equal(schema.type, 'object');
+test('instagram_post_feed schema requires text (max 2200) and image_url', () => {
+  const t = makeInstagramTools(null).find((x) => x.name === 'instagram_post_feed')!;
+  const schema = t.inputSchema as { required: string[]; properties: Record<string, Record<string, unknown>> };
   assert.ok(schema.required.includes('text'));
   assert.ok(schema.required.includes('image_url'));
-  assert.ok(schema.properties.text);
-  assert.ok(schema.properties.image_url);
+  assert.equal(schema.properties['text']?.['maxLength'], 2200);
 });
 
-test('instagram_search tool has correct schema', () => {
-  const tools = makeInstagramTools();
-  const searchTool = tools.find((t) => t.name === 'instagram_search');
-
-  assert.ok(searchTool);
-  const schema = searchTool?.inputSchema as any;
-  assert.equal(schema.type, 'object');
+test('instagram_search schema requires query', () => {
+  const t = makeInstagramTools(null).find((x) => x.name === 'instagram_search')!;
+  const schema = t.inputSchema as { required: string[]; properties: Record<string, unknown> };
   assert.ok(schema.required.includes('query'));
-  assert.ok(schema.properties.query);
-  assert.ok(schema.properties.limit);
+  assert.ok('limit' in schema.properties);
 });
 
-test('instagram_get_profile tool has correct schema', () => {
-  const tools = makeInstagramTools();
-  const profileTool = tools.find((t) => t.name === 'instagram_get_profile');
-
-  assert.ok(profileTool);
-  const schema = profileTool?.inputSchema as any;
-  assert.equal(schema.type, 'object');
+test('legacy fallback: errors clearly when nothing is connected', async () => {
+  const t = makeInstagramTools(null).find((x) => x.name === 'instagram_post_feed')!;
+  const ctx = {
+    vault: {
+      resolve: async () => {
+        throw new MissingSecretError(['INSTAGRAM_ACCESS_TOKEN']);
+      },
+    },
+  } as unknown as ToolContext;
+  const out: Array<Record<string, unknown>> = [];
+  for await (const r of t.executor.execute({ text: 'Hello', image_url: 'https://example.com/i.jpg' }, ctx))
+    out.push(r as Record<string, unknown>);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.['type'], 'error');
 });
 
-test('instagram_list_feed tool has correct schema', () => {
-  const tools = makeInstagramTools();
-  const feedTool = tools.find((t) => t.name === 'instagram_list_feed');
-
-  assert.ok(feedTool);
-  const schema = feedTool?.inputSchema as any;
-  assert.equal(schema.type, 'object');
-  assert.ok(schema.properties.limit);
+test('instagram_post_feed rejects empty text', async () => {
+  const t = makeInstagramTools(null).find((x) => x.name === 'instagram_post_feed')!;
+  const out: Array<Record<string, unknown>> = [];
+  for await (const r of t.executor.execute({ text: '' }, {} as unknown as ToolContext))
+    out.push(r as Record<string, unknown>);
+  assert.equal(out[0]?.['type'], 'error');
 });
 
-test('instagram_post_feed executor yields error without text', async () => {
-  const tools = makeInstagramTools();
-  const postTool = tools.find((t) => t.name === 'instagram_post_feed');
-  const ctx = mockCtx();
-
-  const results = await collectYields(
-    postTool!.executor.execute({ image_url: 'https://example.com/image.jpg' }, ctx)
-  );
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'error');
-  assert.ok(results[0].message.includes('text is required'));
+test('instagram_post_feed rejects missing image_url', async () => {
+  const t = makeInstagramTools(null).find((x) => x.name === 'instagram_post_feed')!;
+  const out: Array<Record<string, unknown>> = [];
+  for await (const r of t.executor.execute({ text: 'Hello' }, {} as unknown as ToolContext))
+    out.push(r as Record<string, unknown>);
+  assert.equal(out[0]?.['type'], 'error');
+  assert.ok(String(out[0]?.['message']).includes('image_url is required'));
 });
 
-test('instagram_post_feed executor yields error without image_url', async () => {
-  const tools = makeInstagramTools();
-  const postTool = tools.find((t) => t.name === 'instagram_post_feed');
-  const ctx = mockCtx();
-
-  const results = await collectYields(postTool!.executor.execute({ text: 'Test post' }, ctx));
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'error');
-  assert.ok(results[0].message.includes('image_url is required'));
-});
-
-test('instagram_search executor yields error without query', async () => {
-  const tools = makeInstagramTools();
-  const searchTool = tools.find((t) => t.name === 'instagram_search');
-  const ctx = mockCtx();
-
-  const results = await collectYields(searchTool!.executor.execute({}, ctx));
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'error');
-  assert.ok(results[0].message.includes('query is required'));
-});
-
-test('instagram_get_profile executor yields error when not authenticated', async () => {
-  const tools = makeInstagramTools();
-  const profileTool = tools.find((t) => t.name === 'instagram_get_profile');
-  const ctx = mockCtx({});
-
-  const results = await collectYields(profileTool!.executor.execute({}, ctx));
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'error');
-  assert.ok(results[0].message.includes("isn't connected"));
-});
-
-test('instagram_list_feed executor yields error when not authenticated', async () => {
-  const tools = makeInstagramTools();
-  const feedTool = tools.find((t) => t.name === 'instagram_list_feed');
-  const ctx = mockCtx({});
-
-  const results = await collectYields(feedTool!.executor.execute({}, ctx));
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0].type, 'error');
-  assert.ok(results[0].message.includes("isn't connected"));
+test('instagram_search rejects empty query', async () => {
+  const t = makeInstagramTools(null).find((x) => x.name === 'instagram_search')!;
+  const out: Array<Record<string, unknown>> = [];
+  for await (const r of t.executor.execute({}, {} as unknown as ToolContext))
+    out.push(r as Record<string, unknown>);
+  assert.equal(out[0]?.['type'], 'error');
 });

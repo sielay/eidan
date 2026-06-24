@@ -1,87 +1,112 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { Tool } from '@matatbread/matbot-plugin-api';
-import { createXClient } from './client.js';
+// Agent tools for the `social-x` plugin — post/search/read on X (Twitter).
+//
+// Per-account OAuth: the operator connects one or more X accounts in the Connections screen. Each
+// account's OAuth client (sealed under client_vault_key) + access/refresh tokens (token/refresh keys)
+// live in the vault; the registry rows live in plugin_social_x.accounts. At call time the tools pick
+// the requested account (or the first), mint/refresh an access token via the connections kit, then
+// call the X API. Falls back to the legacy single X_ACCESS_TOKEN secret when no account is connected,
+// so older setups keep working.
+import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
+import {
+  type AccountStore,
+  type SealFn,
+  AccountResolveError,
+  NotConnectedError,
+  resolveAccessToken,
+} from '@eidandev/connections-kit';
+import { XClient } from './client.js';
+import { xAdapter } from './adapter.js';
+import { secretOpt } from './vault.js';
+
+const ACCOUNT_PROP = {
+  account: {
+    type: 'string',
+    description: 'Which connected X account (name or slug). Omit to use the first connected account.',
+  },
+} as const;
 
 const POST_TWEET_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['text'],
   properties: {
-    text: {
-      type: 'string',
-      minLength: 1,
-      maxLength: 280,
-      description: 'Tweet text (max 280 characters).',
-    },
-    reply_to: {
-      type: 'string',
-      description: 'Optional tweet ID to reply to.',
-    },
+    text: { type: 'string', minLength: 1, maxLength: 280, description: 'Tweet text (max 280 characters).' },
+    reply_to: { type: 'string', description: 'Optional tweet ID to reply to.' },
+    ...ACCOUNT_PROP,
   },
 };
-
 const SEARCH_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['query'],
   properties: {
-    query: {
-      type: 'string',
-      minLength: 1,
-      description: 'Search query (keywords, #hashtags, from:@handle).',
-    },
-    limit: {
-      type: 'integer',
-      minimum: 1,
-      maximum: 100,
-      description: 'Max results (default 20).',
-    },
+    query: { type: 'string', minLength: 1, description: 'Search query (keywords, #hashtags, from:@handle).' },
+    limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max results (default 20).' },
+    ...ACCOUNT_PROP,
   },
 };
-
-const GET_PROFILE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {},
-};
-
+const GET_PROFILE_SCHEMA = { type: 'object', additionalProperties: false, properties: { ...ACCOUNT_PROP } };
 const LIST_TIMELINE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    limit: {
-      type: 'integer',
-      minimum: 1,
-      maximum: 100,
-      description: 'Max tweets (default 20).',
-    },
+    limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max tweets (default 20).' },
+    ...ACCOUNT_PROP,
   },
 };
 
-export function makeXTools(): Tool[] {
+// Resolve an X client for the selected account: registry first (with transparent refresh), then the
+// legacy single X_ACCESS_TOKEN secret. Returns an error string when nothing usable resolves.
+async function resolveClient(
+  ctx: ToolContext,
+  store: AccountStore | null,
+  seal: SealFn | undefined,
+  account: string | undefined,
+): Promise<{ client?: XClient; error?: string }> {
+  if (store) {
+    try {
+      const { accessToken } = await resolveAccessToken(store, xAdapter, ctx, {
+        ...(account ? { accountSelector: account } : {}),
+        ...(seal ? { seal } : {}),
+      });
+      return { client: new XClient(accessToken) };
+    } catch (exc) {
+      if (exc instanceof AccountResolveError) return { error: exc.message };
+      if (!(exc instanceof NotConnectedError)) {
+        return { error: exc instanceof Error ? exc.message : 'failed to resolve X account' };
+      }
+      // NotConnectedError → fall through to the legacy single-secret path.
+    }
+  }
+  const token = await secretOpt(ctx, 'X_ACCESS_TOKEN');
+  if (token) return { client: new XClient(token) };
+  return {
+    error:
+      "X isn't connected — add an account under Connections, or set the legacy X_ACCESS_TOKEN vault secret.",
+  };
+}
+
+export function makeXTools(store: AccountStore | null, seal?: SealFn): Tool[] {
   const postTweetTool: Tool = {
     name: 'x_post_tweet',
     description:
-      'Post a tweet to the operator\'s X account. Supports text up to 280 characters. Optionally reply to an existing tweet. Requires X_ACCESS_TOKEN vault secret.',
+      "Post a tweet to a connected X account (up to 280 chars; optional reply_to). Use `account` to pick which connected X account.",
     inputSchema: POST_TWEET_SCHEMA,
     executor: {
       async *execute(input, ctx) {
-        const args = (input ?? {}) as { text?: string; reply_to?: string };
+        const args = (input ?? {}) as { text?: string; reply_to?: string; account?: string };
         const text = String(args.text ?? '').trim();
-
         if (!text) {
           yield { type: 'error', message: 'text is required' };
           return;
         }
-
-        const result = await createXClient(ctx);
-        if (!result.client) {
-          yield { type: 'error', message: result.error || 'Failed to create X client' };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create X client' };
           return;
         }
-
-        const postResult = await result.client.postTweet(text, args.reply_to);
-
+        const postResult = await client.postTweet(text, args.reply_to);
         if (postResult.error) {
           yield { type: 'error', message: postResult.error };
         } else {
@@ -102,26 +127,22 @@ export function makeXTools(): Tool[] {
   const searchTool: Tool = {
     name: 'x_search',
     description:
-      'Search X (Twitter) for tweets by keyword, hashtag, or @handle. Returns matching tweets with author and engagement metrics. Requires X_ACCESS_TOKEN vault secret.',
+      'Search X (Twitter) for tweets by keyword, hashtag, or @handle. Use `account` to pick which connected X account.',
     inputSchema: SEARCH_SCHEMA,
     executor: {
       async *execute(input, ctx) {
-        const args = (input ?? {}) as { query?: string; limit?: number };
+        const args = (input ?? {}) as { query?: string; limit?: number; account?: string };
         const query = String(args.query ?? '').trim();
-
         if (!query) {
           yield { type: 'error', message: 'query is required' };
           return;
         }
-
-        const result = await createXClient(ctx);
-        if (!result.client) {
-          yield { type: 'error', message: result.error || 'Failed to create X client' };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create X client' };
           return;
         }
-
-        const searchResult = await result.client.searchTweets(query, Number(args.limit) || 20);
-
+        const searchResult = await client.searchTweets(query, Number(args.limit) || 20);
         if (searchResult.error) {
           yield { type: 'error', message: searchResult.error };
         } else {
@@ -150,18 +171,17 @@ export function makeXTools(): Tool[] {
   const getProfileTool: Tool = {
     name: 'x_get_profile',
     description:
-      'Get the authenticated user\'s X (Twitter) profile information including follower count, bio, and verification status. Requires X_ACCESS_TOKEN vault secret.',
+      "Get a connected X account's profile (followers, bio, verification). Use `account` to pick which connected X account.",
     inputSchema: GET_PROFILE_SCHEMA,
     executor: {
-      async *execute(_input, ctx) {
-        const result = await createXClient(ctx);
-        if (!result.client) {
-          yield { type: 'error', message: result.error || 'Failed to create X client' };
+      async *execute(input, ctx) {
+        const args = (input ?? {}) as { account?: string };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create X client' };
           return;
         }
-
-        const profileResult = await result.client.getMe();
-
+        const profileResult = await client.getMe();
         if (profileResult.error) {
           yield { type: 'error', message: profileResult.error };
         } else if (!profileResult.profile) {
@@ -190,19 +210,17 @@ export function makeXTools(): Tool[] {
   const listTimelineTool: Tool = {
     name: 'x_list_timeline',
     description:
-      'Get the authenticated user\'s X (Twitter) timeline (recent tweets). Returns the user\'s own tweets with engagement metrics. Requires X_ACCESS_TOKEN vault secret.',
+      "Get a connected X account's recent tweets (timeline). Use `account` to pick which connected X account.",
     inputSchema: LIST_TIMELINE_SCHEMA,
     executor: {
       async *execute(input, ctx) {
-        const args = (input ?? {}) as { limit?: number };
-        const result = await createXClient(ctx);
-        if (!result.client) {
-          yield { type: 'error', message: result.error || 'Failed to create X client' };
+        const args = (input ?? {}) as { limit?: number; account?: string };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create X client' };
           return;
         }
-
-        const timelineResult = await result.client.getTimeline(Number(args.limit) || 20);
-
+        const timelineResult = await client.getTimeline(Number(args.limit) || 20);
         if (timelineResult.error) {
           yield { type: 'error', message: timelineResult.error };
         } else {

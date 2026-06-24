@@ -156,9 +156,15 @@ export function assemble(config) {
   applyMatbotYaml(bundles);
   // Frontends: vendor each plugin's eidan.frontend (admin screens, routes, nav), regenerate the
   // registry + bundle CSS. Core plugins (always-on, e.g. the folded-in integrations imap/ical/google)
-  // ship UI too, so vendor those first, then bundles. vendorFrontend returns null for logic-only
-  // plugins, so this is a no-op for the rest.
-  const fronts = [...CORE_PLUGINS, ...bundles.map((b) => b.name)]
+  // ship UI too. NB: vendor frontends for ALL configured bundle names — INCLUDING sourceless folded
+  // AGPL bundles (charles-*, social-*) that have no path/git (their code already lives in
+  // packages/<name>, so there's nothing to vendor-copy, but their eidan.frontend admin screens still
+  // must be mounted). Using the path/git-filtered `bundles` here silently dropped those screens.
+  // vendorFrontend returns null for logic-only plugins, so this is a no-op for the rest.
+  const allBundleNames = (config.bundles ?? [])
+    .filter((b) => b && b.name && !String(b.name).startsWith("//"))
+    .map((b) => b.name);
+  const fronts = [...CORE_PLUGINS, ...allBundleNames]
     .map((name) => vendorFrontend(name))
     .filter(Boolean);
   if (fronts.length) writeFrontendRegistry(fronts);

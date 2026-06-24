@@ -1,7 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// Agent tools for the `social-linkedin` plugin — post/search/profile/feed on LinkedIn.
+//
+// Per-account OAuth: the operator connects one or more LinkedIn accounts in the Connections screen.
+// Each account's OAuth client (sealed under client_vault_key) + access token (token key) live in the
+// vault; the registry rows live in plugin_social_linkedin.accounts. At call time the tools pick the
+// requested account (or the first), resolve an access token via the connections kit, then call the
+// LinkedIn API. Falls back to the legacy single LINKEDIN_ACCESS_TOKEN secret when no account is
+// connected, so older setups keep working.
 import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
+import {
+  type AccountStore,
+  type SealFn,
+  AccountResolveError,
+  NotConnectedError,
+  resolveAccessToken,
+} from '@eidandev/connections-kit';
 import { LinkedInClient } from './client.js';
-import { secretRequired } from './vault.js';
+import { linkedinAdapter } from './adapter.js';
+import { secretOpt } from './vault.js';
+
+const ACCOUNT_PROP = {
+  account: {
+    type: 'string',
+    description: 'Which connected LinkedIn account (name or slug). Omit to use the first connected account.',
+  },
+} as const;
 
 const POST_SCHEMA = {
   type: 'object',
@@ -19,33 +42,11 @@ const POST_SCHEMA = {
       format: 'uri',
       description: 'Optional image URL to attach to the post. Must be HTTPS. Private/internal IPs are rejected for security.',
     },
+    ...ACCOUNT_PROP,
   },
 };
 
-const SEARCH_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['query'],
-  properties: {
-    query: {
-      type: 'string',
-      minLength: 1,
-      description: 'Search text (keywords, company names, topics).',
-    },
-    limit: {
-      type: 'integer',
-      minimum: 1,
-      maximum: 100,
-      description: 'Max results (default 20).',
-    },
-  },
-};
-
-const GET_PROFILE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {},
-};
+const GET_PROFILE_SCHEMA = { type: 'object', additionalProperties: false, properties: { ...ACCOUNT_PROP } };
 
 const LIST_FEED_SCHEMA = {
   type: 'object',
@@ -57,96 +58,85 @@ const LIST_FEED_SCHEMA = {
       maximum: 100,
       description: 'Max posts (default 20).',
     },
+    ...ACCOUNT_PROP,
   },
 };
 
-export function makeLinkedInTools(): Tool[] {
+// Resolve a LinkedIn client for the selected account: registry first, then the legacy single
+// LINKEDIN_ACCESS_TOKEN secret. Returns an error string when nothing usable resolves.
+async function resolveClient(
+  ctx: ToolContext,
+  store: AccountStore | null,
+  seal: SealFn | undefined,
+  account: string | undefined,
+): Promise<{ client?: LinkedInClient; error?: string }> {
+  if (store) {
+    try {
+      const { accessToken, account: acc } = await resolveAccessToken(store, linkedinAdapter, ctx, {
+        ...(account ? { accountSelector: account } : {}),
+        ...(seal ? { seal } : {}),
+      });
+      // Post as the org URN for a Page/organization connection, else the member's person URN. The
+      // org connection's external_id is already a `urn:li:organization:…`; a member's is the person id.
+      const isOrg = acc.metadata['type'] === 'organization';
+      const author = isOrg
+        ? acc.external_id
+        : acc.external_id
+          ? `urn:li:person:${acc.external_id}`
+          : undefined;
+      return {
+        client: new LinkedInClient(accessToken, {
+          ...(author ? { author } : {}),
+          type: isOrg ? 'organization' : 'member',
+          handle: acc.external_handle,
+        }),
+      };
+    } catch (exc) {
+      if (exc instanceof AccountResolveError) return { error: exc.message };
+      if (!(exc instanceof NotConnectedError)) {
+        return { error: exc instanceof Error ? exc.message : 'failed to resolve LinkedIn account' };
+      }
+      // NotConnectedError → fall through to the legacy single-secret path.
+    }
+  }
+  const token = await secretOpt(ctx, 'LINKEDIN_ACCESS_TOKEN');
+  if (token) return { client: new LinkedInClient(token) };
+  return {
+    error:
+      "LinkedIn isn't connected — add an account under Connections, or set the legacy LINKEDIN_ACCESS_TOKEN vault secret.",
+  };
+}
+
+export function makeLinkedinTools(store: AccountStore | null, seal?: SealFn): Tool[] {
   const linkedinPostTool: Tool = {
     name: 'linkedin_post',
     description:
-      'Post a message to the operator\'s LinkedIn feed. Supports text and optional image. Requires LINKEDIN_ACCESS_TOKEN vault secret.',
+      "Post a message to a connected LinkedIn account's feed (up to 3000 chars; optional image_url). Use `account` to pick which connected LinkedIn account.",
     inputSchema: POST_SCHEMA,
     executor: {
-      async *execute(input: any, ctx: ToolContext) {
-        const args = (input ?? {}) as { text?: string; image_url?: string };
+      async *execute(input, ctx) {
+        const args = (input ?? {}) as { text?: string; image_url?: string; account?: string };
         const text = String(args.text ?? '').trim();
-
         if (!text) {
           yield { type: 'error', message: 'text is required' };
           return;
         }
-
-        // Note: image_url is validated in client (HTTPS, no private IPs)
-        try {
-          const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
-          const client = new LinkedInClient(ctx, token);
-          const result = await client.post(text, args.image_url);
-
-          if (result.error) {
-            yield { type: 'error', message: result.error };
-          } else {
-            yield {
-              type: 'result',
-              value: {
-                id: result.id,
-                text,
-                message: 'Posted to LinkedIn',
-              },
-            };
-          }
-        } catch (err) {
-          yield {
-            type: 'error',
-            message: `LinkedIn isn't connected — set LINKEDIN_ACCESS_TOKEN in vault/env (Settings → Connections)`,
-          };
-        }
-      },
-    },
-  };
-
-  const linkedinSearchTool: Tool = {
-    name: 'linkedin_search',
-    description:
-      'Search LinkedIn for posts by keyword, company name, or topic. Returns matching posts with engagement metrics.',
-    inputSchema: SEARCH_SCHEMA,
-    executor: {
-      async *execute(input: any, ctx: ToolContext) {
-        const args = (input ?? {}) as { query?: string; limit?: number };
-        const query = String(args.query ?? '').trim();
-
-        if (!query) {
-          yield { type: 'error', message: 'query is required' };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create LinkedIn client' };
           return;
         }
-
-        // Note: inputSchema validates limit as integer 1-100; casting handles edge cases
-        try {
-          const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
-          const client = new LinkedInClient(ctx, token);
-          const result = await client.search(query, Number(args.limit) || 20);
-
-          if (result.error) {
-            yield { type: 'error', message: result.error };
-          } else {
-            yield {
-              type: 'result',
-              value: {
-                query,
-                posts: (result.posts ?? []).map((post) => ({
-                  id: post.id,
-                  text: post.text,
-                  author: post.author,
-                  likes: post.likes,
-                  comments: post.comments,
-                })),
-                count: result.posts?.length ?? 0,
-              },
-            };
-          }
-        } catch (err) {
+        const result = await client.post(text, args.image_url);
+        if (result.error) {
+          yield { type: 'error', message: result.error };
+        } else {
           yield {
-            type: 'error',
-            message: `LinkedIn isn't connected — set LINKEDIN_ACCESS_TOKEN in vault/env (Settings → Connections)`,
+            type: 'result',
+            value: {
+              id: result.id,
+              text,
+              message: 'Posted to LinkedIn',
+            },
           };
         }
       },
@@ -156,39 +146,33 @@ export function makeLinkedInTools(): Tool[] {
   const linkedinGetProfileTool: Tool = {
     name: 'linkedin_get_profile',
     description:
-      'Get the authenticated user\'s LinkedIn profile information (name, headline, profile picture). Requires LINKEDIN_ACCESS_TOKEN vault secret.',
+      "Get a connected LinkedIn account's profile (name, headline, profile picture). Use `account` to pick which connected LinkedIn account.",
     inputSchema: GET_PROFILE_SCHEMA,
     executor: {
-      async *execute(input: any, ctx: ToolContext) {
-        try {
-          const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
-          const client = new LinkedInClient(ctx, token);
-          const result = await client.getProfile();
-
-          if (result.error) {
-            yield { type: 'error', message: result.error };
-          } else if (result.profile) {
-            // Extract profilePicture from deeply nested structure (empty string if any level is missing)
-            const profilePicture =
-              result.profile.profilePicture?.elements?.[0]?.identifiers?.[0]?.identifier || '';
-            yield {
-              type: 'result',
-              value: {
-                id: result.profile.id,
-                firstName: result.profile.localizedFirstName || '',
-                lastName: result.profile.localizedLastName || '',
-                headline: result.profile.localizedHeadline || '',
-                profilePicture,
-              },
-            };
-          } else {
-            yield { type: 'error', message: 'Failed to retrieve profile' };
-          }
-        } catch (err) {
+      async *execute(input, ctx) {
+        const args = (input ?? {}) as { account?: string };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create LinkedIn client' };
+          return;
+        }
+        const result = await client.getProfile();
+        if (result.error) {
+          yield { type: 'error', message: result.error };
+        } else if (result.profile) {
           yield {
-            type: 'error',
-            message: `LinkedIn isn't connected — set LINKEDIN_ACCESS_TOKEN in vault/env (Settings → Connections)`,
+            type: 'result',
+            value: {
+              id: result.profile.id,
+              name: result.profile.name,
+              kind: result.profile.kind,
+              ...(result.profile.headline ? { headline: result.profile.headline } : {}),
+              ...(result.profile.email ? { email: result.profile.email } : {}),
+              ...(result.profile.picture ? { picture: result.profile.picture } : {}),
+            },
           };
+        } else {
+          yield { type: 'error', message: 'Failed to retrieve profile' };
         }
       },
     },
@@ -197,44 +181,36 @@ export function makeLinkedInTools(): Tool[] {
   const linkedinListFeedTool: Tool = {
     name: 'linkedin_list_feed',
     description:
-      'Get the operator\'s LinkedIn feed. Returns recent posts from the user\'s network with engagement metrics.',
+      "List recent posts published BY a connected LinkedIn account (the member's own posts, or the organization's Page posts). NOTE: LinkedIn has no API to read other members' feeds or to search posts — only this account's own posts. Use `account` to pick which connected LinkedIn account.",
     inputSchema: LIST_FEED_SCHEMA,
     executor: {
-      async *execute(input: any, ctx: ToolContext) {
-        const args = (input ?? {}) as { limit?: number };
-
-        // Note: inputSchema validates limit as integer 1-100 if provided; defaults to 20
-        try {
-          const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
-          const client = new LinkedInClient(ctx, token);
-          const result = await client.listFeed(Number(args.limit) || 20);
-
-          if (result.error) {
-            yield { type: 'error', message: result.error };
-          } else {
-            yield {
-              type: 'result',
-              value: {
-                posts: (result.posts ?? []).map((post) => ({
-                  id: post.id,
-                  text: post.text,
-                  author: post.author,
-                  likes: post.likes,
-                  comments: post.comments,
-                })),
-                count: result.posts?.length ?? 0,
-              },
-            };
-          }
-        } catch (err) {
+      async *execute(input, ctx) {
+        const args = (input ?? {}) as { limit?: number; account?: string };
+        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        if (!client) {
+          yield { type: 'error', message: error ?? 'Failed to create LinkedIn client' };
+          return;
+        }
+        const result = await client.listFeed(Number(args.limit) || 20);
+        if (result.error) {
+          yield { type: 'error', message: result.error };
+        } else {
           yield {
-            type: 'error',
-            message: `LinkedIn isn't connected — set LINKEDIN_ACCESS_TOKEN in vault/env (Settings → Connections)`,
+            type: 'result',
+            value: {
+              posts: (result.posts ?? []).map((post) => ({
+                id: post.id,
+                text: post.text,
+                likes: post.likes,
+                comments: post.comments,
+              })),
+              count: result.posts?.length ?? 0,
+            },
           };
         }
       },
     },
   };
 
-  return [linkedinPostTool, linkedinSearchTool, linkedinGetProfileTool, linkedinListFeedTool];
+  return [linkedinPostTool, linkedinGetProfileTool, linkedinListFeedTool];
 }

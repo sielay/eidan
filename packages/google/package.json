@@ -33,6 +33,7 @@
     }
   },
   "dependencies": {
+    "@eidandev/connections-kit": "link:../connections-kit",
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
     "pg": "^8.13.1"
   },

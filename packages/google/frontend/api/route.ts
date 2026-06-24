@@ -108,7 +108,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   // connection that never completed — otherwise it stays invisible yet holds the name.
   const accounts = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `select id, name, slug, email, status
+      `select id, name, slug, coalesce(nullif(external_handle, ''), email) as email, status
          from plugin_google.accounts
         where user_id = $1 and status in ('active', 'pending')
         order by created_at`,

@@ -5,6 +5,21 @@
 // matbot Principal (set per turn by the runner), so reads/writes are owner-scoped.
 import type { Tool, JSONSchema } from '@matatbread/matbot-plugin-api';
 import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
+
+// Cross-plugin (matbot registry idiom): the social-* plugins register a SocialConnections lookup so
+// we can verify a handle is actually connected before attaching it as a venture resource — without a
+// hard dep on those plugins. Structurally re-declared; the string key matches at runtime.
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    SocialConnections?: {
+      providers(): string[];
+      lookup(provider: string, handle: string): Promise<{ externalId: string; handle: string } | null>;
+    };
+  }
+}
+export type SocialConnectionsLookup = NonNullable<
+  import('@matatbread/matbot-plugin-api').MatbotServices['SocialConnections']
+>;
 import type { Db, Q } from './db.js';
 import type { ItemRow, ResourceRow, VentureRow } from './store.js';
 import * as store from './store.js';
@@ -198,7 +213,7 @@ async function resolveVentureRef(q: Q, userId: string, ref: string): Promise<str
 }
 
 /** Build the venture tools, closed over the plugin's Db. */
-export function buildVenturesTools(db: Db): Tool[] {
+export function buildVenturesTools(db: Db, social?: SocialConnectionsLookup): Tool[] {
   return [
     {
       name: 'ventures_create',
@@ -508,6 +523,21 @@ export function buildVenturesTools(db: Db): Tool[] {
             const resolved = resolve(externalRef);
             if (!resolved.ok) return yield { type: 'error', message: `external_ref: ${resolved.error}` };
             externalRef = resolved.value ?? externalRef;
+          }
+          // Live check: when a social-* plugin is loaded and backs this provider, require the handle to
+          // be an actually-connected account (and canonicalise to its registry handle). Skipped when the
+          // plugin isn't loaded so Charles still works standalone (and for non-social providers).
+          if (social && kind === 'social_account' && social.providers().includes(provider)) {
+            const found = await social.lookup(provider, externalRef);
+            if (!found) {
+              return yield {
+                type: 'error',
+                message:
+                  `no connected ${provider} account matches "${externalRef}" — connect it under ` +
+                  `Connections first, or attach it as provider 'manual' to track it by hand.`,
+              };
+            }
+            externalRef = found.handle || externalRef;
           }
           const label = args['label'] == null ? null : str(args['label']);
           const row = await db.withPrincipalTx((q) =>

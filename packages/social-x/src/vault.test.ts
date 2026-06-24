@@ -11,7 +11,7 @@ export async function testSecretOpt() {
         if (template === '${TEST_SECRET}') {
           return 'test-value';
         }
-        throw new MissingSecretError(`Secret not found: ${template}`);
+        throw new MissingSecretError([template]);
       },
     },
   } as unknown as ToolContext;
@@ -24,7 +24,7 @@ export async function testSecretOptMissing() {
   const mockCtx = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('Secret not found');
+        throw new MissingSecretError(['SECRET']);
       },
     },
   } as unknown as ToolContext;
@@ -40,7 +40,7 @@ export async function testSecretRequired() {
         if (template === '${REQUIRED_SECRET}') {
           return 'required-value';
         }
-        throw new MissingSecretError('Secret not found');
+        throw new MissingSecretError(['SECRET']);
       },
     },
   } as unknown as ToolContext;
@@ -53,7 +53,7 @@ export async function testSecretRequiredMissing() {
   const mockCtx = {
     vault: {
       resolve: async () => {
-        throw new MissingSecretError('Secret not found');
+        throw new MissingSecretError(['SECRET']);
       },
     },
   } as unknown as ToolContext;
