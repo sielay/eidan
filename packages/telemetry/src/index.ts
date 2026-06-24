@@ -3,8 +3,26 @@ import os from 'node:os';
 import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
+import { calculateStaleThreshold } from './stale.js';
 
 const HEARTBEAT_MS = 30_000;
+const DEFAULT_REAPER_INTERVAL_MS = 300_000; // 5 minutes
+
+function parsePositiveInt(envVar: string | undefined, defaultValue: number, envVarName?: string): number;
+function parsePositiveInt(envVar: string | undefined, defaultValue: undefined, envVarName?: string): number | undefined;
+function parsePositiveInt(envVar: string | undefined, defaultValue: number | undefined = undefined, envVarName?: string): number | undefined {
+  if (!envVar) return defaultValue;
+  const parsed = Number(envVar);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    if (envVarName) {
+      console.warn(`[telemetry] ${envVarName}="${envVar}" is invalid; using default`);
+    }
+    return defaultValue;
+  }
+  return parsed;
+}
+
+const REAPER_INTERVAL_MS = parsePositiveInt(process.env['EIDAN_REAPER_INTERVAL_MS'], DEFAULT_REAPER_INTERVAL_MS, 'EIDAN_REAPER_INTERVAL_MS');
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // session.id is sometimes the conversation uuid and sometimes an opaque runner id; node_events
@@ -26,6 +44,8 @@ function nodeIdentity(): { nodeId: string; nodeType: string } {
 
 let db: Db | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
+let reaperTimer: ReturnType<typeof setInterval> | undefined;
+let lastReapPromise: Promise<void> = Promise.resolve();
 let nodeId: string | undefined;
 
 export const plugin: MatbotPluginSpec = {
@@ -65,6 +85,23 @@ export const plugin: MatbotPluginSpec = {
     timer = setInterval(() => { void beat(); }, HEARTBEAT_MS);
     if (typeof timer.unref === 'function') timer.unref();
 
+    // Stale-marking reaper: mark nodes offline if they haven't been seen in STALE_THRESHOLD_MS.
+    const reap = async (): Promise<void> => {
+      try {
+        const staleMs = parsePositiveInt(process.env['EIDAN_NODE_STALE_MS'], undefined, 'EIDAN_NODE_STALE_MS');
+        const staleThreshold = calculateStaleThreshold(HEARTBEAT_MS, staleMs);
+        await db!.markStaleOffline(staleThreshold);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[telemetry] reaper failed:', msg);
+      }
+    };
+    // Chain all reaps so teardown can await the final promise and know all pending reaps have completed.
+    // Don't block setup if the initial reap fails (telemetry is non-critical).
+    lastReapPromise = reap();
+    reaperTimer = setInterval(() => { lastReapPromise = lastReapPromise.then(() => reap()); }, REAPER_INTERVAL_MS);
+    if (typeof reaperTimer.unref === 'function') reaperTimer.unref();
+
     // Activity stream. Both handlers are fire-and-forget observers — telemetry must never add latency
     // to or throw into a turn, so they never await and emitEvent swallows its own errors.
     services.hooks.register({
@@ -95,6 +132,10 @@ export const plugin: MatbotPluginSpec = {
 
   async teardown() {
     if (timer) clearInterval(timer);
+    if (reaperTimer) clearInterval(reaperTimer);
+    // Wait for any pending reaps to complete. reap() catches all errors and returns successfully,
+    // so this promise will never reject (errors are logged by reap, not here).
+    await lastReapPromise;
     if (db && nodeId) {
       try {
         await db.emitEvent({ nodeId, type: 'node.offline', payload: {}, conversationId: null });
