@@ -104,17 +104,12 @@ export function makeThreadsTools(): Tool[] {
             type: 'result',
             value: {
               query,
-              posts: result.posts.map((post) => ({
-                id: post.id,
-                text: post.text || '',
-                author: post.author.username,
-                timestamp: post.timestamp,
-                likes: post.like_count ?? 0,
-                replies: post.reply_count ?? 0,
-                reposts: post.repost_count ?? 0,
-                permalink: post.permalink,
+              hashtags: result.hashtags.map((tag) => ({
+                id: tag.id,
+                name: tag.name,
+                search_url: tag.search_url,
               })),
-              count: result.posts.length,
+              count: result.hashtags.length,
             },
           };
         }
@@ -125,7 +120,7 @@ export function makeThreadsTools(): Tool[] {
   const threadsGetProfileTool: Tool = {
     name: 'threads_get_profile',
     description:
-      'Get the authenticated user\'s Threads profile, including follower count, bio, and verification status.',
+      'Get the authenticated user\'s Threads profile, including username, bio, and profile picture.',
     inputSchema: PROFILE_SCHEMA,
     executor: {
       async *execute(input, ctx) {
@@ -142,13 +137,8 @@ export function makeThreadsTools(): Tool[] {
             value: {
               id: result.user.id,
               username: result.user.username,
-              name: result.user.name || 'No name',
-              biography: result.user.biography || 'No bio',
-              followers: result.user.follower_count ?? 0,
-              following: result.user.following_count ?? 0,
-              verified: result.user.is_verified ?? false,
-              website: result.user.website || '',
-              profile_picture_url: result.user.profile_picture_url || '',
+              biography: result.user.biography || '',
+              profile_picture_url: result.user.threads_profile_picture_url || '',
             },
           };
         }
@@ -178,9 +168,9 @@ export function makeThreadsTools(): Tool[] {
                 text: post.text || '',
                 timestamp: post.timestamp,
                 permalink: post.permalink,
-                likes: post.like_count ?? 0,
-                replies: post.reply_count ?? 0,
-                reposts: post.repost_count ?? 0,
+                likes: post.like_count,
+                replies: post.reply_count,
+                reposts: post.repost_count,
               })),
               count: result.posts.length,
             },

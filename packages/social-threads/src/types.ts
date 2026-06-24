@@ -49,6 +49,12 @@ export interface Hashtag {
   name: string;
 }
 
+export interface ThreadsHashtag {
+  id: string;
+  name: string;
+  search_url: string;
+}
+
 export interface HashtagSearchResponse {
   data: Hashtag[];
 }

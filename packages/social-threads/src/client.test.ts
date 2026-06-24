@@ -200,7 +200,7 @@ test('search returns error when not authenticated', async () => {
 
   const result = await client.search('test');
 
-  assert.deepEqual(result.posts, []);
+  assert.deepEqual(result.hashtags, []);
   assert.ok(result.error);
   assert.ok(result.error.includes("isn't connected"));
 
@@ -214,7 +214,7 @@ test('search returns error when query is empty', async () => {
 
   const result = await client.search('   ');
 
-  assert.deepEqual(result.posts, []);
+  assert.deepEqual(result.hashtags, []);
   assert.ok(result.error);
   assert.ok(result.error.includes('required'));
 
@@ -241,8 +241,10 @@ test('search succeeds with valid query', async () => {
 
   const result = await client.search('threads');
 
-  assert.equal(result.posts.length, 1);
-  assert.equal(result.posts[0].text, '#threads');
+  assert.equal(result.hashtags.length, 1);
+  assert.equal(result.hashtags[0].name, 'threads');
+  assert.equal(result.hashtags[0].id, 'hashtag-123');
+  assert.ok(result.hashtags[0].search_url.includes('threads'));
   assert.equal(result.error, undefined);
 
   teardownFetchMocks();
@@ -267,7 +269,7 @@ test('search respects limit parameter', async () => {
 
   const result = await client.search('test', 2);
 
-  assert.equal(result.posts.length, 2);
+  assert.equal(result.hashtags.length, 2);
   assert.equal(result.error, undefined);
 
   teardownFetchMocks();
@@ -283,7 +285,7 @@ test('search handles network error gracefully', async () => {
 
   const result = await client.search('test');
 
-  assert.deepEqual(result.posts, []);
+  assert.deepEqual(result.hashtags, []);
   assert.ok(result.error);
   assert.ok(result.error.includes('Failed to search'));
 

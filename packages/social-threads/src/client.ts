@@ -11,6 +11,7 @@ import type {
   HashtagSearchResponse,
   Hashtag,
   TimelinePost,
+  ThreadsHashtag,
 } from './types.js';
 
 const THREADS_API_BASE = 'https://graph.threads.com/v18.0';
@@ -79,18 +80,18 @@ export class ThreadsClient {
     }
   }
 
-  async search(query: string, limit: number = 20): Promise<{ posts: ThreadsPost[]; error?: string }> {
+  async search(query: string, limit: number = 20): Promise<{ hashtags: ThreadsHashtag[]; error?: string }> {
     const token = await this.getAccessToken();
     if (!token) {
       return {
-        posts: [],
+        hashtags: [],
         error:
           "Threads isn't connected — set THREADS_ACCESS_TOKEN in vault/env (Settings → Connections)",
       };
     }
 
     if (!query.trim()) {
-      return { posts: [], error: 'Search query is required' };
+      return { hashtags: [], error: 'Search query is required' };
     }
 
     try {
@@ -107,29 +108,24 @@ export class ThreadsClient {
       });
 
       if (!res.ok) {
-        return { posts: [], error: `Search failed: ${res.status}` };
+        return { hashtags: [], error: `Search failed: ${res.status}` };
       }
 
       const data = (await res.json()) as HashtagSearchResponse;
-      const hashtags = data.data || [];
+      const tags = data.data || [];
 
-      const posts: ThreadsPost[] = hashtags
+      const hashtags: ThreadsHashtag[] = tags
         .slice(0, Math.min(limit, 100))
         .map((tag: Hashtag) => ({
           id: tag.id,
-          text: `#${tag.name}`,
-          timestamp: new Date().toISOString(),
-          permalink: `https://threads.net/search/${encodeURIComponent(tag.name)}`,
-          author: {
-            id: 'hashtag',
-            username: tag.name,
-          },
+          name: tag.name,
+          search_url: `https://threads.net/search/${encodeURIComponent(tag.name)}`,
         }));
 
-      return { posts };
+      return { hashtags };
     } catch {
       return {
-        posts: [],
+        hashtags: [],
         error: 'Failed to search Threads',
       };
     }

@@ -200,7 +200,9 @@ test('threads_search yields result on success', async () => {
   assert.equal(results[0].type, 'result');
   const value = (results[0] as any).value;
   assert.equal(value.count, 1);
-  assert.equal(value.posts[0].author, 'threads');
+  assert.equal(value.hashtags[0].name, 'threads');
+  assert.equal(value.hashtags[0].id, 'tag-1');
+  assert.ok(value.hashtags[0].search_url.includes('threads'));
 
   teardownFetchMocks();
 });
@@ -214,12 +216,8 @@ test('threads_get_profile yields result on success', async () => {
       data: {
         id: 'user-123',
         username: 'testuser',
-        name: 'Test User',
         biography: 'My bio',
-        follower_count: 500,
-        following_count: 100,
-        is_verified: true,
-        website: 'https://example.com',
+        threads_profile_picture_url: 'https://example.com/pic.jpg',
       },
     }),
   } as any);
@@ -236,9 +234,10 @@ test('threads_get_profile yields result on success', async () => {
   assert.equal(results.length, 1);
   assert.equal(results[0].type, 'result');
   const value = (results[0] as any).value;
+  assert.equal(value.id, 'user-123');
   assert.equal(value.username, 'testuser');
-  assert.equal(value.followers, 500);
-  assert.equal(value.verified, true);
+  assert.equal(value.biography, 'My bio');
+  assert.equal(value.profile_picture_url, 'https://example.com/pic.jpg');
 
   teardownFetchMocks();
 });
