@@ -30,12 +30,10 @@ export class EidanMemory {
 
   async searchKnowledge(query: string, limit = 10): Promise<KnowledgeHit[]> {
     return this.db.withPrincipalTx(async (q) => {
-      // Forgiving recall: OR the query's lexemes (plainto/websearch both AND them, so a single
-      // off-term — "tea preference" vs a "...tea..." entry — would wrongly return nothing). We
-      // match ANY term and let ts_rank order by how well each entry matches.
+      // Richer recall: websearch_to_tsquery natively supports quoted phrases, OR, and -term negation.
       const r = await q(
         `with q as (
-           select nullif(replace(plainto_tsquery('english',$1)::text, ' & ', ' | '), '')::tsquery as tq
+           select nullif(websearch_to_tsquery('english', $1)::text, '')::tsquery as tq
          )
          select k.id, k.skill, k.title, k.body, ts_rank(k.body_tsv, q.tq) as rank
            from eidan.knowledge k, q
