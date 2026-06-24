@@ -10,7 +10,7 @@ const HEARTBEAT_MS = 30_000;
 function parsePositiveInt(envVar: string | undefined, defaultValue: number): number {
   if (!envVar) return defaultValue;
   const parsed = Number(envVar);
-  if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) return defaultValue;
   return parsed;
 }
 
@@ -79,10 +79,15 @@ export const plugin: MatbotPluginSpec = {
 
     // Stale-marking reaper: mark nodes offline if they haven't been seen in STALE_THRESHOLD_MS.
     const staleEnv = process.env['EIDAN_NODE_STALE_MS'];
-    const staleMs = staleEnv ? (() => {
+    let staleMs: number | undefined;
+    if (staleEnv) {
       const parsed = Number(staleEnv);
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-    })() : undefined;
+      if (Number.isFinite(parsed) && parsed > 0) {
+        staleMs = parsed;
+      } else {
+        console.warn(`[telemetry] EIDAN_NODE_STALE_MS="${staleEnv}" is invalid; using default (3x heartbeat interval)`);
+      }
+    }
     const staleThreshold = calculateStaleThreshold(HEARTBEAT_MS, staleMs);
     const reap = async (): Promise<void> => {
       try {
