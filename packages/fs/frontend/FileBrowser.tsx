@@ -232,7 +232,11 @@ export default function FileBrowser(): React.ReactElement {
           >
             New Folder
           </button>
-          <label style={{ display: "inline-block" }}>
+          <label
+            className="btn btn--ghost"
+            style={{ cursor: "pointer", display: "inline-flex", alignItems: "center" }}
+          >
+            Upload
             <input
               type="file"
               multiple
@@ -240,24 +244,6 @@ export default function FileBrowser(): React.ReactElement {
               style={{ display: "none" }}
               accept="*/*"
             />
-            <button
-              onClick={(e) => {
-                const input = (e.currentTarget as HTMLLabelElement).querySelector("input");
-                input?.click();
-              }}
-              style={{
-                padding: "var(--s2) var(--s3)",
-                backgroundColor: "var(--surface-2)",
-                color: "var(--text)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--r-sm)",
-                cursor: "pointer",
-                fontSize: "var(--fs-15)",
-                fontWeight: 500,
-              }}
-            >
-              Upload
-            </button>
           </label>
         </div>
 
