@@ -19,6 +19,7 @@ const THREADS_API_BASE = 'https://graph.threads.com/v18.0';
 export class ThreadsClient {
   private ctx: ToolContext;
   private cachedUsername: string | null = null;
+  private cachedUserId: string | null = null;
   private cachedUsernameTime: number | null = null;
   private profileFetchPromise: Promise<{ user: ThreadsUser | null; error?: string }> | null = null;
   private readonly USERNAME_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in ms
@@ -196,6 +197,7 @@ export class ThreadsClient {
             const profileRes = await this.getProfile();
             if (!profileRes.error && profileRes.user) {
               this.cachedUsername = profileRes.user.username;
+              this.cachedUserId = profileRes.user.id;
               this.cachedUsernameTime = Date.now();
             }
             return profileRes;
@@ -239,8 +241,8 @@ export class ThreadsClient {
           reply_count: post.reply_count,
           repost_count: post.repost_count,
           author: {
-            id: 'me',
-            username: this.cachedUsername || 'me',
+            id: this.cachedUserId || 'unknown',
+            username: this.cachedUsername || 'unknown',
           },
         }));
 
