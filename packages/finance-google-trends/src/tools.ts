@@ -191,7 +191,7 @@ export function makeGoogleTrendsTools(): Tool[] {
               query_count: result.queries.length,
               rising_queries: result.queries.slice(0, 50).map((q) => ({
                 query: q.query,
-                interest_value: q.value,
+                interest_value: q.value ?? 0,
               })),
             },
           };
@@ -231,11 +231,11 @@ export function makeGoogleTrendsTools(): Tool[] {
               geo: result.geo || '(worldwide)',
               related_queries: result.queries.map((q) => ({
                 query: q.query,
-                interest_value: q.value,
+                interest_value: q.value ?? 0,
               })),
               related_topics: result.topics.map((t) => ({
                 topic: t.query,
-                interest_value: t.value,
+                interest_value: t.value ?? 0,
               })),
             },
           };

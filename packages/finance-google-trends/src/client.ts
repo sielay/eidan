@@ -176,9 +176,13 @@ export class GoogleTrendsClient {
           const itemObj = item as Record<string, unknown>;
           const time = itemObj.time;
           let value = itemObj.value;
-          // Extract first value if array (Google Trends may return array for multiple comparison items)
+          // Extract first value if array (Google Trends may return array for multiple comparison items).
+          // Handle cases where value might be an object, array, or non-numeric type.
           if (Array.isArray(value)) {
             value = value.length > 0 && typeof value[0] === 'number' ? value[0] : undefined;
+          } else if (typeof value !== 'number') {
+            // If value is not a number and not an array, treat as missing
+            value = undefined;
           }
           if (typeof time === 'number' && typeof value === 'number') {
             let timestamp = time;
@@ -193,6 +197,8 @@ export class GoogleTrendsClient {
             const date = new Date(timestamp);
             if (!isNaN(date.getTime())) {
               return {
+                // Date is formatted in UTC. Google Trends data is aggregated and timezone-agnostic;
+                // UTC formatting is appropriate for this use case.
                 date: date.toISOString().split('T')[0],
                 value,
               };
@@ -289,7 +295,8 @@ export class GoogleTrendsClient {
       if (Array.isArray(rankedList)) {
         for (const item of rankedList) {
           const itemObj = item as Record<string, unknown>;
-          // Handle both direct fields and nested `value` structure
+          // Google Trends API response structure can vary: sometimes fields are at the top level,
+          // sometimes nested in a `value` object. This dual-path parsing handles both variations.
           let title = itemObj.title;
           let exploreUrl = itemObj.exploreUrl;
           let deltaMonthOverMonth = itemObj.deltaMonthOverMonth;
@@ -306,10 +313,20 @@ export class GoogleTrendsClient {
 
           // Only add if we have at least a title
           if (title) {
+            // Ensure deltaMonthOverMonth is a valid number or undefined, not NaN
+            let growthValue: number | undefined = undefined;
+            if (deltaMonthOverMonth !== undefined && typeof deltaMonthOverMonth === 'number') {
+              growthValue = deltaMonthOverMonth;
+            } else if (deltaMonthOverMonth !== undefined) {
+              const parsed = Number(deltaMonthOverMonth);
+              if (!isNaN(parsed)) {
+                growthValue = parsed;
+              }
+            }
             charts.push({
               title: String(title),
               exploreUrl: exploreUrl ? String(exploreUrl) : null,
-              deltaMonthOverMonth: deltaMonthOverMonth === undefined ? undefined : Number(deltaMonthOverMonth),
+              deltaMonthOverMonth: growthValue,
             });
           }
         }
@@ -396,7 +413,8 @@ export class GoogleTrendsClient {
           const rankObj = rankItem as Record<string, unknown>;
           let queryList = rankObj.queries;
 
-          // Handle case where queries might be nested in a value object
+          // Google Trends API response structure can vary: the queries array might be at the top level
+          // or nested in a `value` object. This dual-path parsing handles both observed variations.
           if (!Array.isArray(queryList)) {
             const valueObj = rankObj.value as Record<string, unknown> | undefined;
             if (valueObj && typeof valueObj === 'object') {
@@ -497,14 +515,16 @@ export class GoogleTrendsClient {
           for (const rankItem of rankedList) {
             const rankObj = rankItem as Record<string, unknown>;
             // FRAGILITY WARNING: Identify whether this is a queries or topics section by looking for 'topic' in the title field.
-            // This heuristic is fragile — the title field may change, or Google may restructure the response.
+            // This heuristic is fragile — the title field may change if Google restructures their response format.
+            // Expected titles: "Top queries", "Top topics", "Rising queries", "Rising topics", or similar.
             // If available, a more reliable approach would be to look for a specific type/kind field in the API response.
-            // For now, we assume sections with 'topic' in the title are topic sections; others are query sections.
+            // For now, we assume sections with 'topic' in the title (case-insensitive) are topic sections; others are query sections.
             const title = String(rankObj.title || '').toLowerCase();
             const isTopicsSection = title.includes('topic');
 
             let queryList = rankObj.queries;
-            // Handle case where queries might be nested in a value object
+            // Google Trends API response structure can vary: the queries array might be at the top level
+            // or nested in a `value` object. This dual-path parsing handles both observed variations.
             if (!Array.isArray(queryList)) {
               const valueObj = rankObj.value as Record<string, unknown> | undefined;
               if (valueObj && typeof valueObj === 'object') {
