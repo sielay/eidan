@@ -18,11 +18,6 @@ const THREADS_API_BASE = 'https://graph.threads.com/v18.0';
 
 export class ThreadsClient {
   private ctx: ToolContext;
-  private cachedUsername: string | null = null;
-  private cachedUserId: string | null = null;
-  private cachedUsernameTime: number | null = null;
-  private profileFetchPromise: Promise<{ user: ThreadsUser | null; error?: string }> | null = null;
-  private readonly USERNAME_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in ms
 
   constructor(ctx: ToolContext) {
     this.ctx = ctx;
@@ -204,33 +199,6 @@ export class ThreadsClient {
     }
 
     try {
-      // Fetch username once and cache it with TTL, preventing concurrent fetches and redundant API calls.
-      // Uses promise-based locking to prevent race conditions: if a fetch is already in progress,
-      // wait for it rather than starting a new one.
-      const now = Date.now();
-      const isCacheExpired = !this.cachedUsernameTime || !this.cachedUsername || (now - this.cachedUsernameTime) > this.USERNAME_CACHE_TTL;
-
-      if (isCacheExpired) {
-        if (!this.profileFetchPromise) {
-          this.profileFetchPromise = (async () => {
-            const profileRes = await this.getProfile();
-            if (!profileRes.error && profileRes.user) {
-              this.cachedUsername = profileRes.user.username;
-              this.cachedUserId = profileRes.user.id;
-              this.cachedUsernameTime = Date.now();
-            }
-            return profileRes;
-          })().finally(() => {
-            this.profileFetchPromise = null;
-          });
-        }
-        // Always await the profile fetch to ensure cachedUsername is populated before proceeding.
-        const profileRes = await this.profileFetchPromise;
-        if (profileRes.error) {
-          return { posts: [], error: profileRes.error };
-        }
-      }
-
       const url = new URL(`${THREADS_API_BASE}/me/threads`);
       url.searchParams.set('limit', String(Math.min(limit, 100)));
       url.searchParams.set('fields', 'id,text,timestamp,permalink,like_count,reply_count,repost_count');
@@ -260,8 +228,8 @@ export class ThreadsClient {
           reply_count: post.reply_count,
           repost_count: post.repost_count,
           author: {
-            id: this.cachedUserId || 'unknown',
-            username: this.cachedUsername || 'unknown',
+            id: 'unknown',
+            username: 'unknown',
           },
         }));
 

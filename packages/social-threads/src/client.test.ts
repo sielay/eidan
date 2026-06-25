@@ -391,16 +391,6 @@ test('listTimeline succeeds with valid token', async () => {
     }),
   } as any);
 
-  fetchResponses.set(/graph\.threads\.com.*\/me$/, {
-    ok: true,
-    json: async () => ({
-      data: {
-        id: 'user-123',
-        username: 'testuser',
-      },
-    }),
-  } as any);
-
   const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
   const client = new ThreadsClient(ctx);
 
@@ -409,8 +399,8 @@ test('listTimeline succeeds with valid token', async () => {
   assert.equal(result.posts.length, 1);
   assert.equal(result.posts[0].text, 'Hello Threads!');
   assert.equal(result.posts[0].like_count, 42);
-  assert.equal(result.posts[0].author.id, 'user-123');
-  assert.equal(result.posts[0].author.username, 'testuser');
+  assert.equal(result.posts[0].author.id, 'unknown');
+  assert.equal(result.posts[0].author.username, 'unknown');
   assert.equal(result.error, undefined);
 
   teardownFetchMocks();
@@ -431,16 +421,6 @@ test('listTimeline respects limit parameter', async () => {
     }),
   } as any);
 
-  fetchResponses.set(/graph\.threads\.com.*\/me$/, {
-    ok: true,
-    json: async () => ({
-      data: {
-        id: 'user-123',
-        username: 'testuser',
-      },
-    }),
-  } as any);
-
   const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
   const client = new ThreadsClient(ctx);
 
@@ -456,16 +436,6 @@ test('listTimeline handles network error gracefully', async () => {
   setupFetchMocks();
 
   fetchResponses.set(/graph\.threads\.com.*\/me\/threads/, new Error('Network error'));
-
-  fetchResponses.set(/graph\.threads\.com.*\/me$/, {
-    ok: true,
-    json: async () => ({
-      data: {
-        id: 'user-123',
-        username: 'testuser',
-      },
-    }),
-  } as any);
 
   const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
   const client = new ThreadsClient(ctx);
