@@ -4,7 +4,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { createAgent, updateAgent, type OpenRouterModel, type ToolCatalogEntry } from "@/lib/api/admin";
-import { Avatar } from "@/plugins/_shared/Avatar";
+import { Avatar, AVATAR_STYLES } from "@/plugins/_shared/Avatar";
 import { VendorModelPicker, NodeSelect } from "./ModelPicker";
 import { PersonaEditor } from "./PersonaEditor";
 import { ScheduleBuilder } from "./ScheduleBuilder";
@@ -15,6 +15,7 @@ export interface AgentFormInitial {
   provider: string;
   model: string;
   target: string;
+  avatar?: { seed?: string; style?: string };
 }
 
 // The create + edit form, shared by /agents/new and /agents/[id]. `initial` is fixed at first render
@@ -41,6 +42,8 @@ export function AgentForm({
   const [model, setModel] = React.useState(initial?.model ?? "");
   const [target, setTarget] = React.useState(initial?.target ?? "");
   const [schedule, setSchedule] = React.useState("");
+  const [avatarSeed, setAvatarSeed] = React.useState<string>(() => initial?.avatar?.seed || agentId || Math.random().toString(36).slice(2, 10));
+  const [avatarStyle, setAvatarStyle] = React.useState<string>(initial?.avatar?.style || "bottts");
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -60,6 +63,7 @@ export function AgentForm({
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(target ? { target_node: target } : {}),
           ...(schedule.trim() ? { schedule: schedule.trim() } : {}),
+          avatar: { seed: avatarSeed, style: avatarStyle },
         });
       } else if (agentId) {
         await updateAgent(agentId, {
@@ -68,6 +72,7 @@ export function AgentForm({
           provider: provider.trim() || null,
           model: model.trim() || null,
           target_node: target || null,
+          avatar: { seed: avatarSeed, style: avatarStyle },
         });
       }
       router.push("/agents");
@@ -86,7 +91,17 @@ export function AgentForm({
       className="flex flex-col gap-3"
     >
       <div className="flex items-end gap-3">
-        <Avatar kind="agent" seed={agentId ?? name ?? "new agent"} size={40} title={name || "new agent"} />
+        <div className="flex flex-col items-center gap-1">
+          <Avatar kind="agent" seed={avatarSeed} style={avatarStyle} size={44} title="Avatar" />
+          <button
+            type="button"
+            onClick={() => setAvatarSeed(Math.random().toString(36).slice(2, 10))}
+            className="font-mono text-[10px] text-muted-foreground hover:text-foreground"
+            title="Randomise avatar"
+          >
+            🎲 random
+          </button>
+        </div>
         <label className="flex flex-1 flex-col gap-1">
           <span className="text-[11px] font-medium text-muted-foreground">Name</span>
           <input
@@ -95,6 +110,16 @@ export function AgentForm({
             placeholder="e.g. Vercel log analyst"
             className="rounded border border-border bg-background px-2 py-1 text-sm"
           />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted-foreground">Avatar style</span>
+          <select
+            value={avatarStyle}
+            onChange={(e) => setAvatarStyle(e.target.value)}
+            className="rounded border border-border bg-background px-2 py-1 text-sm"
+          >
+            {AVATAR_STYLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
         </label>
       </div>
 

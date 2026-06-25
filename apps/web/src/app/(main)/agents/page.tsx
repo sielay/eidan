@@ -103,7 +103,7 @@ function AgentCard({
   return (
     <article className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Avatar kind="agent" seed={agent.id} size={22} title={agent.name} />
+        <Avatar kind="agent" seed={agent.metadata?.avatar?.seed ?? agent.id} style={agent.metadata?.avatar?.style ?? null} size={22} title={agent.name} />
         <button
           disabled={busy}
           onClick={() => void act(() => updateAgent(agent.id, { enabled: !agent.enabled }))}

@@ -294,6 +294,7 @@ export interface AgentInfo {
   target_node: string | null;
   enabled: boolean;
   created_at: string;
+  metadata?: { avatar?: { seed?: string; style?: string } } & Record<string, unknown>;
   triggers: AgentTrigger[];
   recent_runs: AgentRunInfo[];
 }
@@ -320,6 +321,7 @@ export async function listAgents(): Promise<AgentInfo[]> {
   return body.agents;
 }
 
+export interface AgentAvatar { seed: string; style: string }
 export interface CreateAgentInput {
   name: string;
   persona: string;
@@ -327,6 +329,7 @@ export interface CreateAgentInput {
   model?: string;
   target_node?: string;
   schedule?: string;
+  avatar?: AgentAvatar;
 }
 
 async function jsonOrThrow(res: Response, what: string): Promise<unknown> {
@@ -387,7 +390,7 @@ export async function createAgent(input: CreateAgentInput): Promise<{ id: string
 
 export async function updateAgent(
   id: string,
-  patch: { enabled?: boolean; name?: string; persona?: string; provider?: string | null; model?: string | null; target_node?: string | null },
+  patch: { enabled?: boolean; name?: string; persona?: string; provider?: string | null; model?: string | null; target_node?: string | null; avatar?: AgentAvatar },
 ): Promise<void> {
   const res = await authFetch(`/api/admin/agents/${encodeURIComponent(id)}`, {
     method: "PATCH",
