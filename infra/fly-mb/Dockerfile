@@ -18,6 +18,11 @@ RUN cd external/matbot && pnpm install --config.engine-strict=false
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
  && rm -rf /var/lib/apt/lists/*
 
+# Marp CLI for @eidandev/charles-decks (render_deck). HTML output needs no browser; pptx/pdf would
+# additionally require headless Chromium (not installed here — keep the image lean), so decks render
+# to HTML on this node.
+RUN npm i -g @marp-team/marp-cli@^4
+
 # 2) eidan core plugins (+ the migrate runner) — pg + symlinks to the vendored plugin-api.
 COPY packages/ ./packages/
 COPY migrations/ ./migrations/

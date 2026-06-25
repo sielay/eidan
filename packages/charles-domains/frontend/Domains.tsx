@@ -16,6 +16,8 @@ interface Domain {
   status: string;
   expires_at: string | null;
   auto_renew: boolean | null;
+  venture_id?: string;
+  venture_name?: string;
 }
 interface RegistrarAccount {
   id: string;
@@ -253,6 +255,7 @@ export default function Domains(): React.ReactElement {
                     {cap(d.registrar)}
                     {d.expires_at ? ` · expires ${new Date(d.expires_at).toLocaleDateString()}` : ""}
                     {d.auto_renew ? " · auto-renew" : ""}
+                    {d.venture_id ? <> · <a href={`/p/charles-ventures?venture=${d.venture_id}`}>↳ {d.venture_name}</a></> : null}
                   </span>
                 </span>
                 <span className={"pill pill--" + (d.status === "active" ? "good" : "neutral")}><span className="pill__dot" />{d.status}</span>

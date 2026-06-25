@@ -28,14 +28,33 @@ export async function GET(req: NextRequest): Promise<Response> {
         order by created_at desc`,
       [sess.userId],
     );
-    const domains = (r.rows as DomainRow[]).map((row) => ({
-      id: row.id,
-      name: row.name,
-      registrar: row.registrar,
-      status: row.status,
-      expires_at: row.expires_at,
-      auto_renew: row.auto_renew,
-    }));
+    // Best-effort: which venture (if any) each domain is attached to (kind 'domain'), so the screen
+    // can show "↳ <venture>". Wrapped — the Charles ventures bundle is optional.
+    type Link = { external_ref: string; connection_id: string | null; venture_id: string; venture_name: string };
+    let links: Link[] = [];
+    try {
+      const lr = await c.query(
+        `select vr.external_ref, vr.metadata->>'connection_id' as connection_id, vn.id as venture_id, vn.name as venture_name
+           from plugin_ventures.venture_resources vr
+           join plugin_ventures.ventures vn on vn.id = vr.venture_id and vn.status = 'active'
+          where vr.user_id = $1 and vr.status = 'active' and vr.kind = 'domain'`,
+        [sess.userId],
+      );
+      links = lr.rows as Link[];
+    } catch { /* ventures bundle not installed */ }
+
+    const domains = (r.rows as DomainRow[]).map((row) => {
+      const link = links.find((l) => l.connection_id === row.id || l.external_ref === row.name);
+      return {
+        id: row.id,
+        name: row.name,
+        registrar: row.registrar,
+        status: row.status,
+        expires_at: row.expires_at,
+        auto_renew: row.auto_renew,
+        ...(link ? { venture_id: link.venture_id, venture_name: link.venture_name } : {}),
+      };
+    });
     return { domains };
   });
 

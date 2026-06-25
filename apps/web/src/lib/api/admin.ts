@@ -11,17 +11,6 @@ import { authFetch } from "@/lib/auth";
  * codegen emits — see the schemas commit for the rationale.
  */
 
-export interface NodePluginInfo {
-  name: string;
-  version: string;
-  tier: "core" | "pro" | "commercial" | string;
-}
-
-export interface NodeServedKind {
-  kind: string;
-  capacity: number;
-}
-
 export interface NodeInfo {
   node_id: string;
   node_type: "pi" | "fly" | "heroku" | "k8s" | "local" | string;
@@ -29,10 +18,10 @@ export interface NodeInfo {
   last_seen: string;
   seconds_since: number;
   metadata: Record<string, unknown>;
-  plugins: NodePluginInfo[];
-  // Job kinds this node serves from eidan.jobs, with per-kind capacity
-  // (issue #249). Optional: legacy nodes / older backends omit it.
-  served_kinds?: NodeServedKind[];
+  // The telemetry heartbeat writes these as plain string arrays: `plugins` = the node's tool names
+  // (services.tools.list()), `served_kinds` = the job kinds it serves (EIDAN_JOB_KINDS).
+  plugins: string[];
+  served_kinds?: string[];
 }
 
 interface NodeListResponse {
@@ -305,6 +294,7 @@ export interface AgentInfo {
   target_node: string | null;
   enabled: boolean;
   created_at: string;
+  metadata?: { avatar?: { seed?: string; style?: string } } & Record<string, unknown>;
   triggers: AgentTrigger[];
   recent_runs: AgentRunInfo[];
 }
@@ -331,6 +321,7 @@ export async function listAgents(): Promise<AgentInfo[]> {
   return body.agents;
 }
 
+export interface AgentAvatar { seed: string; style: string }
 export interface CreateAgentInput {
   name: string;
   persona: string;
@@ -338,6 +329,7 @@ export interface CreateAgentInput {
   model?: string;
   target_node?: string;
   schedule?: string;
+  avatar?: AgentAvatar;
 }
 
 async function jsonOrThrow(res: Response, what: string): Promise<unknown> {
@@ -398,7 +390,7 @@ export async function createAgent(input: CreateAgentInput): Promise<{ id: string
 
 export async function updateAgent(
   id: string,
-  patch: { enabled?: boolean; name?: string; persona?: string; provider?: string | null; model?: string | null; target_node?: string | null },
+  patch: { enabled?: boolean; name?: string; persona?: string; provider?: string | null; model?: string | null; target_node?: string | null; avatar?: AgentAvatar },
 ): Promise<void> {
   const res = await authFetch(`/api/admin/agents/${encodeURIComponent(id)}`, {
     method: "PATCH",

@@ -120,7 +120,7 @@ export function makeSocialAccountsRoute(cfg: SocialRouteConfig): {
     const { accounts, apps } = await withUser(sess.userId, async (c) => {
       // Accounts, with the name of the app each one uses (matched by the shared client_vault_key).
       const ar = await c.query(
-        `select a.id, a.name, a.slug, a.host, a.external_handle, a.status, a.token_expires_at, a.context,
+        `select a.id, a.name, a.slug, a.host, a.external_handle, a.external_id, a.status, a.token_expires_at, a.context,
                 a.metadata->>'type' as conn_type, ap.name as app_name
            from ${cfg.schema}.accounts a
            left join ${cfg.schema}.apps ap
@@ -135,7 +135,35 @@ export function makeSocialAccountsRoute(cfg: SocialRouteConfig): {
             [sess.userId],
           )
         : { rows: [] as Array<{ id: string; name: string; type: string }> };
-      return { accounts: ar.rows, apps: pr.rows as Array<{ id: string; name: string; type: string }> };
+
+      // Best-effort: which venture (if any) each account is attached to, so the dashboard can show
+      // "↳ <venture>". Wrapped because the Charles ventures bundle is optional — without it the
+      // plugin_ventures schema won't exist and this must not break the accounts list.
+      type Link = { external_ref: string; connection_id: string | null; venture_id: string; venture_name: string };
+      let links: Link[] = [];
+      try {
+        const lr = await c.query(
+          `select vr.external_ref, vr.metadata->>'connection_id' as connection_id, vn.id as venture_id, vn.name as venture_name
+             from plugin_ventures.venture_resources vr
+             join plugin_ventures.ventures vn on vn.id = vr.venture_id and vn.status = 'active'
+            where vr.user_id = $1 and vr.status = 'active' and vr.provider = $2`,
+          [sess.userId, cfg.provider],
+        );
+        links = lr.rows as Link[];
+      } catch { /* ventures bundle not installed — no venture links */ }
+
+      type Acct = { id: string; slug: string; host: string | null; external_handle: string | null; external_id: string | null };
+      const accounts = (ar.rows as Acct[]).map((a) => {
+        const handle = a.host ? `${a.external_handle}@${a.host}` : a.external_handle;
+        const link = links.find(
+          (l) =>
+            (l.connection_id != null && (l.connection_id === a.external_id || l.connection_id === a.slug)) ||
+            l.external_ref === a.external_handle ||
+            l.external_ref === handle,
+        );
+        return link ? { ...a, venture_id: link.venture_id, venture_name: link.venture_name } : a;
+      });
+      return { accounts, apps: pr.rows as Array<{ id: string; name: string; type: string }> };
     });
     return Response.json({ accounts, apps, redirect_uri: redirectUri(req), flavor: cfg.flavor });
   };

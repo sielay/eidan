@@ -152,7 +152,7 @@ function NodePlugins({
     <section className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
       <header className="flex items-baseline justify-between gap-3">
         <h2 className="font-mono text-xs font-medium text-foreground">
-          plugins · {plugins.length}
+          tools · {plugins.length}
         </h2>
         <span className="font-mono text-[10px] text-muted-foreground">
           as of last heartbeat
@@ -160,29 +160,17 @@ function NodePlugins({
       </header>
       {plugins.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No plugins reported. Either none are installed on this node,
-          or its process predates the schema bump that added the
-          plugin column — restart the backend to refresh.
+          No tools reported. Either the node exposes none, or its process
+          predates the heartbeat that reports them — restart the backend to refresh.
         </p>
       ) : (
-        <ul className="flex flex-col">
-          {plugins.map((p) => (
+        <ul className="flex flex-wrap gap-1.5">
+          {plugins.map((name) => (
             <li
-              key={p.name}
-              className="flex items-center gap-3 border-b border-border py-1 text-xs last:border-b-0"
+              key={name}
+              className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-foreground"
             >
-              <span className="font-mono text-foreground">{p.name}</span>
-              <span className="font-mono text-[10px] text-muted-foreground">
-                v{p.version}
-              </span>
-              <span
-                className={cn(
-                  "ml-auto rounded px-1.5 py-0.5 font-mono text-[10px]",
-                  tierBadgeClass(p.tier),
-                )}
-              >
-                {p.tier}
-              </span>
+              {name}
             </li>
           ))}
         </ul>
@@ -216,33 +204,23 @@ function NodeServedKinds({
       </header>
       {servedKinds.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          This node serves no delegation-queue kinds — it runs no work
-          claimer, or its process predates the schema bump that added
-          the served-kinds column.
+          This node serves no delegation-queue kinds — it runs no work claimer
+          (EIDAN_JOB_KINDS unset).
         </p>
       ) : (
-        <ul className="flex flex-col">
-          {servedKinds.map((k) => (
+        <ul className="flex flex-wrap gap-1.5">
+          {servedKinds.map((kind) => (
             <li
-              key={k.kind}
-              className="flex items-center gap-3 border-b border-border py-1 text-xs last:border-b-0"
+              key={kind}
+              className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-foreground"
             >
-              <span className="font-mono text-foreground">{k.kind}</span>
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                capacity {k.capacity}
-              </span>
+              {kind}
             </li>
           ))}
         </ul>
       )}
     </section>
   );
-}
-
-function tierBadgeClass(tier: string): string {
-  if (tier === "core") return "bg-slate-100 text-slate-700";
-  if (tier === "bundle") return "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200";
-  return "bg-muted text-muted-foreground";
 }
 
 function dotClass(secondsSince: number): string {

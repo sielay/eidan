@@ -1,0 +1,3 @@
+/* Boards (Planner) — layout lives as inline styles in the shared BoardsPanel so it renders in any
+   plugin context; this stylesheet is the bundle hook + small helpers. */
+.num { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: var(--s1); }

@@ -18,7 +18,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const rows = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `select a.id, a.name, a.persona, a.provider, a.model, a.target_node, a.enabled, a.created_at,
+      `select a.id, a.name, a.persona, a.provider, a.model, a.target_node, a.enabled, a.created_at, a.metadata,
               coalesce(tg.triggers, '[]'::json)   as triggers,
               coalesce(rn.recent_runs, '[]'::json) as recent_runs
          from eidan.agents a
@@ -88,6 +88,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : null;
   const targetNode = typeof body.target_node === "string" && body.target_node.trim() ? body.target_node.trim() : null;
   const schedule = typeof body.schedule === "string" && body.schedule.trim() ? body.schedule.trim() : null;
+  const metadata = body.avatar !== undefined ? { avatar: body.avatar } : {};
   if (!name || !persona) return Response.json({ detail: "name and persona are required" }, { status: 400 });
   if (schedule && !isValidSchedule(schedule)) {
     return Response.json({ detail: `invalid schedule "${schedule}"` }, { status: 400 });
@@ -95,9 +96,9 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const id = await withUser(sess.userId, async (c) => {
     const a = await c.query(
-      `insert into eidan.agents (user_id, name, persona, provider, model, target_node)
-       values ($1, $2, $3, $4, $5, $6) returning id`,
-      [sess.userId, name, persona, provider, model, targetNode],
+      `insert into eidan.agents (user_id, name, persona, provider, model, target_node, metadata)
+       values ($1, $2, $3, $4, $5, $6, $7::jsonb) returning id`,
+      [sess.userId, name, persona, provider, model, targetNode, JSON.stringify(metadata)],
     );
     const agentId = a.rows[0]?.id as string;
     if (schedule) {
