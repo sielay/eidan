@@ -116,6 +116,7 @@ export class ThreadsClient {
 
       const hashtags: ThreadsHashtag[] = tags
         .slice(0, Math.min(limit, 100))
+        .filter((tag: Hashtag) => tag.id && tag.name)
         .map((tag: Hashtag) => ({
           id: tag.id,
           name: tag.name,
@@ -223,6 +224,7 @@ export class ThreadsClient {
 
       const posts: ThreadsPost[] = postsData
         .slice(0, Math.min(limit, 100))
+        .filter((post: TimelinePost) => post.id && post.timestamp && post.permalink)
         .map((post: TimelinePost) => ({
           id: post.id,
           text: post.text,
