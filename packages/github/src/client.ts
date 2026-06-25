@@ -191,7 +191,7 @@ export class GitHubClient {
     }
 
     const data = result.data;
-    if (!data?.content || data.encoding !== 'base64') {
+    if (!data?.content || typeof data.content !== 'string' || data.encoding !== 'base64') {
       return { ok: false, error: 'File content not in expected format' };
     }
 

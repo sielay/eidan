@@ -7,13 +7,14 @@
 // GITHUB_TOKEN secret when no account is registered.
 import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
-import { makeAccountsTool, Registry, registerSocialConnection, startOAuthServer, type SealFn } from '@eidandev/connections-kit';
+import { makeAccountsTool, Registry, registerSocialConnection, startOAuthServer } from '@eidandev/connections-kit';
 import { makeGitHubTools } from './tools.js';
 import { GITHUB_PROVIDER, githubAdapter } from './adapter.js';
 
 // Re-declared (matbot registry idiom) so the plugin needs no hard dep on core's vault implementation.
 interface SecretField { name: string; label: string; secret?: boolean; required?: boolean; help?: string }
 interface SecretSection { plugin: string; title: string; fields: SecretField[] }
+type SealFn = (name: string, value: string) => Promise<void>;
 declare module '@matatbread/matbot-plugin-api' {
   interface MatbotServices {
     EidanSecrets?: {

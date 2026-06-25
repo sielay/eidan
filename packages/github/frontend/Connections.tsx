@@ -17,7 +17,7 @@ export default function Connections(): React.ReactElement {
       token_expires_at: string | null;
       context?: string;
     }>
-  >(null);
+  >([]);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [name, setName] = React.useState("");
@@ -193,9 +193,7 @@ export default function Connections(): React.ReactElement {
       </section>
 
       <section className="sconn__list">
-        {accounts === null ? (
-          <p className="sconn__muted">Loading…</p>
-        ) : accounts.length === 0 ? (
+        {accounts.length === 0 ? (
           <p className="sconn__muted">No accounts connected yet — add one above.</p>
         ) : (
           accounts.map((a) => {

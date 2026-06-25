@@ -9,7 +9,6 @@
 import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
 import {
   type AccountStore,
-  type SealFn,
   AccountResolveError,
   NotConnectedError,
   resolveAccessToken,
@@ -17,6 +16,8 @@ import {
 import { GitHubClient } from './client.js';
 import { githubAdapter } from './adapter.js';
 import { secretOpt } from './vault.js';
+
+type SealFn = (name: string, value: string) => Promise<void>;
 
 const ACCOUNT_PROP = {
   account: {
