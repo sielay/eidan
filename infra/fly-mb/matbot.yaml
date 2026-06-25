@@ -38,6 +38,7 @@ plugins:
   - ./packages/charles-domains
   - ./packages/boards
   - ./packages/fs
+  - ./packages/github
   - ./packages/social-x
   - ./packages/social-bluesky
   - ./packages/social-facebook

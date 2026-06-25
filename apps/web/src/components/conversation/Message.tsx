@@ -7,8 +7,23 @@ import remarkGfm from "remark-gfm";
 import { formatAbsolute, formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
+import { ChartBlock } from "./ChartBlock";
+import { ImageBlock } from "./ImageBlock";
 import type { PairedToolCall } from "./Thread";
 import { ToolDisclosure } from "./ToolDisclosure";
+
+// Pull the fenced-block language ("chart") + raw text out of a <pre>'s hast node so we
+// can render a ```chart block as a real chart instead of a code box.
+function fencedBlock(node: unknown): { lang?: string; text: string } {
+  const code = (node as { children?: Array<{ tagName?: string; properties?: { className?: unknown }; children?: Array<{ value?: string }> }> })
+    ?.children?.find((c) => c.tagName === "code");
+  const cls = code?.properties?.className;
+  const lang = Array.isArray(cls)
+    ? (cls.find((c) => typeof c === "string" && c.startsWith("language-")) as string | undefined)?.slice(9)
+    : undefined;
+  const text = code?.children?.map((c) => c.value ?? "").join("") ?? "";
+  return { lang, text };
+}
 
 function MsgTime({ iso }: { iso?: string }): React.ReactElement | null {
   if (!iso) return null;
@@ -137,6 +152,15 @@ function MarkdownBody({ content }: { content: string }): React.ReactElement {
           a: ({ node, ...props }) => {
             void node;
             return <a {...props} target="_blank" rel="noopener noreferrer" />;
+          },
+          img: ({ node, src, alt }) => {
+            void node;
+            return <ImageBlock src={src} alt={typeof alt === "string" ? alt : undefined} />;
+          },
+          pre: ({ node, children, ...props }) => {
+            const { lang, text } = fencedBlock(node);
+            if (lang === "chart") return <ChartBlock config={text} />;
+            return <pre {...props}>{children}</pre>;
           },
         }}
       >

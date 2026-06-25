@@ -84,6 +84,9 @@ export function makeGlueTools(): Tool[] {
     [
       'Read marketing analytics from Glue (the operator\'s marketing suite). Read-only.',
       'Start with action "list_projects" to find the project_id / funnel_id you need.',
+      'When presenting timeseries or breakdowns, render a chart for the user: emit a fenced',
+      '```chart block whose body is a chart.js config { "type": "line"|"bar"|..., "data": {...}, "options"?: {...} }',
+      '(e.g. a line chart for daily sessions, a bar chart for top pages or funnel steps). The chat UI renders it inline.',
       'Actions (TypeScript):',
       "  | { action: 'list_projects' }",
       "  | { action: 'web_metrics'; project_id: string; days?: 7 | 30 | 90 }   // sessions, top pages/referrers/countries, engagement",

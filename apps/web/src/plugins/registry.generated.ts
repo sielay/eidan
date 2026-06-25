@@ -19,6 +19,7 @@ export const pluginRoutes: PluginRoute[] = [
   { plugin: "charles-domains", path: "/", load: () => import("@/plugins/charles-domains/Domains") },
   { plugin: "boards", path: "/", load: () => import("@/plugins/boards/Boards") },
   { plugin: "fs", path: "/", load: () => import("@/plugins/fs/FileBrowser") },
+  { plugin: "github", path: "/", load: () => import("@/plugins/github/Connections") },
   { plugin: "social-x", path: "/", load: () => import("@/plugins/social-x/Connections") },
   { plugin: "social-x", path: "/callback", load: () => import("@/plugins/social-x/Callback") },
   { plugin: "social-bluesky", path: "/", load: () => import("@/plugins/social-bluesky/Connections") },
@@ -34,6 +35,7 @@ export const pluginRoutes: PluginRoute[] = [
   { plugin: "social-threads", path: "/callback", load: () => import("@/plugins/social-threads/Callback") },
   { plugin: "social-youtube", path: "/", load: () => import("@/plugins/social-youtube/Connections") },
   { plugin: "social-youtube", path: "/callback", load: () => import("@/plugins/social-youtube/Callback") },
+  { plugin: "glue", path: "/", load: () => import("@/plugins/glue/Setup") },
   { plugin: "finance-xero", path: "/", load: () => import("@/plugins/finance-xero/Connections") },
   { plugin: "finance-xero", path: "/callback", load: () => import("@/plugins/finance-xero/Callback") }
 ];
@@ -51,6 +53,7 @@ export const pluginNav: NavContribution[] = [
   {"bundle":"charles-domains","group":"Charles · business","sections":[{"id":"domains","label":"Domains","icon":"link","href":"/p/charles-domains","mobileHome":null}]},
   {"bundle":"boards","group":"Plan","sections":[{"id":"boards","label":"Planner","icon":"analytics","href":"/p/boards","mobileHome":null}]},
   {"bundle":"fs","group":"Files","sections":[{"id":"fs","label":"Files","icon":"link","href":"/p/fs","mobileHome":null}]},
+  {"bundle":"github","group":"Integrations","sections":[{"id":"github","label":"GitHub","icon":"link","href":"/p/github","mobileHome":null}]},
   {"bundle":"social-x","group":"Integrations","sections":[{"id":"social-x","label":"X (Twitter)","icon":"share","href":"/p/social-x","mobileHome":null}]},
   {"bundle":"social-bluesky","group":"Integrations","sections":[{"id":"social-bluesky","label":"Bluesky","icon":"share","href":"/p/social-bluesky","mobileHome":null}]},
   {"bundle":"social-facebook","group":"Integrations","sections":[{"id":"social-facebook","label":"Facebook","icon":"share","href":"/p/social-facebook","mobileHome":null}]},
@@ -59,5 +62,6 @@ export const pluginNav: NavContribution[] = [
   {"bundle":"social-mastodon","group":"Integrations","sections":[{"id":"social-mastodon","label":"Mastodon","icon":"share","href":"/p/social-mastodon","mobileHome":null}]},
   {"bundle":"social-threads","group":"Integrations","sections":[{"id":"social-threads","label":"Threads","icon":"share","href":"/p/social-threads","mobileHome":null}]},
   {"bundle":"social-youtube","group":"Integrations","sections":[{"id":"social-youtube","label":"YouTube","icon":"share","href":"/p/social-youtube","mobileHome":null}]},
+  {"bundle":"glue","group":"Integrations","sections":[{"id":"glue","label":"Glue marketing","icon":"share","href":"/p/glue","mobileHome":null}]},
   {"bundle":"finance-xero","group":"Integrations","sections":[{"id":"xero","label":"Xero","icon":"receipt","href":"/p/finance-xero","mobileHome":6}]}
 ];

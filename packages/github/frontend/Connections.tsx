@@ -29,6 +29,8 @@ export default function Connections(): React.ReactElement {
   const [editing, setEditing] = React.useState<string | null>(null);
   const [editName, setEditName] = React.useState("");
   const [editContext, setEditContext] = React.useState("");
+  const [editAccess, setEditAccess] = React.useState<"read" | "write">("read");
+  const [editAllow, setEditAllow] = React.useState("");
 
   const load = React.useCallback(async () => {
     try {
@@ -113,6 +115,8 @@ export default function Connections(): React.ReactElement {
     setEditing(a.id);
     setEditName(a.name);
     setEditContext(a.context ?? "");
+    setEditAccess(a.metadata?.scope?.access === "read" ? "read" : "write");
+    setEditAllow((a.metadata?.scope?.allow ?? []).join("\n"));
   }, []);
 
   const saveEdit = React.useCallback(async () => {
@@ -123,7 +127,7 @@ export default function Connections(): React.ReactElement {
       const r = await authFetch(apiBase, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ update: { id: editing, name: editName.trim(), context: editContext } }),
+        body: JSON.stringify({ update: { id: editing, name: editName.trim(), context: editContext, access: editAccess, allow: editAllow.trim() } }),
       });
       const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!r.ok || !j.ok) throw new Error(j.error ?? `save failed (${r.status})`);
@@ -134,7 +138,7 @@ export default function Connections(): React.ReactElement {
     } finally {
       setBusy(false);
     }
-  }, [apiBase, editing, editName, editContext, load]);
+  }, [apiBase, editing, editName, editContext, editAccess, editAllow, load]);
 
   const disconnect = React.useCallback(
     async (id: string) => {
@@ -264,6 +268,18 @@ export default function Connections(): React.ReactElement {
                         placeholder="e.g. Main organization account — use for production repos."
                         disabled={busy}
                       />
+                    </label>
+                    <label>
+                      Access
+                      <select value={editAccess} onChange={(e) => setEditAccess(e.target.value === "write" ? "write" : "read")} disabled={busy}>
+                        <option value="read">Read-only (repos, files, issues, PRs, search)</option>
+                        <option value="write">Read + write (also create issues)</option>
+                      </select>
+                    </label>
+                    <label>
+                      Scope to orgs / repos{" "}
+                      <span className="sconn__muted">(optional, one per line — e.g. sielay/*, sielay/eidan, acme/web*; blank = everything the PAT can reach)</span>
+                      <textarea value={editAllow} onChange={(e) => setEditAllow(e.target.value)} rows={3} placeholder={"sielay/*\nacme/widget"} disabled={busy} />
                     </label>
                     <div className="sconn__row-top">
                       <button className="sconn__btn" onClick={() => void saveEdit()} disabled={busy || !editName.trim()}>
