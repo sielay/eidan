@@ -54,9 +54,11 @@ export interface CoverageError {
 }
 
 export interface CoverageResponse {
+  // Root-level coverage metrics (for overall site coverage)
   coveredPages?: string | number;
   crawlablePages?: string | number;
   indexingState?: string;
+  // Breakdown by category (robotsTxt blocked, by page status, etc.)
   robotsTxt?: CoverageIndex;
   page?: CoverageIndex;
   pageControlledByHttpsStatus?: CoverageIndex;
@@ -72,6 +74,18 @@ export interface CrawlIssue {
   issueType?: string;
   severity?: string;
   details?: string;
+}
+
+export interface MobileUsabilityIssue {
+  rule?: string;
+  message?: string;
+  severity?: string;
+}
+
+export interface AmpIssue {
+  issue?: string;
+  severity?: string;
+  message?: string;
 }
 
 export interface IndexingErrorResponse {
@@ -97,20 +111,12 @@ export interface IndexingErrorResponse {
     }>;
     mobileUsability?: {
       mobileFriendly?: boolean;
-      issues?: Array<{
-        rule?: string;
-        message?: string;
-        severity?: string;
-      }>;
+      issues?: MobileUsabilityIssue[];
     };
     amp?: {
       ampIndexingState?: string;
       ampUrl?: string;
-      issues?: Array<{
-        issue?: string;
-        severity?: string;
-        message?: string;
-      }>;
+      issues?: AmpIssue[];
     };
     crawlIssues?: CrawlIssue[];
   };

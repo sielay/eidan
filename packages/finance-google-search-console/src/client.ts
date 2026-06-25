@@ -10,6 +10,9 @@ import type {
   PerformanceRow,
   Sitemap,
   CoverageError,
+  CrawlIssue,
+  MobileUsabilityIssue,
+  AmpIssue,
 } from './types.js';
 
 // Using webmasters/v3 — the current Google Search Console API endpoint.
@@ -194,9 +197,9 @@ export class GoogleSearchConsoleClient {
         `/sites/${this.encodeProperty(this.propertyUrl)}/inspectionIndex/errors`
       );
 
-      const crawlIssues = response.inspectionResult?.crawlIssues || [];
-      const mobileUsabilityIssues = response.inspectionResult?.mobileUsability?.issues || [];
-      const ampIssues = response.inspectionResult?.amp?.issues || [];
+      const crawlIssues: CrawlIssue[] = response.inspectionResult?.crawlIssues || [];
+      const mobileUsabilityIssues: MobileUsabilityIssue[] = response.inspectionResult?.mobileUsability?.issues || [];
+      const ampIssues: AmpIssue[] = response.inspectionResult?.amp?.issues || [];
 
       // Aggregate by issue type to get accurate counts
       const issueMap = new Map<string, { count: number; example?: string; severity?: string }>();
