@@ -357,6 +357,48 @@ test('getProfile handles network error gracefully', async () => {
   teardownFetchMocks();
 });
 
+test('getProfile caches result and prevents race conditions', async () => {
+  setupFetchMocks();
+
+  let callCount = 0;
+  fetchResponses.set(/graph\.threads\.com.*\/me\?/, {
+    ok: true,
+    json: async () => {
+      callCount++;
+      return {
+        data: {
+          id: 'user-123',
+          username: 'testuser',
+          name: 'Test User',
+          biography: 'Test bio',
+          threads_profile_picture_url: 'https://example.com/pic.jpg',
+          follower_count: 1000,
+          following_count: 500,
+          is_verified: true,
+          website: 'https://example.com',
+        },
+      };
+    },
+  } as any);
+
+  const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
+  const client = new ThreadsClient(ctx);
+
+  // Call getProfile twice
+  const result1 = await client.getProfile();
+  const result2 = await client.getProfile();
+
+  // Both should return the same cached result
+  assert.ok(result1.user);
+  assert.ok(result2.user);
+  assert.equal(result1.user.id, result2.user.id);
+  assert.equal(result1.user.username, result2.user.username);
+  // Should only make 1 API call due to caching
+  assert.equal(callCount, 1);
+
+  teardownFetchMocks();
+});
+
 test('listTimeline returns error when not authenticated', async () => {
   setupFetchMocks();
   const ctx = mockCtx({});
@@ -391,6 +433,23 @@ test('listTimeline succeeds with valid token', async () => {
     }),
   } as any);
 
+  fetchResponses.set(/graph\.threads\.com.*\/me\?/, {
+    ok: true,
+    json: async () => ({
+      data: {
+        id: 'user-123',
+        username: 'testuser',
+        name: 'Test User',
+        biography: 'Test bio',
+        threads_profile_picture_url: 'https://example.com/pic.jpg',
+        follower_count: 1000,
+        following_count: 500,
+        is_verified: true,
+        website: 'https://example.com',
+      },
+    }),
+  } as any);
+
   const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
   const client = new ThreadsClient(ctx);
 
@@ -399,8 +458,9 @@ test('listTimeline succeeds with valid token', async () => {
   assert.equal(result.posts.length, 1);
   assert.equal(result.posts[0].text, 'Hello Threads!');
   assert.equal(result.posts[0].like_count, 42);
-  assert.equal(result.posts[0].author.id, 'unknown');
-  assert.equal(result.posts[0].author.username, 'unknown');
+  assert.equal(result.posts[0].author.id, 'user-123');
+  assert.equal(result.posts[0].author.username, 'testuser');
+  assert.equal(result.posts[0].author.name, 'Test User');
   assert.equal(result.error, undefined);
 
   teardownFetchMocks();
@@ -421,6 +481,23 @@ test('listTimeline respects limit parameter', async () => {
     }),
   } as any);
 
+  fetchResponses.set(/graph\.threads\.com.*\/me\?/, {
+    ok: true,
+    json: async () => ({
+      data: {
+        id: 'user-123',
+        username: 'testuser',
+        name: 'Test User',
+        biography: 'Test bio',
+        threads_profile_picture_url: 'https://example.com/pic.jpg',
+        follower_count: 1000,
+        following_count: 500,
+        is_verified: true,
+        website: 'https://example.com',
+      },
+    }),
+  } as any);
+
   const ctx = mockCtx({ THREADS_ACCESS_TOKEN: 'token123' });
   const client = new ThreadsClient(ctx);
 
@@ -434,6 +511,23 @@ test('listTimeline respects limit parameter', async () => {
 
 test('listTimeline handles network error gracefully', async () => {
   setupFetchMocks();
+
+  fetchResponses.set(/graph\.threads\.com.*\/me\?/, {
+    ok: true,
+    json: async () => ({
+      data: {
+        id: 'user-123',
+        username: 'testuser',
+        name: 'Test User',
+        biography: 'Test bio',
+        threads_profile_picture_url: 'https://example.com/pic.jpg',
+        follower_count: 1000,
+        following_count: 500,
+        is_verified: true,
+        website: 'https://example.com',
+      },
+    }),
+  } as any);
 
   fetchResponses.set(/graph\.threads\.com.*\/me\/threads/, new Error('Network error'));
 

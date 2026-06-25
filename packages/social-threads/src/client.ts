@@ -18,6 +18,8 @@ const THREADS_API_BASE = 'https://graph.threads.com/v18.0';
 
 export class ThreadsClient {
   private ctx: ToolContext;
+  private cachedProfile: ThreadsUser | null = null;
+  private profileFetchInProgress: Promise<{ user: ThreadsUser | null; error?: string }> | null = null;
 
   constructor(ctx: ToolContext) {
     this.ctx = ctx;
@@ -130,6 +132,16 @@ export class ThreadsClient {
   }
 
   async getProfile(): Promise<{ user: ThreadsUser | null; error?: string }> {
+    // If a fetch is already in progress, return that promise to prevent race conditions.
+    if (this.profileFetchInProgress) {
+      return this.profileFetchInProgress;
+    }
+
+    // If profile is cached, return it.
+    if (this.cachedProfile) {
+      return { user: this.cachedProfile };
+    }
+
     const token = await this.getAccessToken();
     if (!token) {
       return {
@@ -139,53 +151,62 @@ export class ThreadsClient {
       };
     }
 
-    try {
-      const url = new URL(`${THREADS_API_BASE}/me`);
-      url.searchParams.set(
-        'fields',
-        'id,username,biography,threads_profile_picture_url,follower_count,following_count,is_verified,website'
-      );
+    const fetchPromise = (async () => {
+      try {
+        const url = new URL(`${THREADS_API_BASE}/me`);
+        url.searchParams.set(
+          'fields',
+          'id,username,name,biography,threads_profile_picture_url,follower_count,following_count,is_verified,website'
+        );
 
-      const res = await fetch(url.toString(), {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+        const res = await fetch(url.toString(), {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
 
-      if (!res.ok) {
+        if (!res.ok) {
+          return {
+            user: null,
+            error: `Profile fetch failed: ${res.status}`,
+          };
+        }
+
+        const data = (await res.json()) as ProfileResponse;
+        const profile = data.data;
+        if (!profile) {
+          return { user: null, error: 'No profile data returned' };
+        }
+
+        // Explicitly filter to only expected fields to guard against API changes or unexpected data.
+        const safeProfile: ThreadsUser = {
+          id: String(profile.id || ''),
+          username: String(profile.username || ''),
+          name: profile.name ? String(profile.name) : undefined,
+          biography: profile.biography ? String(profile.biography) : undefined,
+          threads_profile_picture_url: profile.threads_profile_picture_url
+            ? String(profile.threads_profile_picture_url)
+            : undefined,
+          follower_count: typeof profile.follower_count === 'number' ? profile.follower_count : 0,
+          following_count: typeof profile.following_count === 'number' ? profile.following_count : 0,
+          is_verified: Boolean(profile.is_verified),
+          website: profile.website ? String(profile.website) : undefined,
+        };
+
+        this.cachedProfile = safeProfile;
+        return { user: safeProfile };
+      } catch {
         return {
           user: null,
-          error: `Profile fetch failed: ${res.status}`,
+          error: 'Failed to get profile from Threads',
         };
+      } finally {
+        this.profileFetchInProgress = null;
       }
+    })();
 
-      const data = (await res.json()) as ProfileResponse;
-      const profile = data.data;
-      if (!profile) {
-        return { user: null, error: 'No profile data returned' };
-      }
-
-      // Explicitly filter to only expected fields to guard against API changes or unexpected data.
-      const safeProfile: ThreadsUser = {
-        id: String(profile.id || ''),
-        username: String(profile.username || ''),
-        biography: profile.biography ? String(profile.biography) : undefined,
-        threads_profile_picture_url: profile.threads_profile_picture_url
-          ? String(profile.threads_profile_picture_url)
-          : undefined,
-        follower_count: typeof profile.follower_count === 'number' ? profile.follower_count : 0,
-        following_count: typeof profile.following_count === 'number' ? profile.following_count : 0,
-        is_verified: Boolean(profile.is_verified),
-        website: profile.website ? String(profile.website) : undefined,
-      };
-
-      return { user: safeProfile };
-    } catch {
-      return {
-        user: null,
-        error: 'Failed to get profile from Threads',
-      };
-    }
+    this.profileFetchInProgress = fetchPromise;
+    return fetchPromise;
   }
 
   async listTimeline(limit: number = 20): Promise<{ posts: ThreadsPost[]; error?: string }> {
@@ -199,6 +220,12 @@ export class ThreadsClient {
     }
 
     try {
+      // Fetch user profile to get authenticated user's ID and username for author field.
+      const profileRes = await this.getProfile();
+      if (profileRes.error || !profileRes.user) {
+        return { posts: [], error: profileRes.error || 'Failed to fetch user profile' };
+      }
+
       const url = new URL(`${THREADS_API_BASE}/me/threads`);
       url.searchParams.set('limit', String(Math.min(limit, 100)));
       url.searchParams.set('fields', 'id,text,timestamp,permalink,like_count,reply_count,repost_count');
@@ -228,8 +255,10 @@ export class ThreadsClient {
           reply_count: post.reply_count,
           repost_count: post.repost_count,
           author: {
-            id: 'unknown',
-            username: 'unknown',
+            id: profileRes.user.id,
+            username: profileRes.user.username,
+            name: profileRes.user.name,
+            profile_picture_url: profileRes.user.threads_profile_picture_url,
           },
         }));
 

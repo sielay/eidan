@@ -137,6 +137,7 @@ export function makeThreadsTools(): Tool[] {
             value: {
               id: result.user.id,
               username: result.user.username,
+              name: result.user.name || '',
               biography: result.user.biography || '',
               profile_picture_url: result.user.threads_profile_picture_url || '',
               followers: result.user.follower_count ?? 0,
@@ -175,6 +176,12 @@ export function makeThreadsTools(): Tool[] {
                 likes: post.like_count,
                 replies: post.reply_count,
                 reposts: post.repost_count,
+                author: {
+                  id: post.author.id,
+                  username: post.author.username,
+                  name: post.author.name || '',
+                  profile_picture_url: post.author.profile_picture_url || '',
+                },
               })),
               count: result.posts.length,
             },
