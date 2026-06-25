@@ -81,9 +81,11 @@ export class LinkedInClient {
   }
 
   private isAllowedImageDomain(hostname: string): boolean {
-    return this.allowedImageDomains.some((domain) =>
-      hostname === domain || hostname.endsWith(`.${domain}`)
-    );
+    const normalizedHostname = hostname.toLowerCase();
+    return this.allowedImageDomains.some((domain) => {
+      const normalizedDomain = domain.toLowerCase();
+      return normalizedHostname === normalizedDomain || normalizedHostname.endsWith(`.${normalizedDomain}`);
+    });
   }
 
   private async validateImageUrl(imageUrl: string): Promise<boolean> {
