@@ -82,8 +82,7 @@ export class LinkedInClient {
 
   private isAllowedImageDomain(hostname: string): boolean {
     return this.allowedImageDomains.some((domain) =>
-      hostname === domain ||
-      (hostname.endsWith(`.${domain}`) && hostname.charAt(hostname.length - domain.length - 1) !== '.')
+      hostname === domain || hostname.endsWith(`.${domain}`)
     );
   }
 
