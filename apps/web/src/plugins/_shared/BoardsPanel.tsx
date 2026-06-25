@@ -11,11 +11,12 @@
 import * as React from "react";
 
 import { authFetch } from "@/lib/auth";
+import { Avatar } from "@/plugins/_shared/Avatar";
 
 interface Board { id: string; name: string; position: number; status: string }
 interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number }
 interface CardRef { id: string; card_id: string; ref_kind: string; ref_id: string | null; ref_label: string | null }
-interface CardEvent { id: string; kind: string; body: string | null; created_at: string }
+interface CardEvent { id: string; kind: string; body: string | null; author_kind?: string; author_id?: string | null; author_label?: string | null; created_at: string }
 
 const LANES: Array<[string, string]> = [["open", "To do"], ["doing", "Doing"], ["done", "Done"]];
 const ORDER = ["open", "doing", "done"];
@@ -334,12 +335,27 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
           <div className="screen-sub" style={{ fontWeight: 600 }}>Activity</div>
           {events.length === 0 ? <p className="screen-sub" style={{ margin: "4px 0" }}>No activity yet.</p> : (
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--s2)" }}>
-              {events.map((e) => (
-                <div key={e.id} style={{ borderLeft: "2px solid var(--border)", paddingLeft: "var(--s2)" }}>
-                  <div style={{ fontSize: "var(--fs-14)" }}>{e.kind === "comment" ? e.body : <em>{e.kind}: {e.body}</em>}</div>
-                  <div className="screen-sub" style={{ margin: 0, fontSize: "var(--fs-13)" }}>{new Date(e.created_at).toLocaleString()}</div>
-                </div>
-              ))}
+              {events.map((e) => {
+                const isComment = e.kind === "comment";
+                const authorKind = e.author_kind === "agent" ? "agent" : "user";
+                const authorLabel = e.author_label || (authorKind === "agent" ? "Eidan" : "You");
+                return (
+                  <div key={e.id} style={{ display: "flex", gap: "var(--s2)", alignItems: "flex-start" }}>
+                    {isComment ? <Avatar kind={authorKind} seed={e.author_id || authorLabel} size={22} title={authorLabel} /> : null}
+                    <div style={{ flex: 1, borderLeft: isComment ? "none" : "2px solid var(--border)", paddingLeft: isComment ? 0 : "var(--s2)" }}>
+                      {isComment ? (
+                        <>
+                          <div style={{ fontSize: "var(--fs-13)", fontWeight: 600 }}>{authorLabel}</div>
+                          <div style={{ fontSize: "var(--fs-14)" }}>{e.body}</div>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: "var(--fs-14)" }}><em>{e.kind}: {e.body}</em></div>
+                      )}
+                      <div className="screen-sub" style={{ margin: 0, fontSize: "var(--fs-13)" }}>{new Date(e.created_at).toLocaleString()}</div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s2)" }}>

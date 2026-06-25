@@ -182,7 +182,8 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
           const a = (input ?? {}) as Record<string, unknown>;
           const body = str(a['body']).trim();
           if (!body) return yield { type: 'error', message: 'body is required' };
-          const ev = await db.addEvent(str(a['card_id']).trim(), 'comment', body);
+          // Agent-authored comment (the web events route stamps user-authored ones).
+          const ev = await db.addEvent(str(a['card_id']).trim(), 'comment', body, { kind: 'agent', id: 'eidan', label: 'Eidan' });
           if (!ev) return yield { type: 'error', message: 'no such card' };
           yield { type: 'result', value: ev };
         },

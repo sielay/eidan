@@ -7,8 +7,8 @@ import type { NextRequest } from "next/server";
 import { verifyBearer } from "@/server/auth";
 import { withUser } from "@/server/db";
 
-interface EventRow { id: string; card_id: string; kind: string; body: string | null; created_at: string }
-const COLS = "id, card_id, kind, body, created_at";
+interface EventRow { id: string; card_id: string; kind: string; body: string | null; author_kind: string; author_id: string | null; author_label: string | null; created_at: string }
+const COLS = "id, card_id, kind, body, author_kind, author_id, author_label, created_at";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,8 +40,8 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const event = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `insert into plugin_boards.card_events (card_id, user_id, kind, body)
-       select k.id, $1, 'comment', $3 from plugin_boards.cards k where k.id = $2 and k.user_id = $1
+      `insert into plugin_boards.card_events (card_id, user_id, kind, body, author_kind, author_id, author_label)
+       select k.id, $1, 'comment', $3, 'user', $1::text, 'You' from plugin_boards.cards k where k.id = $2 and k.user_id = $1
        returning ${COLS}`,
       [sess.userId, cardId, text],
     );

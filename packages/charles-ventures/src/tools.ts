@@ -35,7 +35,7 @@ import {
   plannedProvidersByKind,
 } from './providers.js';
 
-const KINDS = ['org', 'venture', 'project'];
+const KINDS = ['org', 'venture', 'project', 'employment'];
 const LEGAL_TYPES = ['ltd', 'sole_trader', 'holding'];
 // Attachable resource kinds + the providers offered for each — sourced from the adapter registry
 // (providers.ts), which gates on whether a working adapter actually backs a provider. The schema

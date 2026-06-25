@@ -11,7 +11,7 @@ type Q = (text: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCou
 export interface Board { id: string; user_id: string; name: string; scope_kind: string | null; scope_id: string | null; position: number; status: string; created_at: Date; updated_at: Date }
 export interface Card { id: string; board_id: string; user_id: string; title: string; body: string | null; status: string; position: number; metadata: Record<string, unknown>; created_at: Date; updated_at: Date }
 export interface CardRef { id: string; card_id: string; user_id: string; ref_kind: string; ref_id: string | null; ref_label: string | null; metadata: Record<string, unknown>; created_at: Date }
-export interface CardEvent { id: string; card_id: string; user_id: string; kind: string; body: string | null; metadata: Record<string, unknown>; created_at: Date }
+export interface CardEvent { id: string; card_id: string; user_id: string; kind: string; body: string | null; author_kind: string; author_id: string | null; author_label: string | null; metadata: Record<string, unknown>; created_at: Date }
 
 export const CARD_STATUSES = ['open', 'doing', 'done', 'archived'];
 export const EVENT_KINDS = ['comment', 'status', 'ref', 'system', 'note'];
@@ -74,10 +74,17 @@ export class BoardsDb {
            user_id uuid not null,
            kind text not null,
            body text,
+           author_kind text not null default 'user',
+           author_id text,
+           author_label text,
            metadata jsonb not null default '{}'::jsonb,
            created_at timestamptz not null default now()
          )`,
       );
+      // Author columns (idempotent — comments carry who wrote them: a person or an agent).
+      await c.query(`alter table ${this.schema}.card_events add column if not exists author_kind text not null default 'user'`);
+      await c.query(`alter table ${this.schema}.card_events add column if not exists author_id text`);
+      await c.query(`alter table ${this.schema}.card_events add column if not exists author_label text`);
       await c.query(`create index if not exists idx_${this.schema}_boards_scope on ${this.schema}.boards (user_id, scope_kind, scope_id)`);
       await c.query(`create index if not exists idx_${this.schema}_cards_board on ${this.schema}.cards (board_id)`);
       await c.query(`create index if not exists idx_${this.schema}_refs_card on ${this.schema}.card_refs (card_id)`);
@@ -271,15 +278,16 @@ export class BoardsDb {
     });
   }
 
-  async addEvent(cardId: string, kind: string, body: string | null): Promise<CardEvent | null> {
+  async addEvent(cardId: string, kind: string, body: string | null, author?: { kind: string; id: string | null; label: string | null }): Promise<CardEvent | null> {
     const uid = this.uid();
     if (!uid) return null;
+    const aKind = author?.kind ?? 'user';
     return this.tx(async (q) => {
       const r = await q(
-        `insert into ${this.schema}.card_events (card_id, user_id, kind, body)
-         select c.id, $1, $3, $4 from ${this.schema}.cards c where c.id = $2 and c.user_id = $1
+        `insert into ${this.schema}.card_events (card_id, user_id, kind, body, author_kind, author_id, author_label)
+         select c.id, $1, $3, $4, $5, $6, $7 from ${this.schema}.cards c where c.id = $2 and c.user_id = $1
          returning *`,
-        [uid, cardId, kind, body],
+        [uid, cardId, kind, body, aKind, author?.id ?? null, author?.label ?? null],
       );
       return (r.rows[0] as CardEvent | undefined) ?? null;
     });

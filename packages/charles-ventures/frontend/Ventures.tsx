@@ -639,7 +639,7 @@ function EditResourceSheet({ resource, onClose, onSaved }: { resource: Resource;
 }
 
 // ── Create-venture bottom sheet ──────────────────────────────────────────────
-const KIND_OPTS: Array<[string, string]> = [["org", "Org"], ["venture", "Venture"], ["project", "Project"]];
+const KIND_OPTS: Array<[string, string]> = [["org", "Org"], ["venture", "Venture"], ["project", "Project"], ["employment", "Employment"]];
 const LEGAL_OPTS: Array<[string, string]> = [["", "—"], ["ltd", "Ltd"], ["sole_trader", "Sole trader"], ["holding", "Holding"]];
 
 function CreateVentureSheet({ ventures, defaultParentId, onClose, onCreated }: { ventures: Venture[]; defaultParentId?: string | null; onClose: () => void; onCreated: (id: string) => void }): React.ReactElement {

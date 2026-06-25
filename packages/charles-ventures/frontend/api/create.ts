@@ -14,7 +14,7 @@ import { withUser } from "@/server/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const KINDS = ["org", "venture", "project"];
+const KINDS = ["org", "venture", "project", "employment"];
 const LEGAL_TYPES = ["ltd", "sole_trader", "holding"];
 
 // Same slug rule as store.ts: lowercase, non-alphanumerics → hyphens, trim, ≤60, fallback.
