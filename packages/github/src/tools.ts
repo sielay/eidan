@@ -101,21 +101,58 @@ const SEARCH_SCHEMA = {
   },
 };
 
-// Resolve a GitHub client for the selected account: registry first (the PAT is the resolved token),
-// then the legacy single GITHUB_TOKEN secret. Returns an error string when nothing usable resolves.
+// A connection's scope (stored in account.metadata.scope, set on connect): read vs write, and an
+// allowlist of org/repo patterns. Absent scope = full access (back-compat for pre-scope connections).
+export interface Scope { access: 'read' | 'write'; allow: string[] }
+const FULL_SCOPE: Scope = { access: 'write', allow: [] };
+
+function parseScope(meta: Record<string, unknown> | undefined): Scope {
+  const s = (meta?.['scope'] ?? null) as Record<string, unknown> | null;
+  if (!s) return FULL_SCOPE;
+  const access = s['access'] === 'read' ? 'read' : 'write';
+  const allow = Array.isArray(s['allow']) ? (s['allow'] as unknown[]).map((x) => String(x).trim()).filter(Boolean) : [];
+  return { access, allow };
+}
+
+// Match a repo "owner/name" against an allow pattern. A pattern with no '/' means the whole org
+// (owner/*); '*' matches any run of chars. Case-insensitive. Patterns are operator-config (small) and
+// '*' is split out before escaping, so the built regex is linear (no ReDoS).
+export function repoAllowed(allow: string[], repo: string): boolean {
+  if (allow.length === 0) return true;
+  const target = repo.trim().toLowerCase();
+  return allow.some((raw) => {
+    let pat = raw.trim().toLowerCase();
+    if (!pat) return false;
+    if (!pat.includes('/')) pat += '/*';
+    const rx = new RegExp('^' + pat.split('*').map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
+    return rx.test(target);
+  });
+}
+
+// Resolve a GitHub client + the connection's scope for the selected account: registry first (the PAT
+// is the resolved token), then the legacy single GITHUB_TOKEN secret. When opts.repo / opts.write are
+// given, enforce the connection's scope and return an error string if the call is out of scope.
 async function resolveClient(
   ctx: ToolContext,
   store: AccountStore | null,
   seal: SealFn | undefined,
   account: string | undefined,
-): Promise<{ client?: GitHubClient; error?: string }> {
+  opts?: { repo?: string; write?: boolean },
+): Promise<{ client?: GitHubClient; scope?: Scope; error?: string }> {
   if (store) {
     try {
-      const { accessToken } = await resolveAccessToken(store, githubAdapter, ctx, {
+      const { accessToken, account: acct } = await resolveAccessToken(store, githubAdapter, ctx, {
         ...(account ? { accountSelector: account } : {}),
         ...(seal ? { seal } : {}),
       });
-      return { client: new GitHubClient(accessToken) };
+      const scope = parseScope(acct.metadata);
+      if (opts?.write && scope.access !== 'write') {
+        return { error: `"${acct.name}" is a read-only GitHub connection — reconnect it with write access to do that.` };
+      }
+      if (opts?.repo && !repoAllowed(scope.allow, opts.repo)) {
+        return { error: `repo "${opts.repo}" is outside the "${acct.name}" connection's scope (allowed: ${scope.allow.join(', ') || 'all'}).` };
+      }
+      return { client: new GitHubClient(accessToken), scope };
     } catch (exc) {
       if (exc instanceof AccountResolveError) return { error: exc.message };
       if (!(exc instanceof NotConnectedError)) {
@@ -125,7 +162,7 @@ async function resolveClient(
   }
   const token = await secretOpt(ctx, 'GITHUB_TOKEN');
   if (token) {
-    return { client: new GitHubClient(token) };
+    return { client: new GitHubClient(token), scope: FULL_SCOPE };
   }
   return {
     error:
@@ -142,7 +179,7 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
     executor: {
       async *execute(input: unknown, ctx: ToolContext) {
         const args = (input ?? {}) as { account?: string };
-        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        const { client, scope, error } = await resolveClient(ctx, store, seal, args.account);
         if (!client) {
           yield { type: 'error', message: error ?? 'Failed to create GitHub client' };
           return;
@@ -151,7 +188,9 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
         if (!result.ok) {
           yield { type: 'error', message: result.error ?? 'Failed to list repos' };
         } else {
-          yield { type: 'result', value: { count: result.repos?.length ?? 0, repos: result.repos ?? [] } };
+          // Respect the connection's org/repo allowlist.
+          const repos = (result.repos ?? []).filter((r) => repoAllowed(scope?.allow ?? [], String((r as { full_name?: string }).full_name ?? '')));
+          yield { type: 'result', value: { count: repos.length, repos } };
         }
       },
     },
@@ -169,7 +208,7 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
           yield { type: 'error', message: 'repo is required' };
           return;
         }
-        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account, { repo });
         if (!client) {
           yield { type: 'error', message: error ?? 'Failed to create GitHub client' };
           return;
@@ -198,7 +237,7 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
           yield { type: 'error', message: 'repo and path are required' };
           return;
         }
-        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account, { repo });
         if (!client) {
           yield { type: 'error', message: error ?? 'Failed to create GitHub client' };
           return;
@@ -225,7 +264,7 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
           yield { type: 'error', message: 'repo is required' };
           return;
         }
-        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account, { repo });
         if (!client) {
           yield { type: 'error', message: error ?? 'Failed to create GitHub client' };
           return;
@@ -253,7 +292,7 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
           yield { type: 'error', message: 'repo and title are required' };
           return;
         }
-        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account, { repo, write: true });
         if (!client) {
           yield { type: 'error', message: error ?? 'Failed to create GitHub client' };
           return;
@@ -283,7 +322,7 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
           yield { type: 'error', message: 'repo is required' };
           return;
         }
-        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        const { client, error } = await resolveClient(ctx, store, seal, args.account, { repo });
         if (!client) {
           yield { type: 'error', message: error ?? 'Failed to create GitHub client' };
           return;
@@ -311,12 +350,13 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
           yield { type: 'error', message: 'query is required' };
           return;
         }
-        const { client, error } = await resolveClient(ctx, store, seal, args.account);
+        const repo = args.repo ? String(args.repo).trim() : undefined;
+        const { client, error } = await resolveClient(ctx, store, seal, args.account, repo ? { repo } : undefined);
         if (!client) {
           yield { type: 'error', message: error ?? 'Failed to create GitHub client' };
           return;
         }
-        const result = await client.searchCode(query, args.repo ? String(args.repo) : undefined);
+        const result = await client.searchCode(query, repo);
         if (!result.ok) {
           yield { type: 'error', message: result.error ?? 'Failed to search code' };
         } else {

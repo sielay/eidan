@@ -29,6 +29,20 @@ interface AccountRow {
   token_expires_at: string | null;
   token_vault_key: string;
   context: string;
+  metadata: Record<string, unknown>;
+}
+
+// Connection scope (stored under metadata.scope): read vs write, and an org/repo allowlist (patterns
+// like "owner/*", "owner/name", "owner/name*"; a bare "owner" means the whole org).
+function parseScopeInput(body: Record<string, unknown>): { access: "read" | "write"; allow: string[] } {
+  const access = body["access"] === "write" ? "write" : "read";
+  const raw = body["allow"];
+  const allow = Array.isArray(raw)
+    ? raw.map((x) => String(x).trim()).filter(Boolean)
+    : typeof raw === "string"
+      ? raw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)
+      : [];
+  return { access, allow };
 }
 
 function slugify(name: string): string {
@@ -70,7 +84,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (!sess) return new Response("unauthorized", { status: 401 });
   const accounts = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `select id, name, slug, external_handle, status, token_expires_at, context
+      `select id, name, slug, external_handle, status, token_expires_at, context, metadata
          from plugin_github.accounts
         where user_id = $1 and status in ('active', 'pending')
         order by created_at`,
@@ -78,7 +92,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     );
     return r.rows as Pick<
       AccountRow,
-      "id" | "name" | "slug" | "external_handle" | "status" | "token_expires_at" | "context"
+      "id" | "name" | "slug" | "external_handle" | "status" | "token_expires_at" | "context" | "metadata"
     >[];
   });
   return Response.json({ accounts });
@@ -102,12 +116,16 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (!id) return Response.json({ error: "id is required" }, { status: 400 });
     const newName = typeof u["name"] === "string" ? u["name"].trim() : null;
     const newContext = typeof u["context"] === "string" ? u["context"] : null;
+    const scopeJson = ("access" in u || "allow" in u) ? JSON.stringify(parseScopeInput(u)) : null;
     const ok = await withUser(sess.userId, async (c) => {
       const r = await c.query(
         `update plugin_github.accounts
-            set name = coalesce($3, name), context = coalesce($4, context), updated_at = now()
+            set name = coalesce($3, name), context = coalesce($4, context),
+                metadata = case when $5::jsonb is null then metadata
+                                else jsonb_set(coalesce(metadata, '{}'::jsonb), '{scope}', $5::jsonb, true) end,
+                updated_at = now()
           where id = $1 and user_id = $2 and status in ('active', 'pending')`,
-        [id, sess.userId, newName, newContext],
+        [id, sess.userId, newName, newContext, scopeJson],
       );
       return (r.rowCount ?? 0) > 0;
     });
@@ -134,6 +152,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!pat) return Response.json({ error: "pat is required" }, { status: 400 });
 
   const slug = slugify(name);
+  const scope = parseScopeInput(body);
+  const scopeMeta = JSON.stringify({ scope }); // full metadata object for a new row
+  const scopeVal = JSON.stringify(scope); // just the scope value for jsonb_set on an existing row
 
   let account: { id: string; handle: string; externalId: string };
   try {
@@ -178,9 +199,10 @@ export async function POST(req: NextRequest): Promise<Response> {
           `update plugin_github.accounts
               set external_handle = $1, external_id = $2,
                   client_vault_key = '', refresh_vault_key = '',
+                  metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{scope}', $5::jsonb, true),
                   status = 'active', updated_at = now()
             where id = $3 and user_id = $4`,
-          [handle, String(ghId), row.id, sess.userId],
+          [handle, String(ghId), row.id, sess.userId, scopeVal],
         );
         return { id: row.id, handle, externalId: String(ghId) };
       }
@@ -198,10 +220,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       const r = await c.query(
         `insert into plugin_github.accounts
            (id, user_id, name, slug, host, external_handle, external_id,
-            client_vault_key, token_vault_key, refresh_vault_key, status)
-         values ($1, $2, $3, $4, '', $5, $6, '', $7, '', 'active')
+            client_vault_key, token_vault_key, refresh_vault_key, status, metadata)
+         values ($1, $2, $3, $4, '', $5, $6, '', $7, '', 'active', $8::jsonb)
          returning id`,
-        [accountId, sess.userId, name, slug, handle, String(ghId), tokenVaultKey],
+        [accountId, sess.userId, name, slug, handle, String(ghId), tokenVaultKey, scopeMeta],
       );
       return { id: (r.rows[0] as { id: string }).id, handle, externalId: String(ghId) };
     });

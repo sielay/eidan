@@ -16,12 +16,15 @@ export default function Connections(): React.ReactElement {
       status: string;
       token_expires_at: string | null;
       context?: string;
+      metadata?: { scope?: { access?: string; allow?: string[] } };
     }>
   >([]);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [name, setName] = React.useState("");
   const [pat, setPat] = React.useState("");
+  const [access, setAccess] = React.useState<"read" | "write">("read");
+  const [allow, setAllow] = React.useState("");
   const [tests, setTests] = React.useState<Record<string, { busy: boolean; ok?: boolean; msg?: string }>>({});
   const [editing, setEditing] = React.useState<string | null>(null);
   const [editName, setEditName] = React.useState("");
@@ -64,6 +67,8 @@ export default function Connections(): React.ReactElement {
         body: JSON.stringify({
           name: name.trim(),
           pat: pat.trim(),
+          access,
+          allow: allow.trim(),
         }),
       });
       const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
@@ -187,6 +192,20 @@ export default function Connections(): React.ReactElement {
           />
         </label>
 
+        <label>
+          Access
+          <select value={access} onChange={(e) => setAccess(e.target.value === "write" ? "write" : "read")} disabled={busy}>
+            <option value="read">Read-only (repos, files, issues, PRs, search)</option>
+            <option value="write">Read + write (also create issues)</option>
+          </select>
+        </label>
+
+        <label>
+          Scope to orgs / repos{" "}
+          <span className="sconn__muted">(optional, one per line — e.g. sielay/*, sielay/eidan, acme/web*; blank = everything the PAT can reach)</span>
+          <textarea value={allow} onChange={(e) => setAllow(e.target.value)} placeholder={"sielay/*\nacme/widget"} rows={3} disabled={busy} />
+        </label>
+
         <button className="sconn__btn" onClick={() => void connect()} disabled={busy || !canConnect}>
           Connect
         </button>
@@ -209,6 +228,11 @@ export default function Connections(): React.ReactElement {
                   ) : null}
                   <span className={`sconn__chip sconn__chip--${a.status === "active" ? "connected" : "pending"}`}>
                     {a.status === "active" ? "connected" : "not connected"}
+                  </span>
+                  <span className="sconn__muted">
+                    {(a.metadata?.scope?.access ?? "write") === "write" ? "read+write" : "read-only"}
+                    {" · "}
+                    {(a.metadata?.scope?.allow ?? []).length ? (a.metadata?.scope?.allow ?? []).join(", ") : "all repos"}
                   </span>
                   <button
                     className="sconn__btn sconn__btn--quiet"
