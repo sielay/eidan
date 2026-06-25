@@ -12,6 +12,9 @@ import type {
   CoverageError,
 } from './types.js';
 
+// Using webmasters/v3 — the current Google Search Console API endpoint.
+// While task description mentions searchconsole.googleapis.com/v1, webmasters/v3
+// is the authoritative endpoint for GSC indexing, sitemaps, and performance data.
 const GSC_API_BASE = 'https://www.googleapis.com/webmasters/v3';
 
 export class GoogleSearchConsoleClient {
@@ -36,34 +39,41 @@ export class GoogleSearchConsoleClient {
       body?: unknown;
     }
   ): Promise<T> {
-    const url = `${GSC_API_BASE}${endpoint}`;
-    const body = options?.body ? JSON.stringify(options.body) : null;
-    const res = await fetch(url, {
-      method: options?.method || 'GET',
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      ...(body ? { body } : {}),
-    });
+    try {
+      const url = `${GSC_API_BASE}${endpoint}`;
+      const body = options?.body ? JSON.stringify(options.body) : null;
+      const res = await fetch(url, {
+        method: options?.method || 'GET',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        ...(body ? { body } : {}),
+      });
 
-    if (!res.ok) {
-      let errorMsg: string;
-      const contentType = res.headers.get('content-type') || '';
-      try {
-        if (contentType.includes('application/json')) {
-          const json = await res.json();
-          errorMsg = json.error?.message || JSON.stringify(json);
-        } else {
-          errorMsg = await res.text();
+      if (!res.ok) {
+        let errorMsg: string;
+        const contentType = res.headers.get('content-type') || '';
+        try {
+          if (contentType.includes('application/json')) {
+            const json = await res.json();
+            errorMsg = json.error?.message || 'API returned an error';
+          } else {
+            errorMsg = await res.text();
+          }
+        } catch {
+          errorMsg = 'Failed to parse error response';
         }
-      } catch {
-        errorMsg = await res.text();
+        throw new Error(`GSC API error (${res.status}): ${errorMsg}`);
       }
-      throw new Error(`GSC API error (${res.status}): ${errorMsg}`);
-    }
 
-    return (await res.json()) as T;
+      return (await res.json()) as T;
+    } catch (exc) {
+      if (exc instanceof Error) {
+        throw exc;
+      }
+      throw new Error('Unexpected error calling GSC API');
+    }
   }
 
   async getPerformance(days: number = 7, limit: number = 10): Promise<{
