@@ -497,8 +497,8 @@ function AttachSheet({ ventureId, onClose, onAttached }: { ventureId: string; on
                     </select>
                   ) : (
                     <p className="screen-sub" style={{ marginTop: 0 }}>
-                      No connected {SOCIAL_PROVIDERS.find(([v]) => v === provider)?.[1] ?? provider} accounts.{" "}
-                      <a href={`/p/social-${provider}`}>Connect one</a>, then come back.
+                      No connected {SOCIAL_PROVIDERS.find(([v]) => v === provider)?.[1] ?? "this platform"} accounts.{" "}
+                      <a href={`/p/social-${encodeURIComponent(provider)}`}>Connect one</a>, then come back.
                     </p>
                   )}
                 </div>
