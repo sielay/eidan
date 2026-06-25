@@ -195,15 +195,41 @@ export class GoogleSearchConsoleClient {
       );
 
       const crawlIssues = response.inspectionResult?.crawlIssues || [];
+      const mobileUsabilityIssues = response.inspectionResult?.mobileUsability?.issues || [];
+      const ampIssues = response.inspectionResult?.amp?.issues || [];
 
       // Aggregate by issue type to get accurate counts
       const issueMap = new Map<string, { count: number; example?: string; severity?: string }>();
+
+      // Process crawl issues
       for (const issue of crawlIssues) {
         const type = issue.issueType || 'unknown';
         const existing = issueMap.get(type) || { count: 0, severity: issue.severity || 'unknown' };
         existing.count += 1;
         if (!existing.example && issue.details && typeof issue.details === 'string') {
           existing.example = issue.details;
+        }
+        issueMap.set(type, existing);
+      }
+
+      // Process mobile usability issues
+      for (const issue of mobileUsabilityIssues) {
+        const type = `mobile_usability:${issue.rule || 'unknown'}`;
+        const existing = issueMap.get(type) || { count: 0, severity: issue.severity || 'warning' };
+        existing.count += 1;
+        if (!existing.example && issue.message) {
+          existing.example = issue.message;
+        }
+        issueMap.set(type, existing);
+      }
+
+      // Process AMP issues
+      for (const issue of ampIssues) {
+        const type = `amp:${issue.issue || 'unknown'}`;
+        const existing = issueMap.get(type) || { count: 0, severity: issue.severity || 'warning' };
+        existing.count += 1;
+        if (!existing.example && issue.message) {
+          existing.example = issue.message;
         }
         issueMap.set(type, existing);
       }

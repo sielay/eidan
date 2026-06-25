@@ -151,7 +151,7 @@ export function makeGscTools(): Tool[] {
   const gscIndexingErrorsTool: Tool = {
     name: 'gsc_indexing_errors',
     description:
-      'Get the latest indexing errors from Google Search Console: crawl errors, coverage issues, and mobile usability problems. Requires GSC_ACCESS_TOKEN and GSC_PROPERTY_URL vault secrets.',
+      'Get the latest indexing errors from Google Search Console: crawl errors, mobile usability issues, and AMP errors. Requires GSC_ACCESS_TOKEN and GSC_PROPERTY_URL vault secrets.',
     inputSchema: INDEXING_ERRORS_SCHEMA,
     executor: {
       async *execute(input, ctx) {

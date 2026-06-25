@@ -174,7 +174,7 @@ gsc_indexing_errors({
 
 ```json
 {
-  "count": 2,
+  "count": 3,
   "errors": [
     {
       "type": "ROBOTS_TAG",
@@ -183,10 +183,16 @@ gsc_indexing_errors({
       "example": "Page blocked by robots.txt"
     },
     {
-      "type": "CRAWL_ANOMALY",
+      "type": "mobile_usability:UNPLAYABLE_VIDEO",
+      "count": "2",
+      "severity": "WARNING",
+      "example": "Video file not playable on mobile"
+    },
+    {
+      "type": "amp:AMP_VALIDATION_ERROR",
       "count": "1",
       "severity": "ERROR",
-      "example": "Server error (5xx)"
+      "example": "Invalid AMP markup"
     }
   ]
 }

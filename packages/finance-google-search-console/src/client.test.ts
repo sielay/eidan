@@ -179,6 +179,66 @@ test('makeGSCClient returns error for missing secrets', async () => {
   assert(result.error);
 });
 
+test('GoogleSearchConsoleClient.getIndexingErrors includes mobile usability and AMP issues', async () => {
+  const responses = new Map();
+  responses.set(
+    'https://www.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fexample.com/inspectionIndex/errors',
+    {
+      inspectionResult: {
+        crawlIssues: [
+          {
+            issueType: 'ROBOTS_TAG',
+            severity: 'WARNING',
+            details: 'Page blocked by robots.txt',
+          },
+        ],
+        mobileUsability: {
+          issues: [
+            {
+              rule: 'UNPLAYABLE_VIDEO',
+              severity: 'WARNING',
+              message: 'Video file not playable on mobile',
+            },
+          ],
+        },
+        amp: {
+          issues: [
+            {
+              issue: 'AMP_VALIDATION_ERROR',
+              severity: 'ERROR',
+              message: 'Invalid AMP markup',
+            },
+          ],
+        },
+      },
+    }
+  );
+
+  const restore = mockFetch(responses);
+  try {
+    const ctx = { vault: {} } as unknown as ToolContext;
+    const client = new GoogleSearchConsoleClient(ctx, 'https://example.com', 'token123');
+    const result = await client.getIndexingErrors(10);
+
+    assert(!result.error);
+    assert(result.errors);
+    assert.equal(result.errors?.length, 3);
+
+    const robotsError = result.errors?.find(e => e.type === 'ROBOTS_TAG');
+    assert(robotsError);
+
+    const mobileError = result.errors?.find(e => e.type?.startsWith('mobile_usability:'));
+    assert(mobileError);
+    assert(mobileError.example?.includes('Video file'));
+
+    const ampError = result.errors?.find(e => e.type?.startsWith('amp:'));
+    assert(ampError);
+    assert(ampError.example?.includes('Invalid AMP'));
+  } finally {
+    restore();
+  }
+});
+
 test('makeGSCClient creates client with valid secrets', async () => {
   const ctx = {
     vault: {
