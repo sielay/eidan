@@ -59,7 +59,7 @@ export class InstagramClient {
       const user = await this.getAuthenticatedUser();
       this.userId = user?.id ?? null;
     } catch (err) {
-      if (err instanceof InstagramAPIError && err.status === 401) {
+      if (err instanceof InstagramAuthError || (err instanceof InstagramAPIError && err.status === 401)) {
         this.userId = null;
         return this.userId;
       }
@@ -163,20 +163,21 @@ export class InstagramClient {
       }
 
       // Step 1: Create media container
-      const uploadRes = await this.makeRequest(`/me/media?user_id=${encodeURIComponent(userId)}`, {
+      const uploadParams = new URLSearchParams();
+      uploadParams.append('image_url', imageUrl);
+      if (caption) uploadParams.append('caption', caption);
+      uploadParams.append('user_id', userId);
+
+      const uploadRes = await this.makeRequest(`/me/media`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: JSON.stringify({
-          image_url: imageUrl,
-          caption: caption || '',
-        }),
+        body: uploadParams.toString(),
       });
 
       if (!uploadRes.ok) {
-        const error = await uploadRes.text();
-        throw new InstagramPostError(`Create media failed: ${uploadRes.status} ${error}`);
+        throw new InstagramPostError(`Create media failed: ${uploadRes.status}`);
       }
 
       const createResult = (await uploadRes.json()) as InstagramMediaUploadResponse;
@@ -187,19 +188,20 @@ export class InstagramClient {
       const creationId = createResult.id;
 
       // Step 2: Publish the media container
-      const publishRes = await this.makeRequest(`/me/media_publish?user_id=${encodeURIComponent(userId)}`, {
+      const publishParams = new URLSearchParams();
+      publishParams.append('creation_id', creationId);
+      publishParams.append('user_id', userId);
+
+      const publishRes = await this.makeRequest(`/me/media_publish`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: JSON.stringify({
-          creation_id: creationId,
-        }),
+        body: publishParams.toString(),
       });
 
       if (!publishRes.ok) {
-        const error = await publishRes.text();
-        throw new InstagramPostError(`Publish failed: ${publishRes.status} ${error}`);
+        throw new InstagramPostError(`Publish failed: ${publishRes.status}`);
       }
 
       const publishResult = (await publishRes.json()) as InstagramMediaUploadResponse;
