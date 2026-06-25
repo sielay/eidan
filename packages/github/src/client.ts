@@ -108,7 +108,14 @@ export class GitHubClient {
     if (!linkHeader) return links;
     for (const link of linkHeader.split(',')) {
       const m = link.match(/<([^>]+)>;\s*rel="([^"]+)"/);
-      if (m && m[2] === 'next' && m[1]) links.next = m[1];
+      if (m && m[2] === 'next' && m[1]) {
+        try {
+          const parsed = new URL(m[1]);
+          links.next = parsed.pathname + parsed.search;
+        } catch {
+          // If URL parsing fails, skip this link
+        }
+      }
     }
     return links;
   }
@@ -160,16 +167,16 @@ export class GitHubClient {
     if (!result.ok) {
       return { ok: false, error: result.error ?? 'failed to get repo' };
     }
-    const r = result.data;
+    const { full_name = '', private: isPrivate = false, description = null, default_branch = '', html_url = '', updated_at = '' } = result.data ?? {};
     return {
       ok: true,
       repo: {
-        full_name: r?.full_name ?? '',
-        private: r?.private ?? false,
-        description: r?.description ?? null,
-        default_branch: r?.default_branch ?? '',
-        html_url: r?.html_url ?? '',
-        updated_at: r?.updated_at ?? '',
+        full_name,
+        private: isPrivate,
+        description,
+        default_branch,
+        html_url,
+        updated_at,
       },
     };
   }
@@ -250,13 +257,11 @@ export class GitHubClient {
     if (!result.ok) {
       return { ok: false, error: result.error ?? 'Failed to create issue' };
     }
-    const returnVal: { ok: boolean; issue?: { number: number; html_url: string }; error?: string } = { ok: true };
-    if (typeof result.data?.number === 'number' && typeof result.data?.html_url === 'string') {
-      returnVal.issue = { number: result.data.number, html_url: result.data.html_url };
-    } else {
-      return { ok: false, error: 'Invalid response: missing number or url' };
+    const { number, html_url } = result.data ?? {};
+    if (typeof number === 'number' && typeof html_url === 'string') {
+      return { ok: true, issue: { number, html_url } };
     }
-    return returnVal;
+    return { ok: false, error: 'Invalid response: missing number or url' };
   }
 
   // List pull requests for a repo (paginated).

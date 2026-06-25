@@ -11,14 +11,12 @@ import { makeAccountsTool, Registry, registerSocialConnection, startOAuthServer 
 import { makeGitHubTools } from './tools.js';
 import { GITHUB_PROVIDER, githubAdapter } from './adapter.js';
 
-// Re-declared (matbot registry idiom) so the plugin needs no hard dep on core's vault implementation.
-interface SecretField { name: string; label: string; secret?: boolean; required?: boolean; help?: string }
-interface SecretSection { plugin: string; title: string; fields: SecretField[] }
-type SealFn = (name: string, value: string) => Promise<void>;
+export type SealFn = (name: string, value: string) => Promise<void>;
+
 declare module '@matatbread/matbot-plugin-api' {
   interface MatbotServices {
     EidanSecrets?: {
-      declareSection(section: SecretSection): void;
+      declareSection(section: { plugin: string; title: string; fields: Array<{ name: string; label: string; secret?: boolean; required?: boolean; help?: string }> }): void;
       setSecret(name: string, value: string): Promise<void>;
     };
   }
@@ -38,8 +36,8 @@ export const plugin: MatbotPluginSpec = {
   },
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
-    const seal: SealFn | undefined = services.EidanSecrets
-      ? (name, value) => services.EidanSecrets!.setSecret(name, value)
+    const seal = services.EidanSecrets
+      ? (name: string, value: string) => services.EidanSecrets!.setSecret(name, value)
       : undefined;
 
     if (url) {

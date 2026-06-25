@@ -7,6 +7,7 @@
 // client that uses it directly. Falls back to the legacy single GITHUB_TOKEN secret when no account
 // is connected, so older setups keep working.
 import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
+import type { SealFn } from './index.js';
 import {
   type AccountStore,
   AccountResolveError,
@@ -16,8 +17,6 @@ import {
 import { GitHubClient } from './client.js';
 import { githubAdapter } from './adapter.js';
 import { secretOpt } from './vault.js';
-
-type SealFn = (name: string, value: string) => Promise<void>;
 
 const ACCOUNT_PROP = {
   account: {

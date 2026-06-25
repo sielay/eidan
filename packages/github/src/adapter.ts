@@ -17,7 +17,6 @@ export const githubAdapter: OAuthAdapter = {
   async fetchIdentity() {
     return { handle: '', id: '' };
   },
-  // The "Test" button: resolve the stored PAT and call GitHub to confirm it works.
   async testConnection({ accessToken, account }) {
     const client = new GitHubClient(accessToken);
     const r = await client.verify();

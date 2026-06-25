@@ -26,9 +26,8 @@ interface AccountRow {
   slug: string;
   external_handle: string;
   status: string;
-  token_expires_at: string | null;
-  token_vault_key: string;
   context: string;
+  token_vault_key?: string;
 }
 
 function slugify(name: string): string {
@@ -43,9 +42,8 @@ function slugify(name: string): string {
   return s || "account";
 }
 
-async function vaultPut(req: NextRequest, key: string, value: string): Promise<boolean> {
+async function vaultPut(auth: string, key: string, value: string): Promise<boolean> {
   const engine = process.env.EIDAN_ENGINE_URL;
-  const auth = req.headers.get("authorization");
   if (!engine || !auth) return false;
   const r = await fetch(`${engine}/api/me/secrets/${encodeURIComponent(key)}`, {
     method: "PUT",
@@ -55,9 +53,8 @@ async function vaultPut(req: NextRequest, key: string, value: string): Promise<b
   return r.ok;
 }
 
-async function vaultDelete(req: NextRequest, key: string): Promise<void> {
+async function vaultDelete(auth: string, key: string): Promise<void> {
   const engine = process.env.EIDAN_ENGINE_URL;
-  const auth = req.headers.get("authorization");
   if (!engine || !auth || !key) return;
   await fetch(`${engine}/api/me/secrets/${encodeURIComponent(key)}`, {
     method: "DELETE",
@@ -87,6 +84,8 @@ export async function GET(req: NextRequest): Promise<Response> {
 export async function POST(req: NextRequest): Promise<Response> {
   const sess = verifyBearer(req);
   if (!sess) return new Response("unauthorized", { status: 401 });
+  const auth = req.headers.get("authorization");
+  if (!auth) return new Response("missing authorization header", { status: 401 });
 
   let body: Record<string, unknown>;
   try {
@@ -117,8 +116,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // Test: probe the connection live (engine calls GitHub to verify the PAT).
   if (typeof body["test"] === "string" && body["test"]) {
     const engine = process.env.EIDAN_ENGINE_URL;
-    const auth = req.headers.get("authorization");
-    if (!engine || !auth) return Response.json({ error: "engine unavailable" }, { status: 502 });
+    if (!engine) return Response.json({ error: "engine unavailable" }, { status: 502 });
     const r = await fetch(`${engine}/api/me/github/oauth/test`, {
       method: "POST",
       headers: { authorization: auth, "content-type": "application/json" },
@@ -171,7 +169,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (row) {
         // Reuse existing account: update handle/ID, seal new PAT, keep vault key stable.
         const tokenVaultKey = row.token_vault_key;
-        if (!(await vaultPut(req, tokenVaultKey, pat))) {
+        if (!(await vaultPut(auth, tokenVaultKey, pat))) {
           throw new Error("could not store the PAT in the vault");
         }
         await c.query(
@@ -191,7 +189,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       const tokenVaultKey = `EIDAN_GITHUB_TOKEN_${sess.userId}_${accountId}`;
 
       // Seal the PAT first; only record the account once the vault write has succeeded.
-      if (!(await vaultPut(req, tokenVaultKey, pat))) {
+      if (!(await vaultPut(auth, tokenVaultKey, pat))) {
         throw new Error("could not store the PAT in the vault");
       }
 
@@ -222,6 +220,8 @@ export async function POST(req: NextRequest): Promise<Response> {
 export async function DELETE(req: NextRequest): Promise<Response> {
   const sess = verifyBearer(req);
   if (!sess) return new Response("unauthorized", { status: 401 });
+  const auth = req.headers.get("authorization");
+  if (!auth) return new Response("missing authorization header", { status: 401 });
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return Response.json({ error: "id is required" }, { status: 400 });
 
@@ -235,6 +235,6 @@ export async function DELETE(req: NextRequest): Promise<Response> {
     return r.rows[0] as Pick<AccountRow, "token_vault_key"> | undefined;
   });
   if (!removed) return Response.json({ error: "no such account" }, { status: 404 });
-  await vaultDelete(req, removed.token_vault_key);
+  await vaultDelete(auth, removed.token_vault_key);
   return Response.json({ ok: true });
 }
