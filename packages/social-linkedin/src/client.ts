@@ -65,8 +65,8 @@ export class LinkedInClient {
     // IPv6 private/reserved ranges per RFC4193 (ULA), RFC4291 (loopback), RFC4862 (link-local)
     const ipv6Patterns = [
       /^::1$/,            // loopback
-      /^f[c-d]/,          // unique local unicast (fc00::/7) — fc00:: to fdff::
-      /^fe[89ab]/,        // link-local unicast (fe80::/10) — fe80:: to febf::
+      /^f[c-d][0-9a-f]{0,3}:/,   // unique local unicast (fc00::/7) — fc00:: to fdff::
+      /^fe[8-b][0-9a-f]{0,3}:/,  // link-local unicast (fe80::/10) — fe80:: to febf::
       /^::ffff:127\./,    // IPv4-mapped loopback
       /^::ffff:10\./,     // IPv4-mapped private
       /^::ffff:172\.(1[6-9]|2\d|3[01])\./,  // IPv4-mapped private
@@ -83,7 +83,7 @@ export class LinkedInClient {
   private isAllowedImageDomain(hostname: string): boolean {
     return this.allowedImageDomains.some((domain) =>
       hostname === domain ||
-      (hostname.endsWith(`.${domain}`) && hostname.length > domain.length + 1)
+      (hostname.endsWith(`.${domain}`) && hostname.charAt(hostname.length - domain.length - 1) !== '.')
     );
   }
 
