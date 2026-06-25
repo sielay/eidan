@@ -202,7 +202,7 @@ export class GitHubClient {
     }
 
     try {
-      const content = Buffer.from(data.content, 'base64').toString('utf-8');
+      const content = new TextDecoder().decode(Uint8Array.from(atob(data.content), c => c.charCodeAt(0)));
       if (content.length > 256 * 1024) {
         return { ok: false, error: 'File exceeds 256KB limit' };
       }

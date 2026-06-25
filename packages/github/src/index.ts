@@ -36,7 +36,7 @@ export const plugin: MatbotPluginSpec = {
   },
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
-    const seal = services.EidanSecrets
+    const seal: SealFn | undefined = services.EidanSecrets
       ? (name: string, value: string) => services.EidanSecrets!.setSecret(name, value)
       : undefined;
 

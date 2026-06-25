@@ -145,13 +145,18 @@ export async function POST(req: NextRequest): Promise<Response> {
       },
     });
 
+    let userData: { message?: string; login?: string; id?: number };
+    try {
+      userData = (await userRes.json()) as { message?: string; login?: string; id?: number };
+    } catch {
+      userData = {};
+    }
+
     if (!userRes.ok) {
-      const data = (await userRes.json().catch(() => ({}))) as { message?: string };
-      const msg = data.message ?? "Failed to verify PAT";
+      const msg = userData.message ?? "Failed to verify PAT";
       return Response.json({ error: msg }, { status: 401 });
     }
 
-    const userData = (await userRes.json()) as { login?: string; id?: number };
     const handle = userData.login ?? "";
     const ghId = userData.id ?? 0;
     if (!handle || !ghId) {
