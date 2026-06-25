@@ -2,9 +2,10 @@
 // eidan `glue` plugin: a thin adapter onto the operator's Glue marketing suite
 // (potem apps/glue-web), consumed over its MCP server. Four capability tools —
 // analytics, funnels, subscriber lists, and email campaigns — proxy to Glue's
-// MCP; eidan stores nothing locally (pull, don't duplicate). Configure with
-// EIDAN_GLUE_MCP_URL (the Glue /api/mcp endpoint) and the GLUE_MCP_SECRET vault
-// secret (Glue's X-MCP-Secret). It is the first reference adapter for the
+// MCP; eidan stores nothing locally (pull, don't duplicate). Configure via the
+// vault (Settings → Glue marketing): EIDAN_GLUE_MCP_URL (the Glue /api/mcp
+// endpoint) + GLUE_MCP_SECRET (Glue's X-MCP-Secret) — both DB-backed, so they
+// reach every node with no per-node env. It is the first reference adapter for the
 // marketing capability surface; a vendor-neutral interface can grow over it
 // later when a second provider appears.
 import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin-api';
@@ -29,7 +30,7 @@ export const plugin: MatbotPluginSpec = {
     description:
       'Glue marketing adapter: analytics, funnels, subscriber lists, and email campaigns ' +
       '(glue_analytics, glue_funnels, glue_lists, glue_campaigns) driven over the operator\'s ' +
-      'Glue MCP server. Configure EIDAN_GLUE_MCP_URL + the GLUE_MCP_SECRET vault secret.',
+      'Glue MCP server. Configure EIDAN_GLUE_MCP_URL + GLUE_MCP_SECRET in the vault.',
   },
   async setup(services: MatbotServices) {
     for (const tool of makeGlueTools()) services.tools.register(tool);
@@ -39,16 +40,22 @@ export const plugin: MatbotPluginSpec = {
       title: 'Glue marketing',
       fields: [
         {
+          name: 'EIDAN_GLUE_MCP_URL',
+          label: 'Glue MCP endpoint URL',
+          secret: false,
+          required: true,
+          help: 'The Glue MCP endpoint, e.g. https://glue.example.com/api/mcp. Stored in the vault — reaches every node, no per-node env needed.',
+        },
+        {
           name: 'GLUE_MCP_SECRET',
           label: 'Glue MCP secret (X-MCP-Secret)',
           secret: true,
           required: true,
-          help: "Glue's MCP_GLUE_SECRET. Pair it with EIDAN_GLUE_MCP_URL (the Glue /api/mcp endpoint) set in the host environment.",
+          help: "Glue's MCP_GLUE_SECRET. Stored in the vault alongside the endpoint URL.",
         },
       ],
     });
 
-    const configured = process.env['EIDAN_GLUE_MCP_URL'] ? '' : ' (set EIDAN_GLUE_MCP_URL to enable)';
-    console.log(`[glue] plugin loaded${configured}`);
+    console.log('[glue] plugin loaded');
   },
 };

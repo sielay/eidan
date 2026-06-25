@@ -13,18 +13,22 @@ import { secretOpt } from './vault.js';
 // X-MCP-Secret from the vault. Both absent-tolerant so the plugin still loads
 // and the tools give an actionable message instead of throwing at boot.
 async function resolveEndpoint(ctx: ToolContext): Promise<{ ep?: GlueEndpoint; error?: string }> {
-  const url = process.env['EIDAN_GLUE_MCP_URL'];
+  // Both the endpoint URL and the secret come from the vault (Settings → Glue marketing), so the
+  // config lives in the shared DB and reaches every node with no per-node env push. The vault
+  // backend still falls back to process.env when a key isn't in the DB, so seeding via env keeps
+  // working — but the vault is the canonical source.
+  const url = await secretOpt(ctx, 'EIDAN_GLUE_MCP_URL');
   if (!url) {
     return {
       error:
-        'Glue is not configured — set EIDAN_GLUE_MCP_URL to the Glue MCP endpoint (e.g. https://glue.example.com/api/mcp).',
+        'Glue is not configured — set EIDAN_GLUE_MCP_URL in the vault (Settings → Glue marketing) to the Glue MCP endpoint (e.g. https://glue.example.com/api/mcp).',
     };
   }
   const secret = await secretOpt(ctx, 'GLUE_MCP_SECRET');
   if (!secret) {
     return {
       error:
-        "Missing GLUE_MCP_SECRET — add it under Settings (Glue's MCP_GLUE_SECRET / X-MCP-Secret value).",
+        "Missing GLUE_MCP_SECRET — add it in the vault (Settings → Glue marketing): Glue's MCP_GLUE_SECRET / X-MCP-Secret value.",
     };
   }
   return { ep: { url, secret } };
