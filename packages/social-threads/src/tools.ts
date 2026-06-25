@@ -82,7 +82,7 @@ export function makeThreadsTools(): Tool[] {
   const threadsSearchTool: Tool = {
     name: 'threads_search',
     description:
-      'Search for hashtags on Threads by keyword. Returns matching hashtags found on the platform.',
+      'Search for hashtags on Threads by keyword. Returns matching hashtags found on the platform. Note: Returns hashtag metadata, not user posts — the Threads API does not expose a post search endpoint to non-business accounts.',
     inputSchema: SEARCH_SCHEMA,
     executor: {
       async *execute(input, ctx) {
@@ -149,7 +149,7 @@ export function makeThreadsTools(): Tool[] {
   const threadsListTimelineTool: Tool = {
     name: 'threads_list_timeline',
     description:
-      'Read the operator\'s Threads timeline (their recent posts). Returns posts with engagement metrics.',
+      'Read the authenticated operator\'s Threads timeline (their recent posts). Returns posts with engagement metrics (likes, replies, reposts). All returned posts are authored by the authenticated user.',
     inputSchema: TIMELINE_SCHEMA,
     executor: {
       async *execute(input, ctx) {

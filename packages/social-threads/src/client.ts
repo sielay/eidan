@@ -114,6 +114,7 @@ export class ThreadsClient {
       const data = (await res.json()) as HashtagSearchResponse;
       const tags = data.data || [];
 
+      // Returns hashtag metadata only; post search is not available via the Threads API.
       const hashtags: ThreadsHashtag[] = tags
         .slice(0, Math.min(limit, 100))
         .filter((tag: Hashtag) => tag.id && tag.name)
@@ -183,22 +184,26 @@ export class ThreadsClient {
     }
 
     try {
-      // Fetch username once and cache it with TTL, preventing concurrent fetches and redundant API calls
+      // Fetch username once and cache it with TTL, preventing concurrent fetches and redundant API calls.
+      // Uses promise-based locking to prevent race conditions: if a fetch is already in progress,
+      // wait for it rather than starting a new one.
       const now = Date.now();
       const isCacheExpired = !this.cachedUsernameTime || (now - this.cachedUsernameTime) > this.USERNAME_CACHE_TTL;
 
       if (isCacheExpired) {
         if (!this.profileFetchPromise) {
-          this.profileFetchPromise = this.getProfile().then(profileRes => {
+          this.profileFetchPromise = (async () => {
+            const profileRes = await this.getProfile();
             if (!profileRes.error && profileRes.user) {
               this.cachedUsername = profileRes.user.username;
               this.cachedUsernameTime = Date.now();
             }
             return profileRes;
-          }).finally(() => {
+          })().finally(() => {
             this.profileFetchPromise = null;
           });
         }
+        // Always await the profile fetch to ensure cachedUsername is populated before proceeding.
         const profileRes = await this.profileFetchPromise;
         if (profileRes.error) {
           return { posts: [], error: profileRes.error };
