@@ -3,6 +3,8 @@
 // (supplied by the resolver from a connected account). Each call uses the PAT directly in the
 // Authorization header. Base host is fixed to https://api.github.com (no SSRF).
 
+import { Buffer } from 'buffer';
+
 const API_BASE = 'https://api.github.com';
 const API_VERSION = '2022-11-28';
 const USER_AGENT = 'eidan-github-plugin';
@@ -201,10 +203,16 @@ export class GitHubClient {
       return { ok: false, error: 'File content not in expected format' };
     }
 
+    // Check encoded size before decoding to prevent memory exhaustion.
+    const MAX_ENCODED_SIZE = 512 * 1024;
+    if (data.content.length > MAX_ENCODED_SIZE) {
+      return { ok: false, error: 'Encoded file size exceeds limit' };
+    }
+
     try {
-      const content = new TextDecoder().decode(Uint8Array.from(atob(data.content), c => c.charCodeAt(0)));
+      const content = Buffer.from(data.content, 'base64').toString('utf-8');
       if (content.length > 256 * 1024) {
-        return { ok: false, error: 'File exceeds 256KB limit' };
+        return { ok: false, error: 'File exceeds 256 kilobytes limit' };
       }
       return { ok: true, content, html_url: data.html_url ?? '' };
     } catch (err) {

@@ -263,7 +263,7 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
         } else {
           yield {
             type: 'result',
-            value: { issue_number: result.issue?.number, html_url: result.issue?.html_url, message: 'Issue created' },
+            value: { number: result.issue?.number, html_url: result.issue?.html_url, message: 'Issue created' },
           };
         }
       },
