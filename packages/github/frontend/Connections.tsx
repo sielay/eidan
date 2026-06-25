@@ -260,7 +260,7 @@ export default function Connections(): React.ReactElement {
                 ) : null}
                 {a.status === "pending" ? (
                   <p className="sconn__muted">
-                    Connection wasn't completed — re-enter the PAT above or remove it.
+                    Connection wasn&apos;t completed — re-enter the PAT above or remove it.
                   </p>
                 ) : null}
               </div>
