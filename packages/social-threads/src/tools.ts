@@ -139,6 +139,10 @@ export function makeThreadsTools(): Tool[] {
               username: result.user.username,
               biography: result.user.biography || '',
               profile_picture_url: result.user.threads_profile_picture_url || '',
+              followers: result.user.follower_count ?? 0,
+              following: result.user.following_count ?? 0,
+              is_verified: result.user.is_verified ?? false,
+              website: result.user.website || '',
             },
           };
         }

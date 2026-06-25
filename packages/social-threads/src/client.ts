@@ -147,7 +147,7 @@ export class ThreadsClient {
       const url = new URL(`${THREADS_API_BASE}/me`);
       url.searchParams.set(
         'fields',
-        'id,username,biography,threads_profile_picture_url'
+        'id,username,biography,threads_profile_picture_url,follower_count,following_count,is_verified,website'
       );
 
       const res = await fetch(url.toString(), {
