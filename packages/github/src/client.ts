@@ -2,7 +2,6 @@
 // GitHub API client using a Personal Access Token. Stateless: the constructor takes a PAT
 // (supplied by the resolver from a connected account). Each call uses the PAT directly in the
 // Authorization header. Base host is fixed to https://api.github.com (no SSRF).
-import { Buffer } from 'buffer';
 
 const API_BASE = 'https://api.github.com';
 const API_VERSION = '2022-11-28';
@@ -252,8 +251,10 @@ export class GitHubClient {
       return { ok: false, error: result.error ?? 'Failed to create issue' };
     }
     const returnVal: { ok: boolean; issue?: { number: number; html_url: string }; error?: string } = { ok: true };
-    if (result.data?.number !== undefined && result.data?.html_url) {
+    if (typeof result.data?.number === 'number' && typeof result.data?.html_url === 'string') {
       returnVal.issue = { number: result.data.number, html_url: result.data.html_url };
+    } else {
+      return { ok: false, error: 'Invalid response: missing number or url' };
     }
     return returnVal;
   }
