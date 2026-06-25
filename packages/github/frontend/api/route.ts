@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // /api/github/accounts — the Connections admin data route for GitHub (Next-reads-Postgres, Surface-B).
-// GitHub has NO OAuth for PATs: the operator pastes a Personal Access Token, so this route is custom
+// GitHub has NO OAuth for PATs: the user pastes a Personal Access Token, so this route is custom
 // (it does NOT use the shared makeSocialAccountsRoute factory, which is for OAuth flavours). It seals
 // the PAT into the vault via the engine's secrets-api (the LLM-free write path) and records an ACTIVE
 // account in plugin_github.accounts — there is no consent redirect, so the connection completes
 // synchronously. Owner-scoped; shipped in the bundle's frontend package, mounted under apps/web at deploy.
+// The tokenVaultKey is stable per account (derived from account ID, not user-provided name), so name
+// changes don't orphan secrets or collide with other users' accounts.
 //   GET                                   → { accounts: [...] }
 //   POST { name, pat }                    → seal the PAT, test it, upsert an active account
 //   POST { test: id }                     → probe the connection live (engine calls GitHub)
-//   POST { update: { id, name, context } } → rename + set context
+//   POST { update: { id, name, context } } → rename + set context (no vault key change)
 //   DELETE ?id=<id>                       → archive the row + remove its vault secret
 import type { NextRequest } from "next/server";
 
@@ -130,16 +132,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!pat) return Response.json({ error: "pat is required" }, { status: 400 });
 
   const slug = slugify(name);
-  const tokenVaultKey = `EIDAN_GITHUB_TOKEN_${slug}`;
 
-  // Seal the PAT first; only record the account once the vault write has succeeded.
-  if (!(await vaultPut(req, tokenVaultKey, pat))) {
-    return Response.json({ error: "could not store the PAT in the vault" }, { status: 502 });
-  }
-
-  let account: { id: string; handle: string };
+  let account: { id: string; handle: string; externalId: string };
   try {
-    // Test the PAT against GitHub API to get the login (handle).
+    // Test the PAT against GitHub API to get the login (handle) and ID.
     const userRes = await fetch("https://api.github.com/user", {
       headers: {
         authorization: `Bearer ${pat}`,
@@ -155,44 +151,65 @@ export async function POST(req: NextRequest): Promise<Response> {
       return Response.json({ error: msg }, { status: 401 });
     }
 
-    const userData = (await userRes.json()) as { login?: string };
+    const userData = (await userRes.json()) as { login?: string; id?: number };
     const handle = userData.login ?? "";
-    if (!handle) {
-      return Response.json({ error: "Could not determine GitHub login from PAT" }, { status: 400 });
+    const ghId = userData.id ?? 0;
+    if (!handle || !ghId) {
+      return Response.json({ error: "Could not determine GitHub login or ID from PAT" }, { status: 400 });
     }
 
     account = await withUser(sess.userId, async (c) => {
+      // Check if we already have an account with this slug (same user-provided name).
       const ex = await c.query(
-        `select id from plugin_github.accounts
+        `select id, token_vault_key from plugin_github.accounts
           where user_id = $1 and slug = $2 and status in ('active', 'pending')`,
         [sess.userId, slug],
       );
-      const row = ex.rows[0] as { id: string } | undefined;
+      const row = ex.rows[0] as { id: string; token_vault_key: string } | undefined;
       if (row) {
+        // Reuse existing account: update handle/ID, seal new PAT, keep vault key stable.
+        const tokenVaultKey = row.token_vault_key;
+        if (!(await vaultPut(req, tokenVaultKey, pat))) {
+          throw new Error("could not store the PAT in the vault");
+        }
         await c.query(
           `update plugin_github.accounts
-              set external_handle = $1, token_vault_key = $2,
-                  client_vault_key = '', refresh_vault_key = '', external_id = '',
+              set external_handle = $1, external_id = $2,
+                  client_vault_key = '', refresh_vault_key = '',
                   status = 'active', updated_at = now()
             where id = $3 and user_id = $4`,
-          [handle, tokenVaultKey, row.id, sess.userId],
+          [handle, String(ghId), row.id, sess.userId],
         );
-        return { id: row.id, handle };
+        return { id: row.id, handle, externalId: String(ghId) };
       }
+
+      // New account: generate stable ID-based vault key, insert row.
+      const newId = await c.query(`select gen_random_uuid() as id`);
+      const accountId = (newId.rows[0] as { id: string }).id;
+      const tokenVaultKey = `EIDAN_GITHUB_TOKEN_${sess.userId}_${accountId}`;
+
+      // Seal the PAT first; only record the account once the vault write has succeeded.
+      if (!(await vaultPut(req, tokenVaultKey, pat))) {
+        throw new Error("could not store the PAT in the vault");
+      }
+
       const r = await c.query(
         `insert into plugin_github.accounts
-           (user_id, name, slug, host, external_handle, external_id,
+           (id, user_id, name, slug, host, external_handle, external_id,
             client_vault_key, token_vault_key, refresh_vault_key, status)
-         values ($1, $2, $3, '', $4, '', '', $5, '', 'active')
+         values ($1, $2, $3, $4, '', $5, $6, '', $7, '', 'active')
          returning id`,
-        [sess.userId, name, slug, handle, tokenVaultKey],
+        [accountId, sess.userId, name, slug, handle, String(ghId), tokenVaultKey],
       );
-      return { id: (r.rows[0] as { id: string }).id, handle };
+      return { id: (r.rows[0] as { id: string }).id, handle, externalId: String(ghId) };
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/uq_.*_user_slug|duplicate key/i.test(msg)) {
       return Response.json({ error: "you already have an account with that name" }, { status: 409 });
+    }
+    if (msg === "could not store the PAT in the vault") {
+      return Response.json({ error: msg }, { status: 502 });
     }
     return Response.json({ error: "could not create account" }, { status: 500 });
   }
