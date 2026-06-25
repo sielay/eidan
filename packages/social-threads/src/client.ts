@@ -20,6 +20,7 @@ export class ThreadsClient {
   private ctx: ToolContext;
   private cachedProfile: ThreadsUser | null = null;
   private profileFetchInProgress: Promise<{ user: ThreadsUser | null; error?: string }> | null = null;
+  private cachedUsername: string | null = null;
 
   constructor(ctx: ToolContext) {
     this.ctx = ctx;
@@ -110,7 +111,7 @@ export class ThreadsClient {
       }
 
       const data = (await res.json()) as HashtagSearchResponse;
-      const tags = data.data || [];
+      const tags: Hashtag[] = data.data || [];
 
       // Returns hashtag metadata only; post search is not available via the Threads API.
       const hashtags: ThreadsHashtag[] = tags
@@ -194,6 +195,7 @@ export class ThreadsClient {
         };
 
         this.cachedProfile = safeProfile;
+        this.cachedUsername = safeProfile.username;
         return { user: safeProfile };
       } catch {
         return {
@@ -241,7 +243,7 @@ export class ThreadsClient {
       }
 
       const data = (await res.json()) as TimelineResponse;
-      const postsData = data.data || [];
+      const postsData: TimelinePost[] = data.data || [];
 
       const posts: ThreadsPost[] = postsData
         .slice(0, Math.min(limit, 100))

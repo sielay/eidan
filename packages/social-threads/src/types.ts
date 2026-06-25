@@ -57,6 +57,12 @@ export interface ThreadsHashtag {
 
 export interface HashtagSearchResponse {
   data: Hashtag[];
+  paging?: {
+    cursors?: {
+      before?: string;
+      after?: string;
+    };
+  };
 }
 
 export interface TimelinePost {
