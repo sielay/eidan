@@ -25,9 +25,10 @@ export interface PanelServerOpts {
 }
 
 function cors(res: ServerResponse, origin: string | undefined): void {
+  // The panel authenticates with a Bearer token (Authorization header), NOT cookies, so we do NOT
+  // send access-control-allow-credentials — avoiding the credentialed-CORS misconfiguration.
   if (origin) {
     res.setHeader('access-control-allow-origin', origin);
-    res.setHeader('access-control-allow-credentials', 'true');
     res.setHeader('vary', 'origin');
   }
   res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
