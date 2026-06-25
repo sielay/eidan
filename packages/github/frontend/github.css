@@ -1,0 +1,3 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* github Connections screen reuses the shared social styles (one definition for all platforms). */
+@import "../_shared/social.css";
