@@ -189,7 +189,7 @@ export class ThreadsClient {
       // Uses promise-based locking to prevent race conditions: if a fetch is already in progress,
       // wait for it rather than starting a new one.
       const now = Date.now();
-      const isCacheExpired = !this.cachedUsernameTime || (now - this.cachedUsernameTime) > this.USERNAME_CACHE_TTL;
+      const isCacheExpired = !this.cachedUsernameTime || !this.cachedUsername || (now - this.cachedUsernameTime) > this.USERNAME_CACHE_TTL;
 
       if (isCacheExpired) {
         if (!this.profileFetchPromise) {
