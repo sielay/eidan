@@ -301,8 +301,8 @@ export class GoogleTrendsClient {
           let exploreUrl = itemObj.exploreUrl;
           let deltaMonthOverMonth = itemObj.deltaMonthOverMonth;
 
-          // If title is not present, check nested value object
-          if (!title || !exploreUrl) {
+          // If any field is not present, check nested value object
+          if (!title || !exploreUrl || deltaMonthOverMonth === undefined) {
             const valueObj = itemObj.value as Record<string, unknown> | undefined;
             if (valueObj && typeof valueObj === 'object') {
               title = title || valueObj.title;
