@@ -34,6 +34,8 @@ interface AccountRow {
 function slugify(name: string): string {
   const s = name
     .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '') // Remove combining diacritical marks (handles é, ñ, etc.)
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_/, "")
     .replace(/_$/, "")
