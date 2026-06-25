@@ -4,6 +4,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { createAgent, updateAgent, type OpenRouterModel, type ToolCatalogEntry } from "@/lib/api/admin";
+import { Avatar } from "@/plugins/_shared/Avatar";
 import { VendorModelPicker, NodeSelect } from "./ModelPicker";
 import { PersonaEditor } from "./PersonaEditor";
 import { ScheduleBuilder } from "./ScheduleBuilder";
@@ -84,15 +85,18 @@ export function AgentForm({
       }}
       className="flex flex-col gap-3"
     >
-      <label className="flex flex-col gap-1">
-        <span className="text-[11px] font-medium text-muted-foreground">Name</span>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Vercel log analyst"
-          className="rounded border border-border bg-background px-2 py-1 text-sm"
-        />
-      </label>
+      <div className="flex items-end gap-3">
+        <Avatar kind="agent" seed={agentId ?? name ?? "new agent"} size={40} title={name || "new agent"} />
+        <label className="flex flex-1 flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted-foreground">Name</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Vercel log analyst"
+            className="rounded border border-border bg-background px-2 py-1 text-sm"
+          />
+        </label>
+      </div>
 
       <div className="flex flex-col gap-1">
         <span className="text-[11px] font-medium text-muted-foreground">Model &amp; node</span>

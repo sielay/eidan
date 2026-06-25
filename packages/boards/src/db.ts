@@ -116,6 +116,23 @@ export class BoardsDb {
     return tryCurrentPrincipal()?.id ?? null;
   }
 
+  // Resolve the firing agent (id + name) from the conversation, so a card comment is attributed to the
+  // actual agent (Eidan / a custom agent / Sage) and gets that agent's avatar (seeded by id, as the
+  // Agents list does). Returns null for the default assistant / no agent.
+  async resolveAgent(conversationId: string): Promise<{ id: string; name: string } | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversationId)) return null;
+    try {
+      const r = await this.pool.query(
+        `select a.id, a.name from eidan.conversations c join eidan.agents a on a.id = c.agent_id where c.id = $1`,
+        [conversationId],
+      );
+      const row = r.rows[0] as { id: string; name: string } | undefined;
+      return row ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   // ── boards ───────────────────────────────────────────────────────────────
   async listBoards(scopeKind: string | null, scopeId: string | null): Promise<Board[]> {
     const uid = this.uid();

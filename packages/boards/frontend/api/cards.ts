@@ -9,9 +9,9 @@ import type { NextRequest } from "next/server";
 import { verifyBearer } from "@/server/auth";
 import { withUser } from "@/server/db";
 
-interface CardRow { id: string; board_id: string; title: string; body: string | null; status: string; position: number; ref_count?: number }
+interface CardRow { id: string; board_id: string; title: string; body: string | null; status: string; position: number; metadata?: Record<string, unknown>; ref_count?: number }
 const STATUSES = ["open", "doing", "done", "archived"];
-const COLS = "id, board_id, title, body, status, position";
+const COLS = "id, board_id, title, body, status, position, metadata";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,6 +79,12 @@ export async function PUT(req: NextRequest): Promise<Response> {
   }
   if (typeof body["title"] === "string" && body["title"].trim()) { vals.push(body["title"].trim()); sets.push(`title = $${vals.length}`); }
   if (typeof body["body"] === "string") { vals.push(body["body"].trim() || null); sets.push(`body = $${vals.length}`); }
+  if (Array.isArray(body["labels"])) {
+    // Store labels under metadata.labels (deduped, trimmed strings).
+    const labels = [...new Set((body["labels"] as unknown[]).map((l) => String(l).trim()).filter(Boolean))];
+    vals.push(JSON.stringify(labels));
+    sets.push(`metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{labels}', $${vals.length}::jsonb, true)`);
+  }
   if (!sets.length) return Response.json({ error: "nothing to update" }, { status: 400 });
 
   const card = await withUser(sess.userId, async (c) => {

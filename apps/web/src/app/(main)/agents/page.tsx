@@ -18,6 +18,7 @@ import {
   type AgentTrigger,
 } from "@/lib/api/admin";
 import { cn } from "@/lib/utils";
+import { Avatar } from "@/plugins/_shared/Avatar";
 
 const SCHEDULE_PLACEHOLDER = 'e.g. "08:00", "mon,fri 17:30", "every 5 minutes", "hourly"';
 
@@ -101,7 +102,8 @@ function AgentCard({
 
   return (
     <article className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
-      <div className="flex flex-wrap items-baseline gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Avatar kind="agent" seed={agent.id} size={22} title={agent.name} />
         <button
           disabled={busy}
           onClick={() => void act(() => updateAgent(agent.id, { enabled: !agent.enabled }))}

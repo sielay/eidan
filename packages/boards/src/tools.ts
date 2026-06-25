@@ -177,13 +177,17 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
       description: 'Add a comment to a card\'s activity log.',
       inputSchema: obj({ card_id: { type: 'string' }, body: { type: 'string' } }, ['card_id', 'body']),
       executor: {
-        async *execute(input) {
+        async *execute(input, ctx) {
           if (!tryCurrentPrincipal()) return yield noUser();
           const a = (input ?? {}) as Record<string, unknown>;
           const body = str(a['body']).trim();
           if (!body) return yield { type: 'error', message: 'body is required' };
-          // Agent-authored comment (the web events route stamps user-authored ones).
-          const ev = await db.addEvent(str(a['card_id']).trim(), 'comment', body, { kind: 'agent', id: 'eidan', label: 'Eidan' });
+          // Attribute to the firing agent (Eidan / a custom agent / Sage) so the comment shows the
+          // right name + avatar; fall back to Eidan for the default assistant.
+          const convId = ctx?.session?.id;
+          const agent = convId ? await db.resolveAgent(convId) : null;
+          const author = agent ? { kind: 'agent', id: agent.id, label: agent.name } : { kind: 'agent', id: 'eidan', label: 'Eidan' };
+          const ev = await db.addEvent(str(a['card_id']).trim(), 'comment', body, author);
           if (!ev) return yield { type: 'error', message: 'no such card' };
           yield { type: 'result', value: ev };
         },

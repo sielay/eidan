@@ -14,7 +14,23 @@ import { authFetch } from "@/lib/auth";
 import { Avatar } from "@/plugins/_shared/Avatar";
 
 interface Board { id: string; name: string; position: number; status: string }
-interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number }
+interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number; metadata?: { labels?: string[] } }
+
+// Deterministic pastel colour per label name (no palette table needed).
+function labelHue(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return h;
+}
+function LabelChip({ name, onRemove }: { name: string; onRemove?: () => void }): React.ReactElement {
+  const hue = labelHue(name);
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: "var(--fs-13)", lineHeight: 1.4, padding: "1px 6px", borderRadius: 999, background: `hsl(${hue} 70% 92%)`, color: `hsl(${hue} 60% 30%)`, border: `1px solid hsl(${hue} 60% 82%)` }}>
+      {name}
+      {onRemove ? <button onClick={(e) => { e.stopPropagation(); onRemove(); }} title="Remove label" style={{ border: "none", background: "none", cursor: "pointer", color: "inherit", padding: 0, lineHeight: 1 }}>×</button> : null}
+    </span>
+  );
+}
 interface CardRef { id: string; card_id: string; ref_kind: string; ref_id: string | null; ref_label: string | null }
 interface CardEvent { id: string; kind: string; body: string | null; author_kind?: string; author_id?: string | null; author_label?: string | null; created_at: string }
 
@@ -210,6 +226,11 @@ export function BoardsPanel({ scopeKind = null, scopeId = null }: { scopeKind?: 
                 <div style={S.laneHead}>{lbl}<span className="num">{lane.length}</span></div>
                 {lane.length === 0 ? <p className="screen-sub" style={{ margin: "4px 0" }}>—</p> : lane.map((c) => (
                   <div style={S.card} key={c.id} onClick={() => setOpenCard(c)}>
+                    {c.metadata?.labels?.length ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {c.metadata.labels.map((l) => <LabelChip key={l} name={l} />)}
+                      </div>
+                    ) : null}
                     <span style={{ fontSize: "var(--fs-14)", lineHeight: 1.3 }}>{c.title}</span>
                     <div style={S.cardActions}>
                       {c.ref_count ? <span className="screen-sub" style={{ margin: 0, marginRight: "auto", fontSize: "var(--fs-13)" }}>🔗 {c.ref_count}</span> : null}
@@ -246,6 +267,14 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
   const [body, setBody] = React.useState(card.body ?? "");
   const [savingCard, setSavingCard] = React.useState(false);
   const dirty = title.trim() !== card.title || body.trim() !== (card.body ?? "");
+  const [labels, setLabels] = React.useState<string[]>(card.metadata?.labels ?? []);
+  const [newLabel, setNewLabel] = React.useState("");
+
+  async function saveLabels(next: string[]): Promise<void> {
+    setLabels(next);
+    await authFetch(`/api/boards/cards`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: card.id, labels: next }) });
+    onChanged();
+  }
 
   async function saveCard(): Promise<void> {
     if (!title.trim() || !dirty) return;
@@ -304,6 +333,27 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
               <button className="btn btn--ghost" disabled={savingCard} onClick={() => { setTitle(card.title); setBody(card.body ?? ""); }}>Reset</button>
             </div>
           ) : null}
+        </div>
+
+        <div>
+          <div className="screen-sub" style={{ marginTop: 0, fontWeight: 600 }}>Labels</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: "var(--s2)" }}>
+            {labels.map((l) => <LabelChip key={l} name={l} onRemove={() => void saveLabels(labels.filter((x) => x !== l))} />)}
+            <input
+              className="input"
+              style={{ width: 130, padding: "2px var(--s2)", fontSize: "var(--fs-13)" }}
+              placeholder="+ label"
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const v = newLabel.trim();
+                  if (v && !labels.includes(v)) void saveLabels([...labels, v]);
+                  setNewLabel("");
+                }
+              }}
+            />
+          </div>
         </div>
 
         <div>
