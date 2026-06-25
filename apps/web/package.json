@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@ag-ui/core": "^0.0.55",
+    "@dicebear/collection": "^9.4.2",
+    "@dicebear/core": "^9.4.2",
     "@tiptap/extension-mention": "^2.11.5",
     "@tiptap/pm": "^2.11.5",
     "@tiptap/react": "^2.11.5",

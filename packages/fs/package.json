@@ -1,0 +1,59 @@
+{
+  "name": "@eidandev/fs",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "Eidan virtual filesystem: file browser, folder organization, and local storage with pluggable cloud adapters.",
+  "matbotRuntime": [
+    "node"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "routes": [
+        {
+          "path": "/",
+          "component": "FileBrowser.tsx"
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/fs",
+          "handler": "api/route.ts"
+        },
+        {
+          "path": "/api/fs/file",
+          "handler": "api/file.ts"
+        }
+      ],
+      "nav": {
+        "group": "Files",
+        "sections": [
+          {
+            "id": "fs",
+            "label": "Files",
+            "icon": "link",
+            "href": "/p/fs",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

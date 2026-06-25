@@ -40,6 +40,8 @@ interface Account {
   app_name?: string | null;
   context?: string;
   conn_type?: string | null;
+  venture_id?: string;
+  venture_name?: string;
 }
 
 interface OAuthApp {
@@ -704,6 +706,7 @@ export default function SocialConnections(props: SocialConnectionsProps): React.
                   ) : null}
                   {a.conn_type ? <span className="sconn__muted">{a.conn_type}</span> : null}
                   {a.app_name ? <span className="sconn__muted">via {a.app_name}</span> : null}
+                  {a.venture_id ? <a className="sconn__muted" href={`/p/charles-ventures?venture=${encodeURIComponent(a.venture_id)}`}>↳ {a.venture_name}</a> : null}
                   <span className={`sconn__chip sconn__chip--${chip}`}>{CHIP_LABEL[chip]}</span>
                   <button
                     className="sconn__btn sconn__btn--quiet"

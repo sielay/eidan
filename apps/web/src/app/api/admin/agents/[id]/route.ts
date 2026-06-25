@@ -33,6 +33,7 @@ export async function PATCH(
   if (body.model !== undefined) { sets.push(`model = $${i++}`); vals.push(typeof body.model === "string" && body.model.trim() ? body.model.trim() : null); }
   if (body.target_node !== undefined) { sets.push(`target_node = $${i++}`); vals.push(typeof body.target_node === "string" && body.target_node.trim() ? body.target_node.trim() : null); }
   if (typeof body.enabled === "boolean") { sets.push(`enabled = $${i++}`); vals.push(body.enabled); }
+  if (body.avatar !== undefined) { sets.push(`metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{avatar}', $${i++}::jsonb, true)`); vals.push(JSON.stringify(body.avatar ?? {})); }
   if (sets.length === 0) return Response.json({ detail: "nothing to update" }, { status: 400 });
 
   vals.push(id, sess.userId);

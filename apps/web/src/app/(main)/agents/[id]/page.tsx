@@ -45,6 +45,7 @@ export default function EditAgentPage(): React.ReactElement {
               provider: agent.provider ?? "",
               model: agent.model ?? "",
               target: agent.target_node ?? "",
+              avatar: agent.metadata?.avatar,
             }}
             tools={tools}
             models={models}

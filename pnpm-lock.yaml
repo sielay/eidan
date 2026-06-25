@@ -103,6 +103,25 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/boards:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/charles-decks:
     dependencies:
       '@matatbread/matbot-plugin-api':
@@ -112,6 +131,25 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/charles-domains:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -323,6 +361,25 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/fs:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/gdrive:
     dependencies:
       '@matatbread/matbot-plugin-api':
@@ -332,6 +389,28 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/github:
+    dependencies:
+      '@eidandev/connections-kit':
+        specifier: link:../connections-kit
+        version: link:../connections-kit
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3

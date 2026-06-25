@@ -74,7 +74,7 @@ export default function SettingsPage(): React.ReactElement {
       setDraft(row.persona ?? "");
       setSavedAt(new Date().toISOString());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to save persona");
+      setError(err instanceof Error ? err.message : "failed to save");
     } finally {
       setSaving(false);
     }
@@ -101,12 +101,13 @@ export default function SettingsPage(): React.ReactElement {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <header className="flex flex-col gap-1">
-        <h1 className="text-lg font-medium text-foreground">Agent persona</h1>
+        <h1 className="text-lg font-medium text-foreground">System prompt</h1>
         <p className="text-xs text-muted-foreground">
-          A short instruction Eidan reads at the start of every turn —
-          tone, role, anything you want it to keep in mind. The baseline
-          identity (&ldquo;you are Eidan, not Claude / ChatGPT&rdquo;) is always
-          rendered first regardless; this layers on top.
+          Your global custom instructions for Eidan — tone, role, anything it should keep in mind on
+          every turn across the whole platform. The baseline identity (&ldquo;you are Eidan, not
+          Claude / ChatGPT&rdquo;) is always rendered first; this layers on top. (This is the
+          platform-wide system prompt, not a per-agent persona — individual agents set their own
+          persona in the Agents view.)
         </p>
       </header>
 
@@ -121,7 +122,7 @@ export default function SettingsPage(): React.ReactElement {
           htmlFor="persona-textarea"
           className="text-xs font-medium text-foreground"
         >
-          user_overrides.system_prompt
+          Custom instructions
         </label>
         <textarea
           id="persona-textarea"
@@ -165,7 +166,7 @@ export default function SettingsPage(): React.ReactElement {
 
       {agent ? (
         <section className="mt-6 flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-4 text-xs text-muted-foreground">
-          <h2 className="font-medium text-foreground">Agent row</h2>
+          <h2 className="font-medium text-foreground">Stored record <span className="font-normal">(advanced)</span></h2>
           <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1">
             <dt>display_name</dt>
             <dd className="text-foreground">{agent.display_name}</dd>

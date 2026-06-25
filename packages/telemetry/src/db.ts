@@ -42,6 +42,18 @@ export class Db {
     );
   }
 
+  // Mark nodes offline if last_seen is older than thresholdMs.
+  // thresholdMs is guaranteed to be positive by calculateStaleThreshold.
+  // Uses PostgreSQL-specific make_interval; equivalent logic: now() - last_seen > thresholdMs.
+  async markStaleOffline(thresholdMs: number): Promise<void> {
+    await this.pool.query(
+      `update eidan.node_heartbeats
+       set status = 'offline', updated_at = now()
+       where status = 'online' and last_seen < now() - make_interval(milliseconds => $1)`,
+      [Math.floor(thresholdMs)],
+    );
+  }
+
   // Append one activity event. seq is part of the (node_id, seq) PK with no DB default, so it is
   // generated per node as max+1 in the same statement. Concurrent appends on one node can collide
   // on the PK; retry a few times, then drop — telemetry must never throw into the turn pipeline.

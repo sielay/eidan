@@ -86,3 +86,57 @@
 .sheet-x { border: none; background: none; cursor: pointer; color: var(--muted); padding: var(--s1); border-radius: var(--r-sm); }
 .sheet-fields { display: flex; flex-direction: column; gap: var(--s4); }
 @keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Venture board — a lightweight kanban over venture_items (To do / Doing / Done). */
+.ven-board__add { display: flex; gap: var(--s2); margin: var(--s3) 0; }
+.ven-board__add .input { flex: 1; }
+.ven-board { display: flex; gap: var(--s3); overflow-x: auto; padding-bottom: var(--s2); }
+.ven-lane {
+  flex: 1 1 0; min-width: 160px;
+  background: var(--surface-2, rgba(120,120,140,.06));
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: var(--s2); display: flex; flex-direction: column; gap: var(--s2);
+}
+.ven-lane__head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: var(--fs-13); font-weight: 600; color: var(--muted);
+  padding: 0 var(--s1);
+}
+.ven-card {
+  background: var(--bg, #fff); border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: var(--s2); display: flex; flex-direction: column; gap: var(--s2);
+}
+.ven-card__title { font-size: var(--fs-14); line-height: 1.3; }
+.ven-card__actions { display: flex; gap: var(--s1); justify-content: flex-end; }
+.ven-card__btn {
+  border: 1px solid var(--border); background: none; cursor: pointer;
+  color: var(--muted); border-radius: var(--r-sm); width: 26px; height: 24px;
+  font-size: var(--fs-13); line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+}
+.ven-card__btn:disabled { opacity: .35; cursor: default; }
+.ven-card__btn:not(:disabled):hover { color: var(--text); border-color: var(--muted); }
+
+/* Board switcher — tabs across a venture's many boards. */
+.ven-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin: var(--s3) 0; }
+.ven-tab {
+  border: 1px solid var(--border); background: none; cursor: pointer;
+  color: var(--muted); border-radius: var(--r-sm); padding: 4px var(--s2);
+  font-size: var(--fs-13); font-weight: 600;
+}
+.ven-tab.is-active { color: var(--text); border-color: var(--muted); background: var(--surface-2, rgba(120,120,140,.08)); }
+.ven-tab--add { color: var(--accent, var(--muted)); border-style: dashed; }
+.ven-tab__add { display: inline-flex; align-items: center; gap: var(--s1); }
+.ven-tab__add .input { width: 140px; padding: 4px var(--s2); font-size: var(--fs-13); }
+.ven-tab__del {
+  border: none; background: none; cursor: pointer; color: var(--muted);
+  margin-left: auto; padding: var(--s1); border-radius: var(--r-sm);
+}
+.ven-tab__del:not(:disabled):hover { color: var(--alert); }
+
+/* Danger zone — venture deletion. */
+.ven-danger { border-color: color-mix(in srgb, var(--alert) 30%, var(--border)); }
+.ven-danger__trigger { color: var(--alert); }
+.ven-danger__confirm { display: flex; flex-direction: column; gap: var(--s3); }
+.ven-danger__actions { display: flex; gap: var(--s2); justify-content: flex-end; }
+.ven-danger__btn { color: #fff; background: var(--alert); border-color: var(--alert); }
+.ven-danger__btn:disabled { opacity: .6; }

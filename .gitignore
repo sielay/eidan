@@ -64,6 +64,7 @@ packages/*
 !packages/social-mastodon/
 !packages/social-youtube/
 !packages/social-instagram/
+!packages/glue/
 !packages/storage-postgres/
 !packages/vault-postgres/
 !packages/agents/
@@ -80,6 +81,9 @@ packages/*
 # thematic bundles folded into the AGPL core (kept as opt-in bundle plugins, not in CORE_PLUGINS)
 !packages/charles-ventures/
 !packages/charles-decks/
+# bundle-agnostic kanban/planning substrate (consumed by ventures, charlotte, standalone planner)
+!packages/boards/
+!packages/charles-domains/
 # sage coding bundle — folded into the AGPL core 2026-06-22 (was the private sielay/eidan-sage repo)
 !packages/sage/
 !packages/db/
@@ -87,6 +91,10 @@ packages/*
 !packages/finance-google-trends/
 # shared OAuth-connections engine kit (consumed by google + the social-* plugins)
 !packages/connections-kit/
+# eidan virtual filesystem substrate (folders + storage adapters; shareable with agents)
+!packages/fs/
+# per-user GitHub integration (connection + agent tools)
+!packages/github/
 
 # Assembled plugin frontends: every subdir here is bundle-written. The committed *.generated.*
 # base-case files sit directly in the dir (not a subdir), so the trailing-slash glob leaves them.
@@ -99,6 +107,7 @@ apps/web/src/plugins/*/
 apps/web/src/app/api/*/
 !apps/web/src/app/api/\[...path\]/
 !apps/web/src/app/api/admin/
+!apps/web/src/app/api/artifacts/
 !apps/web/src/app/api/agent/
 !apps/web/src/app/api/auth/
 !apps/web/src/app/api/cost/

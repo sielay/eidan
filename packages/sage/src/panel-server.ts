@@ -25,9 +25,10 @@ export interface PanelServerOpts {
 }
 
 function cors(res: ServerResponse, origin: string | undefined): void {
+  // The panel authenticates with a Bearer token (Authorization header), NOT cookies, so we do NOT
+  // send access-control-allow-credentials — avoiding the credentialed-CORS misconfiguration.
   if (origin) {
     res.setHeader('access-control-allow-origin', origin);
-    res.setHeader('access-control-allow-credentials', 'true');
     res.setHeader('vary', 'origin');
   }
   res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
@@ -52,8 +53,9 @@ function parsePath(url: string, base: string): { kind: 'cursors' | 'summary' } |
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse, opts: PanelServerOpts, services: MatbotServices): Promise<void> {
-  const origin = typeof req.headers.origin === 'string' ? req.headers.origin : opts.webOrigin;
-  cors(res, origin);
+  // Only ever allow the configured web origin — never reflect an arbitrary request Origin with
+  // credentials (that would be a credential-leak CORS misconfiguration).
+  cors(res, opts.webOrigin);
   const method = req.method ?? 'GET';
   if (method === 'OPTIONS') { res.writeHead(204).end(); return; }
 
@@ -77,13 +79,17 @@ async function handle(req: IncomingMessage, res: ServerResponse, opts: PanelServ
     if (route.kind === 'action' && method === 'POST') { send(res, 200, await runCursorAction(opts.db, route.id, route.action)); return; }
     send(res, 405, { error: 'method not allowed' });
   } catch (e) {
-    send(res, 500, { error: e instanceof Error ? e.message : String(e) });
+    console.error('[sage] panel error:', e instanceof Error ? e.message : String(e));
+    send(res, 500, { error: 'internal error' });
   }
 }
 
 export function startPanelServer(services: MatbotServices, opts: PanelServerOpts): () => void {
   const server = createServer((req, res) => {
-    void handle(req, res, opts, services).catch((e) => send(res, 500, { error: e instanceof Error ? e.message : String(e) }));
+    void handle(req, res, opts, services).catch((e) => {
+      console.error('[sage] panel error:', e instanceof Error ? e.message : String(e));
+      send(res, 500, { error: 'internal error' });
+    });
   });
   server.listen(opts.port);
   return () => server.close();

@@ -4,6 +4,50 @@ All notable changes to eidan are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases are cut by bumping
 `package.json` and merging `next-release` → `main` (which tags `v<version>` and builds images).
 
+## [0.10.0] — 2026-06-25
+
+### Added
+
+- **Boards** — a new bundle-agnostic kanban/planning substrate **`@eidandev/boards`**. Boards scope to
+  a context (a venture, or standalone); cards carry **typed references** (asset / venture / job / agent
+  / domain / url), **status**, **labels/badges**, and an **activity log** with per-comment authors. A
+  standalone **Planner** screen plus an embedded board on each venture; full agent toolset (`board_*`,
+  `card_*`, `card_link`, `card_comment`).
+- **Ventures v2** — boards + working items per venture; new resource kinds **github_repo / webpage /
+  domain** (with canonical resolvers) and a **domain picker** from the domains inventory; venture
+  **permalinks** (`?venture=`), **Move/reparent** (cycle-guarded), **delete** (cascade), and
+  **resource → venture** link chips on the connections/domains lists; a new **`employment`** venture kind.
+- **`@eidandev/charles-domains`** — a domains inventory (manual add + registrar import) with
+  vault-sealed registrar keys and an engine-side import server (**GoDaddy**; cyberfolks left a
+  documented stub — no public registered-domains API).
+- **`@eidandev/fs`** — "eidan fs": a virtual filesystem substrate (folders, local blob storage, a web
+  file browser, agent `fs_*` tools) with a pluggable StorageAdapter interface (cloud adapters to come).
+- **`@eidandev/github`** — a per-user GitHub integration on the connections pattern (BYO PAT sealed in
+  the vault) with agent tools: list/read repos + files, issues, pull requests, code search.
+- **`@eidandev/glue`** — marketing adapter (analytics / funnels / lists / campaigns) over the operator's
+  Glue MCP, with config resolved from the vault.
+- **Avatars** — local **DiceBear** avatars (no CDN) across agents, boards and comments, **randomisable
+  + pickable** per agent (seed + style in agent metadata).
+- **Web artifact viewer** — open/preview/download agent-generated files (e.g. rendered decks) straight
+  from tool results; decks render to HTML on the engine (marp).
+
+### Changed
+
+- **Routines retired → agents.** The prompt-only `@eidandev/routines` is folded into `@eidandev/agents`
+  as the schedule trigger (one scheduler path); existing routines migrated to agents + schedule
+  triggers; routines removed from the core plugin set.
+- **Admin** trimmed to **dashboard · nodes · live** (log + live merged into one streaming, searchable
+  view; jobs live at `/jobs`); removed dead conversations/triggers/routines/cursors panes; the nodes
+  view now renders a node's tools + served kinds correctly.
+- **Settings** — the global system-prompt editor is relabeled "System prompt / Custom instructions"
+  (was the misleading "Agent persona"; per-agent personas live in the Agents view).
+
+### Fixed
+
+- **Memory recall** uses `websearch_to_tsquery` (quoted phrases / OR / `-term`).
+- **Telemetry** marks stale `node_heartbeats` offline.
+- Dropped dead tables (`behaviour_dlq`, `plugin_state`, `node_capability_overrides`).
+
 ## [0.9.0] — 2026-06-24
 
 ### Added

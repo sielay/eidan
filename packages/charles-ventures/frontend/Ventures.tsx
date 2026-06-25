@@ -14,9 +14,11 @@
 // sheet"), a desktop identity context panel with a Companies House lookup affordance (the
 // venture_lookup_company tool, surfaced in the UI), and a responsive two-pane layout (brief §4/§8).
 
+import Link from "next/link";
 import * as React from "react";
 
 import { authFetch } from "@/lib/auth";
+import { BoardsPanel } from "@/plugins/_shared/BoardsPanel";
 
 interface Venture {
   id: string;
@@ -117,10 +119,58 @@ function Skeleton(): React.ReactElement {
 // resource kind → icon + human label
 const RES_META: Record<string, { icon: string; label: string }> = {
   social_account: { icon: "social", label: "Social account" },
+  github_repo: { icon: "link", label: "GitHub repo" },
+  webpage: { icon: "link", label: "Webpage" },
+  domain: { icon: "link", label: "Domain" },
   mailing_list: { icon: "mail", label: "Mailing list" },
   analytics_property: { icon: "analytics", label: "Analytics property" },
 };
 const RES_KINDS = Object.keys(RES_META);
+
+// The social providers whose connected accounts can be attached as a venture asset. Each maps to a
+// committed `/api/social-<value>/accounts` route (GET → { accounts: [...] }), so the attach picker
+// can list a user's real connections instead of taking a free-text handle. Keep in sync with the
+// social-* plugins under packages/.
+const SOCIAL_PROVIDERS: Array<[string, string]> = [
+  ["x", "X (Twitter)"],
+  ["linkedin", "LinkedIn"],
+  ["mastodon", "Mastodon"],
+  ["bluesky", "Bluesky"],
+  ["instagram", "Instagram"],
+  ["facebook", "Facebook"],
+  ["threads", "Threads"],
+  ["youtube", "YouTube"],
+];
+interface SocialAccount {
+  id: string;
+  name: string;
+  slug: string;
+  host: string | null;
+  external_handle: string | null;
+  external_id: string | null;
+  status: string;
+}
+// The canonical, lookup-friendly handle for an account: mastodon is `handle@host` (multi-host),
+// everything else is the bare handle. Matches connections-kit's ConnectableRef.handle.
+function accountHandle(a: SocialAccount): string {
+  const h = (a.external_handle ?? "").trim();
+  return a.host ? `${h}@${a.host}` : h;
+}
+
+// A domain from the charles-domains inventory (GET /api/charles/domains). Absent/empty when that
+// opt-in plugin isn't loaded yet — the attach sheet then falls back to a manual domain field.
+interface DomainRef {
+  id: string;
+  name: string;
+  registrar: string | null;
+  status: string;
+}
+// Kinds that attach a single free-text reference (no provider picker; provider is implicitly manual).
+const SIMPLE_REF_META: Record<string, { label: string; placeholder: string }> = {
+  github_repo: { label: "Repository", placeholder: "owner/name or GitHub URL" },
+  webpage: { label: "URL", placeholder: "https://example.com" },
+};
+
 function resTone(status: string): Tone {
   return status === "active" ? "good" : "neutral";
 }
@@ -266,6 +316,114 @@ function AttachSheet({ ventureId, onClose, onAttached }: { ventureId: string; on
   const [label, setLabel] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  // social_account picker state: the connected accounts for the chosen provider + the selection.
+  const [accounts, setAccounts] = React.useState<SocialAccount[]>([]);
+  const [accLoading, setAccLoading] = React.useState(false);
+  const [accountId, setAccountId] = React.useState("");
+  const [connectionId, setConnectionId] = React.useState("");
+  // domain picker state: the charles-domains inventory (empty → manual fallback) + the selection.
+  const [domains, setDomains] = React.useState<DomainRef[]>([]);
+  const [domLoading, setDomLoading] = React.useState(false);
+  const [domainId, setDomainId] = React.useState("");
+
+  const isSocial = kind === "social_account";
+  const isDomain = kind === "domain";
+  const isSimpleRef = kind === "github_repo" || kind === "webpage";
+
+  // Reset per-kind state whenever the kind changes (each kind is a different attach shape). Simple-ref
+  // kinds attach as provider 'manual'; the rest start with no provider until one is chosen.
+  function pickKind(k: string): void {
+    setKind(k);
+    setProvider(k === "github_repo" || k === "webpage" ? "manual" : "");
+    setExternalRef("");
+    setLabel("");
+    setAccounts([]);
+    setAccountId("");
+    setConnectionId("");
+    setDomains([]);
+    setDomainId("");
+    setErr(null);
+    if (k === "domain") void loadDomains();
+  }
+
+  // Load the user's connected accounts for a social provider (owner-scoped; only active ones can be
+  // attached). Failure (e.g. provider never connected → no schema) is treated as "no accounts".
+  async function loadAccounts(prov: string): Promise<void> {
+    setAccounts([]);
+    setAccountId("");
+    setConnectionId("");
+    setExternalRef("");
+    if (!prov) return;
+    setAccLoading(true);
+    try {
+      const r = await authFetch(`/api/social-${prov}/accounts`);
+      const j = (await r.json().catch(() => ({}))) as { accounts?: SocialAccount[] };
+      setAccounts((j.accounts ?? []).filter((a) => a.status === "active"));
+    } catch {
+      setAccounts([]);
+    } finally {
+      setAccLoading(false);
+    }
+  }
+
+  // Load the domain inventory. If the charles-domains plugin isn't loaded (or there are none yet),
+  // fall back to a manual domain field (provider 'manual') so a domain can still be tracked by hand.
+  async function loadDomains(): Promise<void> {
+    setDomains([]);
+    setDomainId("");
+    setExternalRef("");
+    setConnectionId("");
+    setDomLoading(true);
+    try {
+      const r = await authFetch(`/api/charles/domains`);
+      const j = (await r.json().catch(() => ({}))) as { domains?: DomainRef[] };
+      const list = (j.domains ?? []).filter((d) => d.status !== "archived");
+      setDomains(list);
+      if (!list.length) setProvider("manual");
+    } catch {
+      setDomains([]);
+      setProvider("manual");
+    } finally {
+      setDomLoading(false);
+    }
+  }
+
+  function pickProvider(prov: string): void {
+    setProvider(prov);
+    if (isSocial) void loadAccounts(prov);
+  }
+
+  // Selecting a connected account fills the canonical handle (external_ref), binds the stable
+  // connection id (external_id, else slug — mirrors ConnectableRef.id), and defaults the label.
+  function pickAccount(id: string): void {
+    setAccountId(id);
+    const a = accounts.find((x) => x.id === id);
+    if (!a) {
+      setExternalRef("");
+      setConnectionId("");
+      return;
+    }
+    setExternalRef(accountHandle(a));
+    setConnectionId(a.external_id?.trim() || a.slug);
+    if (!label.trim()) setLabel(a.name);
+  }
+
+  // Selecting an inventory domain binds its name (external_ref), id (connection_id) and registrar
+  // (provider — the DB CHECK allows manual/godaddy/cyberfolks for the domain kind).
+  function pickDomain(id: string): void {
+    setDomainId(id);
+    const d = domains.find((x) => x.id === id);
+    if (!d) {
+      setExternalRef("");
+      setConnectionId("");
+      setProvider("");
+      return;
+    }
+    setExternalRef(d.name);
+    setConnectionId(d.id);
+    setProvider(d.registrar || "manual");
+    if (!label.trim()) setLabel(d.name);
+  }
 
   async function submit(): Promise<void> {
     setBusy(true);
@@ -274,7 +432,14 @@ function AttachSheet({ ventureId, onClose, onAttached }: { ventureId: string; on
       const r = await authFetch(`/api/charles/ventures`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ venture_id: ventureId, kind, provider, external_ref: externalRef, label: label || undefined }),
+        body: JSON.stringify({
+          venture_id: ventureId,
+          kind,
+          provider,
+          external_ref: externalRef,
+          label: label || undefined,
+          connection_id: connectionId || undefined,
+        }),
       });
       const j = (await r.json()) as { error?: string };
       if (!r.ok) throw new Error(j.error ?? `attach failed (${r.status})`);
@@ -287,6 +452,8 @@ function AttachSheet({ ventureId, onClose, onAttached }: { ventureId: string; on
     }
   }
 
+  const canSubmit = !busy && Boolean(provider.trim()) && Boolean(externalRef.trim());
+
   return (
     <div className="sheet-scrim" role="dialog" aria-modal="true" aria-label="Attach a resource" onClick={onClose}>
       <div className="sheet sheet-dock" onClick={(e) => e.stopPropagation()}>
@@ -297,29 +464,91 @@ function AttachSheet({ ventureId, onClose, onAttached }: { ventureId: string; on
         </div>
         <div className="sheet-fields">
           <div className="field">
-            <span className="field__label">Kind</span>
-            <div className="seg" role="tablist">
+            <label className="field__label" htmlFor="r-kind">Kind</label>
+            <select id="r-kind" className="input" value={kind} onChange={(e) => pickKind(e.target.value)}>
               {RES_KINDS.map((k) => (
-                <button key={k} className="seg__opt" role="tab" aria-selected={kind === k} onClick={() => setKind(k)}>
-                  {RES_META[k]?.label ?? k}
-                </button>
+                <option key={k} value={k}>{RES_META[k]?.label ?? k}</option>
               ))}
+            </select>
+          </div>
+
+          {isSocial ? (
+            <>
+              <div className="field">
+                <label className="field__label" htmlFor="r-provider">Platform</label>
+                <select id="r-provider" className="input" value={provider} onChange={(e) => pickProvider(e.target.value)}>
+                  <option value="">Choose a platform…</option>
+                  {SOCIAL_PROVIDERS.map(([v, l]) => (
+                    <option key={v} value={v}>{l}</option>
+                  ))}
+                </select>
+              </div>
+              {provider ? (
+                <div className="field">
+                  <label className="field__label" htmlFor="r-account">Connected account</label>
+                  {accLoading ? (
+                    <div className="skel" style={{ height: 40 }} />
+                  ) : accounts.length ? (
+                    <select id="r-account" className="input" value={accountId} onChange={(e) => pickAccount(e.target.value)}>
+                      <option value="">Choose an account…</option>
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>{a.name} — {accountHandle(a)}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="screen-sub" style={{ marginTop: 0 }}>
+                      No connected {SOCIAL_PROVIDERS.find(([v]) => v === provider)?.[1] ?? "this platform"} accounts.{" "}
+                      <a href={`/p/social-${encodeURIComponent(provider)}`}>Connect one</a>, then come back.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+            </>
+          ) : isDomain ? (
+            <div className="field">
+              <label className="field__label" htmlFor="r-domain">Domain</label>
+              {domLoading ? (
+                <div className="skel" style={{ height: 40 }} />
+              ) : domains.length ? (
+                <select id="r-domain" className="input" value={domainId} onChange={(e) => pickDomain(e.target.value)}>
+                  <option value="">Choose a domain…</option>
+                  {domains.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}{d.registrar ? ` · ${d.registrar}` : ""}</option>
+                  ))}
+                </select>
+              ) : (
+                <>
+                  <input id="r-domain" className="input" placeholder="example.com" value={externalRef} onChange={(e) => setExternalRef(e.target.value)} />
+                  <p className="screen-sub" style={{ marginTop: 0 }}>
+                    No imported domains yet — <Link href="/p/charles-domains">add or import in Domains</Link>, or type one to track it manually.
+                  </p>
+                </>
+              )}
             </div>
-          </div>
-          <div className="field">
-            <label className="field__label" htmlFor="r-provider">Provider</label>
-            <input id="r-provider" className="input" placeholder="e.g. mailchimp, ga4, x, linkedin" value={provider} onChange={(e) => setProvider(e.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field__label" htmlFor="r-ref">Handle / ID <span style={{ fontWeight: 400 }}>(not a secret — creds stay in the vault)</span></label>
-            <input id="r-ref" className="input" placeholder="the provider's account/property id" value={externalRef} onChange={(e) => setExternalRef(e.target.value)} />
-          </div>
+          ) : isSimpleRef ? (
+            <div className="field">
+              <label className="field__label" htmlFor="r-ref">{SIMPLE_REF_META[kind]?.label ?? "Reference"}</label>
+              <input id="r-ref" className="input" placeholder={SIMPLE_REF_META[kind]?.placeholder ?? ""} value={externalRef} onChange={(e) => setExternalRef(e.target.value)} />
+            </div>
+          ) : (
+            <>
+              <div className="field">
+                <label className="field__label" htmlFor="r-provider">Provider</label>
+                <input id="r-provider" className="input" placeholder="e.g. mailchimp, ga4" value={provider} onChange={(e) => setProvider(e.target.value)} />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="r-ref">Handle / ID <span style={{ fontWeight: 400 }}>(not a secret — creds stay in the vault)</span></label>
+                <input id="r-ref" className="input" placeholder="the provider's account/property id" value={externalRef} onChange={(e) => setExternalRef(e.target.value)} />
+              </div>
+            </>
+          )}
+
           <div className="field">
             <label className="field__label" htmlFor="r-label">Label <span style={{ fontWeight: 400 }}>(optional)</span></label>
             <input id="r-label" className="input" placeholder="human name" value={label} onChange={(e) => setLabel(e.target.value)} />
           </div>
           {err ? <p className="screen-sub" style={{ color: "var(--alert)" }}>{err}</p> : null}
-          <button className="btn btn--primary btn--block btn--lg" disabled={busy || !provider.trim() || !externalRef.trim()} onClick={() => void submit()}>
+          <button className="btn btn--primary btn--block btn--lg" disabled={!canSubmit} onClick={() => void submit()}>
             {busy ? "Attaching…" : "Attach resource"}
           </button>
         </div>
@@ -328,8 +557,89 @@ function AttachSheet({ ventureId, onClose, onAttached }: { ventureId: string; on
   );
 }
 
+// ── Edit-resource bottom sheet ───────────────────────────────────────────────
+// Rename the label of an attached connection, or detach it. The connection binding itself
+// (provider/handle) is shown read-only — change it by detaching and re-attaching.
+function EditResourceSheet({ resource, onClose, onSaved }: { resource: Resource; onClose: () => void; onSaved: () => void }): React.ReactElement {
+  const [label, setLabel] = React.useState(resource.label ?? "");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const meta = RES_META[resource.kind] ?? { icon: "link", label: resource.kind };
+
+  async function save(): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await authFetch(`/api/charles/ventures`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: resource.id, label: label.trim() || undefined }),
+      });
+      const j = (await r.json()) as { error?: string };
+      if (!r.ok) throw new Error(j.error ?? `save failed (${r.status})`);
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function detach(): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await authFetch(`/api/charles/ventures?id=${encodeURIComponent(resource.id)}`, { method: "DELETE" });
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(j.error ?? `detach failed (${r.status})`);
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="sheet-scrim" role="dialog" aria-modal="true" aria-label="Edit connection" onClick={onClose}>
+      <div className="sheet sheet-dock" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet__grip" />
+        <div className="sheet-head">
+          <h3>Edit connection</h3>
+          <button className="sheet-x" aria-label="Close" onClick={onClose}><Icon name="x" cls="i i-sm" /></button>
+        </div>
+        <div className="sheet-fields">
+          <div className="field">
+            <span className="field__label">Connection</span>
+            <div className="logrow res-row" style={{ borderBottom: "none" }}>
+              <span className="res-ic"><Icon name={meta.icon} /></span>
+              <span className="logrow__main">
+                <span className="logrow__primary">{resource.external_ref}</span>
+                <span className="logrow__meta">{meta.label} · {resource.provider}</span>
+              </span>
+            </div>
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="er-label">Label <span style={{ fontWeight: 400 }}>(optional)</span></label>
+            <input id="er-label" className="input" placeholder="human name" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          {err ? <p className="screen-sub" style={{ color: "var(--alert)" }}>{err}</p> : null}
+          <button className="btn btn--primary btn--block btn--lg" disabled={busy} onClick={() => void save()}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <button className="btn btn--ghost btn--block" disabled={busy} style={{ color: "var(--alert)" }} onClick={() => void detach()}>
+            <Icon name="x" cls="i i-sm" />Detach
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Create-venture bottom sheet ──────────────────────────────────────────────
-const KIND_OPTS: Array<[string, string]> = [["org", "Org"], ["venture", "Venture"], ["project", "Project"]];
+const KIND_OPTS: Array<[string, string]> = [["org", "Org"], ["venture", "Venture"], ["project", "Project"], ["employment", "Employment"]];
 const LEGAL_OPTS: Array<[string, string]> = [["", "—"], ["ltd", "Ltd"], ["sole_trader", "Sole trader"], ["holding", "Holding"]];
 
 function CreateVentureSheet({ ventures, defaultParentId, onClose, onCreated }: { ventures: Venture[]; defaultParentId?: string | null; onClose: () => void; onCreated: (id: string) => void }): React.ReactElement {
@@ -415,13 +725,32 @@ function CreateVentureSheet({ ventures, defaultParentId, onClose, onCreated }: {
 export default function VenturesScreen(): React.ReactElement {
   const [data, setData] = React.useState<VenturesPayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [venture, setVenture] = React.useState<string | null>(null);
+  // Permalink: the selected venture lives in the URL (?venture=<id>) so a venture is bookmarkable.
+  const [venture, setVenture] = React.useState<string | null>(
+    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("venture") : null),
+  );
   const [sheet, setSheet] = React.useState(false);
   const [createSheet, setCreateSheet] = React.useState(false);
+  const [moveSheet, setMoveSheet] = React.useState(false);
+  const [editRes, setEditRes] = React.useState<Resource | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
+  const [confirmDel, setConfirmDel] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [delErr, setDelErr] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
 
   const reload = React.useCallback(() => setReloadKey((k) => k + 1), []);
   const onCreated = React.useCallback((id: string) => { setVenture(id); reload(); }, [reload]);
+
+  // Keep the URL in step with the selected venture (permalink), without adding history entries.
+  React.useEffect(() => {
+    if (!venture || typeof window === "undefined") return;
+    const u = new URL(window.location.href);
+    if (u.searchParams.get("venture") !== venture) {
+      u.searchParams.set("venture", venture);
+      window.history.replaceState(null, "", u.toString());
+    }
+  }, [venture]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -482,6 +811,23 @@ export default function VenturesScreen(): React.ReactElement {
   const parentName = parent?.name ?? current.parent_name ?? null;
   const children = data.ventures.filter((v) => v.parent_id === current.id);
 
+  async function deleteVenture(): Promise<void> {
+    setDeleting(true);
+    setDelErr(null);
+    try {
+      const r = await authFetch(`/api/charles/ventures/create?id=${encodeURIComponent(current.id)}`, { method: "DELETE" });
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(j.error ?? `delete failed (${r.status})`);
+      setConfirmDel(false);
+      setVenture(others[0]?.id ?? null); // switch to another venture (or back to the first on reload)
+      reload();
+    } catch (e) {
+      setDelErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="ven-screen" style={{ padding: "var(--s5)" }}>
       {head}
@@ -498,6 +844,20 @@ export default function VenturesScreen(): React.ReactElement {
               )}
             </p>
           ) : null}
+          <div style={{ display: "flex", gap: "var(--s2)", marginBottom: "var(--s3)", flexWrap: "wrap" }}>
+            <button
+              className="btn btn--ghost"
+              onClick={() => {
+                const url = `${window.location.origin}/p/charles-ventures?venture=${current.id}`;
+                void navigator.clipboard?.writeText(url);
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              <Icon name="link" cls="i i-sm" />{copied ? "Copied" : "Copy link"}
+            </button>
+            <button className="btn btn--ghost" onClick={() => setMoveSheet(true)}>Move</button>
+          </div>
           <div className="grid-2">
             <StatTile label="Linked resources" value={activeRes.length} foot={<span className="screen-sub" style={{ marginTop: 0 }}>{activeRes.length === 1 ? "account" : "accounts"} attached</span>} />
             <StatTile
@@ -519,19 +879,22 @@ export default function VenturesScreen(): React.ReactElement {
                 {activeRes.map((r) => {
                   const meta = RES_META[r.kind] ?? { icon: "link", label: r.kind };
                   return (
-                    <div className="logrow res-row" key={r.id}>
+                    <button className="logrow res-row" key={r.id} style={{ background: "none", border: "none", borderBottom: "1px solid var(--border)", textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => setEditRes(r)} title="Edit or detach">
                       <span className="res-ic"><Icon name={meta.icon} /></span>
                       <span className="logrow__main">
-                        <span className="logrow__primary">{r.label || r.provider}</span>
-                        <span className="logrow__meta">{meta.label} · {r.provider}</span>
+                        <span className="logrow__primary">{r.label || r.external_ref || r.provider}</span>
+                        <span className="logrow__meta">{meta.label}{r.external_ref ? ` · ${r.external_ref}` : ""}{r.provider && r.provider !== "manual" ? ` · ${r.provider}` : ""}</span>
                       </span>
                       <span className={"pill pill--" + resTone(r.status)}><span className="pill__dot" />Connected</span>
-                    </div>
+                      <Icon name="chevron" cls="i i-sm" />
+                    </button>
                   );
                 })}
               </div>
             )}
           </div>
+
+          <BoardsPanel key={current.id} scopeKind="venture" scopeId={current.id} />
 
           {children.length > 0 ? (
             <div className="card" style={{ marginTop: 16 }}>
@@ -553,26 +916,27 @@ export default function VenturesScreen(): React.ReactElement {
             </div>
           ) : null}
 
-          {others.length > 0 ? (
-            <div className="card" style={{ marginTop: 16 }}>
-              <div className="card__head"><div className="card__title">Other ventures</div></div>
-              <div className="loglist">
-                {others.map((v) => (
-                  <button className="logrow" key={v.id} style={{ background: "none", border: "none", borderBottom: "1px solid var(--border)", textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => setVenture(v.id)}>
-                    <span className="logrow__main">
-                      <span className="logrow__primary">{v.name}</span>
-                      <span className="logrow__meta">{v.legal_type ? v.legal_type + " · " : ""}{v.kind}</span>
-                    </span>
-                    <Icon name="chevron" cls="i i-sm" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           <p className="screen-sub" style={{ marginTop: 16 }}>
             Cash &amp; pipeline appear here once Books and CRM are connected.
           </p>
+
+          <div className="card ven-danger" style={{ marginTop: 16 }}>
+            <div className="card__head"><div className="card__title">Danger zone</div></div>
+            {delErr ? <p className="screen-sub" style={{ color: "var(--alert)", marginTop: 0 }}>{delErr}</p> : null}
+            {confirmDel ? (
+              <div className="ven-danger__confirm">
+                <span className="screen-sub" style={{ margin: 0 }}>Delete <strong>{current.name}</strong> and its boards, cards &amp; linked assets? This can’t be undone.</span>
+                <div className="ven-danger__actions">
+                  <button className="btn btn--ghost" disabled={deleting} onClick={() => { setConfirmDel(false); setDelErr(null); }}>Cancel</button>
+                  <button className="btn ven-danger__btn" disabled={deleting} onClick={() => void deleteVenture()}>{deleting ? "Deleting…" : "Delete venture"}</button>
+                </div>
+              </div>
+            ) : (
+              <button className="btn btn--ghost ven-danger__trigger" onClick={() => setConfirmDel(true)}>
+                <Icon name="x" cls="i i-sm" />Delete this venture
+              </button>
+            )}
+          </div>
         </div>
 
         <aside className="ven-aside">
@@ -581,7 +945,79 @@ export default function VenturesScreen(): React.ReactElement {
       </div>
 
       {sheet ? <AttachSheet ventureId={current.id} onClose={() => setSheet(false)} onAttached={reload} /> : null}
+      {editRes ? <EditResourceSheet resource={editRes} onClose={() => setEditRes(null)} onSaved={reload} /> : null}
       {createSheet ? <CreateVentureSheet ventures={data.ventures} onClose={() => setCreateSheet(false)} onCreated={onCreated} /> : null}
+      {moveSheet ? <MoveVentureSheet ventures={data.ventures} current={current} onClose={() => setMoveSheet(false)} onMoved={() => { setMoveSheet(false); reload(); }} /> : null}
+    </div>
+  );
+}
+
+// ── Move-venture (reparent) bottom sheet ─────────────────────────────────────
+// Pick a new parent (or top level). The option list excludes the venture itself and its descendants
+// so you can't create a cycle (the API also guards). Mirrors the create sheet's parent picker.
+function MoveVentureSheet({ ventures, current, onClose, onMoved }: { ventures: Venture[]; current: Venture; onClose: () => void; onMoved: () => void }): React.ReactElement {
+  const [parentId, setParentId] = React.useState<string>(current.parent_id ?? "");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  // Descendant set (incl. self) — invalid parents.
+  const blocked = React.useMemo(() => {
+    const byParent = new Map<string | null, Venture[]>();
+    for (const v of ventures) {
+      const k = v.parent_id ?? null;
+      (byParent.get(k) ?? byParent.set(k, []).get(k)!).push(v);
+    }
+    const out = new Set<string>([current.id]);
+    const walk = (id: string): void => { for (const c of byParent.get(id) ?? []) { out.add(c.id); walk(c.id); } };
+    walk(current.id);
+    return out;
+  }, [ventures, current.id]);
+
+  const opts = ventureTree(ventures).filter(({ v }) => !blocked.has(v.id));
+
+  async function submit(): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await authFetch(`/api/charles/ventures/create`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: current.id, parent_id: parentId || undefined }),
+      });
+      const j = (await r.json()) as { error?: string };
+      if (!r.ok) throw new Error(j.error ?? `move failed (${r.status})`);
+      onMoved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="sheet-scrim" role="dialog" aria-modal="true" aria-label="Move venture" onClick={onClose}>
+      <div className="sheet sheet-dock" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet__grip" />
+        <div className="sheet-head">
+          <h3>Move {current.name}</h3>
+          <button className="sheet-x" aria-label="Close" onClick={onClose}><Icon name="x" cls="i i-sm" /></button>
+        </div>
+        <div className="sheet-fields">
+          <div className="field">
+            <label className="field__label" htmlFor="mv-parent">New parent</label>
+            <select id="mv-parent" className="input" value={parentId} onChange={(e) => setParentId(e.target.value)}>
+              <option value="">— Top level (no parent)</option>
+              {opts.map(({ v, depth }) => (
+                <option key={v.id} value={v.id}>{" ".repeat(depth * 2)}{v.name}</option>
+              ))}
+            </select>
+          </div>
+          {err ? <p className="screen-sub" style={{ color: "var(--alert)" }}>{err}</p> : null}
+          <button className="btn btn--primary btn--block btn--lg" disabled={busy || (parentId || null) === (current.parent_id ?? null)} onClick={() => void submit()}>
+            {busy ? "Moving…" : "Move venture"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,0 +1,56 @@
+{
+  "name": "@eidandev/boards",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "Boards — a bundle-agnostic kanban/planning substrate (boards + rich cards with typed refs, status, metadata and an activity log). Consumed by Charles ventures, Charlotte, and a standalone planner.",
+  "matbotRuntime": [
+    "node"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "boards.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Boards.tsx"
+        }
+      ],
+      "api": [
+        { "path": "/api/boards", "handler": "api/route.ts" },
+        { "path": "/api/boards/cards", "handler": "api/cards.ts" },
+        { "path": "/api/boards/cards/refs", "handler": "api/refs.ts" },
+        { "path": "/api/boards/cards/events", "handler": "api/events.ts" }
+      ],
+      "nav": {
+        "group": "Plan",
+        "sections": [
+          {
+            "id": "boards",
+            "label": "Planner",
+            "icon": "analytics",
+            "href": "/p/boards",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}
