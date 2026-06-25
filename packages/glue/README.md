@@ -10,14 +10,12 @@ The plugin authenticates as the Glue **owner** via Glue's `X-MCP-Secret`, so it 
 
 ## Setup
 
-1. **Point at your Glue MCP endpoint** — set in the host environment (e.g. gitignored `matbot.yaml` `env:` or the node's env file):
-   ```
-   EIDAN_GLUE_MCP_URL=https://glue.example.com/api/mcp
-   ```
-2. **Add the secret** — Glue's `MCP_GLUE_SECRET` value, via the Settings UI (Glue marketing → **Glue MCP secret**) or the vault:
-   ```
-   GLUE_MCP_SECRET=<Glue's MCP_GLUE_SECRET>
-   ```
+Both settings live in the **vault** (Settings → **Glue marketing**), so they're stored once in the shared DB and reach every node — no per-node env, no `env-push`:
+
+1. **`EIDAN_GLUE_MCP_URL`** — the Glue MCP endpoint, e.g. `https://glue.example.com/api/mcp`.
+2. **`GLUE_MCP_SECRET`** — Glue's `MCP_GLUE_SECRET` (the `X-MCP-Secret` value).
+
+   (The vault backend falls back to `process.env` when a key isn't in the DB, so seeding either via env still works — but the vault is the canonical source.)
 3. **Enable the plugin** in `matbot.yaml` (and `eidan.deploy.json` `bundles` for deploys):
    ```yaml
    plugins:
