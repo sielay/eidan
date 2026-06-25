@@ -15,6 +15,30 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "glue.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Setup.tsx"
+        }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          {
+            "id": "glue",
+            "label": "Glue marketing",
+            "icon": "share",
+            "href": "/p/glue",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
   "dependencies": {
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
   },
