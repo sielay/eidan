@@ -118,7 +118,7 @@ export class ThreadsClient {
       // Returns hashtag metadata only; post search is not available via the Threads API.
       const hashtags: ThreadsHashtag[] = tags
         .slice(0, Math.min(limit, 100))
-        .filter((tag: Hashtag) => tag.id && tag.name)
+        .filter((tag: Hashtag) => tag.id && tag.name && /^[\w\s\-_.]+$/.test(tag.name))
         .map((tag: Hashtag) => ({
           id: tag.id,
           name: tag.name,
@@ -165,7 +165,26 @@ export class ThreadsClient {
       }
 
       const data = (await res.json()) as ProfileResponse;
-      return { user: data.data };
+      const profile = data.data;
+      if (!profile) {
+        return { user: null, error: 'No profile data returned' };
+      }
+
+      // Explicitly filter to only expected fields to guard against API changes or unexpected data.
+      const safeProfile: ThreadsUser = {
+        id: String(profile.id || ''),
+        username: String(profile.username || ''),
+        biography: profile.biography ? String(profile.biography) : undefined,
+        threads_profile_picture_url: profile.threads_profile_picture_url
+          ? String(profile.threads_profile_picture_url)
+          : undefined,
+        follower_count: typeof profile.follower_count === 'number' ? profile.follower_count : 0,
+        following_count: typeof profile.following_count === 'number' ? profile.following_count : 0,
+        is_verified: Boolean(profile.is_verified),
+        website: profile.website ? String(profile.website) : undefined,
+      };
+
+      return { user: safeProfile };
     } catch {
       return {
         user: null,
