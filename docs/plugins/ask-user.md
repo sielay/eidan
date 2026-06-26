@@ -24,9 +24,32 @@ This is a plugin from the matbot engine (Apache-2.0, github.com/MatAtBread/matbo
 
 The user picks (or types) a value and the tool returns `{ "name": "skill", "answer": "Risks" }`.
 
+## Non-interactive contexts
+
+When `ask_user` with `type='confirm'` is called in a non-interactive context (background agents, scheduled jobs, procedures), the `@eidandev/ask-user-fallback` plugin:
+
+1. **Logs the decision to the escalations inbox** with the confirm question
+2. **Returns** `{ decision: 'PENDING_HUMAN_REVIEW', escalation_id: '...' }` instead of failing
+3. **Allows the agent to continue** while waiting for operator approval
+
+Agent code should check for this special response:
+```javascript
+const result = await ask_user({ type: 'confirm', ... });
+
+if (result.decision === 'PENDING_HUMAN_REVIEW') {
+  // Decision escalated to inbox; operator will review
+  console.log('Escalation ID:', result.escalation_id);
+} else {
+  // Interactive path: result = { name, answer }
+  const { answer } = result;
+  // ... proceed with answer
+}
+```
+
 ## Notes
 
 - A graceful "no thanks / skip / I don't know" should be one of your `options` (or a `confirm`), not a cancel — cancel abandons the whole operation and returns control to the user.
 - `password` masks input and does not display the value; use it for secrets, API keys, and tokens.
 - `select` accepts at most 10 options; the executor errors on an empty options array, too many options, an invalid `type`, or a missing `name`/`label`.
 - `cancelable` defaults to true; set it false only for a prompt the user must not be able to escape.
+- For confirm gates in autonomous workflows, use `type='confirm'` rather than `type='select'` — the fallback plugin provides special handling for decision escalation.
