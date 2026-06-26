@@ -1,0 +1,23 @@
+{
+  "name": "@eidandev/affiliate-programs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "eidan affiliate program registry and link injection: agents discover programs, generate tracked affiliate links, and inject them safely into content.",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

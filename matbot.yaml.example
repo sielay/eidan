@@ -25,6 +25,7 @@ plugins:
   - ./packages/memory # EidanMemory + remember/recall
   - ./packages/auth # WebPrincipalResolver: Bearer JWT (HS256) -> per-request Principal (RLS)
   - ./packages/notify # topic->channel routing (Slack/Telegram); dry-run unless EIDAN_NOTIFY_ROUTES
+  - ./packages/affiliate-programs # affiliate program registry, link generation, and content injection (list_affiliate_programs, generate_affiliate_link, inject_affiliate_links, query_affiliate_links, get_affiliate_performance)
   - ./packages/jobs # delegation work-queue worker (eidan.jobs); bundles add kind handlers
   - ./packages/agents # user-defined agents + composable triggers (schedule|sensor|webhook); the schedule trigger replaces the retired @eidandev/routines. Dispatch loop runs due triggers as turns (owner tz, cross-node deduped) and delivers via notify topic "agent".
   - ./packages/frontend-agui # AG-UI turn stream + conversation REST (:8090)
