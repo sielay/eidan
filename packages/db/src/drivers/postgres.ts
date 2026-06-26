@@ -130,8 +130,139 @@ export async function pgInspect(row: ConnectionRow, password: string, signal: Ab
   }
 }
 
+export interface TableSchema {
+  columns: Array<{ name: string; type: string }>;
+  row_count: number;
+  indexes: string[];
+  foreign_keys: Array<{ column: string; referenced_table: string; referenced_column: string }>;
+}
+
+export interface IntrospectResult {
+  tables: string[];
+  table_schemas: Record<string, TableSchema>;
+}
+
+export async function pgIntrospect(
+  row: ConnectionRow,
+  password: string,
+  signal: AbortSignal,
+  tableFilter?: string[],
+): Promise<IntrospectResult> {
+  const client = new pg.Client(clientConfig(row, password));
+  const onAbort = (): void => void client.end().catch(() => undefined);
+  await client.connect();
+  signal.addEventListener('abort', onAbort, { once: true });
+  try {
+    // Get all accessible tables (respecting RLS via has_table_privilege)
+    let query = `
+      select t.table_schema, t.table_name
+        from information_schema.tables t
+       where t.table_schema not in ('pg_catalog', 'information_schema')
+         and t.table_schema not like 'pg_%'
+         and has_table_privilege(format('%I.%I', t.table_schema, t.table_name)::regclass, 'SELECT')
+       order by t.table_schema, t.table_name
+       limit 2000
+    `;
+    const params: unknown[] = [];
+
+    // If table filter provided, add pattern matching (shell-style wildcards: * and ?)
+    if (tableFilter && tableFilter.length > 0) {
+      const patterns = tableFilter.map(f => wildcardToSqlPattern(f));
+      const whereClauses = patterns.map((_, i) => `t.table_name LIKE $${i + 1} ESCAPE '\\'`).join(' OR ');
+      query += ` AND (${whereClauses})`;
+      params.push(...patterns);
+    }
+
+    const tableResult = await client.query(query, params);
+    const tables: Array<{ schema: string; name: string }> = tableResult.rows;
+
+    // Build table_schemas with columns, types, row counts, and relationships
+    const table_schemas: Record<string, TableSchema> = {};
+
+    for (const table of tables) {
+      const fullName = `${table.schema}.${table.name}`;
+
+      // Get columns and their types
+      const colResult = await client.query(
+        `select column_name, data_type, udt_name
+           from information_schema.columns
+          where table_schema = $1 and table_name = $2
+          order by ordinal_position`,
+        [table.schema, table.name],
+      );
+      const columns = colResult.rows.map((c: { column_name: string; data_type: string; udt_name: string }) => ({
+        name: c.column_name,
+        type: c.data_type === 'USER-DEFINED' ? c.udt_name : c.data_type,
+      }));
+
+      // Get row count (use estimate from pg_class if available, otherwise accurate count)
+      let rowCount = 0;
+      try {
+        const countResult = await client.query(
+          `select n_live_tup as count from pg_stat_user_tables where schemaname = $1 and relname = $2`,
+          [table.schema, table.name],
+        );
+        if (countResult.rows.length > 0) {
+          rowCount = countResult.rows[0].count ?? 0;
+        }
+      } catch {
+        // If pg_stat_user_tables fails, fall back to COUNT (slower but accurate)
+        try {
+          const countResult = await client.query(`SELECT COUNT(*) as count FROM ${quoteIdent(table.schema)}.${quoteIdent(table.name)}`);
+          rowCount = countResult.rows[0]?.count ?? 0;
+        } catch {
+          // If COUNT fails (maybe insufficient permissions), just set to 0
+          rowCount = 0;
+        }
+      }
+
+      // Get indexes
+      const idxResult = await client.query(
+        `select indexname from pg_indexes where schemaname = $1 and tablename = $2`,
+        [table.schema, table.name],
+      );
+      const indexes = idxResult.rows.map((i: { indexname: string }) => i.indexname);
+
+      // Get foreign keys
+      const fkResult = await client.query(
+        `select kcu.column_name, ccu.table_name as referenced_table, ccu.column_name as referenced_column
+           from information_schema.table_constraints tc
+           join information_schema.key_column_usage kcu on tc.constraint_name = kcu.constraint_name and tc.table_schema = kcu.table_schema
+           join information_schema.constraint_column_usage ccu on tc.constraint_name = ccu.constraint_name and tc.table_schema = ccu.table_schema
+          where tc.constraint_type = 'FOREIGN KEY'
+            and tc.table_schema = $1 and tc.table_name = $2`,
+        [table.schema, table.name],
+      );
+      const foreign_keys = fkResult.rows;
+
+      table_schemas[fullName] = {
+        columns,
+        row_count: rowCount,
+        indexes,
+        foreign_keys,
+      };
+    }
+
+    const tableNames = tables.map(t => `${t.schema}.${t.name}`);
+
+    return {
+      tables: tableNames,
+      table_schemas,
+    };
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+    await client.end().catch(() => undefined);
+  }
+}
+
 // Quote a Postgres identifier (schema name) for use in a SET — doubling embedded quotes, the standard
 // identifier escape. Used because SET search_path can't take a bind parameter.
 function quoteIdent(ident: string): string {
   return '"' + ident.replace(/"/g, '""') + '"';
+}
+
+// Convert shell-style wildcards to SQL LIKE patterns. Escapes SQL metacharacters (% and _) that are
+// literals in the pattern, then converts shell wildcards (* and ?) to SQL equivalents.
+export function wildcardToSqlPattern(pattern: string): string {
+  return pattern.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '%').replace(/\?/g, '_');
 }
