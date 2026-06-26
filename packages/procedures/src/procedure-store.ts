@@ -17,6 +17,7 @@ export interface ProcedureDetail {
   updated_at: string;
   last_run_at: string | null;
   schedule?: string;
+  history?: ExecutionResult[];
 }
 
 export interface ExecutionResult {

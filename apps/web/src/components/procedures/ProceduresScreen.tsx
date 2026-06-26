@@ -4,6 +4,7 @@
 import * as React from "react";
 import {
   ChevronLeft,
+  ChevronRight,
   Copy,
   Play,
   Trash2,
@@ -15,6 +16,8 @@ import { authFetch } from "@/lib/auth";
 interface Procedure {
   name: string;
   preview: string;
+  last_run_at?: string | null;
+  schedule?: string;
 }
 
 interface ProcedureDetail {

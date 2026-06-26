@@ -5,13 +5,15 @@ import { runProcedure } from './runner.js';
 import type { ProcedureBridge } from './runner.js';
 
 const DESCRIPTION = [
-  'Manage saved procedures: list, view, run, delete, or edit.',
+  'Manage saved procedures: list, view, run, delete, edit, or schedule.',
   '',
   'Actions (TypeScript union):',
   "  { action: 'list' }                    // → { procedures: [...] }",
   "  { action: 'get'; name: string }       // → { name, source, created_at, updated_at, last_run_at?, history: [...] }",
   "  { action: 'delete'; name: string }    // → { deleted: true }",
-  "  { action: 'run'; name: string }       // → execute immediately, returns { execution_id, status, result?, error? }",
+  "  { action: 'run'; name: string }       // → { execution_id, status: queued | running | completed | failed }",
+  "  { action: 'edit'; name: string; source: string }  // → update saved procedure",
+  "  { action: 'schedule'; name: string; interval: string }  // → set recurring schedule (cron interval)",
   "  { action: 'get_result'; execution_id: string }  // → { status, result?, error?, duration_ms? }",
 ].join('\n');
 
@@ -24,14 +26,16 @@ export function proceduresActionTool(store: ProcedureStore, services: MatbotServ
       required: ['action'],
       additionalProperties: false,
       properties: {
-        action: { type: 'string', description: 'one of list | get | delete | run | get_result' },
-        name: { type: 'string', description: 'procedure name (get/delete/run)' },
+        action: { type: 'string', description: 'one of list | get | delete | run | edit | schedule | get_result' },
+        name: { type: 'string', description: 'procedure name (get/delete/run/edit/schedule)' },
+        source: { type: 'string', description: 'new source code (edit)' },
+        interval: { type: 'string', description: 'cron interval or schedule expression (schedule)' },
         execution_id: { type: 'string', description: 'execution id (get_result)' },
       },
     },
     executor: {
       async *execute(input, ctx) {
-        const a = (input ?? {}) as { action?: string; name?: string; execution_id?: string };
+        const a = (input ?? {}) as { action?: string; name?: string; source?: string; interval?: string; execution_id?: string };
         switch (a.action) {
           case 'list': {
             const items = await store.list();
@@ -78,6 +82,19 @@ export function proceduresActionTool(store: ProcedureStore, services: MatbotServ
             }
             return;
           }
+          case 'edit': {
+            if (!a.name) { yield { type: 'error', message: 'edit requires `name`' }; return; }
+            if (!a.source) { yield { type: 'error', message: 'edit requires `source`' }; return; }
+            const id = await store.save(a.name, a.source);
+            yield { type: 'result', value: { updated: true, name: a.name, id } };
+            return;
+          }
+          case 'schedule': {
+            if (!a.name) { yield { type: 'error', message: 'schedule requires `name`' }; return; }
+            if (!a.interval) { yield { type: 'error', message: 'schedule requires `interval`' }; return; }
+            yield { type: 'error', message: 'schedule action not yet implemented' };
+            return;
+          }
           case 'get_result': {
             if (!a.execution_id) { yield { type: 'error', message: 'get_result requires `execution_id`' }; return; }
             const exec = await store.getExecution(a.execution_id);
@@ -86,7 +103,7 @@ export function proceduresActionTool(store: ProcedureStore, services: MatbotServ
             return;
           }
           default:
-            yield { type: 'error', message: `unknown action: ${String(a.action)} (expected list | get | delete | run | get_result)` };
+            yield { type: 'error', message: `unknown action: ${String(a.action)} (expected list | get | delete | run | edit | schedule | get_result)` };
         }
       },
     },
