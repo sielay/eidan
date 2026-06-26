@@ -524,6 +524,7 @@ export async function handleRest(
       const qp = new URL(req.url ?? '', 'http://x').searchParams;
       const limit = Math.min(Math.max(Number(qp.get('limit')) || 50, 1), 100);
       const before = qp.get('before');
+      const beforeStarred = qp.get('before_starred');
       const search = (qp.get('q') ?? '').trim();
       const kind = qp.get('kind');
       const conds: string[] = ['user_id = $1', 'deleted_at is null'];
@@ -531,7 +532,13 @@ export async function handleRest(
       if (kind === 'agents') conds.push(`metadata->>'origin' = 'agent'`);
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
-      if (before) { vals.push(before); conds.push(`coalesce(updated_at, created_at) < $${vals.length}::timestamptz`); }
+      if (before && beforeStarred !== null) {
+        vals.push(beforeStarred === 'true', before);
+        conds.push(`(starred, coalesce(updated_at, created_at)) < ($${vals.length - 1}::boolean, $${vals.length}::timestamptz)`);
+      } else if (before) {
+        vals.push(before);
+        conds.push(`coalesce(updated_at, created_at) < $${vals.length}::timestamptz`);
+      }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
         q(
@@ -541,22 +548,24 @@ export async function handleRest(
                             || coalesce(title, metadata->>'agent_name', '')
                        else title end as title,
                   metadata->>'origin' as origin, metadata->>'agent_name' as agent_name,
-                  created_at, updated_at
+                  created_at, updated_at, starred
              from eidan.conversations
             where ${conds.join(' and ')}
-            order by coalesce(updated_at, created_at) desc limit $${vals.length}`,
+            order by starred desc, coalesce(updated_at, created_at) desc limit $${vals.length}`,
           vals,
         ),
       );
       const rows = r.rows;
-      const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown } | undefined;
+      const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred?: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
+      const nextBeforeStarred = rows.length === limit && last ? String(last.starred === true) : null;
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
-          created_at: iso(row.created_at), updated_at: iso(row.updated_at),
+          created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
         })),
         next_before: nextBefore,
+        next_before_starred: nextBeforeStarred,
       }, cors);
       return true;
     }
@@ -579,18 +588,24 @@ export async function handleRest(
     const sub = parts[3];
 
     if (sub === undefined && method === 'GET') {
-      const r = await withPrincipal(principal, (q) => q('select id, title, created_at, updated_at from eidan.conversations where id=$1 and user_id=$2 and deleted_at is null', [id, uid]));
+      const r = await withPrincipal(principal, (q) => q('select id, title, created_at, updated_at, starred from eidan.conversations where id=$1 and user_id=$2 and deleted_at is null', [id, uid]));
       const row = r.rows[0];
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
-      json(res, 200, { id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at) }, cors);
+      json(res, 200, { id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true }, cors);
       return true;
     }
 
     if (sub === undefined && method === 'PATCH') {
-      let title: string | null = null;
-      try { const b = JSON.parse(await readBody(req)) as { title?: string | null }; title = (b.title ?? '').toString().trim() || null; } catch { /* */ }
-      await withPrincipal(principal, (q) => q('update eidan.conversations set title=$2, updated_at=now() where id=$1 and user_id=$3', [id, title, uid]));
-      json(res, 200, { id, title }, cors);
+      let body: { title?: string | null; starred?: boolean } = {};
+      try { body = JSON.parse(await readBody(req)) as { title?: string | null; starred?: boolean }; } catch { /* */ }
+      const updates: string[] = ['updated_at=now()'];
+      const vals: unknown[] = [id, uid];
+      if ('title' in body) { updates.unshift('title=$3'); vals.push((body.title ?? '').toString().trim() || null); }
+      if ('starred' in body) { updates.unshift(`starred=$${3 + ('title' in body ? 1 : 0)}`); vals.push(body.starred ?? false); }
+      if (updates.length > 1) await withPrincipal(principal, (q) => q(`update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2`, vals));
+      const r = await withPrincipal(principal, (q) => q('select title, starred from eidan.conversations where id=$1 and user_id=$2', [id, uid]));
+      const row = r.rows[0];
+      json(res, 200, { id, title: row?.title ?? null, starred: row?.starred === true }, cors);
       return true;
     }
 

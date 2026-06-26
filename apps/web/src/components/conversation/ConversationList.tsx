@@ -4,7 +4,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { MoreHorizontal, Pencil, Plus, RefreshCw, Search } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, RefreshCw, Search, Star } from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   listConversations,
   regenerateConversationTitle,
   updateConversationTitle,
+  toggleConversationStar,
   type ConversationSummary,
 } from "@/lib/api/conversations";
 import { cn } from "@/lib/utils";
@@ -75,6 +76,7 @@ export function ConversationList(): React.ReactElement {
 
   const [items, setItems] = React.useState<ConversationSummary[] | null>(null);
   const [nextBefore, setNextBefore] = React.useState<string | null>(null);
+  const [nextBeforeStarred, setNextBeforeStarred] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
@@ -94,10 +96,11 @@ export function ConversationList(): React.ReactElement {
     setError(null);
     (async () => {
       try {
-        const { conversations, nextBefore } = await listConversations({ limit: PAGE, kind: filter, q: debounced });
+        const { conversations, nextBefore, nextBeforeStarred } = await listConversations({ limit: PAGE, kind: filter, q: debounced });
         if (cancelled) return;
         setItems(conversations);
         setNextBefore(nextBefore);
+        setNextBeforeStarred(nextBeforeStarred);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "failed to load conversations");
@@ -110,13 +113,14 @@ export function ConversationList(): React.ReactElement {
     if (loadingMore || !nextBefore || !config) return;
     setLoadingMore(true);
     try {
-      const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore });
+      const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore, beforeStarred: nextBeforeStarred });
       setItems((prev) => [...(prev ?? []), ...page.conversations]);
       setNextBefore(page.nextBefore);
+      setNextBeforeStarred(page.nextBeforeStarred);
     } catch { /* keep what we have; the next scroll-into-view retries */ } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, nextBefore, config, filter, debounced]);
+  }, [loadingMore, nextBefore, nextBeforeStarred, config, filter, debounced]);
 
   // Infinite scroll. The observer is created ONCE and calls the latest loadMore via a ref — putting
   // loadMore in the effect deps would re-create the observer on every loadingMore/nextBefore change,
@@ -152,6 +156,22 @@ export function ConversationList(): React.ReactElement {
   const onRowTitleChange = React.useCallback(
     (rowId: string, nextTitle: string | null) => {
       setItems((prev) => prev === null ? prev : prev.map((row) => row.id === rowId ? { ...row, title: nextTitle } : row));
+    },
+    [],
+  );
+
+  const onRowStarChange = React.useCallback(
+    (rowId: string, nextStarred: boolean) => {
+      setItems((prev) => {
+        if (prev === null) return prev;
+        const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred } : row);
+        return updated.sort((a, b) => {
+          if ((b.starred ?? false) !== (a.starred ?? false)) {
+            return (b.starred ?? false) ? 1 : -1;
+          }
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+        });
+      });
     },
     [],
   );
@@ -236,6 +256,7 @@ export function ConversationList(): React.ReactElement {
                 row={row}
                 active={row.id === activeId}
                 onTitleChange={(next) => onRowTitleChange(row.id, next)}
+                onStarChange={(next) => onRowStarChange(row.id, next)}
               />
             </li>
           ))}
@@ -252,15 +273,17 @@ function ConversationRow({
   row,
   active,
   onTitleChange,
+  onStarChange,
 }: {
   row: ConversationSummary;
   active: boolean;
   onTitleChange: (next: string | null) => void;
+  onStarChange: (next: boolean) => void;
 }): React.ReactElement {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState("");
-  const [busy, setBusy] = React.useState<"save" | "regen" | null>(null);
+  const [busy, setBusy] = React.useState<"save" | "regen" | "star" | null>(null);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -330,6 +353,20 @@ function ConversationRow({
     }
   }, [busy, onTitleChange, row.id]);
 
+  const onToggleStar = React.useCallback(async () => {
+    if (busy !== null) return;
+    setBusy("star");
+    try {
+      const nextStarred = !(row.starred ?? false);
+      const body = await toggleConversationStar(row.id, nextStarred);
+      onStarChange(body.starred);
+    } catch {
+      // Swallow: operator can retry.
+    } finally {
+      setBusy(null);
+    }
+  }, [busy, onStarChange, row.id, row.starred]);
+
   if (editing) {
     return (
       <div className="flex items-center gap-1 rounded-md bg-accent/40 px-2 py-1">
@@ -398,6 +435,24 @@ function ConversationRow({
           {formatRelative(row.updated_at)}
         </time>
       </Link>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          void onToggleStar();
+        }}
+        disabled={busy === "star"}
+        aria-label={row.starred ? "Unstar conversation" : "Star conversation"}
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-md transition-opacity",
+          row.starred ? "text-amber-500 opacity-100" : "text-muted-foreground",
+          !row.starred && "hover:text-foreground hover:bg-accent/60",
+          row.starred && "hover:text-amber-600 hover:bg-accent/60",
+          !row.starred && (menuOpen || active ? "opacity-100" : "opacity-0 group-hover:opacity-100"),
+        )}
+      >
+        <Star className={cn("h-3.5 w-3.5", row.starred && "fill-current")} />
+      </button>
       <div ref={menuRef} className="relative">
         <button
           type="button"
