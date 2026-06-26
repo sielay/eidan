@@ -130,7 +130,10 @@ async function getTesseract() {
     return await import('tesseract.js');
   } catch {
     throw new ParseError(
-      'OCR requires the tesseract.js library. Install with: pnpm add -w tesseract.js',
+      'OCR is not available on this node. tesseract.js is an optional dependency (a heavy WASM ' +
+        'engine) — installed on cloud nodes but skipped on lean nodes like the Pi (--no-optional). ' +
+        'Run this on a node that installs optional deps, or `pnpm add tesseract.js` here. ' +
+        'PDF/DOCX/Excel parsing still works without it.',
     );
   }
 }

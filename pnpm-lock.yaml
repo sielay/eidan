@@ -391,12 +391,13 @@ importers:
       pdf-parse:
         specifier: ^1.1.1
         version: 1.1.4
-      tesseract.js:
-        specifier: ^5.0.0
-        version: 5.1.1
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
+    optionalDependencies:
+      tesseract.js:
+        specifier: ^5.0.0
+        version: 5.1.1
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -3475,7 +3476,8 @@ snapshots:
 
   bluebird@3.4.7: {}
 
-  bmp-js@0.1.0: {}
+  bmp-js@0.1.0:
+    optional: true
 
   boolbase@1.0.0: {}
 
@@ -4063,7 +4065,8 @@ snapshots:
     dependencies:
       safer-buffer: 2.1.2
 
-  idb-keyval@6.2.5: {}
+  idb-keyval@6.2.5:
+    optional: true
 
   ieee754@1.2.1: {}
 
@@ -4103,7 +4106,8 @@ snapshots:
 
   is-docker@2.2.1: {}
 
-  is-electron@2.2.2: {}
+  is-electron@2.2.2:
+    optional: true
 
   is-fullwidth-code-point@3.0.0: {}
 
@@ -4117,7 +4121,8 @@ snapshots:
     dependencies:
       text-extensions: 1.9.0
 
-  is-url@1.2.4: {}
+  is-url@1.2.4:
+    optional: true
 
   is-wsl@2.2.0:
     dependencies:
@@ -4429,7 +4434,8 @@ snapshots:
       is-docker: 2.2.1
       is-wsl: 2.2.0
 
-  opencollective-postinstall@2.0.3: {}
+  opencollective-postinstall@2.0.3:
+    optional: true
 
   option@0.2.4: {}
 
@@ -4682,7 +4688,8 @@ snapshots:
       indent-string: 4.0.0
       strip-indent: 3.0.0
 
-  regenerator-runtime@0.13.11: {}
+  regenerator-runtime@0.13.11:
+    optional: true
 
   regexp-to-ast@0.5.0: {}
 
@@ -4952,7 +4959,8 @@ snapshots:
       type-fest: 2.19.0
       unique-string: 3.0.0
 
-  tesseract.js-core@5.1.1: {}
+  tesseract.js-core@5.1.1:
+    optional: true
 
   tesseract.js@5.1.1:
     dependencies:
@@ -4968,6 +4976,7 @@ snapshots:
       zlibjs: 0.3.1
     transitivePeerDependencies:
       - encoding
+    optional: true
 
   text-decoder@1.2.7:
     dependencies:
@@ -5074,7 +5083,8 @@ snapshots:
       spdx-correct: 3.2.0
       spdx-expression-parse: 3.0.1
 
-  wasm-feature-detect@1.8.0: {}
+  wasm-feature-detect@1.8.0:
+    optional: true
 
   webidl-conversions@3.0.1: {}
 
@@ -5213,4 +5223,5 @@ snapshots:
 
   yn@3.1.1: {}
 
-  zlibjs@0.3.1: {}
+  zlibjs@0.3.1:
+    optional: true
