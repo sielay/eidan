@@ -2,18 +2,20 @@
 -- Add bidirectional escalations support (Escalations v2)
 
 ALTER TABLE eidan.escalations
-  ADD COLUMN from_agent text,
-  ADD COLUMN to_agent text,
-  ADD COLUMN escalation_type text DEFAULT 'agent_to_operator'::text,
-  ADD COLUMN response jsonb,
-  ADD COLUMN trigger_prompt text,
-  ADD COLUMN responded_at timestamp with time zone,
-  ADD COLUMN responded_by uuid,
-  ADD COLUMN deleted_at timestamp with time zone;
+  ADD COLUMN IF NOT EXISTS from_agent text,
+  ADD COLUMN IF NOT EXISTS to_agent text,
+  ADD COLUMN IF NOT EXISTS escalation_type text DEFAULT 'agent_to_operator'::text,
+  ADD COLUMN IF NOT EXISTS response jsonb,
+  ADD COLUMN IF NOT EXISTS trigger_prompt text,
+  ADD COLUMN IF NOT EXISTS responded_at timestamp with time zone,
+  ADD COLUMN IF NOT EXISTS responded_by uuid,
+  ADD COLUMN IF NOT EXISTS deleted_at timestamp with time zone;
 
 -- Update status check constraint to include new statuses
 ALTER TABLE eidan.escalations
-  DROP CONSTRAINT escalations_status_chk,
+  DROP CONSTRAINT IF EXISTS escalations_status_chk;
+
+ALTER TABLE eidan.escalations
   ADD CONSTRAINT escalations_status_chk CHECK (
     status = ANY (ARRAY[
       'pending'::text, 'acknowledged'::text, 'resolved'::text,
@@ -23,7 +25,7 @@ ALTER TABLE eidan.escalations
 
 -- Add escalation_type check constraint
 ALTER TABLE eidan.escalations
-  ADD CONSTRAINT escalations_type_chk CHECK (
+  ADD CONSTRAINT IF NOT EXISTS escalations_type_chk CHECK (
     escalation_type = ANY (ARRAY[
       'agent_to_operator'::text, 'agent_to_agent'::text,
       'operator_to_agent'::text, 'operator_prompt'::text,
@@ -32,11 +34,11 @@ ALTER TABLE eidan.escalations
   );
 
 -- Create index for querying by to_agent + status (common agent query pattern)
-CREATE INDEX idx_escalations_to_agent_status
+CREATE INDEX IF NOT EXISTS idx_escalations_to_agent_status
   ON eidan.escalations (user_id, to_agent, status)
   WHERE deleted_at IS NULL;
 
 -- Create index for querying by from_agent + status
-CREATE INDEX idx_escalations_from_agent_status
+CREATE INDEX IF NOT EXISTS idx_escalations_from_agent_status
   ON eidan.escalations (user_id, from_agent, status)
   WHERE deleted_at IS NULL;
