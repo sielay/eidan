@@ -45,7 +45,7 @@ interface OAuthCreds {
   refreshToken: string;
 }
 
-type ResolveShared = (ctx: ToolContext) => Promise<OAuthCreds | null>;
+export type ResolveShared = (ctx: ToolContext) => Promise<OAuthCreds | null>;
 
 interface DriveToolsDeps {
   resolveShared: ResolveShared;
@@ -55,7 +55,7 @@ interface DriveToolsDeps {
 // the Gmail plugin registers), else the legacy EIDAN_GOOGLE_* vault keys, else throw. The refresh
 // token is scope-agnostic — the same connected account works for Drive as long as drive.readonly
 // was in the consent grant.
-async function accessToken(ctx: ToolContext, resolveShared: ResolveShared): Promise<string> {
+export async function accessToken(ctx: ToolContext, resolveShared: ResolveShared): Promise<string> {
   let creds = await resolveShared(ctx);
   if (!creds) {
     const clientId = await secretOpt(ctx, 'EIDAN_GOOGLE_CLIENT_ID');

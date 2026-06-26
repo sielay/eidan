@@ -124,6 +124,70 @@ export class FsDb {
     });
   }
 
+  // Find a direct child of `parentId` (null = root) by name (case-insensitive), owner-scoped.
+  async childByName(parentId: string | null, name: string): Promise<FsNode | null> {
+    const p = tryCurrentPrincipal();
+    if (!p) return null;
+    return this.withPrincipalTx(async (q) => {
+      const r = await q(
+        `select id, user_id, parent_id, kind, name, storage_kind, storage_ref, mime, size_bytes, metadata, status, created_at, updated_at
+           from ${this.schema}.fs_nodes
+          where user_id = $1 and parent_id ${parentId ? '= $2' : 'is null'} and lower(name) = lower(${parentId ? '$3' : '$2'}) and status = 'active'
+          limit 1`,
+        parentId ? [p.id, parentId, name] : [p.id, name],
+      );
+      const row = r.rows[0] as Record<string, unknown> | undefined;
+      return row ? this.rowToNode(row) : null;
+    });
+  }
+
+  // Resolve a slash-separated path ("reports/q1.md") to a node, or null if any segment is missing.
+  async resolvePath(path: string): Promise<FsNode | null> {
+    const segs = path.split('/').map((s) => s.trim()).filter(Boolean);
+    if (!segs.length) return null;
+    let parentId: string | null = null;
+    let node: FsNode | null = null;
+    for (const seg of segs) {
+      node = await this.childByName(parentId, seg);
+      if (!node) return null;
+      parentId = node.id;
+    }
+    return node;
+  }
+
+  // Ensure the folder chain for a file path's PARENT exists (creating folders as needed); returns the
+  // parent folder id (null = root) and the final file name.
+  async ensureParentFolders(path: string): Promise<{ parentId: string | null; fileName: string }> {
+    const segs = path.split('/').map((s) => s.trim()).filter(Boolean);
+    if (!segs.length) throw new Error('empty path');
+    const fileName = segs.pop() as string;
+    let parentId: string | null = null;
+    for (const seg of segs) {
+      let folder = await this.childByName(parentId, seg);
+      if (!folder) folder = await this.createFolder(seg, parentId);
+      else if (folder.kind !== 'folder') throw new Error(`'${seg}' is a file, not a folder`);
+      parentId = folder.id;
+    }
+    return { parentId, fileName };
+  }
+
+  // Create OR overwrite a file under `parentId` (null = root): updates the blob + mime/size if it
+  // already exists, else inserts. Returns the node.
+  async upsertFile(name: string, parentId: string | null, mime: string, bytes: Uint8Array): Promise<FsNode> {
+    const existing = await this.childByName(parentId, name);
+    if (existing) {
+      if (existing.kind !== 'file') throw new Error(`'${name}' is a folder`);
+      await this.withPrincipalTx(async (q) => {
+        await q(`update ${this.schema}.fs_nodes set mime = $2, size_bytes = $3, updated_at = now() where id = $1`, [existing.id, mime, bytes.length]);
+      });
+      await this.storeBlob(existing.id, bytes);
+      return (await this.getNode(existing.id)) as FsNode;
+    }
+    const node = await this.createFile(name, parentId, mime, bytes.length);
+    await this.storeBlob(node.id, bytes);
+    return node;
+  }
+
   async createFolder(name: string, parentId: string | null): Promise<FsNode> {
     const p = tryCurrentPrincipal();
     if (!p) throw new Error('no principal');
@@ -163,6 +227,42 @@ export class FsDb {
       );
       return this.rowToNode(r.rows[0] as Record<string, unknown>);
     });
+  }
+
+  // Create a REFERENCE file node: an external file (storage_kind != 'local', e.g. 'gdrive') whose
+  // bytes live elsewhere — only metadata + the external `storageRef` are stored here, no fs_blob.
+  async createRef(
+    name: string,
+    parentId: string | null,
+    mime: string,
+    storageKind: string,
+    storageRef: string,
+  ): Promise<FsNode> {
+    const p = tryCurrentPrincipal();
+    if (!p) throw new Error('no principal');
+    return this.withPrincipalTx(async (q) => {
+      const r = await q(
+        `insert into ${this.schema}.fs_nodes
+            (user_id, parent_id, kind, name, storage_kind, storage_ref, mime, size_bytes)
+         values ($1, $2, 'file', $3, $4, $5, $6, 0)
+         returning id, user_id, parent_id, kind, name, storage_kind, storage_ref, mime, size_bytes, metadata, status, created_at, updated_at`,
+        [p.id, parentId, name, storageKind, storageRef, mime],
+      );
+      return this.rowToNode(r.rows[0] as Record<string, unknown>);
+    });
+  }
+
+  // Point an existing node at an external object (after offloading its bytes, e.g. to Supabase
+  // Storage): set storage_kind + storage_ref + size. Owner-scoped.
+  async setRef(id: string, storageRef: string, sizeBytes: number, storageKind = 'supabase'): Promise<void> {
+    const p = tryCurrentPrincipal();
+    if (!p) throw new Error('no principal');
+    await this.withPrincipalTx((q) =>
+      q(
+        `update ${this.schema}.fs_nodes set storage_kind = $3, storage_ref = $4, size_bytes = $5, updated_at = now() where id = $1 and user_id = $2`,
+        [id, p.id, storageKind, storageRef, sizeBytes],
+      ),
+    );
   }
 
   async storeBlob(nodeId: string, data: Uint8Array): Promise<void> {

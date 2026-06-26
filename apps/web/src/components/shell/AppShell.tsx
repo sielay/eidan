@@ -42,10 +42,17 @@ export function AppShell({
   const pathname = usePathname();
   const { user, signOut } = useAuth();
 
-  // Core sections + whatever installed plugins contribute (design §4).
-  const sections = React.useMemo(
-    () => resolveSections([CORE_CONTRIBUTION, ...pluginNav]),
+  // Core sections + whatever installed plugins contribute (design §4). The `fs` plugin contributes a
+  // duplicate "Files" surface (/p/fs) that's currently empty/unused; the core "Files" page (/files)
+  // supersedes it while the single virtual-filesystem story is consolidated, so drop it here to avoid
+  // two "Files" entries. (Reversible: remove this filter once fs is the unified backend.)
+  const contributedNav = React.useMemo(
+    () => pluginNav.map((c) => ({ ...c, sections: c.sections.filter((s) => s.href !== "/p/fs") })).filter((c) => c.sections.length > 0),
     [],
+  );
+  const sections = React.useMemo(
+    () => resolveSections([CORE_CONTRIBUTION, ...contributedNav]),
+    [contributedNav],
   );
   const chat = chatSection(sections);
   const groups = React.useMemo(() => railGroups(sections), [sections]);

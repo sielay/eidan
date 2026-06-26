@@ -13,7 +13,7 @@ import { streamTurn } from "@/lib/api/turn";
 import { loadProvider, saveProvider, listProviders, type ProviderOption } from "@/lib/models";
 
 import { buildThread, type StreamingAssistant } from "./buildThread";
-import { Composer } from "./Composer";
+import { Composer, type ComposerAttachment } from "./Composer";
 import { ConversationTitle } from "./ConversationTitle";
 import { CostCounter } from "./CostCounter";
 import { LlmCallTrace } from "./LlmCallTrace";
@@ -124,7 +124,7 @@ export function ConversationView({
   }, [config, user, reloadHistory, reloadTitle]);
 
   const onSubmit = React.useCallback(
-    async (text: string) => {
+    async (text: string, attachments?: ComposerAttachment[]) => {
       if (!config) throw new Error("auth config not ready");
       setPendingUserText(text);
       setStreamingAssistant({ text: "", interrupted: false, toolCalls: [] });
@@ -143,6 +143,7 @@ export function ConversationView({
           conversationId,
           text,
           ...(provider ? { provider } : {}),
+          ...(attachments && attachments.length ? { attachments } : {}),
         })) {
           if (event.kind === "text") {
             setStreamingAssistant((prev) => {

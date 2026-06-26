@@ -3,7 +3,7 @@
 // Next-reads-Postgres, the same pattern as core's /api/knowledge). Reads/writes the bundle's own
 // plugin_ventures.* schema, owner-scoped. Shipped in the bundle's frontend package because the data
 // is private to the Charles bundle; the build-context assembly mounts it under apps/web.
-//   GET  ?venture=<id>  → { ventures, current (incl. identity), resources }
+//   GET  ?venture=<slug|id>  → { ventures, current (incl. identity), resources }
 //   POST { venture_id, kind, provider, external_ref, label?, connection_id? } → attach a resource.
 //     connection_id (when the web picker resolved a real connected account) is stored under
 //     metadata.connection_id — the same stable binding the venture_attach_resource agent tool writes,
@@ -17,9 +17,11 @@ interface VentureRow {
   id: string;
   parent_id: string | null;
   name: string;
+  slug: string;
   kind: string;
   legal_type: string | null;
   status: string;
+  prompt: string | null;
   identity: Record<string, unknown> | null;
 }
 // As returned to the client: the raw row plus a derived parent_name (resolved in-process from the
@@ -45,11 +47,13 @@ export async function GET(req: NextRequest): Promise<Response> {
   const sess = verifyBearer(req);
   if (!sess) return new Response("unauthorized", { status: 401 });
 
+  // The path-based UI sends the venture slug here; older ?venture=<id> links still resolve too.
   const wanted = req.nextUrl.searchParams.get("venture");
 
   const payload = await withUser(sess.userId, async (c) => {
     const v = await c.query(
-      `select id, parent_id, name, kind, legal_type, status, metadata->'identity' as identity
+      `select id, parent_id, name, slug, kind, legal_type, status,
+              metadata->>'prompt' as prompt, metadata->'identity' as identity
          from plugin_ventures.ventures
         where user_id = $1 and status = 'active'
         order by parent_id nulls first, created_at`,
@@ -63,7 +67,8 @@ export async function GET(req: NextRequest): Promise<Response> {
       ...row,
       parent_name: row.parent_id ? byId.get(row.parent_id) ?? null : null,
     }));
-    const current = ventures.find((row) => row.id === wanted) ?? ventures[0] ?? null;
+    const current =
+      ventures.find((row) => row.slug === wanted || row.id === wanted) ?? ventures[0] ?? null;
 
     let resources: ResourceRow[] = [];
     if (current) {

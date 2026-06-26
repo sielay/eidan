@@ -1,7 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MatbotPluginSpec, MatbotServices, ToolContext } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
-import { makeDriveTools } from './tools.js';
+import { makeDriveTools, accessToken, type ResolveShared } from './tools.js';
+import { DriveClient, type DriveFile } from './drive.js';
+
+// Reusable Drive access for OTHER plugins (e.g. the `fs` virtual filesystem mounting a Drive folder
+// as a reference adapter) — the same per-user OAuth resolution the tools use (ctx carries the
+// principal + vault). Read-only. Registered under the GoogleDrive service key.
+interface GoogleDrive {
+  stat(ctx: ToolContext, fileId: string): Promise<DriveFile>;
+  listFolder(ctx: ToolContext, folderId: string, limit?: number): Promise<DriveFile[]>;
+  readFile(ctx: ToolContext, fileId: string): Promise<{ file: DriveFile; bytes: Uint8Array; mime: string }>;
+}
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    GoogleDrive?: GoogleDrive;
+  }
+}
 
 // Optional integration with the eidan secrets catalog (@eidandev/vault-postgres): declare the
 // credentials this plugin needs so Settings → Connections renders a secure section for them.
@@ -40,10 +55,19 @@ export const plugin: MatbotPluginSpec = {
       'drive.readonly scope).',
   },
   async setup(services: MatbotServices) {
-    const tools = makeDriveTools({
-      resolveShared: (ctx) => services.GoogleConnection?.resolveCreds(ctx) ?? Promise.resolve(null),
-    });
+    const resolveShared: ResolveShared = (ctx) => services.GoogleConnection?.resolveCreds(ctx) ?? Promise.resolve(null);
+    const tools = makeDriveTools({ resolveShared });
     for (const t of tools) services.tools.register(t);
+
+    // Expose Drive access for the fs virtual filesystem's gdrive reference adapter.
+    await services.register('GoogleDrive', {
+      stat: async (ctx: ToolContext, fileId: string) =>
+        new DriveClient(await accessToken(ctx, resolveShared)).getMeta(fileId),
+      listFolder: async (ctx: ToolContext, folderId: string, limit?: number) =>
+        new DriveClient(await accessToken(ctx, resolveShared)).listChildren(folderId, limit ?? 200),
+      readFile: async (ctx: ToolContext, fileId: string) =>
+        new DriveClient(await accessToken(ctx, resolveShared)).readFileBytes(fileId),
+    } satisfies GoogleDrive);
     services.EidanSecrets?.declareSection({
       plugin: 'gdrive',
       title: 'Google Drive',

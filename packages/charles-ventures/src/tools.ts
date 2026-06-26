@@ -135,6 +135,16 @@ const SET_PLAN_SCHEMA: JSONSchema = {
   additionalProperties: false,
 };
 
+const SET_PROMPT_SCHEMA: JSONSchema = {
+  type: 'object',
+  properties: {
+    venture_id: { type: 'string', description: 'The venture whose prompt/context to set.', minLength: 1 },
+    prompt: { type: 'string', description: "The venture's standing context/instructions — free-text guidance for how to act on this venture. Replaces the stored prompt; pass an empty string to clear it." },
+  },
+  required: ['venture_id', 'prompt'],
+  additionalProperties: false,
+};
+
 const ADD_ITEM_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
@@ -323,8 +333,9 @@ export function buildVenturesTools(db: Db, social?: SocialConnectionsLookup): To
     {
       name: 'venture_get',
       description:
-        'Inspect one venture in full: its core fields plus its stored plan/state and identity ' +
-        '(from metadata), its working items (tasks / ideas / notes), and its attached resources. ' +
+        'Inspect one venture in full: its core fields plus its operator prompt/context, its stored ' +
+        'plan/state and identity (from metadata), its working items (tasks / ideas / notes), and its ' +
+        'attached resources. Read the `prompt` for the operator\'s standing context on this venture. ' +
         'Use to reason over everything a venture holds before planning or acting within it.',
       inputSchema: GET_SCHEMA,
       executor: {
@@ -351,6 +362,7 @@ export function buildVenturesTools(db: Db, social?: SocialConnectionsLookup): To
             value: {
               ...view(result.v),
               parent: result.parent ? { id: result.parent.id, name: result.parent.name } : null,
+              prompt: result.v.metadata['prompt'] ?? null,
               plan: result.v.metadata['plan'] ?? null,
               identity: result.v.metadata['identity'] ?? null,
               children: result.children.map(view),
@@ -464,6 +476,30 @@ export function buildVenturesTools(db: Db, social?: SocialConnectionsLookup): To
           );
           if (!row) return yield { type: 'error', message: 'no such venture' };
           yield { type: 'result', value: { ...view(row), plan: row.metadata['plan'] ?? null } };
+        },
+      },
+    },
+    {
+      name: 'venture_set_prompt',
+      description:
+        "Set a venture's prompt — its standing context/instructions (what this venture is, who it's " +
+        'for, how to act on it). Free-text the operator (or you) can author to give every later turn ' +
+        'more context on this venture; replaces the stored prompt (empty string clears it). Distinct ' +
+        'from the plan (working state) — the prompt is durable context, surfaced by venture_get.',
+      inputSchema: SET_PROMPT_SCHEMA,
+      executor: {
+        async *execute(input) {
+          const uid = tryCurrentPrincipal()?.id;
+          if (!uid) return yield { type: 'error', message: 'no user context — ventures are owner-scoped' };
+          const args = (input ?? {}) as Record<string, unknown>;
+          const ventureId = str(args['venture_id']).trim();
+          if (!ventureId) return yield { type: 'error', message: 'venture_id is required' };
+          if (typeof args['prompt'] !== 'string') return yield { type: 'error', message: 'prompt must be a string' };
+          const row = await db.withPrincipalTx((q) =>
+            store.setVenturePrompt(q, uid, ventureId, args['prompt'] as string),
+          );
+          if (!row) return yield { type: 'error', message: 'no such venture' };
+          yield { type: 'result', value: { ...view(row), prompt: row.metadata['prompt'] ?? null } };
         },
       },
     },

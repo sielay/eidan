@@ -1,11 +1,47 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { MatbotServices, Session, Principal } from '@matatbread/matbot-plugin-api';
+import type { MatbotServices, Session, Principal, MessageContent } from '@matatbread/matbot-plugin-api';
 import { runAs, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import { AguiEmitter, lastIdByRole, type AguiEvent } from './agui-emitter.js';
 import { handleDevAuth } from './auth-dev.js';
 import { proxyToPanel } from './panel-proxy.js';
 import { handleRest } from './rest.js';
+
+// An attachment sent with a turn (base64 payload + mime + filename).
+interface TurnAttachment { data?: string; mime?: string; name?: string }
+
+// True for mimes/filenames whose content is human-readable text we can inline into the prompt.
+function isTextAttachment(mime: string, name: string): boolean {
+  if (mime.startsWith('text/')) return true;
+  if (/^application\/(json|xml|x-ndjson|csv|x-yaml|yaml|x-sh|javascript|sql)$/.test(mime)) return true;
+  return /\.(txt|md|markdown|csv|tsv|json|ya?ml|xml|log|js|ts|tsx|jsx|py|sql|sh|html?|css|toml|ini|env|rs|go|java|rb|c|cpp|h)$/i.test(name);
+}
+
+// Build the inbound user-message content from the prompt text + any attachments. Images become image
+// blocks (the model sees them via the Anthropic adapter); text-like files are decoded and fenced into
+// the prompt so their content is actually read; anything else falls back to a document block (which
+// the adapter currently surfaces as a name-only placeholder). The prompt text always comes last so it
+// frames the attachments above it.
+function buildTurnContent(text: string, attachments?: TurnAttachment[]): MessageContent[] {
+  const blocks: MessageContent[] = [];
+  for (const a of attachments ?? []) {
+    const data = typeof a?.data === 'string' ? a.data : '';
+    const mime = typeof a?.mime === 'string' ? a.mime : '';
+    if (!data || !mime) continue;
+    const name = typeof a?.name === 'string' && a.name ? a.name : 'file';
+    if (mime.startsWith('image/')) {
+      blocks.push({ type: 'image', data, mimeType: mime } as MessageContent);
+    } else if (isTextAttachment(mime, name)) {
+      let body = '';
+      try { body = Buffer.from(data, 'base64').toString('utf8'); } catch { body = ''; }
+      blocks.push({ type: 'text', text: `Attached file "${name}":\n\n\`\`\`\n${body}\n\`\`\`` });
+    } else {
+      blocks.push({ type: 'document', data, mimeType: mime, name } as MessageContent);
+    }
+  }
+  blocks.push({ type: 'text', text });
+  return blocks;
+}
 
 // The per-request identity seam (same key matbot's frontend-web uses): an auth plugin registers a
 // resolver that derives the Principal from the request (e.g. a Bearer JWT). Absent ⇒ boot principal.
@@ -125,7 +161,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     const run = services.run;
     if (!sessions || !run) { json(res, 500, { error: 'runner/sessions unavailable' }, cors); return; }
 
-    let body: { conversation_id?: string; text?: string; provider?: string };
+    let body: { conversation_id?: string; text?: string; provider?: string; attachments?: TurnAttachment[] };
     try { body = JSON.parse(await readBody(req)) as typeof body; }
     catch { json(res, 400, { error: 'invalid JSON' }, cors); return; }
     const conversationId = body.conversation_id;
@@ -152,7 +188,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     const ac = new AbortController();
     req.on('close', () => ac.abort());
     try {
-      const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: [{ type: 'text', text }], provider: turnProvider, principal });
+      const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: buildTurnContent(text, body.attachments), provider: turnProvider, principal });
       const ledger = services.LlmCalls;
       const model = services.providers.get(turnProvider)?.model ?? '';
       // The turn's user-message id isn't known until the turn commits (its `done`/`aborted` event

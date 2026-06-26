@@ -8,14 +8,17 @@ import type { ConnectionRow, Driver } from '../registry.js';
 import { pgInspect, pgPing, pgRunSql } from './postgres.js';
 import { mongoInspect, mongoPing, mongoRunCommand } from './mongodb.js';
 
-// What `db_inspect` returns, normalised across engines: a flat list of "containers" (Postgres
-// tables, Mongo collections) the agent can then query.
+// What `db_inspect` returns, normalised across engines: the list of schemas (Postgres namespaces;
+// absent for engines without them) plus a flat list of "containers" (Postgres tables, Mongo
+// collections) the agent can then query. When the caller passes a `schema`, containers are scoped to it.
 export interface InspectResult {
   driver: Driver;
+  schemas?: string[];
   containers: Array<{ schema?: string; name: string; kind: string }>;
 }
 
-export type Inspector = (row: ConnectionRow, password: string, signal: AbortSignal) => Promise<InspectResult>;
+// `schema` (optional) scopes a Postgres inspect to one namespace; engines without schemas ignore it.
+export type Inspector = (row: ConnectionRow, password: string, signal: AbortSignal, schema?: string) => Promise<InspectResult>;
 
 const INSPECTORS: Record<Driver, Inspector> = {
   postgres: pgInspect,

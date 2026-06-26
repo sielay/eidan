@@ -4,6 +4,7 @@
 import * as React from "react";
 
 import { pluginRoutes } from "@/plugins/registry.generated";
+import { matchPluginRoute } from "@/plugins/routeMatch";
 
 /**
  * Lazily mounts a plugin page resolved from the generated registry
@@ -23,16 +24,16 @@ export function PluginRouteRenderer({
   plugin: string;
   path: string;
 }) {
-  const match = pluginRoutes.find(
-    (route) => route.plugin === plugin && route.path === path,
-  );
+  const match = matchPluginRoute(pluginRoutes, plugin, path);
   if (!match) {
     return null;
   }
-  // Delimited cache key so distinct (plugin, path) pairs can't collide
-  // (e.g. "ab" + "/c" vs "a" + "b/c"). "::" can't occur in a plugin
-  // slug or a route path.
-  const key = `${plugin}::${path}`;
+  // Key by the MATCHED route (plugin + its declared path), not the
+  // request path: a wildcard route serves many sub-paths from one
+  // component, so keying on the request path would needlessly remount
+  // (and reset state) on every slug change. "::" can't occur in a
+  // plugin slug or a route path, so the delimiter stays unambiguous.
+  const key = `${match.plugin}::${match.path}`;
   let Component = lazyCache.get(key);
   if (!Component) {
     Component = React.lazy(match.load);

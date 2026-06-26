@@ -223,7 +223,9 @@ export async function authFetch(
   const url = _backendUrl(path);
   const buildHeaders = (): Record<string, string> => {
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
+      // FormData/Blob bodies must NOT get a forced JSON content-type — the browser sets the
+      // multipart boundary (or the blob's own type) itself. Only default JSON for other bodies.
+      ...(init.body instanceof FormData || init.body instanceof Blob ? {} : { "Content-Type": "application/json" }),
       ...(init.headers ?? {}),
     };
     const active = _accessToken;

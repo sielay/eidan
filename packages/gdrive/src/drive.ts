@@ -155,6 +155,32 @@ export class DriveClient {
     return normalizeFile(data as RawFile);
   }
 
+  // List the direct children of a folder (subfolders + files), folders first — for mounting a Drive
+  // folder into the virtual fs and browsing it. `folderId` 'root' (or empty) lists the Drive root.
+  async listChildren(folderId: string, limit = 200): Promise<DriveFile[]> {
+    const id = !folderId || folderId === 'root' ? 'root' : folderId;
+    const q = `'${id.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' in parents and trashed = false`;
+    return this.list(q, limit, 'folder,name');
+  }
+
+  // Download a file's raw bytes + effective mime. Google-native docs are exported (Docs/Slides→text,
+  // Sheets→CSV); everything else is downloaded as-is via alt=media (so images/PDFs come back intact).
+  async readFileBytes(fileId: string): Promise<{ file: DriveFile; bytes: Uint8Array; mime: string }> {
+    const file = await this.getMeta(fileId);
+    let url: string;
+    let mime = file.mimeType;
+    if (isGoogleNative(file.mimeType)) {
+      const exportMime = exportMimeFor(file.mimeType) ?? 'text/plain';
+      mime = exportMime;
+      url = `${DRIVE_API}/files/${encodeURIComponent(fileId)}/export?${new URLSearchParams({ mimeType: exportMime }).toString()}`;
+    } else {
+      url = `${DRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`;
+    }
+    const resp = await this.request(url);
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+    return { file, bytes, mime };
+  }
+
   // Read a file's content as text. Google-native files are exported to text/CSV; ordinary textual
   // files are downloaded via alt=media. Binary/unsupported types throw rather than returning bytes.
   async readFileText(fileId: string): Promise<{ file: DriveFile; text: string }> {

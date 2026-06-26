@@ -10,6 +10,18 @@ import type { MatbotServices, Principal, Session, MessageContent } from '@matatb
 import { getRegisteredPlugins } from '@matatbread/matbot-core';
 import { withPrincipal } from './db.js';
 
+// Structural view of the gdrive plugin's GoogleDrive service (registered under that key; no hard dep).
+interface DriveEntryRest { id: string; name: string; mimeType: string }
+interface GoogleDriveSvcRest {
+  listFolder(ctx: unknown, folderId: string, limit?: number): Promise<DriveEntryRest[]>;
+  readFile(ctx: unknown, fileId: string): Promise<{ file: DriveEntryRest; bytes: Uint8Array; mime: string }>;
+}
+// The fs plugin's reader (serves any fs file's bytes regardless of backend; resolves storage creds
+// from the vault) — so the web can read offloaded/Drive files without ever holding those creds.
+interface EidanFsRest {
+  readBytes(ctx: unknown, nodeId: string): Promise<{ name: string; mime: string; bytes: Uint8Array } | null>;
+}
+
 function iso(v: unknown): string {
   return v instanceof Date ? v.toISOString() : String(v ?? '');
 }
@@ -361,6 +373,69 @@ export async function handleRest(
       },
       cors,
     );
+    return true;
+  }
+
+  // /api/fs/blob?id=<id> — serve any fs file's bytes (local pg / Supabase / S3 / Drive ref). Runs in
+  // the engine under the ambient principal; a {vault} ctx lets the fs reader resolve storage creds, so
+  // the web reads offloaded files WITHOUT ever holding the vault. (The web only stores small files
+  // directly; everything else streams through here.)
+  if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'fs' && parts[2] === 'blob' && method === 'GET') {
+    const efs = (services as unknown as { EidanFs?: EidanFsRest }).EidanFs;
+    if (!efs) { json(res, 501, { error: 'filesystem not available' }, cors); return true; }
+    const id = new URL(req.url ?? '', 'http://x').searchParams.get('id') ?? '';
+    if (!id) { json(res, 400, { error: 'id is required' }, cors); return true; }
+    const ctx = { vault: (services as unknown as { vault: unknown }).vault };
+    try {
+      const r = await efs.readBytes(ctx, id);
+      if (!r) { json(res, 404, { error: 'file not found' }, cors); return true; }
+      const safe = (r.name || 'file').replace(/[\r\n"]/g, '');
+      res.writeHead(200, { 'content-type': r.mime || 'application/octet-stream', 'content-disposition': `inline; filename="${safe}"`, 'cache-control': 'private, no-store', ...cors });
+      res.end(Buffer.from(r.bytes));
+    } catch (e) {
+      json(res, 502, { error: e instanceof Error ? e.message : 'fs read failed' }, cors);
+    }
+    return true;
+  }
+
+  // /api/gdrive/list?folder=<id> — browse the operator's Google Drive live from the Files UI. Runs in
+  // the engine (the web can't read the sealed vault) under the ambient principal; a minimal {vault}
+  // context drives the GoogleDrive service (registered by the gdrive plugin). 'root' = the Drive root.
+  if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'gdrive' && parts[2] === 'list' && method === 'GET') {
+    const drive = (services as unknown as { GoogleDrive?: GoogleDriveSvcRest }).GoogleDrive;
+    if (!drive) { json(res, 501, { error: 'Google Drive isn’t connected' }, cors); return true; }
+    const folder = new URL(req.url ?? '', 'http://x').searchParams.get('folder') || 'root';
+    const ctx = { vault: (services as unknown as { vault: unknown }).vault };
+    try {
+      const files = await drive.listFolder(ctx, folder, 200);
+      const entries = files.map((f) => ({
+        id: f.id,
+        name: f.name,
+        mime: f.mimeType,
+        kind: f.mimeType === 'application/vnd.google-apps.folder' ? 'folder' : 'file',
+      }));
+      json(res, 200, { entries }, cors);
+    } catch (e) {
+      json(res, 502, { error: e instanceof Error ? e.message : 'Drive list failed' }, cors);
+    }
+    return true;
+  }
+
+  // /api/gdrive/file?id=<id> — stream a Drive file's bytes (Google-native docs export to text/CSV).
+  if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'gdrive' && parts[2] === 'file' && method === 'GET') {
+    const drive = (services as unknown as { GoogleDrive?: GoogleDriveSvcRest }).GoogleDrive;
+    if (!drive) { json(res, 501, { error: 'Google Drive isn’t connected' }, cors); return true; }
+    const fileId = new URL(req.url ?? '', 'http://x').searchParams.get('id') ?? '';
+    if (!fileId) { json(res, 400, { error: 'id is required' }, cors); return true; }
+    const ctx = { vault: (services as unknown as { vault: unknown }).vault };
+    try {
+      const { file, bytes, mime } = await drive.readFile(ctx, fileId);
+      const safe = (file.name || 'file').replace(/[\r\n"]/g, '');
+      res.writeHead(200, { 'content-type': mime || 'application/octet-stream', 'content-disposition': `inline; filename="${safe}"`, 'cache-control': 'private, no-store', ...cors });
+      res.end(Buffer.from(bytes));
+    } catch (e) {
+      json(res, 502, { error: e instanceof Error ? e.message : 'Drive read failed' }, cors);
+    }
     return true;
   }
 

@@ -17,15 +17,25 @@ export async function GET(req: NextRequest): Promise<Response> {
   const id = req.nextUrl.pathname.split("/").filter(Boolean).pop() ?? "";
   if (!id) return new Response("id required", { status: 400 });
 
+  // Resolve from the legacy artifacts store first, then the unified fs (plugin_fs) — so old chat
+  // download-chips (artifact ids) and new ones (fs node ids) both serve through this one route.
   const row = await withUser(sess.userId, async (c) => {
-    const r = await c.query(
+    const a = await c.query(
       `select a.filename, a.mime_type, b.data
          from eidan.artifacts a
          join eidan.artifact_blobs b on b.artifact_id = a.id
         where a.id = $1 and a.user_id = $2 and a.deleted_at is null`,
       [id, sess.userId],
     );
-    return r.rows[0] as { filename: string; mime_type: string; data: Buffer } | undefined;
+    if (a.rows.length) return a.rows[0] as { filename: string; mime_type: string; data: Buffer };
+    const f = await c.query(
+      `select n.name as filename, n.mime as mime_type, b.data
+         from plugin_fs.fs_nodes n
+         join plugin_fs.fs_blobs b on b.node_id = n.id
+        where n.id = $1 and n.user_id = $2 and n.kind = 'file' and n.status = 'active'`,
+      [id, sess.userId],
+    );
+    return f.rows[0] as { filename: string; mime_type: string; data: Buffer } | undefined;
   });
   if (!row) return new Response("not found", { status: 404 });
 

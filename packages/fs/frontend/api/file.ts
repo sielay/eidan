@@ -25,12 +25,14 @@ export async function GET(req: NextRequest): Promise<Response> {
   try {
     const result = await withUser(sess.userId, async (c) => {
       const nodeRes = await c.query(
-        `select id, name, mime, storage_kind from plugin_fs.fs_nodes where id = $1 and user_id = $2 and kind = 'file'`,
+        `select id, name, mime, storage_kind, storage_ref from plugin_fs.fs_nodes where id = $1 and user_id = $2 and kind = 'file'`,
         [id, sess.userId],
       );
       if (!nodeRes.rows.length) return null;
       const node = nodeRes.rows[0] as Record<string, unknown>;
-      if (node["storage_kind"] !== "local") throw new Error("non-local storage not supported");
+      // Local (pg bytea) is served directly here; offloaded / Drive files are served by the engine's
+      // /api/fs/blob (it resolves storage creds from the vault, which the web can't read).
+      if (node["storage_kind"] !== "local") throw new Error("read this file via /api/fs/blob");
 
       const blobRes = await c.query(
         `select data from plugin_fs.fs_blobs where node_id = $1 and user_id = $2`,
@@ -38,16 +40,13 @@ export async function GET(req: NextRequest): Promise<Response> {
       );
       if (!blobRes.rows.length) throw new Error("blob not found");
       const blob = blobRes.rows[0] as { data: Buffer };
-      return { name: node["name"], mime: node["mime"], data: blob.data };
+      return { name: node["name"], mime: node["mime"], bytes: new Uint8Array(blob.data.buffer, blob.data.byteOffset, blob.data.byteLength) };
     });
 
     if (!result) return Response.json({ error: "file not found" }, { status: 404 });
 
-    const { name, mime, data } = result;
-    // Buffer-backed Uint8Array is a valid body at runtime; cast past the (ArrayBufferLike) variance
-    // quibble, same as apps/web/src/app/api/artifacts/[id]/route.ts.
-    const body = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-    return new Response(body as unknown as BodyInit, {
+    const { name, mime, bytes } = result;
+    return new Response(bytes as unknown as BodyInit, {
       headers: {
         "content-type": (mime as string) || "application/octet-stream",
         "content-disposition": `attachment; filename="${encodeURIComponent(String(name))}"`,

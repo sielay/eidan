@@ -21,6 +21,15 @@ export const CostSummary = z.object({
 export type CostSummary = z.infer<typeof CostSummary>;
 
 /** `POST /api/turn` request body (eidan-owned, snake_case; `docs/005 §5.5`). */
+// One attachment sent with a turn: base64 payload + its mime + filename. The engine folds these into
+// the user message (images → vision blocks; text files → inlined into the prompt).
+export const TurnAttachment = z.object({
+  data: z.string(),
+  mime: z.string(),
+  name: z.string().optional(),
+});
+export type TurnAttachment = z.infer<typeof TurnAttachment>;
+
 export const TurnInput = z.object({
   conversation_id: z.string(),
   text: z.string(),
@@ -28,5 +37,7 @@ export const TurnInput = z.object({
   user_tz: z.string(),
   // Optional matbot provider name (one model per provider). Omitted ⇒ server default.
   provider: z.string().optional(),
+  // Optional files attached to this turn.
+  attachments: z.array(TurnAttachment).optional(),
 });
 export type TurnInput = z.infer<typeof TurnInput>;

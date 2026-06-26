@@ -332,6 +332,36 @@ export async function setVenturePlan(
   return (r.rows[0] as VentureRow | undefined) ?? null;
 }
 
+/**
+ * Set a venture's free-text prompt — operator-authored standing context/instructions for the
+ * venture ("what is this, who's it for, how should you act here"). Distinct from `plan` (the agent's
+ * working state): `prompt` is the human's durable context, surfaced to the agent via venture_get so
+ * every venture of any kind can carry more context. Stored under metadata.prompt; an empty/blank
+ * value removes the key. Owner-scoped; null if no active venture matched.
+ */
+export async function setVenturePrompt(
+  q: Q,
+  userId: string,
+  ventureId: string,
+  prompt: string,
+): Promise<VentureRow | null> {
+  const trimmed = prompt.trim();
+  const r = await q(
+    trimmed
+      ? `UPDATE plugin_ventures.ventures
+         SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{prompt}', $3::jsonb, true),
+             updated_at = now()
+         WHERE id = $2 AND user_id = $1 AND status = 'active'
+         RETURNING ${COLS}`
+      : `UPDATE plugin_ventures.ventures
+         SET metadata = COALESCE(metadata, '{}'::jsonb) - 'prompt', updated_at = now()
+         WHERE id = $2 AND user_id = $1 AND status = 'active'
+         RETURNING ${COLS}`,
+    trimmed ? [userId, ventureId, JSON.stringify(trimmed)] : [userId, ventureId],
+  );
+  return (r.rows[0] as VentureRow | undefined) ?? null;
+}
+
 // ── Venture items (build -> plan: tasks / ideas / notes under a venture, charles#21) ────────
 
 export interface AddItemArgs {

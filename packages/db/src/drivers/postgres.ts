@@ -40,6 +40,7 @@ export async function pgRunSql(
   sql: string,
   params: unknown[],
   signal: AbortSignal,
+  schema?: string,
 ): Promise<PgRunResult> {
   const client = new pg.Client(clientConfig(row, password));
   const onAbort = (): void => {
@@ -49,6 +50,10 @@ export async function pgRunSql(
   await client.connect();
   signal.addEventListener('abort', onAbort, { once: true });
   try {
+    // Scope unqualified names to the requested schema for this connection (still falls back to public,
+    // and fully-qualified names keep working). Identifier is quote-escaped — SET can't bind a param.
+    const want = schema?.trim();
+    if (want) await client.query(`SET search_path TO ${quoteIdent(want)}, public`);
     const raw = await client.query({ text: sql, values: params });
     const list: pg.QueryResult[] = Array.isArray(raw) ? (raw as pg.QueryResult[]) : [raw];
     return {
@@ -84,21 +89,35 @@ export async function pgPing(row: ConnectionRow, password: string, signal: Abort
   }
 }
 
-export async function pgInspect(row: ConnectionRow, password: string, signal: AbortSignal): Promise<InspectResult> {
+export async function pgInspect(row: ConnectionRow, password: string, signal: AbortSignal, schema?: string): Promise<InspectResult> {
   const client = new pg.Client(clientConfig(row, password));
   const onAbort = (): void => void client.end().catch(() => undefined);
   await client.connect();
   signal.addEventListener('abort', onAbort, { once: true });
   try {
+    // Always list the non-system schemas so the agent can discover them (and pick one to scope to).
+    const s = await client.query(
+      `select schema_name
+         from information_schema.schemata
+        where schema_name not in ('pg_catalog', 'information_schema')
+          and schema_name not like 'pg_%'
+        order by schema_name`,
+    );
+    const schemas = s.rows.map((x: { schema_name: string }) => x.schema_name);
+    // Tables/views — scoped to one schema when asked, else across all non-system schemas.
+    const want = schema?.trim();
     const r = await client.query(
       `select table_schema, table_name, table_type
          from information_schema.tables
         where table_schema not in ('pg_catalog', 'information_schema')
+          and ($1::text is null or table_schema = $1)
         order by table_schema, table_name
         limit 2000`,
+      [want || null],
     );
     return {
       driver: 'postgres',
+      schemas,
       containers: r.rows.map((t: { table_schema: string; table_name: string; table_type: string }) => ({
         schema: t.table_schema,
         name: t.table_name,
@@ -109,4 +128,10 @@ export async function pgInspect(row: ConnectionRow, password: string, signal: Ab
     signal.removeEventListener('abort', onAbort);
     await client.end().catch(() => undefined);
   }
+}
+
+// Quote a Postgres identifier (schema name) for use in a SET — doubling embedded quotes, the standard
+// identifier escape. Used because SET search_path can't take a bind parameter.
+function quoteIdent(ident: string): string {
+  return '"' + ident.replace(/"/g, '""') + '"';
 }

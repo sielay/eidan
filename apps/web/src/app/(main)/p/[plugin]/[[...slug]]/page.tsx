@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { PluginRouteRenderer } from "@/components/plugins/PluginRouteRenderer";
 import { pluginRoutes } from "@/plugins/registry.generated";
+import { matchPluginRoute } from "@/plugins/routeMatch";
 
 /**
  * Catch-all host route for plugin pages (#284): every plugin
@@ -23,9 +24,9 @@ export default async function PluginCatchAllPage({
 }) {
   const { plugin, slug } = await params;
   const path = "/" + (slug ?? []).join("/");
-  const match = pluginRoutes.find(
-    (route) => route.plugin === plugin && route.path === path,
-  );
+  // Wildcard-aware lookup so a plugin can serve slug sub-pages (e.g.
+  // /p/charles-ventures/<slug>) from one route; same rule the client renderer uses.
+  const match = matchPluginRoute(pluginRoutes, plugin, path);
   if (!match) {
     notFound();
   }

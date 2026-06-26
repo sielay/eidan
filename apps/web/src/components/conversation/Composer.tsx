@@ -2,7 +2,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, Cpu, Loader2, Mic, Paperclip, Send, Square } from "lucide-react";
+import { Check, ChevronDown, Cpu, Loader2, Mic, Paperclip, Send, Square, X } from "lucide-react";
 
 import { isTranscribeAvailable, transcribeAudio } from "@/lib/api/transcribe";
 import type { ProviderOption } from "@/lib/models";
@@ -148,13 +148,45 @@ function ModelOpt({
   );
 }
 
+// One pending attachment: base64 payload + its mime + filename. Built in the browser from a picked
+// file; sent with the turn so the engine can fold it into the user message (images → vision blocks,
+// text files → inlined into the prompt — see the engine's buildTurnContent).
+export interface ComposerAttachment {
+  name: string;
+  mime: string;
+  data: string;
+}
+
+// Total attachment budget (raw bytes, across all files on a turn). base64 inflates payloads ~33% and
+// the whole turn body flows through the Vercel proxy, which caps request bodies at ~4.5MB — so keep
+// the raw total ≈3MB (~4MB encoded) to stay safely under it. Plenty for screenshots/photos + text.
+const MAX_ATTACH_BYTES = 3 * 1024 * 1024;
+
+// Approximate the raw byte size of an already-encoded attachment (base64 length × 3/4).
+function approxBytes(a: ComposerAttachment): number {
+  return Math.floor((a.data.length * 3) / 4);
+}
+
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(r.error ?? new Error("read failed"));
+    r.onload = () => {
+      const s = String(r.result);
+      const comma = s.indexOf(","); // strip the `data:<mime>;base64,` prefix
+      resolve(comma >= 0 ? s.slice(comma + 1) : s);
+    };
+    r.readAsDataURL(file);
+  });
+}
+
 export interface ComposerProps {
   /**
    * Submit handler. The composer awaits the returned promise and
    * keeps itself disabled until it settles, mirroring the in-flight
    * lock pinned in `docs/014 §4.5`.
    */
-  onSubmit: (text: string) => Promise<void>;
+  onSubmit: (text: string, attachments?: ComposerAttachment[]) => Promise<void>;
   /** Disabled while a turn is in flight (`docs/014 §4.5`). */
   disabled?: boolean;
   /** Selected matbot provider (one model each). When `onProviderChange` is set, a picker shows. */
@@ -178,9 +210,37 @@ export function Composer({
 }: ComposerProps): React.ReactElement {
   const [value, setValue] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
+  const [attachments, setAttachments] = React.useState<ComposerAttachment[]>([]);
+  const [attachErr, setAttachErr] = React.useState<string | null>(null);
   const taRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
 
   const isDisabled = disabled === true || submitting;
+
+  const onPickFiles = React.useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setAttachErr(null);
+    let running = attachments.reduce((sum, a) => sum + approxBytes(a), 0);
+    const next: ComposerAttachment[] = [];
+    for (const f of Array.from(files)) {
+      if (running + f.size > MAX_ATTACH_BYTES) {
+        setAttachErr("Attachments are limited to ~3MB total");
+        continue;
+      }
+      try {
+        const data = await readAsBase64(f);
+        next.push({ name: f.name, mime: f.type || "application/octet-stream", data });
+        running += f.size;
+      } catch {
+        setAttachErr(`Couldn't read ${f.name}`);
+      }
+    }
+    if (next.length) setAttachments((prev) => [...prev, ...next]);
+  }, [attachments]);
+
+  const removeAttachment = React.useCallback((idx: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
 
   // Grow the textarea with its content up to the CSS max-height.
   const autosize = React.useCallback(() => {
@@ -200,11 +260,14 @@ export function Composer({
 
   const submit = React.useCallback(async () => {
     const text = value.trim();
-    if (!text || isDisabled) return;
+    if (isDisabled) return;
+    if (!text && attachments.length === 0) return; // need text or at least one file
     setSubmitting(true);
     try {
-      await onSubmit(text);
+      await onSubmit(text, attachments.length ? attachments : undefined);
       setValue("");
+      setAttachments([]);
+      setAttachErr(null);
       requestAnimationFrame(() => {
         const ta = taRef.current;
         if (ta) {
@@ -215,7 +278,7 @@ export function Composer({
     } finally {
       setSubmitting(false);
     }
-  }, [value, isDisabled, onSubmit]);
+  }, [value, isDisabled, onSubmit, attachments]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -225,19 +288,43 @@ export function Composer({
   };
 
   return (
-    <form
-      className="composer"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
+    <div className="composer-outer" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {attachments.length > 0 || attachErr ? (
+        <div className="composer__chips" style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "2px 4px", alignItems: "center" }}>
+          {attachments.map((a, i) => (
+            <span key={`${a.name}-${i}`} className="composer__chip" title={a.name} style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: 220, border: "1px solid var(--border)", borderRadius: 8, padding: "2px 6px", fontSize: 12, background: "var(--muted, rgba(0,0,0,0.04))" }}>
+              <Paperclip className="i i-sm" aria-hidden />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+              <button type="button" aria-label={`Remove ${a.name}`} onClick={() => removeAttachment(i)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1, color: "var(--faint)" }}>
+                <X className="i i-sm" aria-hidden />
+              </button>
+            </span>
+          ))}
+          {attachErr ? <span style={{ fontSize: 12, color: "var(--alert)" }}>{attachErr}</span> : null}
+        </div>
+      ) : null}
+      <form
+        className="composer"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        hidden
+        accept="image/*,text/*,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.xml,.log,.txt,.html,.css,.js,.ts,.py,.sql,.sh"
+        onChange={(e) => { void onPickFiles(e.target.files); e.target.value = ""; }}
+      />
       <button
         type="button"
         className="iconbtn composer__attach"
-        aria-label="Attach (coming soon)"
-        title="Attachments coming soon"
-        disabled
+        aria-label="Attach files"
+        title="Attach images or text files"
+        disabled={isDisabled}
+        onClick={() => fileRef.current?.click()}
       >
         <Paperclip className="i" aria-hidden />
       </button>
@@ -262,10 +349,11 @@ export function Composer({
         type="submit"
         className="btn btn--primary composer__send"
         aria-label="Send"
-        disabled={isDisabled || value.trim() === ""}
+        disabled={isDisabled || (value.trim() === "" && attachments.length === 0)}
       >
         <Send className="i" aria-hidden />
       </button>
-    </form>
+      </form>
+    </div>
   );
 }

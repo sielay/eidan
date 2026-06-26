@@ -49,6 +49,8 @@ export interface TurnRequest {
   text: string;
   /** Optional matbot provider name (the chosen model). Omitted ⇒ server default. */
   provider?: string;
+  /** Optional files attached to this turn (base64 data + mime + name). */
+  attachments?: Array<{ data: string; mime: string; name?: string }>;
   signal?: AbortSignal;
 }
 
@@ -93,6 +95,7 @@ export async function* streamTurn(
     sent_at_utc: new Date().toISOString(),
     user_tz: resolveUserTz(),
     ...(req.provider ? { provider: req.provider } : {}),
+    ...(req.attachments && req.attachments.length ? { attachments: req.attachments } : {}),
   });
 
   const res = await authFetch("/api/turn", {

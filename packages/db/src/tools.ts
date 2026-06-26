@@ -31,7 +31,14 @@ const LIST_SCHEMA = { type: 'object', additionalProperties: false, properties: {
 const INSPECT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  properties: { ...CONNECTION_PROP },
+  properties: {
+    ...CONNECTION_PROP,
+    schema: {
+      type: 'string',
+      description: 'Postgres only: limit the listed tables to this one schema. Omit to list every ' +
+        'non-system schema (returned in `schemas`) and all their tables.',
+    },
+  },
 };
 
 const QUERY_SCHEMA = {
@@ -41,6 +48,11 @@ const QUERY_SCHEMA = {
   properties: {
     ...CONNECTION_PROP,
     sql: { type: 'string', description: 'SQL to run (read or write). Multiple statements allowed.', minLength: 1 },
+    schema: {
+      type: 'string',
+      description: 'Postgres only: set search_path to this schema for the query, so unqualified table ' +
+        'names resolve there (fully-qualified names like other_schema.t still work). Omit for the default.',
+    },
     params: {
       type: 'array',
       description: 'Optional positional parameters for $1, $2, … placeholders (prevents injection).',
@@ -101,15 +113,16 @@ export function makeDbTools(registry: Registry): Tool[] {
   const dbInspectTool: Tool = {
     name: 'db_inspect',
     description:
-      "List a connection's tables (Postgres) or collections (MongoDB) so you know what to query. " +
-      'Pass `connection` to choose among several.',
+      "List a connection's schemas + tables (Postgres) or collections (MongoDB) so you know what to " +
+      'query. For Postgres, `schemas` lists every non-system namespace; pass `schema` to scope the ' +
+      'tables to one. Pass `connection` to choose among several.',
     inputSchema: INSPECT_SCHEMA,
     executor: {
       async *execute(input, ctx) {
-        const args = (input ?? {}) as { connection?: string };
+        const args = (input ?? {}) as { connection?: string; schema?: string };
         try {
           const { row, password } = await resolveConnection(registry, ctx, args.connection);
-          const result = await inspector(row.driver)(row, password, ctx.signal);
+          const result = await inspector(row.driver)(row, password, ctx.signal, args.schema);
           yield { type: 'result', value: { connection: row.name, ...result } };
         } catch (e) {
           yield { type: 'error', message: errorMessage(e) };
@@ -123,11 +136,12 @@ export function makeDbTools(registry: Registry): Tool[] {
     description:
       'Run SQL against a Postgres connection (full read/write — SELECT/INSERT/UPDATE/DELETE/DDL). ' +
       'Returns rows (capped at 1000), row count and command per statement. Use $1/$2 placeholders ' +
-      'with `params` for any user-supplied values. For MongoDB connections use db_mongo instead.',
+      'with `params` for any user-supplied values. Pass `schema` to resolve unqualified table names ' +
+      'in that schema. For MongoDB connections use db_mongo instead.',
     inputSchema: QUERY_SCHEMA,
     executor: {
       async *execute(input, ctx) {
-        const args = (input ?? {}) as { connection?: string; sql?: string; params?: unknown[] };
+        const args = (input ?? {}) as { connection?: string; sql?: string; schema?: string; params?: unknown[] };
         const sql = String(args.sql ?? '').trim();
         if (!sql) {
           yield { type: 'error', message: 'sql is required' };
@@ -140,7 +154,7 @@ export function makeDbTools(registry: Registry): Tool[] {
             return;
           }
           const params = Array.isArray(args.params) ? args.params : [];
-          const out = await pgRunSql(row, password, sql, params, ctx.signal);
+          const out = await pgRunSql(row, password, sql, params, ctx.signal, args.schema);
           yield { type: 'result', value: { connection: row.name, ...out } };
         } catch (e) {
           yield { type: 'error', message: errorMessage(e) };

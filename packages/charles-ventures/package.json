@@ -20,7 +20,7 @@
       "stylesheet": "charles.css",
       "routes": [
         {
-          "path": "/",
+          "path": "/*",
           "component": "Ventures.tsx"
         }
       ],
@@ -32,6 +32,10 @@
         {
           "path": "/api/charles/ventures/create",
           "handler": "api/create.ts"
+        },
+        {
+          "path": "/api/charles/ventures/prompt",
+          "handler": "api/prompt.ts"
         },
         {
           "path": "/api/charles/ventures/lookup",

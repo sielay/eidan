@@ -50,10 +50,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       const r = await c.query(
         `insert into plugin_ventures.ventures (user_id, parent_id, name, slug, kind, legal_type)
          values ($1, $2, $3, $4, $5, $6)
-         returning id, name, kind, legal_type, status`,
+         returning id, name, slug, kind, legal_type, status`,
         [sess.userId, parentId, name, slugify(name), kind, legalType],
       );
-      return r.rows[0] as { id: string; name: string; kind: string; legal_type: string | null; status: string };
+      return r.rows[0] as { id: string; name: string; slug: string; kind: string; legal_type: string | null; status: string };
     });
     return Response.json({ ok: true, venture });
   } catch (err) {
