@@ -32,7 +32,6 @@ export const plugin: MatbotPluginSpec = {
 
   async setup(services: MatbotServices) {
     const svc = services as { Escalations?: EscalationsService };
-    const isNonInteractive = !!process.env['IS_SUB_AGENT'];
 
     services.hooks.register({
       on: 'toolresult',
@@ -41,6 +40,8 @@ export const plugin: MatbotPluginSpec = {
       async handler(ctx) {
         const tool = ctx.tool.name;
         if (tool !== 'ask_user') return;
+
+        const isNonInteractive = !!process.env['IS_SUB_AGENT'];
         if (!isNonInteractive) return;
 
         const args = ctx.tool.input as Record<string, unknown> | undefined;
