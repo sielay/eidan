@@ -61,6 +61,12 @@ export const plugin: MatbotPluginSpec = {
         }
         return res;
       },
+      async respond(args) {
+        return await store.respond(args);
+      },
+      async list(args) {
+        return await store.list(args);
+      },
     };
 
     await services.register('Escalations', svc);
