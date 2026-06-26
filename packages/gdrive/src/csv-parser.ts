@@ -21,34 +21,28 @@ function parseValue(val: string): number | boolean | string {
   return val;
 }
 
-// Simple RFC 4180 CSV parser. Handles quoted fields, escaped quotes, CRLF/LF line endings.
+// RFC 4180 CSV parser. First row is the header; quoted fields stay strings, unquoted get type
+// inference. Tokenises the WHOLE text in one pass so a quoted field can contain commas, newlines and
+// escaped quotes ("") — a line-by-line split would corrupt multi-line cells (Google Sheets exports them).
 export function parseCSV(csvText: string): ParsedTable {
-  const lines = csvText.split(/\r?\n/);
+  // Drop wholly-blank rows (a single empty unquoted field) the way blank lines were skipped before.
+  const table = tokenizeCSV(csvText).filter((r) => !(r.length === 1 && r[0]?.value === '' && !r[0]?.wasQuoted));
+  if (table.length === 0) return { headers: [], rows: [] };
+
+  const headers = table[0]!.map((f) => f.value);
   const rows: Record<string, unknown>[] = [];
-  let headers: string[] = [];
-  let headersParsed = false;
-
-  for (const line of lines) {
-    if (line.trim() === '') continue;
-
-    const fieldsWithQuoteInfo = parseCSVLine(line);
-    if (!headersParsed) {
-      headers = fieldsWithQuoteInfo.map((f) => f.value);
-      headersParsed = true;
-      continue;
-    }
-
+  for (let r = 1; r < table.length; r++) {
+    const fields = table[r]!;
     const row: Record<string, unknown> = {};
     for (let i = 0; i < headers.length; i++) {
       const header = headers[i];
       if (!header) continue;
-      const fieldInfo = fieldsWithQuoteInfo[i] ?? { value: '', wasQuoted: false };
-      // Quoted fields stay as strings; unquoted fields get type inference
+      const fieldInfo = fields[i] ?? { value: '', wasQuoted: false };
+      // Quoted fields stay as strings; unquoted fields get type inference.
       row[header] = fieldInfo.wasQuoted ? fieldInfo.value : parseValue(fieldInfo.value);
     }
     rows.push(row);
   }
-
   return { headers, rows };
 }
 
@@ -57,44 +51,36 @@ interface FieldInfo {
   wasQuoted: boolean;
 }
 
-// Parse a single CSV line respecting quoted fields and RFC 4180 escaping.
-// Quoted fields preserve internal whitespace; unquoted fields are trimmed.
-function parseCSVLine(line: string): FieldInfo[] {
-  const fields: FieldInfo[] = [];
+// Single-pass tokeniser: walks the whole text, tracking quote state, so commas/newlines inside quoted
+// fields don't split rows. Unquoted fields are trimmed; quoted fields are preserved verbatim.
+function tokenizeCSV(text: string): FieldInfo[][] {
+  const rows: FieldInfo[][] = [];
+  let row: FieldInfo[] = [];
   let current = '';
   let inQuotes = false;
   let wasQuoted = false;
-  let i = 0;
 
-  while (i < line.length) {
-    const char = line[i];
+  const pushField = (): void => { row.push({ value: wasQuoted ? current : current.trim(), wasQuoted }); current = ''; wasQuoted = false; };
+  const pushRow = (): void => { pushField(); rows.push(row); row = []; };
 
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i += 2;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { current += '"'; i++; continue; } // escaped quote ""
+        inQuotes = false;
         continue;
       }
-      if (!inQuotes) {
-        wasQuoted = true;
-      }
-      inQuotes = !inQuotes;
-      i++;
+      current += ch;
       continue;
     }
-
-    if (char === ',' && !inQuotes) {
-      fields.push({ value: wasQuoted ? current : current.trim(), wasQuoted });
-      current = '';
-      wasQuoted = false;
-      i++;
-      continue;
-    }
-
-    current += char;
-    i++;
+    if (ch === '"') { wasQuoted = true; inQuotes = true; continue; }
+    if (ch === ',') { pushField(); continue; }
+    if (ch === '\r') continue; // swallow CR (CRLF)
+    if (ch === '\n') { pushRow(); continue; }
+    current += ch;
   }
-
-  fields.push({ value: wasQuoted ? current : current.trim(), wasQuoted });
-  return fields;
+  // Flush a trailing field/row when the text doesn't end in a newline.
+  if (current !== '' || wasQuoted || row.length > 0) pushRow();
+  return rows;
 }

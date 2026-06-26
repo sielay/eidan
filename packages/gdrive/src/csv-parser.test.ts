@@ -133,4 +133,16 @@ describe('parseCSV', () => {
     assert.equal(rows[0]?.bool3, true);
     assert.equal(rows[0]?.bool4, false);
   });
+
+  it('keeps newlines and commas inside quoted fields (RFC 4180 multi-line cell)', () => {
+    const csv = 'name,note\n"Acme, Inc.","line one\nline two"\nBob,plain';
+    const { headers, rows } = parseCSV(csv);
+
+    assert.deepEqual(headers, ['name', 'note']);
+    assert.equal(rows.length, 2); // the embedded newline must NOT create a phantom row
+    assert.equal(rows[0]?.name, 'Acme, Inc.');
+    assert.equal(rows[0]?.note, 'line one\nline two');
+    assert.equal(rows[1]?.name, 'Bob');
+    assert.equal(rows[1]?.note, 'plain');
+  });
 });
