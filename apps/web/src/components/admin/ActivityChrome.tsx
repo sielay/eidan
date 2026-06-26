@@ -29,10 +29,10 @@ const ACTIVE_JOB_STATUSES = new Set(["queued", "claimed", "running"]);
  * while staying cheap on a deployment with a hand-counted plugin
  * count.
  */
-const ACTIVITY_TABS = ["dashboard", "nodes", "live"] as const;
+const ACTIVITY_TABS = ["dashboard", "nodes", "agents", "live"] as const;
 
 // Tabs that want the full content width (the wide live log table) rather than the reading-width column.
-const WIDE_TABS = new Set<string>(["live"]);
+const WIDE_TABS = new Set<string>(["agents", "live"]);
 
 export function ActivityChrome({
   activeTab,
