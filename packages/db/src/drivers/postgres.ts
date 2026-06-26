@@ -10,6 +10,13 @@ import type { InspectResult } from './index.js';
 const MAX_ROWS = 1000;
 const STATEMENT_TIMEOUT_MS = 30_000;
 
+// Quote a Postgres identifier (schema/table name) for use in SQL — doubling embedded quotes,
+// the standard identifier escape. Safe against SQL injection since identifiers from
+// information_schema cannot contain arbitrary input.
+function quoteIdent(ident: string): string {
+  return '"' + ident.replace(/"/g, '""') + '"';
+}
+
 function clientConfig(row: ConnectionRow, password: string): pg.ClientConfig {
   const opts = row.options ?? {};
   const ssl =
@@ -137,12 +144,6 @@ export interface TableSchema {
   foreign_keys: Array<{ column: string; referenced_table: string; referenced_column: string }>;
 }
 
-// Quote a Postgres identifier (schema name) for use in a SET — doubling embedded quotes, the standard
-// identifier escape. Used because SET search_path can't take a bind parameter.
-function quoteIdent(ident: string): string {
-  return '"' + ident.replace(/"/g, '""') + '"';
-}
-
 export interface IntrospectResult {
   tables: string[];
   table_schemas: Record<string, TableSchema>;
@@ -215,8 +216,7 @@ export async function pgIntrospect(
         // If pg_stat_user_tables fails, fall back to COUNT (slower but accurate)
         try {
           const countResult = await client.query(
-            `SELECT COUNT(*) as count FROM format('%I.%I', $1, $2)::regclass`,
-            [table.schema, table.name],
+            `SELECT COUNT(*) as count FROM ${quoteIdent(table.schema)}.${quoteIdent(table.name)}`,
           );
           rowCount = countResult.rows[0]?.count ?? 0;
         } catch {
