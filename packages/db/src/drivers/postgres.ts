@@ -10,9 +10,10 @@ import type { InspectResult } from './index.js';
 const MAX_ROWS = 1000;
 const STATEMENT_TIMEOUT_MS = 30_000;
 
-// Quote a Postgres identifier (schema/table name) for use in SQL — doubling embedded quotes,
-// the standard identifier escape. Safe against SQL injection since identifiers from
-// information_schema cannot contain arbitrary input.
+// Quote a Postgres identifier (schema/table name) for use in SQL. Uses PostgreSQL's standard
+// identifier-escaping method (RFC 5050): doubling embedded double-quotes. This is robust against
+// SQL injection for all identifier characters, including those from system catalogs like
+// information_schema.tables. Mirrors the behavior of PostgreSQL's format('%I', ...) function.
 function quoteIdent(ident: string): string {
   return '"' + ident.replace(/"/g, '""') + '"';
 }
