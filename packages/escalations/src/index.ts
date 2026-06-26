@@ -62,7 +62,23 @@ export const plugin: MatbotPluginSpec = {
         return res;
       },
       async respond(args) {
-        return await store.respond(args);
+        const res = await store.respond(args);
+        if (res) {
+          const escalation = await store.getEscalation(args.id);
+          if (escalation && escalation.to_agent) {
+            const responseText = args.feedback;
+            const triggerPrompt = escalation.trigger_prompt;
+            const notify = (services as { Notify?: NotifyLike }).Notify;
+            const payload = JSON.stringify({
+              escalation_id: escalation.id,
+              agent_id: escalation.to_agent,
+              response_text: responseText,
+              trigger_prompt: triggerPrompt,
+            });
+            await notify?.emit('escalations:response', payload, 'info').catch(() => undefined);
+          }
+        }
+        return res;
       },
       async list(args) {
         return await store.list(args);

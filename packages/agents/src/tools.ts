@@ -75,6 +75,15 @@ const SCHEDULE_SCHEMA: JSONSchema = {
   additionalProperties: false,
 };
 
+const RESPONSE_TRIGGER_SCHEMA: JSONSchema = {
+  type: 'object',
+  properties: {
+    agent_id: { type: 'string', description: 'The agent to attach a response trigger to.', minLength: 1 },
+  },
+  required: ['agent_id'],
+  additionalProperties: false,
+};
+
 const TRIGGER_DELETE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: { id: { type: 'string', description: 'The trigger to remove.', minLength: 1 } },
@@ -171,6 +180,24 @@ export function buildAgentTools(store: AgentsStore): Tool[] {
           if (!isValidSchedule(schedule)) return yield { type: 'error', message: `invalid schedule "${schedule}". ${SCHEDULE_HELP}` };
           try {
             const t = await store.addTrigger(agentId, 'schedule', { schedule });
+            yield { type: 'result', value: triggerView(t) };
+          } catch (e) {
+            yield { type: 'error', message: e instanceof Error ? e.message : String(e) };
+          }
+        },
+      },
+    },
+    {
+      name: 'agent_response_trigger',
+      description: 'Attach a response trigger to an agent — it will fire immediately when an escalation directed to it is answered by the operator, with the agent\'s persona modified by the escalation\'s trigger_prompt.',
+      inputSchema: RESPONSE_TRIGGER_SCHEMA,
+      executor: {
+        async *execute(input) {
+          const args = (input ?? {}) as Record<string, unknown>;
+          const agentId = str(args['agent_id']).trim();
+          if (!agentId) return yield { type: 'error', message: 'agent_id is required' };
+          try {
+            const t = await store.addTrigger(agentId, 'response', {});
             yield { type: 'result', value: triggerView(t) };
           } catch (e) {
             yield { type: 'error', message: e instanceof Error ? e.message : String(e) };

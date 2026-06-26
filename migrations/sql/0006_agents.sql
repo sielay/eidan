@@ -33,7 +33,7 @@ create table eidan.agent_triggers (
     created_at  timestamptz not null default now(),
     updated_at  timestamptz not null default now(),
     deleted_at  timestamptz,
-    constraint agent_triggers_type_chk check (type in ('schedule', 'sensor', 'webhook'))
+    constraint agent_triggers_type_chk check (type in ('schedule', 'sensor', 'webhook', 'response'))
 );
 create index idx_agent_triggers_agent on eidan.agent_triggers (agent_id) where deleted_at is null;
 create index idx_agent_triggers_type on eidan.agent_triggers (type, enabled) where deleted_at is null and enabled;

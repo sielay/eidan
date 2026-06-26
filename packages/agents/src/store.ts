@@ -239,6 +239,37 @@ export class AgentsStore {
     return tz ?? 'UTC';
   }
 
+  // Find agents with response triggers (for dispatch on escalation response)
+  async responseTriggeredAgents(): Promise<Array<{
+    trigger_id: string;
+    agent_id: string;
+    user_id: string;
+    name: string;
+    persona: string;
+    provider: string | null;
+    model: string | null;
+    target_node: string | null;
+  }>> {
+    const r = await this.db.query(
+      `select t.id as trigger_id, a.id as agent_id, a.user_id, a.name, a.persona, a.provider,
+              a.model, a.target_node
+         from eidan.agent_triggers t
+         join eidan.agents a on a.id = t.agent_id
+        where t.type = 'response' and t.enabled and t.deleted_at is null
+          and a.enabled and a.deleted_at is null`,
+    );
+    return r.rows as Array<{
+      trigger_id: string;
+      agent_id: string;
+      user_id: string;
+      name: string;
+      persona: string;
+      provider: string | null;
+      model: string | null;
+      target_node: string | null;
+    }>;
+  }
+
   // Claim a fire. The unique (trigger_id, fire_key) index means exactly one node wins; the others get
   // a no-op insert and skip. Returns true if THIS caller claimed the fire.
   async claimRun(triggerId: string, agentId: string, userId: string, fireKey: string): Promise<boolean> {

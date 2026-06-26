@@ -188,4 +188,16 @@ export class EscalationsStore {
     );
     return r.rows as EscalationRow[];
   }
+
+  // Fetch a single escalation by id (internal; used to emit response events)
+  async getEscalation(id: string): Promise<EscalationRow | null> {
+    const r = await this.db.query(
+      `select id, user_id, conversation_id, agent_id, severity, reason_class, suggested_action,
+              evidence, status, metadata, from_agent, to_agent, escalation_type, response,
+              trigger_prompt, created_at, updated_at, responded_at, resolved_at, responded_by
+         from eidan.escalations where id = $1`,
+      [id],
+    );
+    return (r.rows[0] as EscalationRow | undefined) ?? null;
+  }
 }

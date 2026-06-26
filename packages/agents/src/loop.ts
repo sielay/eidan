@@ -28,6 +28,19 @@ interface EscalationsLike {
     evidence?: unknown[];
     agentId?: string;
   }): Promise<{ id: string } | null>;
+  list(args: {
+    userId?: string;
+    fromAgent?: string;
+    toAgent?: string;
+    status?: string;
+    limit?: number;
+  }): Promise<Array<{
+    id: string;
+    to_agent: string | null;
+    trigger_prompt: string | null;
+    response: { feedback?: string } | null;
+    responded_at: string | null;
+  }>>;
 }
 
 // Escalate an agent to the operator's Inbox after this many consecutive failed fires (deduped per
@@ -47,12 +60,14 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   // must run on the node that has ollama). Unpinned agents may be fired by any node.
   const nodeId = process.env['EIDAN_NODE_ID'] ?? null;
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  const trackedResponses = new Set<string>(); // escalation ids already processed
 
-  const fire = async (row: DueScheduleRow, fireKey: string): Promise<void> => {
+  const fire = async (row: DueScheduleRow, fireKey: string, overridePersona?: string): Promise<void> => {
     const provider = effectiveProvider(services, row.provider ?? opts.defaultProvider, row.model);
+    const persona = overridePersona ?? row.persona;
     try {
       const { text, conversationId } = await runAgentTurn(
-        services, row.user_id, row.persona, provider,
+        services, row.user_id, persona, provider,
         (cid) => store.markAgentConversation(cid, row.agent_id, row.name),
         opts.turnTimeoutMs,
       );
@@ -86,6 +101,41 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
     }
   };
 
+  const handleResponses = async (): Promise<void> => {
+    try {
+      const agents = await store.responseTriggeredAgents();
+      const esc = (services as { Escalations?: EscalationsLike }).Escalations;
+      if (!esc) return; // escalations service not available
+
+      for (const a of agents) {
+        if (a.target_node && a.target_node !== nodeId) continue; // pinned to another node
+        const responses = await esc.list({
+          userId: a.user_id,
+          toAgent: a.name,
+          status: 'responded',
+          limit: 10,
+        });
+        for (const resp of responses) {
+          if (trackedResponses.has(resp.id)) continue; // already handled
+          if (!resp.responded_at) continue; // shouldn't happen but safety check
+          trackedResponses.add(resp.id);
+
+          // Blend the trigger prompt into the persona
+          const feedback = resp.response?.feedback ?? '';
+          const prompt = resp.trigger_prompt ?? feedback;
+          const blendedPersona = `${a.persona}\n\n[Escalation response] ${prompt}`;
+          const fireKey = `response:${resp.id}`;
+
+          const won = await store.claimRun(a.trigger_id, a.agent_id, a.user_id, fireKey);
+          if (!won) continue; // another node is handling this fire
+          void fire(a as DueScheduleRow, fireKey, blendedPersona);
+        }
+      }
+    } catch (e) {
+      console.warn('[agents] response scan error:', e instanceof Error ? e.message : e);
+    }
+  };
+
   const tick = async (): Promise<void> => {
     const rows = await store.dueScheduleScan();
     for (const r of rows) {
@@ -100,6 +150,8 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       // owns its full lifecycle (finish/escalate in its own try/catch); the per-fire timeout bounds it.
       void fire(r, fireKey);
     }
+    // Response-triggered fires: scan and handle in parallel with schedule triggers
+    void handleResponses();
   };
 
   const loop = async (): Promise<void> => {
