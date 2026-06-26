@@ -137,6 +137,12 @@ export interface TableSchema {
   foreign_keys: Array<{ column: string; referenced_table: string; referenced_column: string }>;
 }
 
+// Quote a Postgres identifier (schema name) for use in a SET — doubling embedded quotes, the standard
+// identifier escape. Used because SET search_path can't take a bind parameter.
+function quoteIdent(ident: string): string {
+  return '"' + ident.replace(/"/g, '""') + '"';
+}
+
 export interface IntrospectResult {
   tables: string[];
   table_schemas: Record<string, TableSchema>;
@@ -208,7 +214,10 @@ export async function pgIntrospect(
       } catch {
         // If pg_stat_user_tables fails, fall back to COUNT (slower but accurate)
         try {
-          const countResult = await client.query(`SELECT COUNT(*) as count FROM ${quoteIdent(table.schema)}.${quoteIdent(table.name)}`);
+          const countResult = await client.query(
+            `SELECT COUNT(*) as count FROM format('%I.%I', $1, $2)::regclass`,
+            [table.schema, table.name],
+          );
           rowCount = countResult.rows[0]?.count ?? 0;
         } catch {
           // If COUNT fails (maybe insufficient permissions), just set to 0
@@ -253,12 +262,6 @@ export async function pgIntrospect(
     signal.removeEventListener('abort', onAbort);
     await client.end().catch(() => undefined);
   }
-}
-
-// Quote a Postgres identifier (schema name) for use in a SET — doubling embedded quotes, the standard
-// identifier escape. Used because SET search_path can't take a bind parameter.
-function quoteIdent(ident: string): string {
-  return '"' + ident.replace(/"/g, '""') + '"';
 }
 
 // Convert shell-style wildcards to SQL LIKE patterns. Escapes SQL metacharacters (% and _) that are
