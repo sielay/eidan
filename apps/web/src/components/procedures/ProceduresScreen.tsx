@@ -252,7 +252,7 @@ export function ProceduresScreen(): React.ReactElement {
                         {exec.error}
                       </div>
                     )}
-                    {exec.result && (
+                    {exec.result != null ? (
                       <div style={{
                         fontSize: "0.65rem",
                         fontFamily: "monospace",
@@ -262,7 +262,7 @@ export function ProceduresScreen(): React.ReactElement {
                       }}>
                         {JSON.stringify(exec.result, null, 2)}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 ))}
               </div>
