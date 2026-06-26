@@ -68,16 +68,16 @@ export function proceduresActionTool(store: ProcedureStore, services: MatbotServ
               const out = await runProcedure(src, bridge);
               const duration = Date.now() - start;
               if (out.error) {
-                await store.recordExecution(a.name, 'failed', undefined, out.error, duration);
+                await store.updateExecution(execId, 'failed', undefined, out.error, duration);
                 yield { type: 'result', value: { execution_id: execId, status: 'failed', error: out.error, logs: out.logs } };
               } else {
-                await store.recordExecution(a.name, 'completed', out.result, undefined, duration);
+                await store.updateExecution(execId, 'completed', out.result, undefined, duration);
                 yield { type: 'result', value: { execution_id: execId, status: 'completed', result: out.result, logs: out.logs } };
               }
             } catch (e) {
               const duration = Date.now() - start;
               const errMsg = e instanceof Error ? e.message : String(e);
-              await store.recordExecution(a.name, 'failed', undefined, errMsg, duration);
+              await store.updateExecution(execId, 'failed', undefined, errMsg, duration);
               yield { type: 'error', message: errMsg };
             }
             return;
@@ -113,6 +113,10 @@ export function proceduresActionTool(store: ProcedureStore, services: MatbotServ
 function makeBridge(services: MatbotServices, ctx: ToolContext, allow: (name: string) => boolean): ProcedureBridge {
   return {
     async call(name: string, input: unknown): Promise<unknown> {
+      // Prevent recursion and self-management: disallow procedures from calling the procedures or procedures_action tools.
+      // This ensures procedures cannot create infinite loops, delete themselves, or trigger other procedures in uncontrolled ways.
+      // The allow-list (EIDAN_PROCEDURE_TOOLS env var) should be carefully configured by operators to avoid exposing sensitive tools
+      // that could lead to privilege escalation or unintended side effects in the hosted environment.
       if (name === 'procedures' || name === 'procedures_action' || !allow(name)) throw new Error(`tool not exposed to procedures: ${name}`);
       const tool = services.tools.resolve(name);
       if (!tool) throw new Error(`unknown tool: ${name}`);

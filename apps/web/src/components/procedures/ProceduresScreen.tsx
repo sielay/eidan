@@ -27,7 +27,7 @@ interface ProcedureDetail {
   created_at: string;
   updated_at: string;
   last_run_at: string | null;
-  history: ExecutionResult[];
+  history?: ExecutionResult[];
 }
 
 interface ExecutionResult {

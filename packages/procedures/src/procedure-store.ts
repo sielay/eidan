@@ -175,4 +175,27 @@ export class ProcedureStore {
       };
     });
   }
+
+  async updateExecution(executionId: string, status: 'queued' | 'running' | 'completed' | 'failed', result?: unknown, error?: string, durationMs?: number): Promise<ExecutionResult | null> {
+    return this.db.withPrincipalTx(async (q) => {
+      const r = await q(
+        `update eidan.procedure_executions
+         set status=$2, result=$3, error=$4, duration_ms=$5, finished_at=case when $2 != 'queued' and $2 != 'running' then now() else null end
+         where user_id=$1 and id=$6
+         returning id, status, result, error, duration_ms, started_at, finished_at`,
+        [currentPrincipal().id, status, result ? JSON.stringify(result) : null, error, durationMs, executionId],
+      );
+      const row = r.rows[0] as { id: string; status: string; result: string | null; error: string | null; duration_ms: number | null; started_at: string; finished_at: string | null } | undefined;
+      if (!row) return null;
+      return {
+        id: row.id,
+        status: row.status as 'queued' | 'running' | 'completed' | 'failed',
+        result: row.result ? JSON.parse(row.result) : null,
+        error: row.error,
+        duration_ms: row.duration_ms,
+        started_at: row.started_at,
+        finished_at: row.finished_at,
+      };
+    });
+  }
 }
