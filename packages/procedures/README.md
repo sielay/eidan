@@ -12,6 +12,17 @@ Inside the sandbox the **only** host capability is `await callTool(name, input)`
 procedure can only orchestrate the allowlisted tools — never escape them. It
 registers the single `procedures` tool below; no service is registered.
 
+## Pre-built Procedures
+
+This package includes three ready-to-promote archaeology procedures for deep content discovery:
+
+- **`drive_deep_scan`** — recursively traverse Google Drive, categorize files by type/date/size, surface old projects and archived content
+- **`mail_thread_archaeology`** — group emails by sender/topic, extract decision patterns and customer signals, identify seasonal trends
+- **`idea_extraction_pipeline`** — read discovered Drive + mail content, extract problems/solutions/opportunities, deduplicate, store findings in memory
+
+**Quick start:** See [SETUP_QUICKSTART.md](./SETUP_QUICKSTART.md) (5 minutes to configured).  
+**Full docs:** See [ARCHAEOLOGY.md](./ARCHAEOLOGY.md) for complete setup, examples, scheduling, and troubleshooting.
+
 ## Tools
 
 | Tool | Purpose |

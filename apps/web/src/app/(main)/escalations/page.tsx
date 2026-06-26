@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
+import Link from "next/link";
 import * as React from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { JobMarkdown } from "@/components/admin/JobMarkdown";
 import {
   acknowledgeEscalation,
   listEscalations,
   resolveEscalation,
+  respondEscalation,
   type EscalationStatusFilter,
   type EscalationSummary,
 } from "@/lib/api/escalations";
@@ -73,6 +76,16 @@ export default function EscalationsPage(): React.ReactElement {
     }
   };
 
+  const handleRespond = async (id: string, feedback: string, decision?: string): Promise<void> => {
+    if (!config || !feedback.trim()) return;
+    try {
+      await respondEscalation(id, { feedback: feedback.trim(), decision });
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "respond failed");
+    }
+  };
+
   if (loading || !user) {
     return (
       <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-10">
@@ -133,6 +146,7 @@ export default function EscalationsPage(): React.ReactElement {
                 row={row}
                 onAcknowledge={() => void handleAcknowledge(row.id)}
                 onResolve={() => void handleResolve(row.id)}
+                onRespond={(feedback, decision) => void handleRespond(row.id, feedback, decision)}
               />
             </li>
           ))}
@@ -146,11 +160,26 @@ function EscalationRow({
   row,
   onAcknowledge,
   onResolve,
+  onRespond,
 }: {
   row: EscalationSummary;
   onAcknowledge: () => void;
   onResolve: () => void;
+  onRespond: (feedback: string, decision?: string) => void;
 }): React.ReactElement {
+  const [showRespond, setShowRespond] = React.useState(false);
+  const [feedback, setFeedback] = React.useState("");
+  const [decision, setDecision] = React.useState("");
+
+  const handleRespondClick = () => {
+    if (feedback.trim()) {
+      onRespond(feedback, decision || undefined);
+      setFeedback("");
+      setDecision("");
+      setShowRespond(false);
+    }
+  };
+
   const severityClass =
     row.severity === "high"
       ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/40"
@@ -161,6 +190,8 @@ function EscalationRow({
     typeof row.metadata?.source === "string"
       ? (row.metadata.source as string)
       : null;
+  const agentLabel = row.from_agent ? `from ${row.from_agent}` : sourceLabel ? `from ${sourceLabel}` : null;
+
   return (
     <article
       className={cn(
@@ -182,18 +213,24 @@ function EscalationRow({
           {row.severity}
         </span>
         <span className="font-mono text-[10px]">{row.reason_class}</span>
-        {sourceLabel ? (
+        {row.escalation_type && row.escalation_type !== "agent_to_operator" ? (
+          <span className="font-mono text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 px-1.5 py-0.5 rounded">
+            {row.escalation_type.replace(/_/g, " ")}
+          </span>
+        ) : null}
+        {agentLabel ? (
           <span className="font-mono text-[10px] text-muted-foreground/70">
-            from {sourceLabel}
+            {agentLabel}
           </span>
         ) : null}
         <span className="ml-auto">{formatRelative(row.created_at)}</span>
       </header>
       {row.suggested_action ? (
-        <p className="whitespace-pre-wrap text-foreground">
-          {row.suggested_action}
-        </p>
+        <div className="text-foreground">
+          <JobMarkdown>{linkifyRefs(row.suggested_action)}</JobMarkdown>
+        </div>
       ) : null}
+      <EscalationRefs row={row} />
       {row.evidence.length > 0 ? (
         <details className="text-xs text-muted-foreground">
           <summary className="cursor-pointer">evidence</summary>
@@ -206,6 +243,65 @@ function EscalationRow({
           </ul>
         </details>
       ) : null}
+      {row.response ? (
+        <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded p-2 text-xs">
+          <p className="font-semibold text-blue-900 dark:text-blue-300">Response:</p>
+          {row.response.feedback ? (
+            <div className="text-blue-800 dark:text-blue-200">
+              <JobMarkdown>{row.response.feedback}</JobMarkdown>
+            </div>
+          ) : null}
+          {row.response.decision && (
+            <p className="text-blue-700 dark:text-blue-300 text-[10px]">
+              Decision: <span className="font-mono">{row.response.decision}</span>
+            </p>
+          )}
+          {row.response.reasoning && (
+            <p className="text-blue-700 dark:text-blue-300 text-[10px]">
+              Reasoning: {row.response.reasoning}
+            </p>
+          )}
+        </div>
+      ) : null}
+      {showRespond && row.status !== "responded" ? (
+        <div className="bg-muted/30 border border-border rounded p-2 gap-2 flex flex-col">
+          <textarea
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="Your feedback..."
+            className="w-full p-2 text-xs border border-border rounded bg-background"
+            rows={2}
+          />
+          <input
+            type="text"
+            value={decision}
+            onChange={(e) => setDecision(e.target.value)}
+            placeholder="Decision (optional)"
+            className="w-full p-2 text-xs border border-border rounded bg-background"
+          />
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={handleRespondClick}
+              disabled={!feedback.trim()}
+              className="rounded-md border border-green-600 bg-green-600 text-white px-2 py-1 text-xs hover:bg-green-700 disabled:opacity-50"
+            >
+              Send Response
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowRespond(false);
+                setFeedback("");
+                setDecision("");
+              }}
+              className="rounded-md border border-border bg-background px-2 py-1 text-xs hover:bg-muted"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
       <footer className="flex items-center gap-2 text-xs">
         {row.status === "pending" ? (
           <button
@@ -214,6 +310,15 @@ function EscalationRow({
             className="rounded-md border border-border bg-background px-2 py-1 hover:bg-muted"
           >
             Acknowledge
+          </button>
+        ) : null}
+        {row.status !== "resolved" && row.status !== "responded" ? (
+          <button
+            type="button"
+            onClick={() => setShowRespond(!showRespond)}
+            className="rounded-md border border-blue-600 text-blue-600 bg-background px-2 py-1 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+          >
+            Respond
           </button>
         ) : null}
         {row.status !== "resolved" ? (
@@ -234,6 +339,82 @@ function EscalationRow({
         </span>
       </footer>
     </article>
+  );
+}
+
+// App-internal routes the agent may name in prose ("review /files/reports/q3.md"). remark-gfm
+// autolinks http(s):// on its own but NOT app paths, so wrap those as markdown links. The leading
+// whitespace/start anchor skips paths already inside a markdown link (preceded by `(` or `[`).
+const APP_PATH_RE = /(^|\s)(\/(?:files|c|p|agents|knowledge|api\/fs)\/[^\s)\]]+)/g;
+function linkifyRefs(text: string): string {
+  return text.replace(APP_PATH_RE, (_m, pre: string, path: string) => `${pre}[${path}](${path})`);
+}
+
+function isUrlLike(s: string): boolean {
+  return /^https?:\/\//.test(s) || /^\/(?:files|c|p|agents|knowledge|api)\//.test(s);
+}
+
+// Last meaningful path segment, for a short chip label ("q3.md" not the whole URL).
+function shortName(href: string): string {
+  try {
+    const path = href.startsWith("http") ? new URL(href).pathname : href;
+    const tail = path.split("/").filter(Boolean).pop();
+    return tail ? decodeURIComponent(tail) : href;
+  } catch {
+    return href;
+  }
+}
+
+// Pull every reviewable reference out of the structured fields so the operator always has a click
+// target — even when the agent only named a file in prose. conversation_id is the surest anchor
+// (the work happened there); evidence/metadata may carry explicit file urls/paths/ids.
+const REF_KEYS = ["url", "href", "path", "file", "file_path", "link"] as const;
+function collectRefs(row: EscalationSummary): Array<{ label: string; href: string }> {
+  const refs: Array<{ label: string; href: string }> = [];
+  const seen = new Set<string>();
+  const push = (label: string, href: string): void => {
+    if (seen.has(href)) return;
+    seen.add(href);
+    refs.push({ label, href });
+  };
+  if (row.conversation_id) push("conversation", `/c/${row.conversation_id}`);
+  const scan = (obj: Record<string, unknown>): void => {
+    for (const k of REF_KEYS) {
+      const v = obj[k];
+      if (typeof v === "string" && isUrlLike(v)) push(shortName(v), v);
+    }
+  };
+  for (const ev of row.evidence) {
+    if (typeof ev === "string" && isUrlLike(ev)) push(shortName(ev), ev);
+    else if (ev && typeof ev === "object") scan(ev as Record<string, unknown>);
+  }
+  if (row.metadata) scan(row.metadata);
+  return refs;
+}
+
+function EscalationRefs({ row }: { row: EscalationSummary }): React.ReactElement | null {
+  const refs = collectRefs(row);
+  if (refs.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+        review:
+      </span>
+      {refs.map((r) => {
+        const external = r.href.startsWith("http");
+        const className =
+          "inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] text-blue-700 hover:bg-muted dark:text-blue-400";
+        return external ? (
+          <a key={r.href} href={r.href} target="_blank" rel="noopener noreferrer" className={className}>
+            {r.label} <span aria-hidden>↗</span>
+          </a>
+        ) : (
+          <Link key={r.href} href={r.href} className={className}>
+            {r.label} <span aria-hidden>→</span>
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 

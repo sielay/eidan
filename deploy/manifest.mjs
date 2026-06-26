@@ -24,7 +24,7 @@ export const CORE_PLUGINS = [
   "imap", "ical", "google", "gdrive",
   // matbot engine tool plugins (vendored submodule) enabled by default — general, dependency-free
   // capabilities: a file scratchpad, web requests, human-in-the-loop prompts, detached sub-turns.
-  "workspace", "http", "ask-user", "background",
+  "workspace", "http", "ask-user", "ask-user-fallback", "background",
   // knowledge cluster (matbot): skills + cognition + rumsfeld. They read/write eidan.knowledge via
   // the KnowledgeIndex adapter @eidandev/memory registers (one unified store). skills runs a per-turn
   // trigger/analysis classifier on the `skills-classifier` provider (defined in eidan.deploy.json).

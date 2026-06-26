@@ -21,6 +21,7 @@ export type NavIconKey =
   | "memory"
   | "inbox"
   | "plugins"
+  | "procedures"
   | "admin"
   | "settings"
   | "more"
@@ -65,6 +66,7 @@ export const CORE_CONTRIBUTION: NavContribution = {
     { id: "agents", label: "Agents", icon: "agents", href: "/agents", mobileHome: null },
     { id: "files", label: "Files", icon: "files", href: "/files", mobileHome: null },
     { id: "jobs", label: "Jobs", icon: "jobs", href: "/jobs", mobileHome: null },
+    { id: "procedures", label: "Procedures", icon: "procedures", href: "/procedures", mobileHome: null },
     { id: "plugins", label: "Plugins", icon: "plugins", href: "/plugins", mobileHome: 3 },
     { id: "admin", label: "Admin", icon: "admin", href: "/admin/activity", mobileHome: null, desktopOnly: true },
   ],

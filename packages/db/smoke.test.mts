@@ -5,7 +5,9 @@
 import assert from 'node:assert/strict';
 import { slugify, passKey, pickConnection } from './src/config.ts';
 import { mongoUri } from './src/drivers/mongodb.ts';
+import { wildcardToSqlPattern } from './src/drivers/postgres.ts';
 import type { ConnectionRow } from './src/registry.ts';
+import type { IntrospectResult } from './src/drivers/postgres.ts';
 
 let n = 0;
 const ok = (name: string): void => { n += 1; console.log(`  ✓ ${name}`); };
@@ -45,5 +47,43 @@ assert.equal(
   'mongodb://h:27017/',
 );
 ok('mongoUri builds standard/srv URIs, percent-encodes creds, passes options through');
+
+// Introspection result type validation
+const mockIntrospectResult: IntrospectResult = {
+  tables: ['public.users', 'public.posts', 'xero.invoices'],
+  table_schemas: {
+    'public.users': {
+      columns: [
+        { name: 'id', type: 'bigint' },
+        { name: 'name', type: 'text' },
+      ],
+      row_count: 1542,
+      indexes: ['users_pkey', 'users_email_idx'],
+      foreign_keys: [],
+    },
+    'public.posts': {
+      columns: [
+        { name: 'id', type: 'bigint' },
+        { name: 'user_id', type: 'bigint' },
+        { name: 'title', type: 'text' },
+      ],
+      row_count: 8920,
+      indexes: ['posts_pkey', 'posts_user_id_idx'],
+      foreign_keys: [{ column: 'user_id', referenced_table: 'users', referenced_column: 'id' }],
+    },
+  },
+};
+assert(mockIntrospectResult.tables.length === 3);
+assert(mockIntrospectResult.table_schemas['public.users'].columns.length === 2);
+assert(mockIntrospectResult.table_schemas['public.users'].row_count === 1542);
+assert(mockIntrospectResult.table_schemas['public.posts'].foreign_keys.length === 1);
+ok('Introspection result types validate correctly');
+
+// Test wildcard pattern matching logic
+assert.equal(wildcardToSqlPattern('xero_*'), 'xero_%');
+assert.equal(wildcardToSqlPattern('ventures'), 'ventures');
+assert.equal(wildcardToSqlPattern('table?name'), 'table_name');
+assert.equal(wildcardToSqlPattern('schema.*_backup'), 'schema.%_backup');
+ok('Wildcard pattern conversion works (*, ? → SQL LIKE)');
 
 console.log(`\n${n} smoke groups passed`);

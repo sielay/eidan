@@ -15,7 +15,7 @@
 import type { Tool } from '@matatbread/matbot-plugin-api';
 import type { Registry } from './registry.js';
 import { DbConfigError, resolveConnection } from './config.js';
-import { inspector, mongoRunCommand, pgRunSql } from './drivers/index.js';
+import { inspector, mongoRunCommand, pgRunSql, pgIntrospect } from './drivers/index.js';
 
 const CONNECTION_PROP = {
   connection: {
@@ -44,10 +44,21 @@ const INSPECT_SCHEMA = {
 const QUERY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['sql'],
   properties: {
     ...CONNECTION_PROP,
-    sql: { type: 'string', description: 'SQL to run (read or write). Multiple statements allowed.', minLength: 1 },
+    action: {
+      type: 'string',
+      enum: ['query', 'introspect'],
+      description: 'Either "query" to run SQL, or "introspect" to discover database structure ' +
+        '(tables, columns, types, row counts). Default is "query".',
+    },
+    sql: { type: 'string', description: 'SQL to run (read or write). Multiple statements allowed. Required when action is "query".', minLength: 1 },
+    tables: {
+      type: 'array',
+      description: 'Postgres only: when action is "introspect", filter to tables matching these patterns ' +
+        '(supports * and ? wildcards, e.g. ["ventures", "xero_*"]). Omit to list all accessible tables.',
+      items: { type: 'string' },
+    },
     schema: {
       type: 'string',
       description: 'Postgres only: set search_path to this schema for the query, so unqualified table ' +
@@ -134,28 +145,49 @@ export function makeDbTools(registry: Registry): Tool[] {
   const dbQueryTool: Tool = {
     name: 'db_query',
     description:
-      'Run SQL against a Postgres connection (full read/write — SELECT/INSERT/UPDATE/DELETE/DDL). ' +
-      'Returns rows (capped at 1000), row count and command per statement. Use $1/$2 placeholders ' +
-      'with `params` for any user-supplied values. Pass `schema` to resolve unqualified table names ' +
-      'in that schema. For MongoDB connections use db_mongo instead.',
+      'Run SQL against a Postgres connection (full read/write — SELECT/INSERT/UPDATE/DELETE/DDL), or introspect database structure. ' +
+      'For queries: returns rows (capped at 1000), row count and command per statement. Use $1/$2 placeholders ' +
+      'with `params` for any user-supplied values. Pass `schema` to resolve unqualified table names. ' +
+      'For introspection: discovers tables, columns, types, row counts, indexes, and foreign keys (RLS-scoped). ' +
+      'For MongoDB connections use db_mongo instead.',
     inputSchema: QUERY_SCHEMA,
     executor: {
       async *execute(input, ctx) {
-        const args = (input ?? {}) as { connection?: string; sql?: string; schema?: string; params?: unknown[] };
-        const sql = String(args.sql ?? '').trim();
-        if (!sql) {
-          yield { type: 'error', message: 'sql is required' };
+        const args = (input ?? {}) as {
+          connection?: string;
+          action?: string;
+          sql?: string;
+          schema?: string;
+          params?: unknown[];
+          tables?: string[];
+        };
+        const action = (args.action ?? 'query').toLowerCase();
+
+        if (action !== 'query' && action !== 'introspect') {
+          yield { type: 'error', message: 'action must be either "query" or "introspect"' };
           return;
         }
+
         try {
           const { row, password } = await resolveConnection(registry, ctx, args.connection);
           if (row.driver !== 'postgres') {
-            yield { type: 'error', message: `"${row.name}" is a ${row.driver} connection — use db_mongo for it.` };
+            yield { type: 'error', message: `"${row.name}" is a ${row.driver} connection — use db_query for Postgres or db_mongo for MongoDB.` };
             return;
           }
-          const params = Array.isArray(args.params) ? args.params : [];
-          const out = await pgRunSql(row, password, sql, params, ctx.signal, args.schema);
-          yield { type: 'result', value: { connection: row.name, ...out } };
+
+          if (action === 'introspect') {
+            const out = await pgIntrospect(row, password, ctx.signal, args.tables);
+            yield { type: 'result', value: { connection: row.name, ...out } };
+          } else {
+            const sql = String(args.sql ?? '').trim();
+            if (!sql) {
+              yield { type: 'error', message: 'sql is required when action is "query"' };
+              return;
+            }
+            const params = Array.isArray(args.params) ? args.params : [];
+            const out = await pgRunSql(row, password, sql, params, ctx.signal, args.schema);
+            yield { type: 'result', value: { connection: row.name, ...out } };
+          }
         } catch (e) {
           yield { type: 'error', message: errorMessage(e) };
         }
