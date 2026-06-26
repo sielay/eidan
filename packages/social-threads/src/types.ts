@@ -5,10 +5,9 @@ export interface ThreadsUser {
   username: string;
   name?: string;
   biography?: string;
-  profile_picture_url?: string;
+  threads_profile_picture_url?: string;
   follower_count?: number;
   following_count?: number;
-  threads_profile_picture_url?: string;
   is_verified?: boolean;
   website?: string;
 }

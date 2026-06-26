@@ -20,7 +20,6 @@ export class ThreadsClient {
   private ctx: ToolContext;
   private cachedProfile: ThreadsUser | null = null;
   private profileFetchInProgress: Promise<{ user: ThreadsUser | null; error?: string }> | null = null;
-  private cachedUsername: string | null = null;
 
   constructor(ctx: ToolContext) {
     this.ctx = ctx;
@@ -195,7 +194,6 @@ export class ThreadsClient {
         };
 
         this.cachedProfile = safeProfile;
-        this.cachedUsername = safeProfile.username;
         return { user: safeProfile };
       } catch {
         return {
