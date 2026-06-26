@@ -75,7 +75,7 @@ export function UsageOverviewPane(): React.ReactElement {
           </div>
         </div>
 
-        {/* All-Time */}
+        {/* Last Month */}
         <div className="border border-neutral-200 rounded-lg p-4 bg-white">
           <div className="text-xs font-medium text-neutral-600 uppercase tracking-wider mb-1">Last Month</div>
           <div className="text-2xl font-bold">${stats.lastMonth.toFixed(2)}</div>
