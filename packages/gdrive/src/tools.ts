@@ -11,6 +11,7 @@ import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
 import { DriveClient } from './drive.js';
 import { OAuthError, refreshAccessToken } from './oauth.js';
 import { secretOpt } from './vault.js';
+import { parseCSV } from './csv-parser.js';
 
 const LIST_SCHEMA = {
   type: 'object',
@@ -34,6 +35,14 @@ const READ_SCHEMA = {
   required: ['file_id'],
   properties: {
     file_id: { type: 'string', minLength: 1, description: 'Drive file id from gdrive_list_recent or gdrive_search.' },
+    format: {
+      type: 'string',
+      enum: ['text', 'csv', 'table'],
+      description:
+        'Output format: "text" (default) returns raw content; "csv" returns array of objects ' +
+        '{col: val, ...}; "table" returns {headers, rows} for clarity. CSV/table parse Google ' +
+        'Sheets and CSV files; other formats ignore this and return text.',
+    },
   },
 };
 
@@ -123,32 +132,100 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
   const gdriveReadFileTool: Tool = {
     name: 'gdrive_read_file',
     description:
-      'Read one Drive file as text by id. Google Docs/Slides are exported to plain text and Google ' +
-      'Sheets to CSV; plain-text files are downloaded directly. Binary types are not supported.',
+      'Read one Drive file by id. Supports raw text (default) or structured CSV/table format for ' +
+      'Google Sheets and CSV files. Google Docs/Slides are exported to plain text; plain-text files ' +
+      'downloaded directly. Binary types are not supported.',
     inputSchema: READ_SCHEMA,
     executor: {
       async *execute(input, ctx) {
-        const args = (input ?? {}) as { file_id?: string };
+        const args = (input ?? {}) as { file_id?: string; format?: string };
         const fileId = String(args.file_id ?? '').trim();
+        const format = String(args.format ?? 'text').toLowerCase();
+
         if (!fileId) {
           yield { type: 'error', message: 'file_id is required' };
           return;
         }
+
+        if (!['text', 'csv', 'table'].includes(format)) {
+          yield { type: 'error', message: 'format must be "text", "csv", or "table"' };
+          return;
+        }
+
         const { file, text } = await new DriveClient(await accessToken(ctx, resolveShared)).readFileText(fileId);
-        const truncated = text.length > MAX_TEXT;
-        yield {
-          type: 'result',
-          value: {
-            id: file.id,
-            name: file.name,
-            mimeType: file.mimeType,
-            modifiedTime: file.modifiedTime,
-            owner: file.owner,
-            webViewLink: file.webViewLink,
-            truncated,
-            content: truncated ? text.slice(0, MAX_TEXT) : text,
-          },
-        };
+
+        // Default: return raw text
+        if (format === 'text') {
+          const truncated = text.length > MAX_TEXT;
+          yield {
+            type: 'result',
+            value: {
+              id: file.id,
+              name: file.name,
+              mimeType: file.mimeType,
+              modifiedTime: file.modifiedTime,
+              owner: file.owner,
+              webViewLink: file.webViewLink,
+              truncated,
+              content: truncated ? text.slice(0, MAX_TEXT) : text,
+            },
+          };
+          return;
+        }
+
+        // Structured CSV/table format (only for CSV-exportable types)
+        const isCsvExportable = file.mimeType === 'application/vnd.google-apps.spreadsheet' ||
+                                file.mimeType === 'text/csv' ||
+                                file.mimeType === 'application/csv';
+
+        if (!isCsvExportable) {
+          yield {
+            type: 'result',
+            value: {
+              id: file.id,
+              name: file.name,
+              mimeType: file.mimeType,
+              modifiedTime: file.modifiedTime,
+              owner: file.owner,
+              webViewLink: file.webViewLink,
+              note: `format="${format}" only works with Google Sheets or CSV files; returning raw text instead`,
+              content: text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) : text,
+              truncated: text.length > MAX_TEXT,
+            },
+          };
+          return;
+        }
+
+        const parsed = parseCSV(text);
+
+        if (format === 'csv') {
+          yield {
+            type: 'result',
+            value: {
+              id: file.id,
+              name: file.name,
+              mimeType: file.mimeType,
+              modifiedTime: file.modifiedTime,
+              owner: file.owner,
+              webViewLink: file.webViewLink,
+              content: parsed.rows,
+            },
+          };
+        } else if (format === 'table') {
+          yield {
+            type: 'result',
+            value: {
+              id: file.id,
+              name: file.name,
+              mimeType: file.mimeType,
+              modifiedTime: file.modifiedTime,
+              owner: file.owner,
+              webViewLink: file.webViewLink,
+              headers: parsed.headers,
+              rows: parsed.rows,
+            },
+          };
+        }
       },
     },
   };
