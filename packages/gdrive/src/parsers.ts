@@ -11,6 +11,27 @@ export interface ParsedContent {
 
 export class ParseError extends Error {}
 
+// Tesseract.js worker singleton for reuse across multiple OCR calls.
+let tesseractWorker: any = null;
+
+async function getTesseractWorker() {
+  if (!tesseractWorker) {
+    const tesseract = await getTesseract();
+    const Tesseract = tesseract.default || tesseract;
+    tesseractWorker = await Tesseract.createWorker();
+  }
+  return tesseractWorker;
+}
+
+// Clean up Tesseract worker on process exit.
+if (typeof process !== 'undefined') {
+  process.on('exit', async () => {
+    if (tesseractWorker) {
+      await tesseractWorker.terminate();
+    }
+  });
+}
+
 // Dynamically load pdf-parse with error handling for missing dependency.
 async function getPdfParse() {
   try {
@@ -33,7 +54,7 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
     const data = await pdf(bytes);
     const text = data.text ?? '';
 
-    // Simple heuristic: detect lines that look like table rows (multiple numbers/short words)
+    // Improved table detection: look for lines with consistent column structure
     const lines = text.split('\n');
     const tables: Record<string, unknown>[] = [];
     let currentTable: string[] = [];
@@ -45,27 +66,40 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
           tables.push({ rows: currentTable });
           currentTable = [];
         }
-      } else if (trimmed.split(/\s{2,}|\t/).length > 2) {
-        currentTable.push(trimmed);
+      } else {
+        // Detect table rows: lines with multiple delimiters (2+ spaces/tabs) AND
+        // either multiple short words OR mixed numbers and text
+        const cells = trimmed.split(/\s{2,}|\t/);
+        const hasNumbers = /\d/.test(trimmed);
+        const isLikelyTableRow = cells.length > 2 && (hasNumbers || cells.some((c: string) => c.length < 20));
+        if (isLikelyTableRow) {
+          currentTable.push(trimmed);
+        }
       }
     }
     if (currentTable.length > 0) {
       tables.push({ rows: currentTable });
     }
 
-    // Extract section headings (lines in all caps or followed by content).
+    // Extract section headings: all-caps lines, short lines with caps, or lines followed by consistent content
     const sections: { heading: string; content: string }[] = [];
     let currentSection = { heading: '', content: '' };
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.length > 0 && trimmed === trimmed.toUpperCase() && trimmed.length < 100) {
-        if (currentSection.heading && currentSection.content) {
-          sections.push(currentSection);
+      if (trimmed.length > 0) {
+        const isAllCaps = trimmed === trimmed.toUpperCase() && trimmed.length > 1;
+        const isShortCapsLine = trimmed.length < 80 && /[A-Z]/.test(trimmed) && trimmed.length > 2;
+        const isLikelyHeading = isAllCaps || (isShortCapsLine && /^[A-Z]/.test(trimmed));
+
+        if (isLikelyHeading) {
+          if (currentSection.heading && currentSection.content) {
+            sections.push(currentSection);
+          }
+          currentSection = { heading: trimmed, content: '' };
+        } else if (currentSection.heading) {
+          currentSection.content += trimmed + ' ';
         }
-        currentSection = { heading: trimmed, content: '' };
-      } else if (currentSection.heading) {
-        currentSection.content += trimmed + ' ';
       }
     }
     if (currentSection.heading && currentSection.content) {
@@ -103,15 +137,15 @@ async function getTesseract() {
 
 // Parse images with OCR: extract visible text.
 export async function parseImageOcr(bytes: Uint8Array): Promise<ParsedContent> {
-  const tesseract = await getTesseract();
-  const Tesseract = tesseract.default || tesseract;
-
   try {
-    const worker = await Tesseract.createWorker();
-    // Convert Uint8Array to Buffer for Tesseract.js compatibility
+    // Reuse Tesseract worker across multiple calls instead of creating/terminating per call
+    const worker = await getTesseractWorker();
+
+    // Convert Uint8Array to Buffer then to Blob for broader Tesseract.js compatibility
+    // (handles both Node.js and browser environments properly)
     const buffer = Buffer.from(bytes);
-    const result = await worker.recognize(buffer as any);
-    await worker.terminate();
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const result = await worker.recognize(blob);
 
     const text = result.data?.text ?? '';
     const confidence = result.data?.confidence ?? 0;
@@ -140,6 +174,55 @@ async function getMammoth() {
   }
 }
 
+// Robust HTML tag stripper: uses state machine instead of regex for better handling of edge cases
+function stripHtmlTags(html: string): string {
+  let text = '';
+  let inTag = false;
+  let inComment = false;
+
+  for (let i = 0; i < html.length; i++) {
+    const char = html[i];
+    const nextChars = html.substring(i, Math.min(i + 4, html.length));
+
+    // Check for comment start
+    if (!inTag && nextChars === '<!--') {
+      inComment = true;
+      i += 3;
+      continue;
+    }
+
+    // Check for comment end
+    if (inComment && nextChars === '-->') {
+      inComment = false;
+      i += 2;
+      continue;
+    }
+
+    // Skip if inside comment
+    if (inComment) {
+      continue;
+    }
+
+    // Handle tag boundaries
+    if (char === '<') {
+      inTag = true;
+    } else if (char === '>') {
+      inTag = false;
+      text += '\n';
+    } else if (!inTag) {
+      text += char;
+    }
+  }
+
+  return text
+    .replace(/\n\n+/g, '\n')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
 // Parse DOCX files: extract text and detect structure.
 export async function parseDocx(bytes: Uint8Array): Promise<ParsedContent> {
   const mammoth = await getMammoth();
@@ -147,16 +230,19 @@ export async function parseDocx(bytes: Uint8Array): Promise<ParsedContent> {
   try {
     const buffer = Buffer.from(bytes);
     const result = await mammoth.convertToHtml({ buffer });
-    const text = result.value ?? '';
+    const html = result.value ?? '';
     const messages = result.messages ?? [];
 
-    // Extract headings from HTML (simple regex).
-    const headings = Array.from(text.matchAll(/<h[1-6][^>]*>([^<]*)<\/h[1-6]>/gi)).map(
+    // Extract headings from HTML before stripping tags
+    const headings = Array.from(html.matchAll(/<h[1-6][^>]*>([^<]*)<\/h[1-6]>/gi)).map(
       (m) => m[1]?.trim() ?? '',
     );
 
+    // Strip HTML tags using robust state machine approach
+    const text = stripHtmlTags(html);
+
     return {
-      text: text.replace(/<[^>]*>/g, '\n').replace(/\n\n+/g, '\n'),
+      text,
       format: 'docx',
       ...(headings.length > 0 && { sections: headings.map((h) => ({ heading: h, content: '' })) }),
       metadata: { warnings: messages.length },
