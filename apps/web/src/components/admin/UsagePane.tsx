@@ -344,7 +344,7 @@ function TimeSeriesChart({
             },
             tooltip: {
               callbacks: {
-                label: (ctx) => `${ctx.dataset.label}: ${formatValue(ctx.parsed.y)}`,
+                label: (ctx) => `${ctx.dataset.label}: ${formatValue(ctx.parsed.y ?? 0)}`,
               },
             },
           },
@@ -362,13 +362,23 @@ function TimeSeriesChart({
   );
 }
 
-function BreakdownTable({
+// The cost/provider/node breakdown rows share these numeric columns; the dynamic label column is
+// addressed by `keyField` (a real key of T), so the table stays type-safe without an index signature.
+interface BreakdownBase {
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  call_count: number;
+}
+function BreakdownTable<T extends BreakdownBase>({
   items,
   keyField,
   columns,
 }: {
-  items: Array<Record<string, unknown>>;
-  keyField: string;
+  items: T[];
+  keyField: Extract<keyof T, string>;
   columns: string[];
 }): React.ReactElement {
   return (
