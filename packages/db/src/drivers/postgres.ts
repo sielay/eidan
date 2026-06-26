@@ -159,7 +159,7 @@ export async function pgIntrospect(
         from information_schema.tables t
        where t.table_schema not in ('pg_catalog', 'information_schema')
          and t.table_schema not like 'pg_%'
-         and has_table_privilege(t.table_name, 'SELECT')
+         and has_table_privilege(format('%I.%I', t.table_schema, t.table_name)::regclass, 'SELECT')
        order by t.table_schema, t.table_name
        limit 2000
     `;
@@ -167,12 +167,7 @@ export async function pgIntrospect(
 
     // If table filter provided, add pattern matching (shell-style wildcards: * and ?)
     if (tableFilter && tableFilter.length > 0) {
-      const patterns = tableFilter.map(f => {
-        // Escape SQL metacharacters (% and _) that are literals in the pattern,
-        // then convert shell wildcards (* and ?) to SQL equivalents.
-        // With ESCAPE '\', the backslash escapes the following character.
-        return f.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '%').replace(/\?/g, '_');
-      });
+      const patterns = tableFilter.map(f => wildcardToSqlPattern(f));
       const whereClauses = patterns.map((_, i) => `t.table_name LIKE $${i + 1} ESCAPE '\\'`).join(' OR ');
       query += ` AND (${whereClauses})`;
       params.push(...patterns);
@@ -264,4 +259,10 @@ export async function pgIntrospect(
 // identifier escape. Used because SET search_path can't take a bind parameter.
 function quoteIdent(ident: string): string {
   return '"' + ident.replace(/"/g, '""') + '"';
+}
+
+// Convert shell-style wildcards to SQL LIKE patterns. Escapes SQL metacharacters (% and _) that are
+// literals in the pattern, then converts shell wildcards (* and ?) to SQL equivalents.
+export function wildcardToSqlPattern(pattern: string): string {
+  return pattern.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '%').replace(/\?/g, '_');
 }

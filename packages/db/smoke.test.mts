@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { slugify, passKey, pickConnection } from './src/config.ts';
 import { mongoUri } from './src/drivers/mongodb.ts';
+import { wildcardToSqlPattern } from './src/drivers/postgres.ts';
 import type { ConnectionRow } from './src/registry.ts';
 import type { IntrospectResult } from './src/drivers/postgres.ts';
 
@@ -79,9 +80,6 @@ assert(mockIntrospectResult.table_schemas['public.posts'].foreign_keys.length ==
 ok('Introspection result types validate correctly');
 
 // Test wildcard pattern matching logic
-function wildcardToSqlPattern(pattern: string): string {
-  return pattern.replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '%').replace(/\?/g, '_');
-}
 assert.equal(wildcardToSqlPattern('xero_*'), 'xero_%');
 assert.equal(wildcardToSqlPattern('ventures'), 'ventures');
 assert.equal(wildcardToSqlPattern('table?name'), 'table_name');
