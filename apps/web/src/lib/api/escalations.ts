@@ -20,9 +20,15 @@ export interface EscalationSummary {
   // (e.g. {error, fire_key}); the UI must defensively stringify. See evidenceText().
   evidence: Array<string | Record<string, unknown>>;
   metadata: Record<string, unknown>;
-  status: "pending" | "acknowledged" | "resolved";
+  status: "pending" | "acknowledged" | "resolved" | "open" | "responded" | "rejected";
+  from_agent: string | null;
+  to_agent: string | null;
+  escalation_type: "agent_to_operator" | "agent_to_agent" | "operator_to_agent" | "operator_prompt" | "decision_gate";
+  response: { feedback?: string; reasoning?: string; decision?: string; tags?: string[]; next_agent?: string } | null;
+  trigger_prompt: string | null;
   created_at: string;
   updated_at: string;
+  responded_at: string | null;
   resolved_at: string | null;
 }
 
@@ -78,6 +84,31 @@ export async function resolveEscalation(
   if (!res.ok) {
     throw new Error(
       `POST /api/escalations/${id}/resolve returned ${res.status}`,
+    );
+  }
+}
+
+export async function respondEscalation(
+  id: string,
+  response: {
+    feedback: string;
+    reasoning?: string;
+    decision?: string;
+    tags?: string[];
+    next_agent?: string;
+  },
+): Promise<void> {
+  const res = await authFetch(
+    `/api/escalations/${id}/respond`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(response),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `POST /api/escalations/${id}/respond returned ${res.status}`,
     );
   }
 }
