@@ -121,15 +121,28 @@ export class AffiliateDb {
     programId: string,
     data: Partial<AffiliateProgram>,
   ): Promise<AffiliateProgram | null> {
+    const allowedColumns = new Set([
+      'program_name',
+      'provider',
+      'category',
+      'commission_rate',
+      'commission_currency',
+      'link_format',
+      'signup_url',
+      'api_endpoint',
+      'api_docs_url',
+      'approval_status',
+      'relevance_score',
+      'content_types',
+      'metadata',
+    ]);
+
     const fields: string[] = [];
     const values: any[] = [];
     let paramCount = 1;
 
     for (const [key, value] of Object.entries(data)) {
-      if (
-        !['id', 'user_id', 'created_at', 'updated_at', 'deleted_at'].includes(key) &&
-        value !== undefined
-      ) {
+      if (allowedColumns.has(key) && value !== undefined) {
         fields.push(`${key} = $${paramCount}`);
         values.push(key === 'content_types' ? JSON.stringify(value) : value);
         paramCount++;

@@ -23,6 +23,9 @@ declare module '@matatbread/matbot-plugin-api' {
   interface MatbotServices {
     EidanSecrets?: { declareSection(section: SecretSection): void };
     AffiliateDiscovery?: { discoverPrograms(userId: string): Promise<any> };
+    Vault?: {
+      resolve(ref: string): Promise<string | undefined>;
+    };
   }
 }
 
@@ -38,7 +41,7 @@ export const plugin: MatbotPluginSpec = {
 
     const db = new AffiliateDb(url);
 
-    for (const tool of buildAffiliateTools(db)) {
+    for (const tool of buildAffiliateTools(db, services)) {
       services.tools.register(tool);
     }
 

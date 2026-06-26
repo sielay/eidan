@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { MatbotTool } from '@matatbread/matbot-plugin-api';
+import type { MatbotTool, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import type { AffiliateDb } from './db.js';
 
-export function buildAffiliateTools(db: AffiliateDb): MatbotTool[] {
+export function buildAffiliateTools(db: AffiliateDb, services: MatbotServices): MatbotTool[] {
   return [
     {
       name: 'affiliate_programs_list',
@@ -253,7 +253,7 @@ export function buildAffiliateTools(db: AffiliateDb): MatbotTool[] {
             return { error: 'No credentials stored for this program' };
           }
 
-          const generatedLink = generateLink(program, credentials, contentId, inp['custom_params']);
+          const generatedLink = await generateLink(program, credentials, contentId, inp['custom_params'], services);
 
           await db.recordLink(
             principal.user_id,
@@ -330,39 +330,63 @@ export function buildAffiliateTools(db: AffiliateDb): MatbotTool[] {
   ];
 }
 
-function generateLink(
+async function generateLink(
   program: any,
   credentials: any[],
   contentId: string | null,
   customParams?: any,
-): string {
+  services?: any,
+): Promise<string> {
+  const vault = services?.Vault;
+
+  async function getCredentialValue(cred: any): Promise<string> {
+    if (!vault) return cred.key_vault_key;
+    try {
+      const resolved = await vault.resolve(`\${${cred.key_vault_key}}`);
+      return resolved || cred.key_vault_key;
+    } catch {
+      return cred.key_vault_key;
+    }
+  }
+
   const params = {
     ...customParams,
   };
 
   switch (program.link_format) {
     case 'url':
-      const affiliateIdCred = credentials.find((c) => c.credential_type === 'affiliate_id');
-      if (!affiliateIdCred) throw new Error('Affiliate ID credential required for URL format');
+      const affiliateIdCred =
+        credentials.find((c) => c.credential_type === 'affiliate_id') ||
+        credentials.find((c) => c.credential_type === 'api_key') ||
+        credentials.find((c) => c.credential_type === 'custom');
 
+      if (!affiliateIdCred) throw new Error('Affiliate ID, API key, or custom credential required for URL format');
+
+      const affiliateIdValue = await getCredentialValue(affiliateIdCred);
       let baseUrl = program.signup_url || program.api_endpoint || '';
       const separator = baseUrl.includes('?') ? '&' : '?';
 
       if (program.provider === 'amazon' || program.provider === 'kdp') {
-        return `${baseUrl}${separator}tag=${affiliateIdCred.key_vault_key}`;
+        return `${baseUrl}${separator}tag=${encodeURIComponent(affiliateIdValue)}`;
       } else if (program.provider === 'kobo') {
-        return `${baseUrl}${separator}affiliate=${affiliateIdCred.key_vault_key}`;
+        return `${baseUrl}${separator}affiliate=${encodeURIComponent(affiliateIdValue)}`;
       } else {
-        return `${baseUrl}${separator}ref=${affiliateIdCred.key_vault_key}`;
+        return `${baseUrl}${separator}ref=${encodeURIComponent(affiliateIdValue)}`;
       }
 
     case 'api':
+      const apiKeyCred = credentials.find((c) => c.credential_type === 'api_key');
+      if (apiKeyCred) {
+        const apiKeyValue = await getCredentialValue(apiKeyCred);
+        return program.api_endpoint ? `${program.api_endpoint}?key=${encodeURIComponent(apiKeyValue)}` : program.api_endpoint || '';
+      }
       return program.api_endpoint || '';
 
     case 'pixel':
       const trackingCodeCred = credentials.find((c) => c.credential_type === 'tracking_code');
       if (!trackingCodeCred) throw new Error('Tracking code credential required for pixel format');
-      return `<img src="${program.api_endpoint}?code=${trackingCodeCred.key_vault_key}&content=${contentId || ''}" width="1" height="1" />`;
+      const trackingCodeValue = await getCredentialValue(trackingCodeCred);
+      return `<img src="${program.api_endpoint}?code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}" width="1" height="1" />`;
 
     default:
       throw new Error(`Unknown link format: ${program.link_format}`);
