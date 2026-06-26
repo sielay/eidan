@@ -54,7 +54,10 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
     const data = await pdf(bytes);
     const text = data.text ?? '';
 
-    // Improved table detection: look for lines with consistent column structure
+    // Table detection (heuristic): look for lines with consistent column structure.
+    // Heuristic: detect rows with 2+ space/tab-delimited cells AND (contains numbers OR short words).
+    // Limitations: may misidentify dense text or miss complex table formats. For robust extraction
+    // of complex table layouts, consider specialized PDF table extraction libraries.
     const lines = text.split('\n');
     const tables: Record<string, unknown>[] = [];
     let currentTable: string[] = [];
@@ -67,8 +70,6 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
           currentTable = [];
         }
       } else {
-        // Detect table rows: lines with multiple delimiters (2+ spaces/tabs) AND
-        // either multiple short words OR mixed numbers and text
         const cells = trimmed.split(/\s{2,}|\t/);
         const hasNumbers = /\d/.test(trimmed);
         const isLikelyTableRow = cells.length > 2 && (hasNumbers || cells.some((c: string) => c.length < 20));
@@ -81,7 +82,10 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
       tables.push({ rows: currentTable });
     }
 
-    // Extract section headings: all-caps lines, short lines with caps, or lines followed by consistent content
+    // Heading detection (heuristic): lines that are all-caps OR short, capitalized lines.
+    // Limitations: may misidentify headings in different document styles, miss headings with
+    // irregular capitalization, or false-positive on short capitalized text. For robust document
+    // structure analysis, consider NLP-based approaches or structure-aware PDF parsing libraries.
     const sections: { heading: string; content: string }[] = [];
     let currentSection = { heading: '', content: '' };
 
@@ -177,7 +181,10 @@ async function getMammoth() {
   }
 }
 
-// Robust HTML tag stripper: uses state machine instead of regex for better handling of edge cases
+// Extract text from HTML by stripping tags. Used only for trusted HTML from mammoth.js.
+// IMPORTANT: This function assumes the input HTML is from a trusted source (mammoth.js DOCX conversion).
+// It is NOT suitable for untrusted or user-supplied HTML — use a battle-tested library
+// (dompurify, xss) if processing untrusted input.
 function stripHtmlTags(html: string): string {
   let text = '';
   let inTag = false;
@@ -283,10 +290,10 @@ export async function parseExcel(bytes: Uint8Array): Promise<ParsedContent> {
       if (!ws) continue;
       const data = XLSX.utils.sheet_to_json(ws) as Record<string, unknown>[];
       sheets.push({ sheet, rows: data });
-      allText += `\n# ${sheet}\n`;
-      for (const row of data) {
-        allText += JSON.stringify(row) + '\n';
-      }
+      // Create a summary instead of stringifying all rows: this avoids extremely long text
+      // that could exceed MAX_TEXT. Structured data is preserved in the tables field.
+      const colCount = data.length > 0 ? Object.keys(data[0]!).length : 0;
+      allText += `\n# ${sheet}\n${data.length} rows, ${colCount} columns\n`;
     }
 
     return {

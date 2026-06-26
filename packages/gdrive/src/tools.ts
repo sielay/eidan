@@ -48,6 +48,11 @@ const READ_SCHEMA = {
   },
 };
 
+// ponytail: MAX_TEXT is a simple limit to fit large documents into LLM context.
+// For structured formats (PDF with tables, Excel, DOCX with sections), the text field
+// is truncated but structured data (tables/sections) is always preserved. Agents receive
+// a note if content is truncated but structured data remains. Consider smarter summarization
+// or chunking for very large documents in future iterations.
 const MAX_TEXT = 16000;
 const TEXT_FORMATS = ['text', 'csv', 'table'];
 const BINARY_FORMATS = ['pdf', 'ocr', 'docx', 'excel'];
@@ -230,6 +235,10 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
         try {
           const parsed = await parser(bytes);
           const truncated = parsed.text.length > MAX_TEXT;
+          const hasStructuredContent = (parsed.tables?.length ?? 0) > 0 || (parsed.sections?.length ?? 0) > 0;
+          const note = truncated && hasStructuredContent
+            ? `Content exceeds ${MAX_TEXT} chars; text truncated but tables/sections preserved for full analysis.`
+            : undefined;
           yield {
             type: 'result',
             value: {
@@ -245,6 +254,7 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
               tables: parsed.tables,
               sections: parsed.sections,
               metadata: parsed.metadata,
+              ...(note && { note }),
             },
           };
         } catch (exc) {
