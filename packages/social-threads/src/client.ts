@@ -187,9 +187,9 @@ export class ThreadsClient {
           threads_profile_picture_url: profile.threads_profile_picture_url
             ? String(profile.threads_profile_picture_url)
             : undefined,
-          follower_count: typeof profile.follower_count === 'number' ? profile.follower_count : 0,
-          following_count: typeof profile.following_count === 'number' ? profile.following_count : 0,
-          is_verified: Boolean(profile.is_verified),
+          follower_count: typeof profile.follower_count === 'number' ? profile.follower_count : undefined,
+          following_count: typeof profile.following_count === 'number' ? profile.following_count : undefined,
+          is_verified: typeof profile.is_verified === 'boolean' ? profile.is_verified : undefined,
           website: profile.website ? String(profile.website) : undefined,
         };
 
