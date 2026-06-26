@@ -6,6 +6,12 @@ import { ProcedureStore } from './procedure-store.js';
 import { proceduresTool } from './procedures-tool.js';
 import { proceduresActionTool } from './procedures-action-tool.js';
 
+// Export archaeology procedures for easy access
+export { driveDeepScan, mailThreadArchaeology, ideaExtractionPipeline } from './archaeology-procedures.js';
+
+// The set of tools a procedure may compose is operator-controlled (deny-by-default elsewhere is the
+// allowlist's job): EIDAN_PROCEDURE_TOOLS is a comma list; it defaults to the memory tools so the
+// plugin is useful out of the box without exposing anything that can leave the tool sandbox.
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
