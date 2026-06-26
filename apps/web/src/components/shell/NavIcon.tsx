@@ -3,6 +3,7 @@ import {
   Activity,
   BookOpen,
   ChevronRight,
+  Code2,
   FolderOpen,
   Inbox,
   KanbanSquare,
@@ -17,14 +18,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-// Keyed by string so plugins can contribute their own icon names; unknown keys
-// fall back to MessageSquare.
 const MAP: Record<string, LucideIcon> = {
   chat: MessageSquare,
   memory: BookOpen,
   inbox: Inbox,
   jobs: KanbanSquare,
   files: FolderOpen,
+  procedures: Code2,
   plugins: Puzzle,
   admin: Activity,
   settings: Settings,

@@ -4,10 +4,8 @@ import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { ProcedureStore } from './procedure-store.js';
 import { proceduresTool } from './procedures-tool.js';
+import { proceduresActionTool } from './procedures-action-tool.js';
 
-// The set of tools a procedure may compose is operator-controlled (deny-by-default elsewhere is the
-// allowlist's job): EIDAN_PROCEDURE_TOOLS is a comma list; it defaults to the memory tools so the
-// plugin is useful out of the box without exposing anything that can leave the tool sandbox.
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
@@ -22,5 +20,6 @@ export const plugin: MatbotPluginSpec = {
     );
     const allow = (name: string): boolean => allowed.has(name);
     services.tools.register(proceduresTool(services, store, allow));
+    services.tools.register(proceduresActionTool(store, services, allow));
   },
 };
