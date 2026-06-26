@@ -189,17 +189,36 @@ export class GoogleTrendsClient {
             // FRAGILITY WARNING: Google Trends timestamps may be in either seconds or milliseconds.
             // This heuristic assumes seconds if < 10^10 (timestamps before ~2286).
             // If Google changes timestamp format, precision, or units, this will silently produce
-            // incorrect dates. Consider monitoring for sudden date shifts or implementing a
-            // configurable timestamp detection strategy if Google changes their API.
-            if (timestamp < 10000000000) {
-              timestamp = timestamp * 1000;
+            // incorrect dates. To mitigate: we validate the resulting date is within a reasonable
+            // range (1970-2100). If both second and millisecond interpretations produce valid dates,
+            // prefer the millisecond version to match modern JavaScript conventions.
+            let dateToUse: Date | null = null;
+
+            // Try as milliseconds first (modern JS convention)
+            const dateMs = new Date(timestamp);
+            if (!isNaN(dateMs.getTime())) {
+              const year = dateMs.getUTCFullYear();
+              if (year >= 1970 && year <= 2100) {
+                dateToUse = dateMs;
+              }
             }
-            const date = new Date(timestamp);
-            if (!isNaN(date.getTime())) {
+
+            // If milliseconds didn't work, try as seconds
+            if (!dateToUse && timestamp < 10000000000) {
+              const dateS = new Date(timestamp * 1000);
+              if (!isNaN(dateS.getTime())) {
+                const year = dateS.getUTCFullYear();
+                if (year >= 1970 && year <= 2100) {
+                  dateToUse = dateS;
+                }
+              }
+            }
+
+            if (dateToUse) {
               return {
                 // Date is formatted in UTC. Google Trends data is aggregated and timezone-agnostic;
                 // UTC formatting is appropriate for this use case.
-                date: date.toISOString().split('T')[0],
+                date: dateToUse.toISOString().split('T')[0],
                 value,
               };
             }
@@ -314,15 +333,7 @@ export class GoogleTrendsClient {
           // Only add if we have at least a title
           if (title) {
             // Ensure deltaMonthOverMonth is a valid number or undefined, not NaN
-            let growthValue: number | undefined = undefined;
-            if (deltaMonthOverMonth !== undefined && typeof deltaMonthOverMonth === 'number') {
-              growthValue = deltaMonthOverMonth;
-            } else if (deltaMonthOverMonth !== undefined) {
-              const parsed = Number(deltaMonthOverMonth);
-              if (!isNaN(parsed)) {
-                growthValue = parsed;
-              }
-            }
+            const growthValue = typeof deltaMonthOverMonth === 'number' ? deltaMonthOverMonth : undefined;
             charts.push({
               title: String(title),
               exploreUrl: exploreUrl ? String(exploreUrl) : null,
