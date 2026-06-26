@@ -11,7 +11,7 @@ import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
 import { DriveClient } from './drive.js';
 import { OAuthError, refreshAccessToken } from './oauth.js';
 import { secretOpt } from './vault.js';
-import { detectFormatParser, ParseError } from './parsers.js';
+import { detectFormatParser, parseExcel, ParseError } from './parsers.js';
 import { parseCSV } from './csv-parser.js';
 
 const LIST_SCHEMA = {
@@ -38,12 +38,13 @@ const READ_SCHEMA = {
     file_id: { type: 'string', minLength: 1, description: 'Drive file id from gdrive_list_recent or gdrive_search.' },
     format: {
       type: 'string',
-      enum: ['text', 'csv', 'table', 'pdf', 'ocr', 'docx', 'excel'],
+      enum: ['text', 'csv', 'table', 'pdf', 'ocr', 'docx', 'excel', 'excel_full'],
       description:
         'Output/parse format. "text" (default) returns raw content; "csv" returns an array of ' +
         '{col: val} objects and "table" returns {headers, rows} — both for Google Sheets/CSV. ' +
-        '"pdf" (text+tables), "ocr" (image→text), "docx" (structure) and "excel" (sheet→JSON) parse ' +
-        'downloaded binary files; the binary format is auto-detected from the MIME type if omitted.',
+        '"pdf" (text+tables), "ocr" (image→text), "docx" (structure), "excel" (sheet summaries→JSON), ' +
+        'and "excel_full" (all cell values→JSON, may exceed token limits) parse downloaded binary files; ' +
+        'the binary format is auto-detected from the MIME type if omitted.',
     },
   },
 };
@@ -55,7 +56,7 @@ const READ_SCHEMA = {
 // or chunking for very large documents in future iterations.
 const MAX_TEXT = 16000;
 const TEXT_FORMATS = ['text', 'csv', 'table'];
-const BINARY_FORMATS = ['pdf', 'ocr', 'docx', 'excel'];
+const BINARY_FORMATS = ['pdf', 'ocr', 'docx', 'excel', 'excel_full'];
 
 interface OAuthCreds {
   clientId: string;
@@ -227,18 +228,22 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
         if (!parser) {
           yield {
             type: 'error',
-            message: `unsupported file type: ${file.mimeType || mime || 'unknown'} (try format=pdf|ocr|docx|excel)`,
+            message: `unsupported file type: ${file.mimeType || mime || 'unknown'} (try format=pdf|ocr|docx|excel|excel_full)`,
           };
           return;
         }
 
         try {
-          const parsed = await parser(bytes);
+          // Special handling for excel_full: pass fullText flag
+          const parsed = format === 'excel_full' ? await parseExcel(bytes, true) : await parser(bytes);
+
           const truncated = parsed.text.length > MAX_TEXT;
           const hasStructuredContent = (parsed.tables?.length ?? 0) > 0 || (parsed.sections?.length ?? 0) > 0;
           const note = truncated && hasStructuredContent
             ? `Content exceeds ${MAX_TEXT} chars; text truncated but tables/sections preserved for full analysis.`
-            : undefined;
+            : truncated && format === 'excel_full'
+              ? `Excel full-text exceeds ${MAX_TEXT} chars. Review the tables field for all cell values.`
+              : undefined;
           yield {
             type: 'result',
             value: {

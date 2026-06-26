@@ -55,9 +55,12 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
     const text = data.text ?? '';
 
     // Table detection (heuristic): look for lines with consistent column structure.
-    // Heuristic: detect rows with 2+ space/tab-delimited cells AND (contains numbers OR short words).
-    // Limitations: may misidentify dense text or miss complex table formats. For robust extraction
-    // of complex table layouts, consider specialized PDF table extraction libraries.
+    // Heuristic: detect rows with 3+ space/tab-delimited cells AND (contains numbers OR short cells).
+    // Limitations: Works best for simple tabular data; may misidentify dense text or miss complex
+    // layouts, multi-line headers, or tables without clear delimiters. For robust extraction of
+    // complex, unstructured table formats, production use should integrate specialized PDF table
+    // extraction libraries (e.g., camelot-py for Python-based pipelines, or pdfplumber for advanced layouts).
+    // Current approach is sufficient for most structured PDFs exported from spreadsheets or reports.
     const lines = text.split('\n');
     const tables: Record<string, unknown>[] = [];
     let currentTable: string[] = [];
@@ -72,7 +75,7 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
       } else {
         const cells = trimmed.split(/\s{2,}|\t/);
         const hasNumbers = /\d/.test(trimmed);
-        const isLikelyTableRow = cells.length > 2 && (hasNumbers || cells.some((c: string) => c.length < 20));
+        const isLikelyTableRow = cells.length >= 3 && (hasNumbers || cells.some((c: string) => c.length < 20));
         if (isLikelyTableRow) {
           currentTable.push(trimmed);
         }
@@ -82,10 +85,12 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
       tables.push({ rows: currentTable });
     }
 
-    // Heading detection (heuristic): lines that are all-caps OR short, capitalized lines.
-    // Limitations: may misidentify headings in different document styles, miss headings with
-    // irregular capitalization, or false-positive on short capitalized text. For robust document
-    // structure analysis, consider NLP-based approaches or structure-aware PDF parsing libraries.
+    // Heading detection (heuristic): lines that are all-caps OR short (<80 chars), capitalized lines.
+    // Limitations: Works best for standard document styles; may false-positive on short capitalized
+    // phrases, miss headings with irregular capitalization (Title Case vs lowercase subtitles), or
+    // miss hierarchical structure (h1 vs h2). For document analysis requiring precise heading hierarchy,
+    // consider NLP-based approaches (spaCy, NLTK) or PDF libraries with structural awareness (pdfplumber,
+    // PDFMiner). Current approach is suitable for extracting top-level content sections from most PDFs.
     const sections: { heading: string; content: string }[] = [];
     let currentSection = { heading: '', content: '' };
 
@@ -181,11 +186,12 @@ async function getMammoth() {
   }
 }
 
-// Extract text from HTML by stripping tags. Used only for trusted HTML from mammoth.js.
-// IMPORTANT: This function assumes the input HTML is from a trusted source (mammoth.js DOCX conversion).
-// It is NOT suitable for untrusted or user-supplied HTML — use a battle-tested library
-// (dompurify, xss) if processing untrusted input.
-function stripHtmlTags(html: string): string {
+// Extract text from HTML by stripping tags. TRUSTED INPUT ONLY.
+// ⚠️ SECURITY: This function is unsafe for untrusted or user-supplied HTML. It implements a
+// custom state machine for tag removal without sanitization. Use ONLY for trusted sources like
+// mammoth.js DOCX conversions. For any untrusted input, use a battle-tested library (dompurify, xss).
+// Trusted usage: mammoth.js outputs well-formed HTML with no script injection risk.
+function stripTrustedHtmlTags(html: string): string {
   let text = '';
   let inTag = false;
   let inComment = false;
@@ -248,8 +254,8 @@ export async function parseDocx(bytes: Uint8Array): Promise<ParsedContent> {
       (m) => m[1]?.trim() ?? '',
     );
 
-    // Strip HTML tags using robust state machine approach
-    const text = stripHtmlTags(html);
+    // Strip HTML tags using robust state machine approach (mammoth.js output is trusted)
+    const text = stripTrustedHtmlTags(html);
 
     return {
       text,
@@ -277,7 +283,9 @@ async function getXlsx() {
 }
 
 // Parse Excel files: extract sheets as JSON.
-export async function parseExcel(bytes: Uint8Array): Promise<ParsedContent> {
+// By default creates a summary to avoid exceeding text limits. Use fullText=true to include
+// all cell values (may exceed MAX_TEXT for large spreadsheets; structured data in tables is always included).
+export async function parseExcel(bytes: Uint8Array, fullText?: boolean): Promise<ParsedContent> {
   const XLSX = await getXlsx();
 
   try {
@@ -290,17 +298,25 @@ export async function parseExcel(bytes: Uint8Array): Promise<ParsedContent> {
       if (!ws) continue;
       const data = XLSX.utils.sheet_to_json(ws) as Record<string, unknown>[];
       sheets.push({ sheet, rows: data });
-      // Create a summary instead of stringifying all rows: this avoids extremely long text
-      // that could exceed MAX_TEXT. Structured data is preserved in the tables field.
-      const colCount = data.length > 0 ? Object.keys(data[0]!).length : 0;
-      allText += `\n# ${sheet}\n${data.length} rows, ${colCount} columns\n`;
+
+      if (fullText) {
+        // Include all cell values for full-text analysis (may be large)
+        allText += `\n# ${sheet}\n`;
+        for (const row of data) {
+          allText += JSON.stringify(row) + '\n';
+        }
+      } else {
+        // Create a summary: sheet name + row/column count (preserves structure without huge text)
+        const colCount = data.length > 0 ? Object.keys(data[0]!).length : 0;
+        allText += `\n# ${sheet}\n${data.length} rows, ${colCount} columns\n`;
+      }
     }
 
     return {
       text: allText,
       format: 'excel',
       ...(sheets.length > 0 && { tables: sheets }),
-      metadata: { sheetCount: workbook.SheetNames.length },
+      metadata: { sheetCount: workbook.SheetNames.length, fullTextIncluded: fullText ?? false },
     };
   } catch (exc) {
     throw new ParseError(
