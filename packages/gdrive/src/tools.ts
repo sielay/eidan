@@ -11,6 +11,7 @@ import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
 import { DriveClient } from './drive.js';
 import { OAuthError, refreshAccessToken } from './oauth.js';
 import { secretOpt } from './vault.js';
+import { detectFormatParser, ParseError } from './parsers.js';
 
 const LIST_SCHEMA = {
   type: 'object',
@@ -34,6 +35,11 @@ const READ_SCHEMA = {
   required: ['file_id'],
   properties: {
     file_id: { type: 'string', minLength: 1, description: 'Drive file id from gdrive_list_recent or gdrive_search.' },
+    format: {
+      type: 'string',
+      enum: ['pdf', 'ocr', 'docx', 'excel'],
+      description: 'Parser format: pdf (extract text+tables), ocr (image→text), docx (extract structure), excel (sheet→JSON). Auto-detected from MIME type if omitted.',
+    },
   },
 };
 
@@ -123,32 +129,85 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
   const gdriveReadFileTool: Tool = {
     name: 'gdrive_read_file',
     description:
-      'Read one Drive file as text by id. Google Docs/Slides are exported to plain text and Google ' +
-      'Sheets to CSV; plain-text files are downloaded directly. Binary types are not supported.',
+      'Read one Drive file as text by id with optional format parsing. Google Docs/Slides are exported to plain text and Google ' +
+      'Sheets to CSV; plain-text files are downloaded directly. PDF, images (OCR), DOCX, and Excel files can be parsed with the ' +
+      'format parameter (pdf, ocr, docx, excel); format is auto-detected from MIME type if omitted.',
     inputSchema: READ_SCHEMA,
     executor: {
       async *execute(input, ctx) {
-        const args = (input ?? {}) as { file_id?: string };
+        const args = (input ?? {}) as { file_id?: string; format?: string };
         const fileId = String(args.file_id ?? '').trim();
         if (!fileId) {
           yield { type: 'error', message: 'file_id is required' };
           return;
         }
-        const { file, text } = await new DriveClient(await accessToken(ctx, resolveShared)).readFileText(fileId);
-        const truncated = text.length > MAX_TEXT;
-        yield {
-          type: 'result',
-          value: {
-            id: file.id,
-            name: file.name,
-            mimeType: file.mimeType,
-            modifiedTime: file.modifiedTime,
-            owner: file.owner,
-            webViewLink: file.webViewLink,
-            truncated,
-            content: truncated ? text.slice(0, MAX_TEXT) : text,
-          },
-        };
+
+        const client = new DriveClient(await accessToken(ctx, resolveShared));
+
+        // First try standard text read (for Google Docs, text files, CSV).
+        try {
+          const { file, text } = await client.readFileText(fileId);
+          const truncated = text.length > MAX_TEXT;
+          yield {
+            type: 'result',
+            value: {
+              id: file.id,
+              name: file.name,
+              mimeType: file.mimeType,
+              modifiedTime: file.modifiedTime,
+              owner: file.owner,
+              webViewLink: file.webViewLink,
+              truncated,
+              content: truncated ? text.slice(0, MAX_TEXT) : text,
+            },
+          };
+          return;
+        } catch {
+          // Fall through to format-based parsing below.
+        }
+
+        // Try format-based parsing (PDF, OCR, DOCX, Excel).
+        const { file, bytes, mime } = await client.readFileBytes(fileId);
+        const parser = detectFormatParser(mime, args.format);
+
+        if (!parser) {
+          yield {
+            type: 'error',
+            message: `unsupported file type: ${file.mimeType || 'unknown'} (try format=pdf|ocr|docx|excel)`,
+          };
+          return;
+        }
+
+        try {
+          const parsed = await parser(bytes);
+          const textContent =
+            parsed.text.length > MAX_TEXT ? parsed.text.slice(0, MAX_TEXT) : parsed.text;
+          const truncated = parsed.text.length > MAX_TEXT;
+
+          yield {
+            type: 'result',
+            value: {
+              id: file.id,
+              name: file.name,
+              mimeType: file.mimeType,
+              modifiedTime: file.modifiedTime,
+              owner: file.owner,
+              webViewLink: file.webViewLink,
+              format: parsed.format,
+              truncated,
+              content: textContent,
+              tables: parsed.tables,
+              sections: parsed.sections,
+              metadata: parsed.metadata,
+            },
+          };
+        } catch (exc) {
+          if (exc instanceof ParseError) {
+            yield { type: 'error', message: `parse error: ${exc.message}` };
+          } else {
+            yield { type: 'error', message: `parsing failed: ${exc instanceof Error ? exc.message : String(exc)}` };
+          }
+        }
       },
     },
   };
