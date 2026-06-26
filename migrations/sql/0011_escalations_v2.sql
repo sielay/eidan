@@ -23,9 +23,13 @@ ALTER TABLE eidan.escalations
     ])
   );
 
--- Add escalation_type check constraint
+-- Add escalation_type check constraint (Postgres has no ADD CONSTRAINT IF NOT EXISTS;
+-- drop-then-add keeps the migration idempotent, matching escalations_status_chk above).
 ALTER TABLE eidan.escalations
-  ADD CONSTRAINT IF NOT EXISTS escalations_type_chk CHECK (
+  DROP CONSTRAINT IF EXISTS escalations_type_chk;
+
+ALTER TABLE eidan.escalations
+  ADD CONSTRAINT escalations_type_chk CHECK (
     escalation_type = ANY (ARRAY[
       'agent_to_operator'::text, 'agent_to_agent'::text,
       'operator_to_agent'::text, 'operator_prompt'::text,
