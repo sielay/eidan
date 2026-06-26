@@ -35,66 +35,13 @@ matbot.local.yaml
 /dev-up.sh
 /dev-down.sh
 
-# Bundles & their assembled web artifacts are dropped into the tree by `eidan deploy` and are
-# NEVER tracked here. Rather than name each private bundle (a leak + constant upkeep), default to
-# ignoring everything and re-include only the open-source core. A new bundle needs no edit; adding
-# a new CORE package/route means un-ignoring it below. Re-including the *directory* (not just the
-# `*` glob) is required — otherwise the parent ignore also swallows NEW files inside a core dir.
-packages/*
-!packages/a2a-server/
-!packages/auth/
-!packages/finance-trading212/
-!packages/finance-stripe/
-!packages/finance-xero/
-!packages/frontend-agui/
-!packages/frontend-telegram/
-!packages/jobs/
-!packages/llm-calls/
-!packages/mcp-server/
-!packages/memory/
-!packages/notify/
-!packages/procedures/
-!packages/routines/
-!packages/secrets-api/
-!packages/social-bluesky/
-!packages/social-threads/
-!packages/social-facebook/
-!packages/social-x/
-!packages/social-linkedin/
-!packages/social-mastodon/
-!packages/social-youtube/
-!packages/social-instagram/
-!packages/glue/
-!packages/storage-postgres/
-!packages/vault-postgres/
-!packages/agents/
-!packages/escalations/
-!packages/decisions/
-!packages/finance-google-search-console/
-!packages/gdrive/
-!packages/google/
-!packages/ical/
-!packages/imap/
-!packages/telemetry/
-!packages/transcribe/
-!packages/tool-guard/
-# thematic bundles folded into the AGPL core (kept as opt-in bundle plugins, not in CORE_PLUGINS)
-!packages/charles-ventures/
-!packages/charles-decks/
-# bundle-agnostic kanban/planning substrate (consumed by ventures, charlotte, standalone planner)
-!packages/boards/
-!packages/charles-domains/
-# sage coding bundle — folded into the AGPL core 2026-06-22 (was the private sielay/eidan-sage repo)
-!packages/sage/
-!packages/db/
-!packages/logs/
-!packages/finance-google-trends/
-# shared OAuth-connections engine kit (consumed by google + the social-* plugins)
-!packages/connections-kit/
-# eidan virtual filesystem substrate (folders + storage adapters; shareable with agents)
-!packages/fs/
-# per-user GitHub integration (connection + agent tools)
-!packages/github/
+# packages/ is ALL tracked. Every bundle is folded into the AGPL core as an in-tree
+# `packages/<name>` — there are no private or externally-vendored bundles any more (the deploy
+# vendors nothing into packages/), so the old "ignore packages/*, then re-include each core dir by
+# name" defence is obsolete (it silently excluded any new package, e.g. an empty `schemas`). Adding a
+# package needs no edit here; only node_modules + build caches under it are ignored.
+packages/*/node_modules/
+packages/*/*.tsbuildinfo
 
 # Assembled plugin frontends: every subdir here is bundle-written. The committed *.generated.*
 # base-case files sit directly in the dir (not a subdir), so the trailing-slash glob leaves them.
