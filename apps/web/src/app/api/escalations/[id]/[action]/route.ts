@@ -32,6 +32,20 @@ export async function POST(
     if (!feedback) return new Response("feedback is required", { status: 400 });
 
     const updated = await withUser(sess.userId, async (c) => {
+      const esc = await c.query(
+        `select user_id, to_agent, status from eidan.escalations where id=$1`,
+        [id],
+      );
+      if ((esc.rowCount ?? 0) === 0) return 0;
+
+      const escalation = esc.rows[0] as Record<string, unknown>;
+      const isOwner = escalation.user_id === sess.userId;
+      const isToAgent = escalation.to_agent === sess.userId;
+      if (!isOwner && !isToAgent) return 0;
+
+      const status = escalation.status as string;
+      if (status !== 'pending' && status !== 'open' && status !== 'acknowledged') return 0;
+
       const response = {
         feedback,
         ...(reasoning && { reasoning }),
@@ -42,13 +56,13 @@ export async function POST(
       const r = await c.query(
         `update eidan.escalations
          set status='responded', response=$2::jsonb, responded_at=now(), responded_by=$3, updated_at=now()
-         where id=$1 and status in ('pending', 'open', 'acknowledged')`,
+         where id=$1`,
         [id, JSON.stringify(response), sess.userId],
       );
       return r.rowCount ?? 0;
     });
 
-    if (updated === 0) return new Response("not found or not in respondable state", { status: 404 });
+    if (updated === 0) return new Response("not found or not authorized", { status: 403 });
     return Response.json({ ok: true });
   }
 

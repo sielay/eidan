@@ -136,9 +136,9 @@ export class EscalationsStore {
     const toAgent = row.to_agent as string | null;
     const status = row.status as EscalationStatus;
 
-    // Authorization: allow if owner, or if to_agent is set (agent response expected)
-    // TODO: extend to verify respondingUserId has permission to act as to_agent
-    if (respondingUserId !== escalationUserId && !toAgent) {
+    // Authorization: allow if owner, or if respondingUserId matches the to_agent.
+    // TODO: extend to verify respondingUserId has operator/admin permissions to respond to any escalation
+    if (respondingUserId !== escalationUserId && (!toAgent || respondingUserId !== toAgent)) {
       return null;
     }
 

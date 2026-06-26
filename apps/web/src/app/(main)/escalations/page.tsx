@@ -184,11 +184,11 @@ function EscalationRow({
       : row.severity === "medium"
         ? "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
         : "border-border bg-background";
-  // V2 escalations use from_agent; legacy rows fall back to metadata.source
+  const sourceLabel = typeof row.metadata?.source === "string" ? (row.metadata.source as string) : null;
   const agentLabel = row.from_agent
     ? `from ${row.from_agent}`
-    : typeof row.metadata?.source === "string"
-      ? `from ${row.metadata.source as string}`
+    : sourceLabel
+      ? `from ${sourceLabel} (source)`
       : null;
 
   return (
