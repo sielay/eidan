@@ -218,9 +218,15 @@ function ventureTree(ventures: Venture[]): TreeNode[] {
 
 function ScopeSwitcher({ ventures, currentId, onPick, onAdd }: { ventures: Venture[]; currentId: string | null; onPick: (slug: string) => void; onAdd: () => void }): React.ReactElement | null {
   const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState("");
   if (!ventures.length) return null;
   const current = ventures.find((v) => v.id === currentId) ?? ventures[0];
   const tree = ventureTree(ventures);
+  const term = q.trim().toLowerCase();
+  // Filtering flattens the tree (matches can be anywhere) so we drop indentation while searching.
+  const shown = term ? tree.filter(({ v }) => v.name.toLowerCase().includes(term)) : tree;
+  const showSearch = ventures.length > 6;
+  const close = (): void => { setOpen(false); setQ(""); };
   return (
     <div className="scope-wrap">
       <button className="scope" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -232,19 +238,34 @@ function ScopeSwitcher({ ventures, currentId, onPick, onAdd }: { ventures: Ventu
       </button>
       {open ? (
         <>
-          <div className="scope__scrim" onClick={() => setOpen(false)} />
+          <div className="scope__scrim" onClick={close} />
           <div className="scope__menu">
             <div className="scope__holding"><Icon name="bank" />Ventures<span className="scope__count num">{ventures.length}</span></div>
-            {tree.map(({ v, depth }) => (
-              <button key={v.id} className={"scope__item" + (v.id === current?.id ? " is-active" : "")} style={depth > 0 ? { paddingLeft: `calc(var(--s3) + ${depth} * var(--s4))` } : undefined} onClick={() => { onPick(v.slug); setOpen(false); }}>
-                <span className="scope__item-main">
-                  <span className="scope__item-name">{depth > 0 ? <span style={{ color: "var(--faint)" }} aria-hidden="true">↳ </span> : null}{v.name}</span>
-                  <span className="scope__item-kind">{v.legal_type ? v.legal_type + " · " : ""}{v.kind}</span>
-                </span>
-                {v.id === current?.id ? <Icon name="check" cls="i i-sm scope__check" /> : null}
-              </button>
-            ))}
-            <button className="scope__add" onClick={() => { setOpen(false); onAdd(); }}><Icon name="add" />Add venture</button>
+            {showSearch ? (
+              <input
+                className="scope__search input"
+                type="text"
+                placeholder="Search ventures…"
+                value={q}
+                autoFocus
+                onChange={(e) => setQ(e.target.value)}
+              />
+            ) : null}
+            <div className="scope__list">
+              {shown.length ? shown.map(({ v, depth }) => {
+                const indent = term ? 0 : depth;
+                return (
+                  <button key={v.id} className={"scope__item" + (v.id === current?.id ? " is-active" : "")} style={indent > 0 ? { paddingLeft: `calc(var(--s3) + ${indent} * var(--s4))` } : undefined} onClick={() => { onPick(v.slug); close(); }}>
+                    <span className="scope__item-main">
+                      <span className="scope__item-name">{indent > 0 ? <span style={{ color: "var(--faint)" }} aria-hidden="true">↳ </span> : null}{v.name}</span>
+                      <span className="scope__item-kind">{v.legal_type ? v.legal_type + " · " : ""}{v.kind}</span>
+                    </span>
+                    {v.id === current?.id ? <Icon name="check" cls="i i-sm scope__check" /> : null}
+                  </button>
+                );
+              }) : <div className="scope__empty">No ventures match “{q.trim()}”.</div>}
+            </div>
+            <button className="scope__add" onClick={() => { close(); onAdd(); }}><Icon name="add" />Add venture</button>
           </div>
         </>
       ) : null}

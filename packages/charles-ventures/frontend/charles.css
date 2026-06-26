@@ -12,9 +12,15 @@
 .scope__menu {
   position: absolute; top: calc(100% + var(--s2)); left: 0; z-index: 50;
   min-width: 280px; max-width: min(92vw, 360px);
+  /* Cap height + scroll the list internally so a long venture list never grows past the viewport
+     (which used to scroll the whole page with no way back). */
+  max-height: min(70vh, 520px);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
   box-shadow: var(--e2); padding: var(--s2); display: flex; flex-direction: column; gap: 2px;
 }
+.scope__search { margin: 2px 0; font-size: var(--fs-14); }
+.scope__list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.scope__empty { padding: var(--s3); font-size: var(--fs-13); color: var(--muted); }
 .scope__holding {
   display: flex; align-items: center; gap: var(--s2);
   padding: var(--s2) var(--s3); font-size: var(--fs-13); font-weight: 600; color: var(--muted);
