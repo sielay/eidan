@@ -1,0 +1,12 @@
+{
+  "name": "@eidandev/ask-user-fallback",
+  "version": "0.1.0",
+  "type": "module",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "*"
+  }
+}
