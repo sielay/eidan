@@ -113,10 +113,14 @@ export function proceduresActionTool(store: ProcedureStore, services: MatbotServ
 function makeBridge(services: MatbotServices, ctx: ToolContext, allow: (name: string) => boolean): ProcedureBridge {
   return {
     async call(name: string, input: unknown): Promise<unknown> {
-      // Prevent recursion and self-management: disallow procedures from calling the procedures or procedures_action tools.
-      // This ensures procedures cannot create infinite loops, delete themselves, or trigger other procedures in uncontrolled ways.
-      // The allow-list (EIDAN_PROCEDURE_TOOLS env var) should be carefully configured by operators to avoid exposing sensitive tools
-      // that could lead to privilege escalation or unintended side effects in the hosted environment.
+      // Disallow procedures from calling procedures or procedures_action tools to prevent:
+      // 1. Recursive loops (procedure A calls procedure B which calls procedure A)
+      // 2. Self-management (a procedure deleting itself or other procedures)
+      // 3. Uncontrolled procedure chaining (procedures triggering other procedures without operator oversight)
+      // Only tools explicitly allowlisted in EIDAN_PROCEDURE_TOOLS (env var) are exposed to procedures.
+      // Operators must carefully audit this list as any tool here gains access to the procedure's context (user_id, principal).
+      // Do NOT allowlist: secrets_action, vault, auth tools, or any tool that directly modifies system state without user confirmation.
+      // Risk: a malicious or buggy promoted procedure could escalate privileges or cause unintended side effects.
       if (name === 'procedures' || name === 'procedures_action' || !allow(name)) throw new Error(`tool not exposed to procedures: ${name}`);
       const tool = services.tools.resolve(name);
       if (!tool) throw new Error(`unknown tool: ${name}`);
