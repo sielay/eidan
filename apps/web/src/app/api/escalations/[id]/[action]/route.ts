@@ -17,7 +17,12 @@ export async function POST(
   const { id, action } = await ctx.params;
 
   if (action === "respond") {
-    const body = await req.json() as Record<string, unknown>;
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json() as Record<string, unknown>;
+    } catch {
+      return new Response("invalid request body", { status: 400 });
+    }
     const feedback = body.feedback as string | undefined;
     const reasoning = body.reasoning as string | undefined;
     const decision = body.decision as string | undefined;
@@ -37,8 +42,8 @@ export async function POST(
       const r = await c.query(
         `update eidan.escalations
          set status='responded', response=$2::jsonb, responded_at=now(), responded_by=$3, updated_at=now()
-         where id=$1 and user_id=$4 and status in ('pending', 'open', 'acknowledged')`,
-        [id, JSON.stringify(response), sess.userId, sess.userId],
+         where id=$1 and status in ('pending', 'open', 'acknowledged')`,
+        [id, JSON.stringify(response), sess.userId],
       );
       return r.rowCount ?? 0;
     });

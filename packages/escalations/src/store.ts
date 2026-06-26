@@ -126,13 +126,22 @@ export class EscalationsStore {
     if (!respondingUserId) throw new Error('escalations: no user context (user_id is required for respond)');
 
     const esc = await this.db.query(
-      `select id, status from eidan.escalations where id = $1`,
+      `select id, status, user_id, to_agent from eidan.escalations where id = $1`,
       [args.id],
     );
     if ((esc.rowCount ?? 0) === 0) return null;
 
     const row = esc.rows[0] as Record<string, unknown>;
+    const escalationUserId = row.user_id as string;
+    const toAgent = row.to_agent as string | null;
     const status = row.status as EscalationStatus;
+
+    // Authorization: allow if owner, or if to_agent is set (agent response expected)
+    // TODO: extend to verify respondingUserId has permission to act as to_agent
+    if (respondingUserId !== escalationUserId && !toAgent) {
+      return null;
+    }
+
     if (status !== 'pending' && status !== 'open' && status !== 'acknowledged') {
       return null;
     }
