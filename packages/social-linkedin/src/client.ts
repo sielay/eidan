@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { lookup } from 'node:dns';
 import { promisify } from 'node:util';
+import fetch from 'node-fetch';
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { secretOpt } from './vault.js';
 import type { LinkedInPost, LinkedInProfileResponse, LinkedInFeedResponse, LinkedInUGCPostRequest, LinkedInAssetRegisterResponse } from './types.js';
@@ -13,8 +14,9 @@ const IMAGE_FETCH_TIMEOUT_MS = 30000; // 30 seconds
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 // Default whitelist of trusted image hosting domains for SSRF mitigation.
-// Can be extended via LINKEDIN_IMAGE_DOMAINS environment variable (comma-separated).
-function getAllowedImageDomains(): string[] {
+// Can be extended via LINKEDIN_ALLOWED_IMAGE_DOMAINS vault secret (comma-separated) or
+// LINKEDIN_IMAGE_DOMAINS environment variable (comma-separated).
+function getAllowedImageDomains(customDomainsFromVault?: string): string[] {
   const defaults = [
     'cdn.jsdelivr.net',
     'res.cloudinary.com',
@@ -29,15 +31,27 @@ function getAllowedImageDomains(): string[] {
     'images.ctfassets.net',
   ];
 
-  const envDomains = process.env.LINKEDIN_IMAGE_DOMAINS;
-  if (!envDomains) {
-    return defaults;
+  const customDomains: string[] = [];
+
+  // Vault secret takes precedence over env var
+  if (customDomainsFromVault) {
+    customDomains.push(
+      ...customDomainsFromVault
+        .split(',')
+        .map((d) => d.trim())
+        .filter((d) => d.length > 0)
+    );
   }
 
-  const customDomains = envDomains
-    .split(',')
-    .map((d) => d.trim())
-    .filter((d) => d.length > 0);
+  const envDomains = process.env.LINKEDIN_IMAGE_DOMAINS;
+  if (envDomains) {
+    customDomains.push(
+      ...envDomains
+        .split(',')
+        .map((d) => d.trim())
+        .filter((d) => d.length > 0)
+    );
+  }
 
   return [...defaults, ...customDomains];
 }
@@ -47,10 +61,10 @@ export class LinkedInClient {
   private accessToken: string;
   private allowedImageDomains: string[];
 
-  constructor(ctx: ToolContext, accessToken: string) {
+  constructor(ctx: ToolContext, accessToken: string, customImageDomains?: string) {
     this.ctx = ctx;
     this.accessToken = accessToken;
-    this.allowedImageDomains = getAllowedImageDomains();
+    this.allowedImageDomains = getAllowedImageDomains(customImageDomains);
   }
 
   private isPrivateIp(ip: string): boolean {

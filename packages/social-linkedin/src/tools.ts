@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
 import { LinkedInClient } from './client.js';
-import { secretRequired } from './vault.js';
+import { secretRequired, secretOpt } from './vault.js';
 
 const POST_SCHEMA = {
   type: 'object',
@@ -79,7 +79,8 @@ export function makeLinkedInTools(): Tool[] {
         // Note: image_url is validated in client (HTTPS, no private IPs)
         try {
           const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
-          const client = new LinkedInClient(ctx, token);
+          const customDomains = await secretOpt(ctx, 'LINKEDIN_ALLOWED_IMAGE_DOMAINS');
+          const client = new LinkedInClient(ctx, token, customDomains ?? undefined);
           const result = await client.post(text, args.image_url);
 
           if (result.error) {
@@ -122,7 +123,8 @@ export function makeLinkedInTools(): Tool[] {
         // Note: inputSchema validates limit as integer 1-100; casting handles edge cases
         try {
           const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
-          const client = new LinkedInClient(ctx, token);
+          const customDomains = await secretOpt(ctx, 'LINKEDIN_ALLOWED_IMAGE_DOMAINS');
+          const client = new LinkedInClient(ctx, token, customDomains ?? undefined);
           const result = await client.search(query, Number(args.limit) || 20);
 
           if (result.error) {
@@ -162,7 +164,8 @@ export function makeLinkedInTools(): Tool[] {
       async *execute(input: any, ctx: ToolContext) {
         try {
           const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
-          const client = new LinkedInClient(ctx, token);
+          const customDomains = await secretOpt(ctx, 'LINKEDIN_ALLOWED_IMAGE_DOMAINS');
+          const client = new LinkedInClient(ctx, token, customDomains ?? undefined);
           const result = await client.getProfile();
 
           if (result.error) {
@@ -210,7 +213,8 @@ export function makeLinkedInTools(): Tool[] {
         // Note: inputSchema validates limit as integer 1-100 if provided; defaults to 20
         try {
           const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
-          const client = new LinkedInClient(ctx, token);
+          const customDomains = await secretOpt(ctx, 'LINKEDIN_ALLOWED_IMAGE_DOMAINS');
+          const client = new LinkedInClient(ctx, token, customDomains ?? undefined);
           const result = await client.listFeed(Number(args.limit) || 20);
 
           if (result.error) {

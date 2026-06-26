@@ -44,6 +44,13 @@ export const plugin: MatbotPluginSpec = {
           required: true,
           help: 'OAuth2 access token for LinkedIn API. Generate via LinkedIn developer app at https://www.linkedin.com/developers/apps',
         },
+        {
+          name: 'LINKEDIN_ALLOWED_IMAGE_DOMAINS',
+          label: 'Additional Image Domains',
+          secret: false,
+          required: false,
+          help: 'Comma-separated list of additional trusted domains for image uploads (e.g., "mycdn.example.com, images.example.org"). Domains are case-insensitive and support subdomains.',
+        },
       ],
     });
 
