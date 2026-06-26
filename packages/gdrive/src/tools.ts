@@ -12,6 +12,7 @@ import { DriveClient } from './drive.js';
 import { OAuthError, refreshAccessToken } from './oauth.js';
 import { secretOpt } from './vault.js';
 import { detectFormatParser, ParseError } from './parsers.js';
+import { parseCSV } from './csv-parser.js';
 
 const LIST_SCHEMA = {
   type: 'object',
@@ -37,13 +38,19 @@ const READ_SCHEMA = {
     file_id: { type: 'string', minLength: 1, description: 'Drive file id from gdrive_list_recent or gdrive_search.' },
     format: {
       type: 'string',
-      enum: ['pdf', 'ocr', 'docx', 'excel'],
-      description: 'Parser format: pdf (extract text+tables), ocr (image→text), docx (extract structure), excel (sheet→JSON). Auto-detected from MIME type if omitted.',
+      enum: ['text', 'csv', 'table', 'pdf', 'ocr', 'docx', 'excel'],
+      description:
+        'Output/parse format. "text" (default) returns raw content; "csv" returns an array of ' +
+        '{col: val} objects and "table" returns {headers, rows} — both for Google Sheets/CSV. ' +
+        '"pdf" (text+tables), "ocr" (image→text), "docx" (structure) and "excel" (sheet→JSON) parse ' +
+        'downloaded binary files; the binary format is auto-detected from the MIME type if omitted.',
     },
   },
 };
 
 const MAX_TEXT = 16000;
+const TEXT_FORMATS = ['text', 'csv', 'table'];
+const BINARY_FORMATS = ['pdf', 'ocr', 'docx', 'excel'];
 
 interface OAuthCreds {
   clientId: string;
@@ -129,61 +136,100 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
   const gdriveReadFileTool: Tool = {
     name: 'gdrive_read_file',
     description:
-      'Read one Drive file as text by id with optional format parsing. Google Docs/Slides are exported to plain text and Google ' +
-      'Sheets to CSV; plain-text files are downloaded directly. PDF, images (OCR), DOCX, and Excel files can be parsed with the ' +
-      'format parameter (pdf, ocr, docx, excel); format is auto-detected from MIME type if omitted.',
+      'Read one Drive file by id. Google Docs/Slides export to plain text and Google Sheets to CSV; ' +
+      'plain-text files download directly. Pass format=csv|table to structure a Sheet/CSV, or ' +
+      'format=pdf|ocr|docx|excel to parse a downloaded binary file (auto-detected from MIME if omitted).',
     inputSchema: READ_SCHEMA,
     executor: {
       async *execute(input, ctx) {
         const args = (input ?? {}) as { file_id?: string; format?: string };
         const fileId = String(args.file_id ?? '').trim();
+        const format = String(args.format ?? 'text').toLowerCase();
+
         if (!fileId) {
           yield { type: 'error', message: 'file_id is required' };
           return;
         }
-
-        const client = new DriveClient(await accessToken(ctx, resolveShared));
-
-        // First try standard text read (for Google Docs, text files, CSV).
-        try {
-          const { file, text } = await client.readFileText(fileId);
-          const truncated = text.length > MAX_TEXT;
-          yield {
-            type: 'result',
-            value: {
-              id: file.id,
-              name: file.name,
-              mimeType: file.mimeType,
-              modifiedTime: file.modifiedTime,
-              owner: file.owner,
-              webViewLink: file.webViewLink,
-              truncated,
-              content: truncated ? text.slice(0, MAX_TEXT) : text,
-            },
-          };
+        if (![...TEXT_FORMATS, ...BINARY_FORMATS].includes(format)) {
+          yield { type: 'error', message: `format must be one of ${[...TEXT_FORMATS, ...BINARY_FORMATS].join(', ')}` };
           return;
-        } catch {
-          // Fall through to format-based parsing below.
         }
 
-        // Try format-based parsing (PDF, OCR, DOCX, Excel).
-        const { file, bytes, mime } = await client.readFileBytes(fileId);
-        const parser = detectFormatParser(mime, args.format);
+        const wantBinary = BINARY_FORMATS.includes(format);
+        const client = new DriveClient(await accessToken(ctx, resolveShared));
 
+        // Text-first read (Google Docs/Slides → text, Sheets → CSV, plain text downloaded), unless a
+        // document/binary parser was explicitly requested. A binary file that can't be read as text
+        // falls through to MIME-auto-detected parsing below.
+        let textRead: { file: Awaited<ReturnType<DriveClient['readFileText']>>['file']; text: string } | null = null;
+        if (!wantBinary) {
+          try {
+            textRead = await client.readFileText(fileId);
+          } catch {
+            // not text-readable — fall through to binary parsing
+          }
+        }
+
+        if (textRead) {
+          const { file, text } = textRead;
+          const meta = {
+            id: file.id,
+            name: file.name,
+            mimeType: file.mimeType,
+            modifiedTime: file.modifiedTime,
+            owner: file.owner,
+            webViewLink: file.webViewLink,
+          };
+
+          // Default: raw text.
+          if (format === 'text') {
+            const truncated = text.length > MAX_TEXT;
+            yield { type: 'result', value: { ...meta, truncated, content: truncated ? text.slice(0, MAX_TEXT) : text } };
+            return;
+          }
+
+          // Structured CSV/table — only for CSV-exportable types; else return raw text with a note.
+          const isCsvExportable =
+            file.mimeType === 'application/vnd.google-apps.spreadsheet' ||
+            file.mimeType === 'text/csv' ||
+            file.mimeType === 'application/csv';
+          if (!isCsvExportable) {
+            const truncated = text.length > MAX_TEXT;
+            yield {
+              type: 'result',
+              value: {
+                ...meta,
+                note: `format="${format}" only works with Google Sheets or CSV files; returning raw text instead`,
+                content: truncated ? text.slice(0, MAX_TEXT) : text,
+                truncated,
+              },
+            };
+            return;
+          }
+
+          const parsed = parseCSV(text);
+          if (format === 'csv') {
+            yield { type: 'result', value: { ...meta, content: parsed.rows } };
+          } else {
+            yield { type: 'result', value: { ...meta, headers: parsed.headers, rows: parsed.rows } };
+          }
+          return;
+        }
+
+        // Document/binary parsing (PDF, OCR, DOCX, Excel) — explicit format, or text read failed.
+        const { file, bytes, mime } = await client.readFileBytes(fileId);
+        const parser = detectFormatParser(mime, wantBinary ? format : undefined);
         if (!parser) {
           yield {
             type: 'error',
-            message: `unsupported file type: ${file.mimeType || 'unknown'} (try format=pdf|ocr|docx|excel)`,
+            message: `unsupported file type: ${file.mimeType || mime || 'unknown'} (try format=pdf|ocr|docx|excel)`,
           };
           return;
         }
 
         try {
           const parsed = await parser(bytes);
-          const textContent =
-            parsed.text.length > MAX_TEXT ? parsed.text.slice(0, MAX_TEXT) : parsed.text;
           const truncated = parsed.text.length > MAX_TEXT;
-
           yield {
             type: 'result',
             value: {
@@ -195,7 +241,7 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
               webViewLink: file.webViewLink,
               format: parsed.format,
               truncated,
-              content: textContent,
+              content: truncated ? parsed.text.slice(0, MAX_TEXT) : parsed.text,
               tables: parsed.tables,
               sections: parsed.sections,
               metadata: parsed.metadata,

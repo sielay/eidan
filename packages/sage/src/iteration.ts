@@ -90,8 +90,24 @@ export function openThreads(threads: gh.ReviewThread[]): gh.ReviewThread[] {
   return threads.filter((t) => t && typeof t === 'object' && !t.is_resolved);
 }
 
-export function shouldTerminate(open: gh.ReviewThread[], failing: gh.CheckRow[]): boolean {
-  return open.length === 0 && failing.length === 0;
+// Sage's own PR comments start with these emoji markers (see the iteration/terminal/waiting/self-review
+// comment templates). Used both to skip them as 'operator feedback' and as the addressed-watermark.
+function isSageComment(body: string): boolean {
+  const b = body.trimStart();
+  return b.startsWith('🤖') || b.startsWith('🛑');
+}
+
+// Operator instructions: human (non-bot, non-sage) PR conversation comments posted SINCE sage's last
+// comment. Sage addresses these alongside Copilot threads; its next comment re-watermarks them as
+// handled, so a comment is acted on once and doesn't re-trigger.
+export function unaddressedOperatorComments(comments: gh.PrComment[]): gh.PrComment[] {
+  let watermark = '';
+  for (const c of comments) if (isSageComment(c.body) && c.createdAt > watermark) watermark = c.createdAt;
+  return comments.filter((c) => !c.isBot && !isSageComment(c.body) && c.createdAt > watermark);
+}
+
+export function shouldTerminate(open: gh.ReviewThread[], failing: gh.CheckRow[], operator: gh.PrComment[] = []): boolean {
+  return open.length === 0 && failing.length === 0 && operator.length === 0;
 }
 
 function renderThreadsBlock(open: gh.ReviewThread[]): string {
@@ -124,6 +140,7 @@ function renderChecksBlock(failing: gh.CheckRow[]): string {
 
 function composeFixPrompt(opts: {
   taskPrompt: string; prNumber: number; copilotFixes: Verdict[]; ciFixes: Verdict[]; threadsById: Map<string, gh.ReviewThread>;
+  operator?: gh.PrComment[];
 }): string {
   const lines = [
     "You are sage's PR-iteration fixer. Apply ONLY the changes listed below to the current working tree.",
@@ -156,6 +173,15 @@ function composeFixPrompt(opts: {
     }
     lines.push('');
   }
+  if (opts.operator?.length) {
+    lines.push('## Operator instructions (PR comments) to address');
+    lines.push('Direct guidance from the human operator on this PR — apply what they ask (edit the code accordingly). If a comment is a question or not actionable, do nothing for it.');
+    for (const c of opts.operator) {
+      const body = String(c.body).trim().replace(/\n/g, '\n  ');
+      lines.push(`- [${c.author ?? 'operator'}] ${body}`);
+    }
+    lines.push('');
+  }
   lines.push('When done, stop. Do not summarise — sage reads the diff, not your final message.');
   return lines.join('\n');
 }
@@ -171,11 +197,12 @@ function commitMessage(opts: { prNumber: number; iteration: number; copilotFixes
 
 function iterationComment(opts: {
   iteration: number; commitSha: string | null; copilotFixes: Verdict[]; ciFixes: Verdict[];
-  replies: Verdict[]; acks: Verdict[]; escalations: Verdict[];
+  replies: Verdict[]; acks: Verdict[]; escalations: Verdict[]; operatorCount?: number;
 }): string {
   const sha = opts.commitSha ? ` in \`${opts.commitSha.slice(0, 10)}\`` : '';
   const parts = [`🤖 **Sage iteration ${opts.iteration}**`];
   if (opts.copilotFixes.length || opts.ciFixes.length) parts.push(`- Fixed ${opts.copilotFixes.length + opts.ciFixes.length} item(s)${sha}.`);
+  if (opts.operatorCount) parts.push(`- Addressed ${opts.operatorCount} operator comment(s)${sha}.`);
   if (opts.replies.length) parts.push(`- Replied (kept current approach) on ${opts.replies.length} thread(s).`);
   if (opts.acks.length) parts.push(`- Acknowledged ${opts.acks.length} informational comment(s).`);
   if (opts.escalations.length) parts.push(`- ⚠️ Escalated ${opts.escalations.length} item(s) — needs a human decision; the loop is paused on this PR.`);
@@ -293,7 +320,16 @@ async function evaluateAndIterate(deps: IterationDeps, row: CursorRow): Promise<
     console.error(`[sage] settle probe failed for ${ownerRepo}#${pr}: ${e instanceof Error ? e.message : String(e)}`);
     return 'error';
   }
-  const sig = inputSignature(reviewsPayload, checksPayload);
+  // Operator instructions (plain PR conversation comments) drive iteration too, and must also wake a
+  // parked `waiting` cursor — so fetch them now and fold them into the #64 input signature. Best-effort:
+  // a comments-API hiccup must never wedge the loop.
+  let operator: gh.PrComment[] = [];
+  try {
+    operator = unaddressedOperatorComments(await gh.prComments(resolvePat, { host, ownerRepo, number: pr }));
+  } catch (e) {
+    console.warn(`[sage] pr comments fetch failed for ${ownerRepo}#${pr}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const sig = inputSignature(reviewsPayload, checksPayload) + '||O:' + operator.map((c) => c.createdAt).sort().join(',');
 
   // #64 re-arm: a parked `waiting` cursor wakes only when its input signature changed.
   if (row.status === 'waiting') {
@@ -304,34 +340,37 @@ async function evaluateAndIterate(deps: IterationDeps, row: CursorRow): Promise<
 
   if (!checksPayload.allSettled) return 'not_settled';
 
-  if (!copilotSubmitted(reviewsPayload.reviews)) {
-    // Copilot hasn't reviewed. If it's still a pending reviewer, wait. If it never engaged (out of
-    // quota / not enabled) and a self-review is configured, fall back to that verdict (step 6);
-    // otherwise keep waiting for Copilot.
+  const copilotDone = copilotSubmitted(reviewsPayload.reviews);
+  if (!copilotDone && !operator.length) {
+    // Copilot hasn't reviewed and there's no operator feedback to act on. Still a pending reviewer →
+    // wait; never engaged + self-review configured → fall back (step 6); else keep waiting for Copilot.
     if (copilotPending(reviewsPayload.requested) || !deps.selfreview) return 'not_settled';
     return selfReviewPath(deps, row, failingChecks(checksPayload.checks), sig);
   }
 
-  let threads: gh.ReviewThread[];
-  try {
-    threads = await gh.reviewThreads(resolvePat, { host, ownerRepo, number: pr });
-  } catch (e) {
-    console.error(`[sage] review_threads failed for ${ownerRepo}#${pr}: ${e instanceof Error ? e.message : String(e)}`);
-    return 'error';
+  // Copilot threads only exist once Copilot reviewed; otherwise iterate on operator comments + CI.
+  let threads: gh.ReviewThread[] = [];
+  if (copilotDone) {
+    try {
+      threads = await gh.reviewThreads(resolvePat, { host, ownerRepo, number: pr });
+    } catch (e) {
+      console.error(`[sage] review_threads failed for ${ownerRepo}#${pr}: ${e instanceof Error ? e.message : String(e)}`);
+      return 'error';
+    }
   }
 
   const open = openThreads(threads);
   const failing = failingChecks(checksPayload.checks);
 
   // Clean termination — costs no slot.
-  if (shouldTerminate(open, failing)) {
+  if (shouldTerminate(open, failing, operator)) {
     await commentSafe(deps, host, ownerRepo, pr, terminalComment(true, row.iteration));
     await track.advance(db, { rowId: row.id, status: 'done' });
     return 'done';
   }
 
   // Needs work. #64: track consecutive no-progress, park `waiting` at the cap instead of going deaf.
-  const unresolved = open.length + failing.length;
+  const unresolved = open.length + failing.length + operator.length;
   const noProgress = nextNoProgress(row, sig, unresolved);
   await track.updateProgress(db, { rowId: row.id, noProgressPasses: noProgress, lastUnresolved: unresolved, lastInputSig: sig });
   if (noProgress >= cfg.maxIterations) {
@@ -351,7 +390,7 @@ async function evaluateAndIterate(deps: IterationDeps, row: CursorRow): Promise<
       await track.advance(db, { rowId: row.id, status: 'open' });
       return 'lease_busy';
     }
-    return await doIteration(deps, row, prepared, open, failing);
+    return await doIteration(deps, row, prepared, open, failing, operator);
   } catch (e) {
     console.error(`[sage] iteration failed for ${ownerRepo}#${pr}: ${e instanceof Error ? e.message : String(e)}`);
     await track.advance(db, { rowId: row.id, status: 'open' });
@@ -378,7 +417,7 @@ async function stallToWaiting(deps: IterationDeps, row: CursorRow, sig: string, 
   return 'waiting';
 }
 
-async function doIteration(deps: IterationDeps, row: CursorRow, prepared: PreparedWorkspace, open: gh.ReviewThread[], failing: gh.CheckRow[]): Promise<string> {
+async function doIteration(deps: IterationDeps, row: CursorRow, prepared: PreparedWorkspace, open: gh.ReviewThread[], failing: gh.CheckRow[], operator: gh.PrComment[] = []): Promise<string> {
   const { db, cfg, resolvePat } = deps;
   const host = row.host;
   const ownerRepo = row.repo;
@@ -418,10 +457,11 @@ async function doIteration(deps: IterationDeps, row: CursorRow, prepared: Prepar
   const threadsById = new Map<string, gh.ReviewThread>();
   for (const t of open) if (t.id) threadsById.set(t.id, t);
 
-  // 4. Apply fixes via claude, then commit + push.
+  // 4. Apply fixes via claude, then commit + push. Operator comments are always handed to the fixer
+  //    (they're free-text guidance, not triaged thread verdicts).
   let commitSha: string | null = null;
-  if (copilotFixes.length || ciFixes.length) {
-    const fixPrompt = composeFixPrompt({ taskPrompt, prNumber: pr, copilotFixes, ciFixes, threadsById });
+  if (copilotFixes.length || ciFixes.length || operator.length) {
+    const fixPrompt = composeFixPrompt({ taskPrompt, prNumber: pr, copilotFixes, ciFixes, threadsById, operator });
     const fixResult = await runClaudeStep(deps, fixPrompt, prepared.path, cfg.fixModel);
     if (fixResult.outcome === 'success') {
       commitSha = await commitAll(prepared.path, commitMessage({ prNumber: pr, iteration: row.iteration + 1, copilotFixes, ciFixes }));
@@ -466,7 +506,7 @@ async function doIteration(deps: IterationDeps, row: CursorRow, prepared: Prepar
 
   // 7. Progress comment + advance the cursor.
   await commentSafe(deps, host, ownerRepo, pr, iterationComment({
-    iteration: row.iteration + 1, commitSha, copilotFixes, ciFixes, replies, acks, escalations,
+    iteration: row.iteration + 1, commitSha, copilotFixes, ciFixes, replies, acks, escalations, operatorCount: operator.length,
   }));
   const nextIter = row.iteration + 1;
   if (escalations.length) {

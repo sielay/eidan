@@ -138,6 +138,33 @@ export async function reviews(
   };
 }
 
+export interface PrComment { author: string | null; body: string; createdAt: string; isBot: boolean }
+
+// The PR's conversation (issue) comments — NOT review threads. Sage reads these so OPERATOR feedback
+// left as a plain PR comment drives iteration too (not only Copilot/human review threads).
+export async function prComments(
+  resolvePat: PatResolver,
+  opts: { host: string; ownerRepo: string; number: number },
+): Promise<PrComment[]> {
+  const token = requireRead(resolvePat, opts.host, opts.ownerRepo);
+  const r = await gh(
+    ['pr', 'view', String(opts.number), '--repo', opts.ownerRepo, '--json', 'comments'],
+    { host: opts.host, token },
+  );
+  if (r.exitCode !== 0) throw new GhError(`gh.exit_${r.exitCode}`, `pr view (comments) failed: ${r.stderr.slice(0, 300)}`);
+  const data = JSON.parse(r.stdout || '{}') as Record<string, unknown>;
+  const raw = Array.isArray(data['comments']) ? (data['comments'] as Record<string, unknown>[]) : [];
+  return raw.map((c) => {
+    const login = ((c['author'] as Record<string, unknown>)?.['login'] as string) ?? null;
+    return {
+      author: login,
+      body: String(c['body'] ?? ''),
+      createdAt: String(c['createdAt'] ?? ''),
+      isBot: !!login && (/\[bot\]$/i.test(login) || /^copilot/i.test(login) || login.toLowerCase() === 'github-actions'),
+    };
+  });
+}
+
 export interface CheckRow { name?: string; state?: string; bucket?: string; link?: string; workflow?: string; startedAt?: string; completedAt?: string }
 export interface ChecksPayload { allSettled: boolean; checks: CheckRow[] }
 
