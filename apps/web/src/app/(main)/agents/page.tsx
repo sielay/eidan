@@ -88,12 +88,21 @@ export default function AgentsPage(): React.ReactElement {
   );
 }
 
+// The persona's first paragraph (collapsed preview) — first non-empty block, whitespace-flattened.
+function firstParagraph(s: string | null | undefined): string {
+  const blocks = String(s ?? "").split(/\n\s*\n/);
+  return (blocks.find((b) => b.trim()) ?? "").trim().replace(/\s+/g, " ");
+}
+
 function AgentCard({
   agent, onChange,
 }: { agent: AgentInfo; onChange: () => void }): React.ReactElement {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [scheduleInput, setScheduleInput] = React.useState("");
+  // Collapsed by default: only the header row + the persona's first paragraph show; everything else
+  // (full persona, triggers, schedule, runs) is revealed on expand.
+  const [expanded, setExpanded] = React.useState(false);
 
   async function act(fn: () => Promise<void>): Promise<void> {
     setBusy(true);
@@ -103,6 +112,14 @@ function AgentCard({
   return (
     <article className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
       <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          title={expanded ? "Collapse" : "Expand"}
+          className="w-4 font-mono text-xs text-muted-foreground hover:text-foreground"
+        >
+          {expanded ? "▾" : "▸"}
+        </button>
         <Avatar kind="agent" seed={agent.metadata?.avatar?.seed ?? agent.id} style={agent.metadata?.avatar?.style ?? null} size={22} title={agent.name} />
         <button
           disabled={busy}
@@ -147,38 +164,50 @@ function AgentCard({
         </div>
       </div>
 
-      <p className="whitespace-pre-wrap text-xs text-muted-foreground">{agent.persona}</p>
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">triggers:</span>
-        {agent.triggers.length === 0 ? (
-          <span className="font-mono text-[10px] text-muted-foreground/60">none — add a schedule below</span>
-        ) : (
-          agent.triggers.map((t) => <TriggerChip key={t.id} agentId={agent.id} trigger={t} onChange={onChange} />)
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={scheduleInput} onChange={(e) => setScheduleInput(e.target.value)}
-          placeholder={`add schedule — ${SCHEDULE_PLACEHOLDER}`}
-          className="w-72 rounded border border-border bg-background px-2 py-0.5 font-mono text-[11px]"
-        />
+      {!expanded ? (
         <button
-          disabled={busy || !scheduleInput.trim()}
-          onClick={() => void act(async () => { await addAgentSchedule(agent.id, scheduleInput.trim()); setScheduleInput(""); })}
-          className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
+          onClick={() => setExpanded(true)}
+          title="Expand"
+          className="truncate text-left text-xs text-muted-foreground hover:text-foreground"
         >
-          + schedule
+          {firstParagraph(agent.persona) || "(no persona)"}
         </button>
-      </div>
+      ) : (
+        <>
+          <p className="whitespace-pre-wrap text-xs text-muted-foreground">{agent.persona}</p>
 
-      {agent.recent_runs.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">runs:</span>
-          {agent.recent_runs.map((r) => <RunChip key={r.fire_key} run={r} />)}
-        </div>
-      ) : null}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">triggers:</span>
+            {agent.triggers.length === 0 ? (
+              <span className="font-mono text-[10px] text-muted-foreground/60">none — add a schedule below</span>
+            ) : (
+              agent.triggers.map((t) => <TriggerChip key={t.id} agentId={agent.id} trigger={t} onChange={onChange} />)
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={scheduleInput} onChange={(e) => setScheduleInput(e.target.value)}
+              placeholder={`add schedule — ${SCHEDULE_PLACEHOLDER}`}
+              className="w-72 rounded border border-border bg-background px-2 py-0.5 font-mono text-[11px]"
+            />
+            <button
+              disabled={busy || !scheduleInput.trim()}
+              onClick={() => void act(async () => { await addAgentSchedule(agent.id, scheduleInput.trim()); setScheduleInput(""); })}
+              className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
+            >
+              + schedule
+            </button>
+          </div>
+
+          {agent.recent_runs.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">runs:</span>
+              {agent.recent_runs.map((r) => <RunChip key={r.fire_key} run={r} />)}
+            </div>
+          ) : null}
+        </>
+      )}
     </article>
   );
 }

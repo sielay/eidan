@@ -34,6 +34,18 @@ const INDEXING_ERRORS_SCHEMA = {
   },
 };
 
+const CHECK_URL_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['url'],
+  properties: {
+    url: {
+      type: 'string',
+      description: 'The full URL to inspect (must belong to the configured property).',
+    },
+  },
+};
+
 export function makeGscTools(): Tool[] {
   const gscPerformanceTool: Tool = {
     name: 'gsc_performance',
@@ -186,5 +198,55 @@ export function makeGscTools(): Tool[] {
     },
   };
 
-  return [gscPerformanceTool, gscSitemapsTool, gscIndexingStatusTool, gscIndexingErrorsTool];
+  const gscCheckUrlTool: Tool = {
+    name: 'gsc_check_url',
+    description:
+      'Inspect a single URL in Google Search Console: whether it is indexed, its indexing state, and any crawl or mobile-usability issues. Requires GSC_ACCESS_TOKEN and GSC_PROPERTY_URL vault secrets.',
+    inputSchema: CHECK_URL_SCHEMA,
+    executor: {
+      async *execute(input, ctx) {
+        const args = (input ?? {}) as { url?: string };
+        const url = args.url ? String(args.url).trim() : '';
+        if (!url) {
+          yield { type: 'error', message: 'A url is required to inspect.' };
+          return;
+        }
+
+        const gscResult = await makeGSCClient(ctx);
+        if (gscResult.error) {
+          yield { type: 'error', message: gscResult.error };
+          return;
+        }
+
+        if (!gscResult.client) {
+          yield { type: 'error', message: 'Failed to create GSC client' };
+          return;
+        }
+
+        const result = await gscResult.client.checkUrl(url);
+
+        if (result.error) {
+          yield { type: 'error', message: result.error };
+        } else {
+          yield {
+            type: 'result',
+            value: {
+              url,
+              indexed: result.indexed ?? false,
+              state: result.state || 'UNKNOWN',
+              issues: result.issues || [],
+            },
+          };
+        }
+      },
+    },
+  };
+
+  return [
+    gscPerformanceTool,
+    gscSitemapsTool,
+    gscIndexingStatusTool,
+    gscIndexingErrorsTool,
+    gscCheckUrlTool,
+  ];
 }

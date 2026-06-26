@@ -18,14 +18,15 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const rows = await withUser(sess.userId, async (c) => {
     const params: unknown[] = [sess.userId];
-    let where = "user_id = $1";
+    let where = "user_id = $1 and deleted_at is null";
     if (status && status !== "all") {
       params.push(status);
       where += ` and status = $${params.length}`;
     }
     const r = await c.query(
       `select id, conversation_id, agent_id, severity, reason_class, suggested_action,
-              evidence, metadata, status, created_at, updated_at, resolved_at
+              evidence, metadata, status, created_at, updated_at, resolved_at,
+              from_agent, to_agent, escalation_type, response, trigger_prompt, responded_at, responded_by
          from eidan.escalations where ${where}
          order by created_at desc limit ${limit}`,
       params,
@@ -44,8 +45,14 @@ export async function GET(req: NextRequest): Promise<Response> {
       evidence: Array.isArray(r.evidence) ? r.evidence : [],
       metadata: (r.metadata as Record<string, unknown> | null) ?? {},
       status: r.status ?? "pending",
+      from_agent: r.from_agent ?? null,
+      to_agent: r.to_agent ?? null,
+      escalation_type: r.escalation_type ?? "agent_to_operator",
+      response: (r.response as Record<string, unknown> | null) ?? null,
+      trigger_prompt: r.trigger_prompt ?? null,
       created_at: iso(r.created_at),
       updated_at: iso(r.updated_at),
+      responded_at: r.responded_at ? iso(r.responded_at) : null,
       resolved_at: r.resolved_at ? iso(r.resolved_at) : null,
     })),
   });

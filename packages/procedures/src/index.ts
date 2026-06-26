@@ -4,6 +4,7 @@ import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { ProcedureStore } from './procedure-store.js';
 import { proceduresTool } from './procedures-tool.js';
+import { proceduresActionTool } from './procedures-action-tool.js';
 
 // Export archaeology procedures for easy access
 export { driveDeepScan, mailThreadArchaeology, ideaExtractionPipeline } from './archaeology-procedures.js';
@@ -25,5 +26,6 @@ export const plugin: MatbotPluginSpec = {
     );
     const allow = (name: string): boolean => allowed.has(name);
     services.tools.register(proceduresTool(services, store, allow));
+    services.tools.register(proceduresActionTool(store, services, allow));
   },
 };
