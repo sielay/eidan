@@ -2,6 +2,12 @@
 import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    Escalations?: EscalationsService;
+  }
+}
+
 interface EscalationsService {
   raise(args: {
     severity: 'low' | 'medium' | 'high';
@@ -29,19 +35,11 @@ export const plugin: MatbotPluginSpec = {
   },
 
   async setup(services: MatbotServices) {
-    let escalationsService: EscalationsService | undefined;
-
-    // Obtain escalations service reference at setup time so we can use it in the handler closure
     const svc = services as { Escalations?: EscalationsService };
-    escalationsService = svc.Escalations;
-
-    if (!escalationsService) {
-      console.warn('[ask-user-fallback] escalations service not available at setup; fallback disabled');
-    }
 
     services.hooks.register({
-      on: 'toolcall',
-      priority: 30,
+      on: 'toolresult',
+      priority: 60,
       pluginName: 'ask-user-fallback',
       async handler(ctx) {
         const tool = ctx.tool.name;
@@ -52,8 +50,12 @@ export const plugin: MatbotPluginSpec = {
         const type = args?.type as string | undefined;
         if (type !== 'confirm') return;
 
+        // Only escalate if ask_user errored (e.g., no TTY in non-interactive context)
+        if (!ctx.isError) return;
+
+        const escalationsService = svc.Escalations;
         if (!escalationsService) {
-          console.warn('[ask-user-fallback] escalations service not available; ask_user will fail');
+          console.warn('[ask-user-fallback] escalations service not available');
           return;
         }
 

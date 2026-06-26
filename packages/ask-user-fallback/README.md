@@ -20,12 +20,12 @@ The decision point is logged as a pending escalation, allowing the operator to a
 
 ## How it works
 
-The plugin registers a high-priority `toolcall` hook that:
+The plugin registers a high-priority `toolresult` hook that:
 
-- Detects if a tool call is for `ask_user` with `type='confirm'`
+- Detects when `ask_user` with `type='confirm'` fails with an error
 - Checks if we're in a non-interactive context (via `IS_SUB_AGENT` env var)
-- If both true: escalates the decision, returns a stub response
-- If not: lets the tool call proceed normally (interactive path)
+- If both true: escalates the decision to the inbox, returns a stub response
+- If not: lets the error propagate (interactive path, or non-confirm types)
 
 ## Non-interactive context detection
 

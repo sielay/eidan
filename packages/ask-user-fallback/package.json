@@ -7,6 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@matatbread/matbot-plugin-api": "*"
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
   }
 }
