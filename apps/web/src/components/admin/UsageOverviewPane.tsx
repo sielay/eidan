@@ -23,7 +23,7 @@ export function UsageOverviewPane(): React.ReactElement {
         const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
         const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
         const lastMonthEnd = monthStart;
-        const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+        const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
         const thisMonthData = await getUsageSummary(
           monthStart.toISOString(),
