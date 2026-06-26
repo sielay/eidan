@@ -2,12 +2,6 @@
 import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 
-declare module '@matatbread/matbot-plugin-api' {
-  interface MatbotServices {
-    Escalations?: EscalationsService;
-  }
-}
-
 interface EscalationsService {
   raise(args: {
     severity: 'low' | 'medium' | 'high';
@@ -21,6 +15,17 @@ interface EscalationsService {
   }): Promise<{ id: string } | null>;
 }
 
+interface AskUserFallbackConfig {
+  isNonInteractive: boolean;
+}
+
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    Escalations?: EscalationsService;
+    AskUserFallbackConfig?: AskUserFallbackConfig;
+  }
+}
+
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
@@ -31,7 +36,11 @@ export const plugin: MatbotPluginSpec = {
   },
 
   async setup(services: MatbotServices) {
-    const svc = services as { Escalations?: EscalationsService };
+    const svc = services as { Escalations?: EscalationsService; AskUserFallbackConfig?: AskUserFallbackConfig };
+
+    const config: AskUserFallbackConfig = {
+      isNonInteractive: !!process.env['IS_SUB_AGENT'],
+    };
 
     services.hooks.register({
       on: 'toolresult',
@@ -41,8 +50,7 @@ export const plugin: MatbotPluginSpec = {
         const tool = ctx.tool.name;
         if (tool !== 'ask_user') return;
 
-        const isNonInteractive = !!process.env['IS_SUB_AGENT'];
-        if (!isNonInteractive) return;
+        if (!config.isNonInteractive) return;
 
         const args = ctx.tool.input as Record<string, unknown> | undefined;
         const type = args?.type as string | undefined;
