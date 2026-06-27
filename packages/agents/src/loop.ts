@@ -113,15 +113,18 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   const handleResponses = async (esc: EscalationsLike): Promise<void> => {
     let totalProcessed = 0;
     const maxPerTick = 20; // Limit responses processed per tick to prevent DB thrashing
+    const batchSize = 5; // Limit concurrent esc.list queries to avoid DB strain
 
     try {
       const agents = await store.responseTriggeredAgents();
+      const filteredAgents = agents.filter(a => !a.target_node || a.target_node === nodeId);
+      const agentResponses: Array<{ agent: typeof agents[0]; responses: any[] }> = [];
 
-      // Batch-fetch all responses for all agents in parallel to reduce DB queries
-      const agentResponses = await Promise.all(
-        agents
-          .filter(a => !a.target_node || a.target_node === nodeId)
-          .map(a =>
+      // Batch-fetch responses in groups to limit concurrent queries
+      for (let i = 0; i < filteredAgents.length; i += batchSize) {
+        const batch = filteredAgents.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+          batch.map(a =>
             esc.list({
               userId: a.user_id,
               toAgent: a.agent_id,
@@ -129,7 +132,9 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
               limit: 10,
             }).then(responses => ({ agent: a, responses }))
           )
-      );
+        );
+        agentResponses.push(...batchResults);
+      }
 
       for (const { agent: a, responses } of agentResponses) {
         for (const resp of responses) {
@@ -150,13 +155,15 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
           const won = await store.claimRun(a.trigger_id, a.agent_id, a.user_id, fireKey);
           if (!won) continue; // another node is handling this fire
 
-          // Non-blocking fire: allows concurrent processing of responses across agents while
-          // claimRun ensures only one node processes each response. Responses are marked
-          // processed after fire completes (fire handles both success and failure).
-          void fire(a, fireKey, blendedPersona);
+          // Fire the agent and ensure response is only marked processed after fire completes.
+          // Awaiting fire ensures markResponseProcessed is called only after the agent run
+          // (success or failure) is fully recorded, preventing premature marking.
+          await fire(a, fireKey, blendedPersona).catch(() => {
+            /* fire handles its own logging; just continue on error */
+          });
           totalProcessed++;
 
-          // Mark response as processed after fire (whether succeeded or failed—fire handles both)
+          // Mark response as processed after fire completes
           await esc.markResponseProcessed(resp.id).catch(() => {
             /* best-effort; don't fail loop for escalation metadata */
           });
