@@ -250,11 +250,13 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     for (const [key, data] of edgeMap) {
       const [from, to] = key.split("→");
-      // ponytail: unique edge IDs prevent SVG marker collisions; includes type to distinguish
-      // escalation vs relationship edges with same endpoints (if future design allows this)
-      const typePrefix = data.relationship ? `rel-${data.relationship.relationship_type}` : "esc";
-      const edgeId = `${from}|${to}|${typePrefix}`;
-      newEdges.push({ id: edgeId, from, to, escalations: data.escalations, relationship: data.relationship });
+      // Create separate edges for escalations and relationships so both can coexist and be styled independently
+      if (data.escalations > 0) {
+        newEdges.push({ id: `${from}|${to}|esc`, from, to, escalations: data.escalations });
+      }
+      if (data.relationship) {
+        newEdges.push({ id: `${from}|${to}|rel-${data.relationship.relationship_type}`, from, to, escalations: 0, relationship: data.relationship });
+      }
     }
 
     setNodes(newNodes);
@@ -567,7 +569,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                       x2={to.x}
                       y2={to.y}
                       stroke={strokeColor}
-                      strokeWidth={isRelationship ? 1 : 1.5}
+                      strokeWidth={isRelationship ? (edge.relationship?.strength ?? 3) / 2 : 1.5}
                       strokeDasharray={strokeDasharray}
                       markerEnd={`url(#arrow-${edge.id})`}
                     >
