@@ -23,7 +23,8 @@ interface EidanFsRest {
 }
 
 function iso(v: unknown): string {
-  return v instanceof Date ? v.toISOString() : String(v ?? '');
+  if (v == null) return '';
+  return v instanceof Date ? v.toISOString() : String(v);
 }
 
 function json(res: ServerResponse, code: number, obj: unknown, cors: Record<string, string>): void {
@@ -609,7 +610,7 @@ export async function handleRest(
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
-          created_at: iso(row.created_at), updated_at: iso(row.updated_at ?? row.created_at), starred: row.starred === true,
+          created_at: iso(row.created_at ?? ''), updated_at: iso(row.updated_at ?? row.created_at ?? ''), starred: row.starred === true,
         })),
         next_before: nextBefore,
         next_before_starred: nextBeforeStarred,
@@ -645,7 +646,7 @@ export async function handleRest(
       const r = await withPrincipal(principal, (q) => q('select id, title, created_at, updated_at, starred from eidan.conversations where id=$1 and user_id=$2 and deleted_at is null', [id, uid]));
       const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown } | undefined;
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
-      json(res, 200, { id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true }, cors);
+      json(res, 200, { id: row.id, title: row.title ?? null, created_at: iso(row.created_at ?? ''), updated_at: iso(row.updated_at ?? row.created_at ?? ''), starred: row.starred === true }, cors);
       return true;
     }
 
@@ -707,7 +708,7 @@ export async function handleRest(
         return {
           id: row.id, role: row.role, content: m.content, tool_calls: m.tool_calls, tool_results: m.tool_results,
           parent_message_id: row.parent_message_id ?? null, provider: row.provider ?? null, model: row.model ?? null,
-          metadata: (row.metadata as Record<string, unknown> | null) ?? null, created_at: iso(row.created_at),
+          metadata: (row.metadata as Record<string, unknown> | null) ?? null, created_at: iso(row.created_at ?? ''),
         };
       });
       json(res, 200, { messages }, cors);
@@ -739,10 +740,10 @@ export async function handleRest(
         error: row.error ?? null,
         error_type: row.error_type ?? null,
         request_id: row.request_id ?? null,
-        started_at: iso(row.started_at),
+        started_at: iso(row.started_at ?? ''),
         finished_at: row.finished_at ? iso(row.finished_at) : null,
         metadata: (row.metadata as Record<string, unknown> | null) ?? {},
-        created_at: iso(row.created_at),
+        created_at: iso(row.created_at ?? ''),
       }));
       json(res, 200, { llm_calls }, cors);
       return true;

@@ -120,27 +120,15 @@ export function ConversationList(): React.ReactElement {
         if (itemIdx === -1) return prev;
         const updated = prev[itemIdx];
         const newItem = { ...updated, starred: nextStarred, updated_at: updatedAt };
-        // Remove the item and re-sort to match server sort order (starred DESC, updated_at DESC)
+        // Remove the item and re-sort the entire list to match server sort order (starred DESC, updated_at DESC)
         const remaining = [...prev.slice(0, itemIdx), ...prev.slice(itemIdx + 1)];
-        if (nextStarred) {
-          // Find insertion point: after other starred items with same or later updated_at
-          const insertIdx = remaining.findIndex((r) => !r.starred || r.updated_at < updatedAt);
-          return insertIdx === -1
-            ? [...remaining, newItem]
-            : [...remaining.slice(0, insertIdx), newItem, ...remaining.slice(insertIdx)];
-        }
-        // When unstarring, insert after all starred items, then by updated_at DESC among unstarred
-        const unstarredStart = remaining.findIndex((r) => !r.starred);
-        if (unstarredStart === -1) {
-          // All items are starred; append at end
-          return [...remaining, newItem];
-        }
-        let insertIdx = unstarredStart;
-        for (let i = unstarredStart; i < remaining.length; i++) {
-          if (remaining[i]!.updated_at < updatedAt) break;
-          insertIdx = i + 1;
-        }
-        return [...remaining.slice(0, insertIdx), newItem, ...remaining.slice(insertIdx)];
+        const sorted = [...remaining, newItem].sort((a, b) => {
+          // Primary: starred DESC (true before false)
+          if (a.starred !== b.starred) return b.starred ? 1 : -1;
+          // Secondary: updated_at DESC (newer first)
+          return b.updated_at.localeCompare(a.updated_at);
+        });
+        return sorted;
       });
     },
     [],
