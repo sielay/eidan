@@ -122,7 +122,8 @@ export function ConversationList(): React.ReactElement {
           if ((b.starred ?? false) !== (a.starred ?? false)) {
             return (b.starred ?? false) ? -1 : 1;
           }
-          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          const timeDiff = new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
         });
       });
       setNextBefore(page.nextBefore);
@@ -180,7 +181,8 @@ export function ConversationList(): React.ReactElement {
           if ((b.starred ?? false) !== (a.starred ?? false)) {
             return (b.starred ?? false) ? -1 : 1;
           }
-          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          const timeDiff = new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
         });
       });
     },

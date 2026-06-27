@@ -45,6 +45,15 @@ function readBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<string>
   });
 }
 
+function checkJsonDepth(obj: unknown, maxDepth = 10): boolean {
+  if (maxDepth < 0) return false;
+  if (typeof obj !== 'object' || obj === null) return true;
+  for (const val of Object.values(obj)) {
+    if (!checkJsonDepth(val, maxDepth - 1)) return false;
+  }
+  return true;
+}
+
 // Raw bytes (for binary uploads like audio). Capped at 25MB — the Whisper API's own per-file limit.
 function readRawBody(req: IncomingMessage, maxBytes = 25 * 1024 * 1024): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -605,7 +614,11 @@ export async function handleRest(
     if (sub === undefined && method === 'PATCH') {
       let body: { title?: string | null; starred?: boolean } = {};
       // 64KB limit covers title (typical max ~256 bytes) and starred boolean; sufficient for current schema
-      try { body = JSON.parse(await readBody(req, 64 * 1024)) as { title?: string | null; starred?: boolean }; } catch { /* */ }
+      try {
+        const parsed = JSON.parse(await readBody(req, 64 * 1024)) as unknown;
+        if (!checkJsonDepth(parsed, 10)) { json(res, 400, { error: 'request body structure too deeply nested' }, cors); return true; }
+        body = parsed as { title?: string | null; starred?: boolean };
+      } catch { /* */ }
       const updates: string[] = ['updated_at=now()'];
       const vals: unknown[] = [id, uid];
       if ('title' in body) { vals.push((body.title ?? '').toString().trim() || null); updates.push(`title=$${vals.length}`); }
