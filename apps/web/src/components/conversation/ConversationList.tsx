@@ -121,7 +121,8 @@ export function ConversationList(): React.ReactElement {
       const timeDiff = bTime - aTime;
       return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
     },
-    // starred is a stable property of ConversationSummary; the sort logic depends on the type structure, not external state.
+    // Pure function: depends only on input parameters (a, b), not external state or variables.
+    // ConversationSummary properties (starred, updated_at, id) are accessed directly from parameters.
     [],
   );
 
