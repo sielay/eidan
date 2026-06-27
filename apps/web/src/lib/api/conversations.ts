@@ -79,6 +79,7 @@ export interface ConversationSummary {
   title: string | null;
   origin: string | null;
   agent_name: string | null;
+  tags?: string[];
   created_at: string;
   updated_at: string;
   starred: boolean;
@@ -100,6 +101,18 @@ export interface ListConversationsOpts {
   q?: string;
   /** all | agents | chats (server-side, so it composes with pagination). */
   kind?: "all" | "agents" | "chats";
+  /** Filter to conversations carrying this label (metadata.tags). */
+  tag?: string;
+}
+
+// Bulk add/remove labels on conversations (the select-bar Tag action). Stored in metadata.tags.
+export async function tagConversations(ids: string[], change: { add?: string[]; remove?: string[] }): Promise<void> {
+  const res = await authFetch(`/api/conversations/tags`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids, ...(change.add ? { add: change.add } : {}), ...(change.remove ? { remove: change.remove } : {}) }),
+  });
+  if (!res.ok) throw new Error(`POST /api/conversations/tags returned ${res.status}`);
 }
 
 // One page of conversations + the cursor for the next page (null when the last page was reached).
@@ -114,6 +127,7 @@ export async function listConversations(
   if (opts.beforeStarred !== null && opts.beforeStarred !== undefined) qs.set("before_starred", opts.beforeStarred ? 'true' : 'false');
   if (opts.q && opts.q.trim()) qs.set("q", opts.q.trim());
   if (opts.kind && opts.kind !== "all") qs.set("kind", opts.kind);
+  if (opts.tag && opts.tag.trim()) qs.set("tag", opts.tag.trim());
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const res = await authFetch(`/api/conversations${suffix}`, {
     method: "GET",

@@ -570,6 +570,8 @@ export async function handleRest(
       if (kind === 'agents') conds.push(`metadata->>'origin' = 'agent'`);
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
+      const tag = (qp.get('tag') ?? '').trim();
+      if (tag) { vals.push(JSON.stringify([tag])); conds.push(`coalesce(metadata->'tags','[]'::jsonb) @> $${vals.length}::jsonb`); }
       if (before) {
         // When using keyset pagination with 'before' cursor, 'before_starred' must be provided and valid.
         // This ensures consistent pagination across the (starred DESC, updated_at DESC) sort order.
@@ -594,6 +596,7 @@ export async function handleRest(
                             || coalesce(title, metadata->>'agent_name', '')
                        else title end as title,
                   metadata->>'origin' as origin, metadata->>'agent_name' as agent_name,
+                  coalesce(metadata->'tags', '[]'::jsonb) as tags,
                   created_at, updated_at, starred
              from eidan.conversations
             where ${conds.join(' and ')}
@@ -609,6 +612,7 @@ export async function handleRest(
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
+          tags: Array.isArray((row as { tags?: unknown }).tags) ? ((row as { tags: unknown[] }).tags).map(String) : [],
           created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
         })),
         next_before: nextBefore,
@@ -634,6 +638,34 @@ export async function handleRest(
       json(res, 201, { id, title }, cors);
       return true;
     }
+  }
+
+  // /api/conversations/tags — bulk add/remove labels on selected conversations (stored in metadata.tags).
+  // Placed before the :id handler so "tags" isn't read as a conversation id.
+  if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'conversations' && parts[2] === 'tags' && method === 'POST') {
+    let body: { ids?: unknown; add?: unknown; remove?: unknown };
+    try { body = parseJsonBody(await readTextBody(req, 64 * 1024)) as typeof body; }
+    catch { json(res, 400, { error: 'invalid JSON' }, cors); return true; }
+    const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === 'string') : [];
+    const norm = (v: unknown): string[] => Array.isArray(v) ? Array.from(new Set(v.filter((x): x is string => typeof x === 'string').map((s) => s.trim()).filter(Boolean))) : [];
+    const add = norm(body.add);
+    const remove = norm(body.remove);
+    if (!ids.length || (!add.length && !remove.length)) { json(res, 400, { error: 'ids and add/remove required' }, cors); return true; }
+    let updated = 0;
+    await withPrincipal(principal, async (q) => {
+      for (const id of ids) {
+        const cur = await q(`select coalesce(metadata->'tags','[]'::jsonb) as tags from eidan.conversations where id=$1 and user_id=$2 and deleted_at is null`, [id, uid]);
+        const row = cur.rows[0] as { tags?: unknown } | undefined;
+        if (!row) continue;
+        let tags = Array.isArray(row.tags) ? row.tags.map(String) : [];
+        if (add.length) tags = Array.from(new Set([...tags, ...add]));
+        if (remove.length) tags = tags.filter((t) => !remove.includes(t));
+        await q(`update eidan.conversations set metadata = jsonb_set(coalesce(metadata,'{}'::jsonb), '{tags}', $2::jsonb, true), updated_at=now() where id=$1 and user_id=$3`, [id, JSON.stringify(tags), uid]);
+        updated++;
+      }
+    });
+    json(res, 200, { ok: true, updated }, cors);
+    return true;
   }
 
   // /api/conversations/:id  and  /api/conversations/:id/(messages|regenerate_title)

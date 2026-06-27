@@ -6,6 +6,15 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.4] — 2026-06-27
+
+### Added
+
+- **Tag / label conversations** — building on bulk-select: a **Tag** action in the select bar applies a
+  label to the chosen conversations, rows show their labels as chips, and a chip row **filters** the list
+  by label (server-side). Tags live in `metadata.tags` (no migration); new `POST /api/conversations/tags`
+  (bulk add/remove) + a `tag=` filter on the list. (Files tagging is the next step.)
+
 ## [0.13.3] — 2026-06-27
 
 ### Added

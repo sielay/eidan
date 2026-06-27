@@ -4,7 +4,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { CheckSquare, ListChecks, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Square, Star, Trash2, X } from "lucide-react";
+import { CheckSquare, ListChecks, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Square, Star, Tag, Trash2, X } from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
   deleteConversation,
   updateConversationTitle,
   toggleConversationStar,
+  tagConversations,
   type ConversationSummary,
 } from "@/lib/api/conversations";
 import { cn } from "@/lib/utils";
@@ -83,6 +84,7 @@ export function ConversationList(): React.ReactElement {
   const [creating, setCreating] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [debounced, setDebounced] = React.useState("");
+  const [tagFilter, setTagFilter] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 250);
@@ -99,7 +101,7 @@ export function ConversationList(): React.ReactElement {
     setNextBeforeStarred(null);
     (async () => {
       try {
-        const { conversations, nextBefore, nextBeforeStarred } = await listConversations({ limit: PAGE, kind: filter, q: debounced });
+        const { conversations, nextBefore, nextBeforeStarred } = await listConversations({ limit: PAGE, kind: filter, q: debounced, ...(tagFilter ? { tag: tagFilter } : {}) });
         if (cancelled) return;
         setItems(conversations);
         setNextBefore(nextBefore);
@@ -110,7 +112,7 @@ export function ConversationList(): React.ReactElement {
       }
     })();
     return () => { cancelled = true; };
-  }, [config, user, filter, debounced]);
+  }, [config, user, filter, debounced, tagFilter]);
 
   const onRowStarChange = React.useCallback(
     (rowId: string, nextStarred: boolean, updatedAt: string) => {
@@ -144,14 +146,14 @@ export function ConversationList(): React.ReactElement {
     if (loadingMore || !nextBefore || !config) return;
     setLoadingMore(true);
     try {
-      const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore, beforeStarred: nextBeforeStarred });
+      const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore, beforeStarred: nextBeforeStarred, ...(tagFilter ? { tag: tagFilter } : {}) });
       setItems((prev) => [...(prev ?? []), ...page.conversations]);
       setNextBefore(page.nextBefore);
       setNextBeforeStarred(page.nextBeforeStarred);
     } catch { /* keep what we have; the next scroll-into-view retries */ } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, nextBefore, nextBeforeStarred, config, filter, debounced]);
+  }, [loadingMore, nextBefore, nextBeforeStarred, config, filter, debounced, tagFilter]);
 
   // Infinite scroll. The observer is created ONCE and calls the latest loadMore via a ref — putting
   // loadMore in the effect deps would re-create the observer on every loadingMore/nextBefore change,
@@ -212,6 +214,21 @@ export function ConversationList(): React.ReactElement {
   const selectAllLoaded = React.useCallback(() => {
     setSelected(new Set((items ?? []).map((r) => r.id)));
   }, [items]);
+  // Labels present across the loaded rows — drives the filter chips. (Tag filtering itself is server-side.)
+  const allTags = React.useMemo(() => Array.from(new Set((items ?? []).flatMap((r) => r.tags ?? []))).sort(), [items]);
+  const bulkTag = React.useCallback(async () => {
+    if (selected.size === 0 || bulkBusy) return;
+    const raw = typeof window !== "undefined" ? window.prompt(`Add a label to ${selected.size} conversation${selected.size === 1 ? "" : "s"}`) : null;
+    const tag = raw?.trim();
+    if (!tag) return;
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    try {
+      await tagConversations(ids, { add: [tag] });
+      setItems((prev) => (prev === null ? prev : prev.map((r) => (selected.has(r.id) ? { ...r, tags: Array.from(new Set([...(r.tags ?? []), tag])) } : r))));
+      exitSelect();
+    } catch { setError("Couldn't apply the label — try again."); } finally { setBulkBusy(false); }
+  }, [selected, bulkBusy, exitSelect]);
   const bulkDelete = React.useCallback(async () => {
     if (selected.size === 0 || bulkBusy) return;
     if (typeof window !== "undefined" && !window.confirm(`Delete ${selected.size} conversation${selected.size === 1 ? "" : "s"}? Their messages are kept for audit but they're removed from your list.`)) return;
@@ -289,6 +306,22 @@ export function ConversationList(): React.ReactElement {
         ))}
       </div>
 
+      {(allTags.length > 0 || tagFilter) ? (
+        <div className="flex flex-wrap items-center gap-1">
+          {tagFilter ? (
+            <button type="button" onClick={() => setTagFilter(null)} className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-foreground" title="Clear label filter">
+              <Tag className="h-2.5 w-2.5" /> {tagFilter} <X className="h-2.5 w-2.5" />
+            </button>
+          ) : (
+            allTags.map((t) => (
+              <button key={t} type="button" onClick={() => setTagFilter(t)} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground" title={`Filter by ${t}`}>
+                <Tag className="h-2.5 w-2.5" /> {t}
+              </button>
+            ))
+          )}
+        </div>
+      ) : null}
+
       {error !== null ? (
         <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error}
@@ -308,6 +341,14 @@ export function ConversationList(): React.ReactElement {
               <span className="font-medium tabular-nums">{selected.size} selected</span>
               <button type="button" onClick={selectAllLoaded} className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground">All</button>
               <span className="flex-1" />
+              <button
+                type="button"
+                onClick={() => void bulkTag()}
+                disabled={selected.size === 0 || bulkBusy}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-40"
+              >
+                <Tag className="h-3 w-3" /> Tag
+              </button>
               <button
                 type="button"
                 onClick={() => void bulkDelete()}
@@ -556,6 +597,13 @@ function ConversationRow({
             label
           )}
         </span>
+        {row.tags && row.tags.length ? (
+          <span className="flex shrink-0 items-center gap-0.5">
+            {row.tags.slice(0, 2).map((t) => (
+              <span key={t} className="max-w-16 truncate rounded bg-accent/70 px-1 text-[8px] font-medium uppercase tracking-wide text-accent-foreground">{t}</span>
+            ))}
+          </span>
+        ) : null}
         <time
           dateTime={row.updated_at}
           title={formatAbsolute(row.updated_at)}
