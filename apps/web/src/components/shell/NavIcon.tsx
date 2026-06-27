@@ -1,32 +1,53 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
-  Activity,
+  AlertCircle,
+  BarChart3,
+  Briefcase,
   BookOpen,
+  Calendar,
   ChevronRight,
-  Code2,
+  Clock,
+  Database,
+  FileText,
   FolderOpen,
+  Grid3x3,
   Inbox,
-  KanbanSquare,
+  Lightbulb,
+  Link as LinkIcon,
+  ListChecks,
+  Mail,
   MessageSquare,
   MoreHorizontal,
   Moon,
   Plus,
   Puzzle,
+  Receipt,
   Search,
+  Shield,
   Settings,
+  Share2,
+  ScrollText,
   Sun,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
-const MAP: Record<string, LucideIcon> = {
+export const MAP = {
   chat: MessageSquare,
   memory: BookOpen,
   inbox: Inbox,
-  jobs: KanbanSquare,
+  agents: Zap,
+  boards: Grid3x3,
+  escalations: AlertCircle,
+  skills: Lightbulb,
+  calendar: Calendar,
+  jobs: Clock,
+  procedures: ListChecks,
+  ventures: Briefcase,
+  "decision-log": FileText,
   files: FolderOpen,
-  procedures: Code2,
   plugins: Puzzle,
-  admin: Activity,
+  admin: Shield,
   settings: Settings,
   more: MoreHorizontal,
   plus: Plus,
@@ -34,7 +55,18 @@ const MAP: Record<string, LucideIcon> = {
   sun: Sun,
   moon: Moon,
   chevron: ChevronRight,
-};
+  // Integration icons
+  mail: Mail,
+  database: Database,
+  link: LinkIcon,
+  share: Share2,
+  social: Share2,
+  "scroll-text": ScrollText,
+  receipt: Receipt,
+  analytics: BarChart3,
+} as const satisfies Record<string, LucideIcon>;
+
+export type NavIconKey = keyof typeof MAP;
 
 /**
  * Stroke line icon for the shell, sized + coloured by the `.i` design
@@ -48,6 +80,15 @@ export function NavIcon({
   name: string;
   className?: string;
 }): React.ReactElement {
-  const Cmp = MAP[name] ?? MessageSquare;
+  if (!MAP[name as NavIconKey]) {
+    const msg = `[NavIcon] Missing icon mapping for key: "${name}". Check NavIcon.MAP in NavIcon.tsx.`;
+    if (process.env.NODE_ENV === "development") {
+      throw new Error(msg);
+    } else {
+      console.error(msg);
+      return <AlertCircle className={className} aria-hidden />;
+    }
+  }
+  const Cmp = MAP[name as NavIconKey];
   return <Cmp className={className} aria-hidden />;
 }
