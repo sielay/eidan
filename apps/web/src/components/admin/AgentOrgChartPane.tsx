@@ -328,9 +328,9 @@ export function AgentOrgChartPane(): React.ReactElement {
           const qy = sim.bounds.minY;
           const qw = sim.bounds.maxX - sim.bounds.minX;
           const qh = sim.bounds.maxY - sim.bounds.minY;
-          // Quadtree size: round to power of 2 with 20% margin to encompass all node positions
-          // All nodes are bounded to [minX, maxX] × [minY, maxY], so qsize >= max(qw, qh) ensures coverage
-          const qsize = Math.pow(2, Math.ceil(Math.log2(Math.max(qw, qh) * 1.2)));
+          // Quadtree size: round to power of 2 that covers bounds exactly
+          // Nodes are constrained to [minX, maxX] × [minY, maxY] via bouncing, so no margin needed
+          const qsize = Math.pow(2, Math.ceil(Math.log2(Math.max(qw, qh))));
           const qt = buildQuadtree(sim.nodes, qx, qy, qsize);
           for (const node of sim.nodes) {
             const { fx, fy } = repulsionFromQuadtree(node, qt, 10000);
