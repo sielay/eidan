@@ -217,11 +217,13 @@ export function AgentOrgChartPane(): React.ReactElement {
       for (const rel of relationships) {
         const fromId = agentNameToIdMap.get(rel.from_agent_name);
         const toId = agentNameToIdMap.get(rel.to_agent_name);
-        if (fromId && toId && agentIds.has(fromId) && agentIds.has(toId)) {
-          const key = `${fromId}→${toId}`;
-          const existing = edgeMap.get(key) ?? { escalations: 0 };
-          edgeMap.set(key, { ...existing, relationship: rel });
+        // Only process relationships where both agents exist in the current set
+        if (!fromId || !toId || !agentIds.has(fromId) || !agentIds.has(toId)) {
+          continue;
         }
+        const key = `${fromId}→${toId}`;
+        const existing = edgeMap.get(key) ?? { escalations: 0 };
+        edgeMap.set(key, { ...existing, relationship: rel });
       }
     }
 

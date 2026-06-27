@@ -7,6 +7,8 @@ export type EscalationStatus = 'pending' | 'acknowledged' | 'resolved' | 'open' 
 export type EscalationType = 'agent_to_operator' | 'agent_to_agent' | 'operator_to_agent' | 'operator_prompt' | 'decision_gate';
 export type RelationshipType = 'reads_from' | 'writes_to' | 'asks' | 'depends_on' | 'notifies';
 
+const VALID_RELATIONSHIP_TYPES = new Set<RelationshipType>(['reads_from', 'writes_to', 'asks', 'depends_on', 'notifies']);
+
 export interface RaiseArgs {
   severity: Severity;
   /** One of the eidan.escalations reason_class enum; unknown values coerce to 'other'. */
@@ -280,6 +282,9 @@ export class EscalationsStore {
 
   // Create or update an agent relationship
   async setAgentRelationship(userId: string, rel: { fromAgent: string; toAgent: string; type: RelationshipType; strength?: number; description?: string }): Promise<AgentRelationship> {
+    if (!VALID_RELATIONSHIP_TYPES.has(rel.type)) {
+      throw new Error(`Invalid relationship type: ${rel.type}. Must be one of: ${Array.from(VALID_RELATIONSHIP_TYPES).join(', ')}`);
+    }
     const strength = Math.min(Math.max(rel.strength ?? 3, 1), 5);
     const r = await this.db.query(
       `insert into eidan.agent_relationships
