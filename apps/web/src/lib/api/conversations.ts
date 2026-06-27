@@ -237,7 +237,7 @@ export async function toggleConversationStar(
     `/api/conversations/${conversationId}`,
     {
       method: "PATCH",
-      headers: { Accept: "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ starred }),
     },
   );

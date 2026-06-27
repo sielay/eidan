@@ -31,10 +31,15 @@ function json(res: ServerResponse, code: number, obj: unknown, cors: Record<stri
   res.end(JSON.stringify(obj));
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+function readBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (d: Buffer) => chunks.push(d));
+    let size = 0;
+    req.on('data', (d: Buffer) => {
+      size += d.length;
+      if (size > maxBytes) { reject(new Error('request body too large')); req.destroy(); return; }
+      chunks.push(d);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
@@ -525,7 +530,7 @@ export async function handleRest(
       const limit = Math.min(Math.max(Number(qp.get('limit')) || 50, 1), 100);
       const before = qp.get('before');
       const beforeStarredStr = qp.get('before_starred');
-      const beforeStarredBool = beforeStarredStr === 'true' ? true : beforeStarredStr === 'false' ? false : null;
+      const beforeStarredBool = beforeStarredStr == null ? null : beforeStarredStr === 'true';
       const search = (qp.get('q') ?? '').trim();
       const kind = qp.get('kind');
       const conds: string[] = ['user_id = $1', 'deleted_at is null'];
@@ -559,7 +564,7 @@ export async function handleRest(
       const rows = r.rows;
       const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred?: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
-      const nextBeforeStarred = rows.length === limit && last ? String(last.starred === true) : null;
+      const nextBeforeStarred = rows.length === limit && last && last.starred !== undefined ? String(last.starred === true) : null;
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
