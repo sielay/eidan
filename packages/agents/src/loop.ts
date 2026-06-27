@@ -133,14 +133,21 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
           // Blend the trigger prompt into the persona
           const feedback = resp.response?.feedback ?? '';
           const prompt = resp.trigger_prompt ?? feedback;
-          const blendedPersona = `${a.persona}\n\n[Escalation response] ${prompt}`;
+          const promptSuffix = prompt ? `[Escalation response] ${prompt}` : '[Escalation response] No specific prompt or feedback provided.';
+          const blendedPersona = `${a.persona}\n\n${promptSuffix}`;
           const fireKey = `response:${resp.id}`;
 
           const won = await store.claimRun(a.trigger_id, a.agent_id, a.user_id, fireKey);
           if (!won) continue; // another node is handling this fire
-          // Mark as processed before firing (ensures we don't reprocess even if fire fails)
-          void esc.markResponseProcessed(resp.id).catch(() => undefined);
-          void fire(a, fireKey, blendedPersona);
+
+          try {
+            // Mark as processed before firing (ensures we don't reprocess even if fire fails)
+            await esc.markResponseProcessed(resp.id);
+            // Detached: fire lifecycle is owned independently, with its own error handling
+            void fire(a, fireKey, blendedPersona);
+          } catch (e) {
+            console.warn(`[agents] failed to mark response ${resp.id} as processed:`, e instanceof Error ? e.message : e);
+          }
         }
       }
     } catch (e) {
