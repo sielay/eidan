@@ -6,6 +6,15 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.11] — 2026-06-27
+
+### Fixed
+
+- **X (Twitter) profile fetch** (#476, by sage) — the X API v2 rejects `followers_count`/`following_count`
+  as direct `user.fields` values (they live under `public_metrics`); the adapter now requests
+  `public_metrics` and maps the counts back onto the flat profile. Tightened the merge to satisfy
+  exactOptionalPropertyTypes.
+
 ## [0.13.10] — 2026-06-27
 
 ### Added

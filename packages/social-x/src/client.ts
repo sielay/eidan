@@ -53,12 +53,14 @@ export class XClient {
         };
       }
 
-      // Extract followers/following/tweet counts from public_metrics
+      // Extract followers/following/tweet counts from public_metrics (X API v2 nests them there). Guard
+      // each assignment so an absent metric doesn't violate exactOptionalPropertyTypes (number, not undefined).
       const profile = { ...result.data };
-      if (result.data.public_metrics) {
-        profile.followers_count = result.data.public_metrics.followers_count;
-        profile.following_count = result.data.public_metrics.following_count;
-        profile.tweet_count = result.data.public_metrics.tweet_count;
+      const pm = result.data.public_metrics;
+      if (pm) {
+        if (pm.followers_count !== undefined) profile.followers_count = pm.followers_count;
+        if (pm.following_count !== undefined) profile.following_count = pm.following_count;
+        if (pm.tweet_count !== undefined) profile.tweet_count = pm.tweet_count;
       }
 
       return { profile };
