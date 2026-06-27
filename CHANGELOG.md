@@ -6,6 +6,15 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.6] — 2026-06-27
+
+### Removed
+
+- **Retire the legacy `routines` feature** — superseded by agents (triggers) + procedures; the plugin is
+  no longer in `CORE_PLUGINS`. Migration `0016` drops `eidan.routines` / `eidan.routine_runs` (idempotent).
+  (Operator note: assorted Python-era orphan schemas — `plugin_gh/git/claude/sentry/sage`, `landing`,
+  `potem` — were also dropped from the live DB; those are operator-specific cruft, not part of core.)
+
 ## [0.13.5] — 2026-06-27
 
 ### Changed
