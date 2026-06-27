@@ -11,6 +11,7 @@ import {
 } from "@/lib/api/conversations";
 import { streamTurn } from "@/lib/api/turn";
 import { loadProvider, saveProvider, listProviders, type ProviderOption } from "@/lib/models";
+import { listOpenRouterModels, type OpenRouterModel } from "@/lib/api/admin";
 
 import { buildThread, type StreamingAssistant } from "./buildThread";
 import { Composer, type ComposerAttachment } from "./Composer";
@@ -91,6 +92,13 @@ export function ConversationView({
     },
     [conversationId],
   );
+  // The full OpenRouter catalogue (all models), so chat + ⑂ Compare can pick ANY model — not just the
+  // configured providers. The engine runs a chosen slug via an on-the-fly synthesized provider. Fetched
+  // once (cached server-side 1h); degrades to configured-only if it fails.
+  const [catalog, setCatalog] = React.useState<OpenRouterModel[]>([]);
+  React.useEffect(() => {
+    listOpenRouterModels().then(setCatalog).catch(() => setCatalog([]));
+  }, []);
   const [turnRefreshKey, setTurnRefreshKey] = React.useState(0);
   const [traceOpen, setTraceOpen] = React.useState(false);
 
@@ -303,6 +311,7 @@ export function ConversationView({
         provider={provider}
         onProviderChange={onProviderChange}
         providers={providers}
+        catalog={catalog}
       />
     </div>
   );

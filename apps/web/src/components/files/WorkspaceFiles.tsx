@@ -3,7 +3,7 @@
 
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronRight, Cloud, Download, ExternalLink, Folder, FileText, Image as ImageIcon, RefreshCw, Upload, X } from "lucide-react";
+import { CheckSquare, ChevronRight, Cloud, Download, ExternalLink, FilePlus, Folder, FolderPlus, FileText, Image as ImageIcon, ListChecks, RefreshCw, Square, Trash2, Upload, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -255,6 +255,76 @@ export function WorkspaceFiles(): React.ReactElement {
     }
   }, [folderId]);
 
+  // Create a new (empty) local file in the current folder, then open it in the editor — so you can
+  // draft a prompt spec from scratch (the counterpart to editing an existing one). Defaults to .md.
+  const [creating, setCreating] = React.useState(false);
+  const onCreateFile = React.useCallback(async () => {
+    if (creating) return;
+    const raw = typeof window !== "undefined" ? window.prompt("New file name", "untitled.md") : null;
+    const name = raw?.trim();
+    if (!name) return;
+    setCreating(true);
+    try {
+      const mime = /\.(md|markdown)$/i.test(name) ? "text/markdown" : "text/plain";
+      const r = await authFetch("/api/fs/file", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, content: "", mime, ...(folderId ? { parent_id: folderId } : {}) }),
+      });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `create failed (${r.status})`);
+      navigate([...segments, name]); // → the file's own screen, ready to edit
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  }, [creating, folderId, segments]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Create a folder in the current folder (the explorer reloads to show it).
+  const onCreateFolder = React.useCallback(async () => {
+    if (creating) return;
+    const raw = typeof window !== "undefined" ? window.prompt("New folder name", "") : null;
+    const name = raw?.trim();
+    if (!name) return;
+    setCreating(true);
+    try {
+      const r = await authFetch("/api/fs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "mkdir", name, ...(folderId ? { parent_id: folderId } : {}) }),
+      });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `create failed (${r.status})`);
+      setReload((n) => n + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  }, [creating, folderId]);
+
+  // ── Multi-select + bulk delete over local (fs) entries; non-fs rows (Drive/artifacts) aren't selectable ──
+  const [selectMode, setSelectMode] = React.useState(false);
+  const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const exitSelect = React.useCallback(() => { setSelectMode(false); setSelected(new Set()); }, []);
+  React.useEffect(() => { exitSelect(); }, [pathname, exitSelect]); // a navigation drops any stale selection
+  const toggleSelect = React.useCallback((id: string) => {
+    setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }, []);
+  const selectableIds = React.useMemo(() => (entries ?? []).filter((e) => e.source === "fs").map((e) => e.id), [entries]);
+  const bulkDelete = React.useCallback(async () => {
+    if (selected.size === 0 || bulkBusy) return;
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${selected.size} item${selected.size === 1 ? "" : "s"}? Folders are removed with all their contents (recoverable from the archive).`)) return;
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    const results = await Promise.allSettled(ids.map((id) => authFetch(`/api/fs?id=${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) => { if (!r.ok) throw new Error(String(r.status)); })));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    setBulkBusy(false);
+    exitSelect();
+    if (failed > 0) setError(`${failed} item${failed === 1 ? "" : "s"} couldn't be deleted — try again.`);
+    setReload((n) => n + 1);
+  }, [selected, bulkBusy, exitSelect]);
+
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--s3)", marginBottom: "var(--s3)" }}>
@@ -272,10 +342,17 @@ export function WorkspaceFiles(): React.ReactElement {
         </nav>
         <div style={{ display: "flex", gap: "var(--s2)" }}>
           <button className="btn btn--ghost" title="Refresh" aria-label="Refresh" onClick={() => setReload((n) => n + 1)}><RefreshCw className="i i-sm" aria-hidden /></button>
-          {!inDrive ? (
+          {!inDrive && !fileEntry ? (
             <>
               <input ref={uploadRef} type="file" multiple hidden onChange={(e) => { void onUpload(e.target.files); e.target.value = ""; }} />
+              <button className="btn btn--ghost" disabled={creating} title="Create a new file and edit it" onClick={() => void onCreateFile()}><FilePlus className="i i-sm" aria-hidden /> {creating ? "Creating…" : "New file"}</button>
+              <button className="btn btn--ghost" disabled={creating} title="Create a new folder" onClick={() => void onCreateFolder()}><FolderPlus className="i i-sm" aria-hidden /> New folder</button>
               <button className="btn btn--ghost" disabled={uploading} onClick={() => uploadRef.current?.click()}><Upload className="i i-sm" aria-hidden /> {uploading ? "Uploading…" : "Upload"}</button>
+              {(entries?.some((e) => e.source === "fs")) ? (
+                <button className="btn btn--ghost" title="Select multiple to delete in bulk" onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}>
+                  <ListChecks className="i i-sm" aria-hidden /> {selectMode ? "Done" : "Select"}
+                </button>
+              ) : null}
             </>
           ) : null}
         </div>
@@ -297,27 +374,47 @@ export function WorkspaceFiles(): React.ReactElement {
           <div className="empty__body">Files the agent writes (and anything you upload) appear here.</div>
         </div>
       ) : (
-        <div className="card" style={{ padding: 0 }}>
-          <div className="loglist">
-            {entries.map((e) => {
-              const Icon = e.source === "gdrive-mount" ? Cloud : e.kind === "folder" ? Folder : isImage(e.mime, e.name) ? ImageIcon : FileText;
-              return (
-                <div key={`${e.source}:${e.id}`} className="fs-row" style={{ display: "flex", alignItems: "center", gap: "var(--s3)", borderBottom: "1px solid var(--border)", padding: "8px 12px" }}>
-                  <button onClick={() => enter(e)} title={e.kind === "folder" ? "Open" : "Preview"} style={{ background: "none", border: "none", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: "var(--s3)", minWidth: 0, flex: 1 }}>
-                    <Icon className="i i-sm" aria-hidden style={{ color: e.kind === "folder" ? "var(--accent)" : "var(--faint)", flexShrink: 0 }} />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
-                  </button>
-                  <span className="screen-sub" style={{ margin: 0, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{e.kind === "file" ? fmtSize(e.size) : ""}</span>
-                  {e.kind === "file" ? (
-                    <button className="btn btn--ghost btn--sm" title="Download" aria-label={`Download ${e.name}`} onClick={() => void openFile(e.source, e.id, e.name, true)} style={{ flexShrink: 0 }}><Download className="i i-sm" aria-hidden /></button>
-                  ) : (
-                    <ChevronRight className="i i-sm" aria-hidden style={{ color: "var(--faint)", flexShrink: 0 }} />
-                  )}
-                </div>
-              );
-            })}
+        <>
+          {selectMode ? (
+            <div className="card" style={{ display: "flex", alignItems: "center", gap: "var(--s3)", padding: "8px 12px", marginBottom: "var(--s2)" }}>
+              <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{selected.size} selected</span>
+              <button className="btn btn--ghost btn--sm" onClick={() => setSelected(new Set(selectableIds))}>All</button>
+              <span style={{ flex: 1 }} />
+              <button className="btn btn--ghost btn--sm" disabled={selected.size === 0 || bulkBusy} onClick={() => void bulkDelete()} style={{ color: "var(--alert)" }}>
+                <Trash2 className="i i-sm" aria-hidden /> {bulkBusy ? "Deleting…" : "Delete"}
+              </button>
+              <button className="btn btn--ghost btn--sm" onClick={exitSelect}><X className="i i-sm" aria-hidden /> Cancel</button>
+            </div>
+          ) : null}
+          <div className="card" style={{ padding: 0 }}>
+            <div className="loglist">
+              {entries.map((e) => {
+                const Icon = e.source === "gdrive-mount" ? Cloud : e.kind === "folder" ? Folder : isImage(e.mime, e.name) ? ImageIcon : FileText;
+                const selectable = selectMode && e.source === "fs";
+                const checked = selected.has(e.id);
+                return (
+                  <div key={`${e.source}:${e.id}`} className="fs-row" style={{ display: "flex", alignItems: "center", gap: "var(--s3)", borderBottom: "1px solid var(--border)", padding: "8px 12px", opacity: selectMode && !selectable ? 0.5 : 1 }}>
+                    {selectable ? (
+                      <button onClick={() => toggleSelect(e.id)} aria-label={checked ? `Deselect ${e.name}` : `Select ${e.name}`} role="checkbox" aria-checked={checked} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", flexShrink: 0 }}>
+                        {checked ? <CheckSquare className="i i-sm" aria-hidden style={{ color: "var(--accent)" }} /> : <Square className="i i-sm" aria-hidden style={{ color: "var(--faint)" }} />}
+                      </button>
+                    ) : null}
+                    <button onClick={() => (selectable ? toggleSelect(e.id) : enter(e))} title={selectable ? (checked ? "Deselect" : "Select") : e.kind === "folder" ? "Open" : "Preview"} style={{ background: "none", border: "none", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: "var(--s3)", minWidth: 0, flex: 1 }}>
+                      <Icon className="i i-sm" aria-hidden style={{ color: e.kind === "folder" ? "var(--accent)" : "var(--faint)", flexShrink: 0 }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
+                    </button>
+                    <span className="screen-sub" style={{ margin: 0, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{e.kind === "file" ? fmtSize(e.size) : ""}</span>
+                    {selectMode ? null : e.kind === "file" ? (
+                      <button className="btn btn--ghost btn--sm" title="Download" aria-label={`Download ${e.name}`} onClick={() => void openFile(e.source, e.id, e.name, true)} style={{ flexShrink: 0 }}><Download className="i i-sm" aria-hidden /></button>
+                    ) : (
+                      <ChevronRight className="i i-sm" aria-hidden style={{ color: "var(--faint)", flexShrink: 0 }} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </>
       )}
       {preview ? <PreviewModal entry={preview} onClose={() => setPreview(null)} /> : null}
     </>

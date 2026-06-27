@@ -4,7 +4,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { MoreHorizontal, Pencil, Plus, RefreshCw, Search, Star, Trash2 } from "lucide-react";
+import { CheckSquare, ListChecks, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Square, Star, Trash2, X } from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -199,6 +199,36 @@ export function ConversationList(): React.ReactElement {
     [activeId, router],
   );
 
+  // ── Multi-select + bulk actions (cleanup; first action is delete, later: tag/label/etc.) ──────────
+  const [selectMode, setSelectMode] = React.useState(false);
+  const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const exitSelect = React.useCallback(() => { setSelectMode(false); setSelected(new Set()); }, []);
+  // Leaving select mode whenever the list reloads (filter/search) avoids stale ids surviving across views.
+  React.useEffect(() => { exitSelect(); }, [filter, debounced, exitSelect]);
+  const toggleSelect = React.useCallback((id: string) => {
+    setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }, []);
+  const selectAllLoaded = React.useCallback(() => {
+    setSelected(new Set((items ?? []).map((r) => r.id)));
+  }, [items]);
+  const bulkDelete = React.useCallback(async () => {
+    if (selected.size === 0 || bulkBusy) return;
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${selected.size} conversation${selected.size === 1 ? "" : "s"}? Their messages are kept for audit but they're removed from your list.`)) return;
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    const results = await Promise.allSettled(ids.map((id) => deleteConversation(id)));
+    const ok = new Set(ids.filter((_, i) => results[i]?.status === "fulfilled"));
+    if (ok.size) {
+      setItems((prev) => (prev === null ? prev : prev.filter((row) => !ok.has(row.id))));
+      if (activeId && ok.has(activeId)) router.push("/c");
+    }
+    setBulkBusy(false);
+    const failed = ids.length - ok.size;
+    if (failed > 0) { setSelected(new Set(ids.filter((id) => !ok.has(id)))); setError(`${failed} couldn't be deleted — try again.`); }
+    else exitSelect();
+  }, [selected, bulkBusy, activeId, router, exitSelect]);
+
   if (loading || !user) {
     return (
       <div
@@ -272,19 +302,49 @@ export function ConversationList(): React.ReactElement {
           {debounced ? `No conversations match “${debounced}”.` : "No conversations yet. Start a new conversation above."}
         </p>
       ) : (
-        <ul className="flex flex-col gap-0.5">
-          {items.map((row) => (
-            <li key={row.id}>
-              <ConversationRow
-                row={row}
-                active={row.id === activeId}
-                onTitleChange={(next) => onRowTitleChange(row.id, next)}
-                onStarChange={(next, updatedAt) => onRowStarChange(row.id, next, updatedAt)}
-                onDeleted={() => onRowDeleted(row.id)}
-              />
-            </li>
-          ))}
-        </ul>
+        <>
+          {selectMode ? (
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-accent/40 px-2 py-1 text-xs">
+              <span className="font-medium tabular-nums">{selected.size} selected</span>
+              <button type="button" onClick={selectAllLoaded} className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground">All</button>
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={() => void bulkDelete()}
+                disabled={selected.size === 0 || bulkBusy}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-red-600 hover:bg-red-50 disabled:opacity-40 dark:text-red-400 dark:hover:bg-red-950/40"
+              >
+                <Trash2 className="h-3 w-3" />
+                {bulkBusy ? "Deleting…" : "Delete"}
+              </button>
+              <button type="button" onClick={exitSelect} aria-label="Cancel selection" className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+                <X className="h-3 w-3" /> Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setSelectMode(true)} className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-accent-foreground" title="Select multiple to delete in bulk">
+                <ListChecks className="h-3 w-3" /> Select
+              </button>
+            </div>
+          )}
+          <ul className="flex flex-col gap-0.5">
+            {items.map((row) => (
+              <li key={row.id}>
+                <ConversationRow
+                  row={row}
+                  active={row.id === activeId}
+                  selectMode={selectMode}
+                  isSelected={selected.has(row.id)}
+                  onToggleSelect={() => toggleSelect(row.id)}
+                  onTitleChange={(next) => onRowTitleChange(row.id, next)}
+                  onStarChange={(next, updatedAt) => onRowStarChange(row.id, next, updatedAt)}
+                  onDeleted={() => onRowDeleted(row.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       <div ref={sentinelRef} />
@@ -296,12 +356,18 @@ export function ConversationList(): React.ReactElement {
 function ConversationRow({
   row,
   active,
+  selectMode,
+  isSelected,
+  onToggleSelect,
   onTitleChange,
   onStarChange,
   onDeleted,
 }: {
   row: ConversationSummary;
   active: boolean;
+  selectMode: boolean;
+  isSelected: boolean;
+  onToggleSelect: () => void;
   onTitleChange: (next: string | null) => void;
   onStarChange: (next: boolean, updatedAt: string) => void;
   onDeleted: () => void;
@@ -435,6 +501,29 @@ function ConversationRow({
 
   const label = row.title?.trim() ? row.title : "Untitled";
   const agentName = parseAgentName(row.title);
+
+  // Selection mode: the whole row toggles a checkbox (no nav, no star/kebab) so you can sweep-delete.
+  if (selectMode) {
+    return (
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={isSelected}
+        onClick={onToggleSelect}
+        className={cn(
+          "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+          isSelected ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/60",
+        )}
+      >
+        {isSelected ? <CheckSquare className="h-3.5 w-3.5 shrink-0 text-accent-foreground" /> : <Square className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        {agentName !== null ? (
+          <span className="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0 font-mono text-[9px] uppercase tracking-wider text-blue-700 dark:text-blue-300">{agentName}</span>
+        ) : null}
+        <span className={cn("min-w-0 flex-1 truncate", row.title === null && "italic")}>{label}</span>
+        <time dateTime={row.updated_at} className="shrink-0 font-mono text-[9px] tabular-nums text-muted-foreground/60">{formatRelative(row.updated_at)}</time>
+      </button>
+    );
+  }
 
   return (
     <div className="group relative flex items-center gap-1">

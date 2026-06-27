@@ -6,6 +6,18 @@ import { Check, ChevronDown, Cpu, GitFork, Loader2, Mic, MoreVertical, Paperclip
 
 import { isTranscribeAvailable, transcribeAudio } from "@/lib/api/transcribe";
 import type { ProviderOption } from "@/lib/models";
+import type { OpenRouterModel } from "@/lib/api/admin";
+
+// Filter the OpenRouter catalogue by a query against id/name; capped so a 300+ list stays a menu.
+function filterCatalog(catalog: OpenRouterModel[] | undefined, q: string, limit = 40): OpenRouterModel[] {
+  const s = q.trim().toLowerCase();
+  if (!s || !catalog) return [];
+  const out: OpenRouterModel[] = [];
+  for (const m of catalog) {
+    if (m.id.toLowerCase().includes(s) || m.name.toLowerCase().includes(s)) { out.push(m); if (out.length >= limit) break; }
+  }
+  return out;
+}
 
 // Mobile menu: collapse attach, record, model picker into a single menu button with popover.
 // Opens above the send button to preserve horizontal width for the input field.
@@ -15,6 +27,7 @@ function ComposerMoreMenu({
   onMicStop,
   provider,
   providers,
+  catalog,
   onProviderChange,
   disabled,
   micRecording,
@@ -25,6 +38,7 @@ function ComposerMoreMenu({
   onMicStop: () => void;
   provider: string;
   providers?: ProviderOption[];
+  catalog?: OpenRouterModel[];
   onProviderChange?: (p: string) => void;
   disabled?: boolean;
   micRecording: boolean;
@@ -99,8 +113,8 @@ function ComposerMoreMenu({
                 <span>{micRecording ? "Stop" : "Record"}</span>
               </button>
             ) : null}
-            {onProviderChange && providers && providers.length > 0 ? (
-              <ComposerMoreModelMenu provider={provider} providers={providers} onChange={onProviderChange} onClose={() => setOpen(false)} />
+            {onProviderChange && ((providers && providers.length > 0) || (catalog && catalog.length > 0)) ? (
+              <ComposerMoreModelMenu provider={provider} providers={providers ?? []} catalog={catalog} onChange={onProviderChange} onClose={() => setOpen(false)} />
             ) : null}
           </div>
         </>
@@ -113,17 +127,22 @@ function ComposerMoreMenu({
 function ComposerMoreModelMenu({
   provider,
   providers,
+  catalog,
   onChange,
   onClose,
 }: {
   provider: string;
   providers: ProviderOption[];
+  catalog?: OpenRouterModel[];
   onChange: (p: string) => void;
   onClose: () => void;
 }): React.ReactElement {
   const [modelOpen, setModelOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
   const current = providers.find((p) => p.name === provider);
   const label = provider ? (current?.name ?? provider) : "Default";
+  const hits = filterCatalog(catalog, search);
+  const pickModel = (value: string): void => { onChange(value); setModelOpen(false); setSearch(""); onClose(); };
 
   if (modelOpen) {
     return (
@@ -160,17 +179,42 @@ function ComposerMoreModelMenu({
               role="menuitemradio"
               className="composer__more-model-opt"
               aria-checked={p.name === provider}
-              onClick={() => {
-                onChange(p.name);
-                setModelOpen(false);
-                onClose();
-              }}
+              onClick={() => pickModel(p.name)}
             >
               <Check className={"i i-sm composer__more-model-tick" + (p.name === provider ? " is-on" : "")} aria-hidden />
               <span>{p.name}</span>
               <span className="composer__more-model-hint">{p.model}</span>
             </button>
           ))}
+          {catalog && catalog.length > 0 ? (
+            <>
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={`Search ${catalog.length} models…`}
+                aria-label="Search all models"
+                className="composer__more-model-search"
+                style={{ width: "calc(100% - 16px)", margin: "4px 8px", padding: "4px 8px", fontSize: "var(--fs-13, 13px)", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+              />
+              {hits.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="menuitemradio"
+                  className="composer__more-model-opt"
+                  aria-checked={m.id === provider}
+                  onClick={() => pickModel(m.id)}
+                  title={m.id}
+                >
+                  <Check className={"i i-sm composer__more-model-tick" + (m.id === provider ? " is-on" : "")} aria-hidden />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                  <span className="composer__more-model-hint">{m.prompt === "0" ? "free" : m.id.split("/")[0]}</span>
+                </button>
+              ))}
+              {search.trim() && hits.length === 0 ? <div className="composer__more-model-hint" style={{ padding: "4px 12px" }}>No models match “{search.trim()}”.</div> : null}
+            </>
+          ) : null}
         </div>
       </div>
     );
@@ -288,15 +332,17 @@ function ModelMenu({
 // model (the picker above) then judges them and merges the best result into one answer. A small
 // branch button that opens an upward popover of provider checkboxes; the badge shows how many are on.
 function CompareMenu({
-  providers, selected, judge, onToggle, disabled,
+  providers, catalog, selected, judge, onToggle, disabled,
 }: {
   providers: ProviderOption[];
+  catalog?: OpenRouterModel[];
   selected: string[];
   judge: string;
   onToggle: (name: string) => void;
   disabled?: boolean;
 }): React.ReactElement {
   const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") setOpen(false); };
@@ -305,6 +351,9 @@ function CompareMenu({
   }, [open]);
   const n = selected.length;
   const judgeLabel = judge ? (providers.find((p) => p.name === judge)?.name ?? judge) : "Default";
+  const providerNames = new Set(providers.map((p) => p.name));
+  const extraSelected = selected.filter((s) => !providerNames.has(s)); // chosen catalogue slugs
+  const hits = filterCatalog(catalog, search).filter((m) => !selected.includes(m.id));
 
   return (
     <div className="composer__model-wrap">
@@ -342,6 +391,41 @@ function CompareMenu({
                 </li>
               );
             })}
+            {/* Chosen catalogue models (slugs not in the configured providers) — shown so they're removable. */}
+            {extraSelected.map((slug) => (
+              <li key={slug}>
+                <button type="button" role="menuitemcheckbox" aria-checked className="composer__model-opt" onClick={() => onToggle(slug)} title={slug}>
+                  <Check className="i i-sm composer__model-tick is-on" aria-hidden />
+                  <span className="composer__model-opt-text">
+                    <span className="composer__model-opt-name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slug}</span>
+                    <span className="composer__model-opt-hint">catalogue</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+            {catalog && catalog.length > 0 ? (
+              <li>
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={`Search ${catalog.length} models…`}
+                  aria-label="Search all models to compare"
+                  style={{ width: "calc(100% - 16px)", margin: "4px 8px", padding: "4px 8px", fontSize: 13, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+                />
+              </li>
+            ) : null}
+            {hits.map((m) => (
+              <li key={m.id}>
+                <button type="button" role="menuitemcheckbox" aria-checked={false} className="composer__model-opt" onClick={() => onToggle(m.id)} title={m.id}>
+                  <Check className="i i-sm composer__model-tick" aria-hidden />
+                  <span className="composer__model-opt-text">
+                    <span className="composer__model-opt-name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                    <span className="composer__model-opt-hint">{m.prompt === "0" ? "free" : (m.id.split("/")[0] ?? "")}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
           </ul>
         </>
       ) : null}
@@ -411,6 +495,8 @@ export interface ComposerProps {
   onProviderChange?: (provider: string) => void;
   /** Engine-reported providers for the picker (GET /api/providers). Empty → picker hidden. */
   providers?: ProviderOption[];
+  /** Full OpenRouter catalogue — lets the picker + ⑂ Compare choose ANY model, not just providers. */
+  catalog?: OpenRouterModel[];
 }
 
 /**
@@ -424,6 +510,7 @@ export function Composer({
   provider,
   onProviderChange,
   providers,
+  catalog,
 }: ComposerProps): React.ReactElement {
   const [value, setValue] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
@@ -433,9 +520,11 @@ export function Composer({
   // you can compare several prompts). Pruned to names the engine still offers when `providers` change.
   const [compareModels, setCompareModels] = React.useState<string[]>([]);
   React.useEffect(() => {
-    if (!providers || !providers.length) return;
-    setCompareModels((prev) => prev.filter((n) => providers.some((p) => p.name === n)));
-  }, [providers]);
+    // Drop selections that are no longer valid (a renamed/removed provider), but KEEP catalogue slugs.
+    if ((!providers || !providers.length) && (!catalog || !catalog.length)) return;
+    const valid = new Set<string>([...(providers ?? []).map((p) => p.name), ...(catalog ?? []).map((m) => m.id)]);
+    setCompareModels((prev) => prev.filter((n) => valid.has(n)));
+  }, [providers, catalog]);
   const toggleCompare = React.useCallback((name: string) => {
     setCompareModels((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
   }, []);
@@ -611,14 +700,16 @@ export function Composer({
         onMicStop={mic.stop}
         provider={provider ?? ""}
         providers={providers}
+        catalog={catalog}
         onProviderChange={onProviderChange}
         disabled={isDisabled}
         micRecording={mic.recording}
         micBusy={mic.busy}
       />
-      {onProviderChange && providers && providers.length >= 2 ? (
+      {onProviderChange && ((providers && providers.length >= 2) || (catalog && catalog.length > 0)) ? (
         <CompareMenu
-          providers={providers}
+          providers={providers ?? []}
+          catalog={catalog}
           selected={compareModels}
           judge={provider ?? ""}
           onToggle={toggleCompare}

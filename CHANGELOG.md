@@ -6,6 +6,21 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.1] — 2026-06-27
+
+### Added
+
+- **Run any model in chat + ⑂ Compare** — the model pickers (chat composer and the Compare multi-select)
+  now search the **full OpenRouter catalogue**, not just configured providers. `POST /api/turn` resolves a
+  pick that isn't a configured provider as an **OpenRouter model slug**, synthesizing a provider on the fly
+  from an OpenRouter base profile (the same mechanism agents use). The "configured providers only" guardrail
+  becomes catalogue-aware — an unrunnable slug still fails loudly rather than silently billing the default.
+- **Bulk select + delete** on the conversation list and the file list — a **Select** toggle reveals
+  checkboxes, an action bar shows the count with **Delete** (+ All / Cancel). Conversations soft-delete in
+  parallel; files/folders archive recursively. Built as the base for later bulk actions (tag/label).
+- **Create file + folder** in the files explorer — **New file** makes an empty markdown file and opens it in
+  the editor (draft a prompt spec from scratch); **New folder** makes a folder in the current directory.
+
 ## [0.13.0] — 2026-06-27
 
 ### Added

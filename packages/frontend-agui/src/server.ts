@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { MatbotServices, Session, Principal, MessageContent } from '@matatbread/matbot-plugin-api';
+import type { MatbotServices, Session, Principal, MessageContent, ProviderConfig } from '@matatbread/matbot-plugin-api';
 import { runAs, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import { AguiEmitter, lastIdByRole, type AguiEvent } from './agui-emitter.js';
 import { handleDevAuth } from './auth-dev.js';
@@ -41,6 +41,43 @@ function buildTurnContent(text: string, attachments?: TurnAttachment[]): Message
   }
   blocks.push({ type: 'text', text });
   return blocks;
+}
+
+// Run ANY model from chat/⑂ Compare, not just configured providers. A client "model token" is either
+// the NAME of a configured provider (used as-is) OR an OpenRouter model slug like "openai/gpt-4-turbo",
+// synthesized on the fly from an OpenRouter base profile — the same trick agents use to run any model
+// without a hand-authored provider. The base is `EIDAN_OPENROUTER_PROVIDER` if set, else the first
+// configured provider whose endpoint is openrouter.ai.
+function openRouterBase(services: MatbotServices): string | undefined {
+  const explicit = process.env['EIDAN_OPENROUTER_PROVIDER'];
+  if (explicit && services.providers.get(explicit)) return explicit;
+  for (const [name, cfg] of services.providers) {
+    if (typeof cfg.endpoint === 'string' && cfg.endpoint.includes('openrouter.ai')) return name;
+  }
+  return undefined;
+}
+
+function synthProvider(services: MatbotServices, baseProvider: string, model: string): string {
+  const synthName = `${baseProvider}::${model}`;
+  if (!services.providers.has(synthName)) {
+    const base = services.providers.get(baseProvider);
+    if (!base) return baseProvider;
+    // services.providers is a ReadonlyMap at the type level, but the live registry is mutable — agents
+    // register per-turn synthesized profiles exactly this way (packages/agents effectiveProvider).
+    (services.providers as unknown as Map<string, ProviderConfig>).set(synthName, { ...base, name: synthName, model });
+  }
+  return synthName;
+}
+
+// Resolve a model token → a runnable provider name. `null` = empty token (caller uses the host default).
+// `undefined` = a slug we can't run (no OpenRouter base configured) — the caller should 400 rather than
+// silently bill the default (the original guardrail, now slug-aware).
+function resolveModelToken(services: MatbotServices, token: string | undefined): string | null | undefined {
+  if (!token) return null;
+  if (services.providers.get(token)) return token;
+  const base = openRouterBase(services);
+  if (!base) return undefined;
+  return synthProvider(services, base, token);
 }
 
 // Fork-and-merge: the ephemeral briefing the judge turn sees (prepended, never persisted). It carries
@@ -192,21 +229,28 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     // silently substitute the host default. Silent substitution is how a stale client pick (a renamed
     // or removed provider) kept billing the default model (sonnet) without consent. Each provider in
     // matbot.yaml is one model, so selecting a provider = selecting a model.
-    if (body.provider && !services.providers.get(body.provider)) {
-      json(res, 400, { error: `Unknown provider "${body.provider}" — not configured on this host. Re-select a model.` }, cors);
-      return;
+    // Resolve the per-turn model: a configured provider name OR an OpenRouter slug (synthesized on the
+    // fly). Empty ⇒ host default. A slug with no OpenRouter base configured fails loudly rather than
+    // silently billing the default (the original guardrail, now catalogue-aware).
+    let turnProvider = provider;
+    if (body.provider) {
+      const resolved = resolveModelToken(services, body.provider);
+      if (resolved === undefined) { json(res, 400, { error: `Can't run "${body.provider}" — not a configured provider, and no OpenRouter base is set up to run it as a model.` }, cors); return; }
+      turnProvider = resolved ?? provider;
     }
-    const turnProvider = body.provider || provider;
 
     // Fork-and-merge (the "⑂ Compare" composer mode): `compare` names ≥2 configured providers to race
     // the prompt against in parallel; THIS turn then runs the judge (turnProvider) to synthesise the
     // single best merged answer + a comparison. Validate candidates up-front (same rule as the per-turn
     // provider — each provider is one model) so a stale pick fails before the stream opens.
-    const compareModels = Array.isArray(body.compare)
+    const compareTokens = Array.isArray(body.compare)
       ? Array.from(new Set(body.compare.filter((m): m is string => typeof m === 'string' && m.length > 0)))
       : [];
-    for (const m of compareModels) {
-      if (!services.providers.get(m)) { json(res, 400, { error: `Unknown compare model "${m}" — not configured on this host. Re-select.` }, cors); return; }
+    const compareModels: string[] = [];
+    for (const m of compareTokens) {
+      const resolved = resolveModelToken(services, m);
+      if (resolved === undefined) { json(res, 400, { error: `Can't compare "${m}" — no OpenRouter base configured to run it.` }, cors); return; }
+      if (resolved && !compareModels.includes(resolved)) compareModels.push(resolved);
     }
     const doFork = compareModels.length >= 2 && typeof services.singleTurn === 'function';
 
