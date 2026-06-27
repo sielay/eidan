@@ -172,11 +172,10 @@ export function ConversationList(): React.ReactElement {
   );
 
   const onRowStarChange = React.useCallback(
-    (rowId: string, nextStarred: boolean, updatedAt?: string) => {
+    (rowId: string, nextStarred: boolean, updatedAt: string) => {
       setItems((prev) => {
         if (prev === null) return prev;
-        const now = new Date().toISOString();
-        const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred, updated_at: updatedAt ?? now } : row);
+        const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred, updated_at: updatedAt } : row);
         return updated.sort((a, b) => {
           if ((b.starred ?? false) !== (a.starred ?? false)) {
             return (b.starred ?? false) ? -1 : 1;
