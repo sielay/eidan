@@ -107,9 +107,11 @@ export function resolveSections(
     return true;
   });
   if (duplicates.length > 0) {
-    console.error(
-      `[nav] Duplicate section IDs detected (core/earlier plugins take precedence): ${duplicates.join(", ")}. This indicates a plugin configuration error.`,
-    );
+    const msg = `[nav] Duplicate section IDs detected (core/earlier plugins take precedence): ${duplicates.join(", ")}. This indicates a plugin configuration error.`;
+    console.error(msg);
+    if (process.env.NODE_ENV === "development") {
+      throw new Error(msg);
+    }
   }
   return result;
 }
