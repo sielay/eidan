@@ -129,11 +129,18 @@ export function ConversationList(): React.ReactElement {
             ? [...remaining, newItem]
             : [...remaining.slice(0, insertIdx), newItem, ...remaining.slice(insertIdx)];
         }
-        // When unstarring, insert back into unstarred items maintaining updated_at DESC order
-        const insertIdx = remaining.findIndex((r) => r.updated_at < updatedAt);
-        return insertIdx === -1
-          ? [...remaining, newItem]
-          : [...remaining.slice(0, insertIdx), newItem, ...remaining.slice(insertIdx)];
+        // When unstarring, insert after all starred items, then by updated_at DESC among unstarred
+        const unstarredStart = remaining.findIndex((r) => !r.starred);
+        if (unstarredStart === -1) {
+          // All items are starred; append at end
+          return [...remaining, newItem];
+        }
+        let insertIdx = unstarredStart;
+        for (let i = unstarredStart; i < remaining.length; i++) {
+          if (remaining[i]!.updated_at < updatedAt) break;
+          insertIdx = i + 1;
+        }
+        return [...remaining.slice(0, insertIdx), newItem, ...remaining.slice(insertIdx)];
       });
     },
     [],

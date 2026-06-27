@@ -31,7 +31,7 @@ function json(res: ServerResponse, code: number, obj: unknown, cors: Record<stri
   res.end(JSON.stringify(obj));
 }
 
-function readTextBody(req: IncomingMessage, maxBytes = 256 * 1024): Promise<string> {
+function readTextBody(req: IncomingMessage, maxBytes = 64 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -609,7 +609,7 @@ export async function handleRest(
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
-          created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
+          created_at: iso(row.created_at), updated_at: iso(row.updated_at ?? row.created_at), starred: row.starred === true,
         })),
         next_before: nextBefore,
         next_before_starred: nextBeforeStarred,
@@ -694,7 +694,7 @@ export async function handleRest(
         return true;
       }
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
-      json(res, 200, { id: row.id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at) }, cors);
+      json(res, 200, { id: row.id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at ?? row.created_at) }, cors);
       return true;
     }
 
