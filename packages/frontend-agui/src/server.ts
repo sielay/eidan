@@ -366,7 +366,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
         const stopReason = typeof resp?.stopReason === 'string' ? resp.stopReason : undefined;
         const truncated = respText.includes('[truncated]') || respText.trim().endsWith('...') || stopReason === 'length';
         // Append truncation marker if detected and not already present
-        const text_ = truncated && !respText.includes('[truncated]') ? `${respText.trim()}\n\n_[Response truncated at token limit]_` : respText;
+        const text_ = truncated && !respText.includes('[Response truncated at token limit]') ? `${respText.trim()}\n\n_[Response truncated at token limit]_` : respText;
         // Record each compare leg in the cost ledger (role='compare_leg') so the trace/cost rollup
         // counts them — they run outside the streamed turn, so they weren't being recorded before.
         if (legLedger && resp?.usage) {
@@ -379,7 +379,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
       }));
       const legs = settled.flatMap((r) => (r.status === 'fulfilled' && r.value.text.trim() ? [r.value] : []));
       if (legs.length >= 2) {
-        forkLegs = legs.map(l => ({ model: l.model, text: l.text, truncated: l.truncated, inputTokens: l.inputTokens, outputTokens: l.outputTokens }));
+        forkLegs = legs;
         const briefing = buildJudgeBriefing(text, legs);
         const armedAt = Date.now();
         let fired = false;
