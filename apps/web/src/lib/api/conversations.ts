@@ -109,7 +109,7 @@ export async function listConversations(
   const qs = new URLSearchParams();
   if (opts.limit) qs.set("limit", String(opts.limit));
   if (opts.before) qs.set("before", opts.before);
-  if (opts.beforeStarred !== undefined) qs.set("before_starred", opts.beforeStarred ? 'true' : 'false');
+  if (opts.beforeStarred !== null && opts.beforeStarred !== undefined) qs.set("before_starred", opts.beforeStarred ? 'true' : 'false');
   if (opts.q && opts.q.trim()) qs.set("q", opts.q.trim());
   if (opts.kind && opts.kind !== "all") qs.set("kind", opts.kind);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";

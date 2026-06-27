@@ -54,6 +54,13 @@ function checkJsonDepth(obj: unknown, maxDepth = 10): boolean {
   return true;
 }
 
+// Parse JSON from request body with depth validation to prevent deeply nested JSON attacks.
+function parseJsonBody(body: string): unknown {
+  const parsed = JSON.parse(body);
+  if (!checkJsonDepth(parsed, 10)) throw new Error('request body structure too deeply nested');
+  return parsed;
+}
+
 // Raw bytes (for binary uploads like audio). Capped at 25MB — the Whisper API's own per-file limit.
 function readRawBody(req: IncomingMessage, maxBytes = 25 * 1024 * 1024): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -547,14 +554,14 @@ export async function handleRest(
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
       if (before != null) {
-        const beforeStarredBool = beforeStarredStr === 'true';
+        const beforeStarredBool = beforeStarredStr === 'true' ? true : (beforeStarredStr === 'false' ? false : null);
+        const beforeStarredIdx = vals.length + 1;
+        const beforeTimestampIdx = vals.length + 2;
         vals.push(beforeStarredBool, before);
-        const beforeStarredIdx = vals.length - 1;
-        const beforeTimestampIdx = vals.length;
-        // Keyset pagination: fetch rows after the cursor by (starred, updated_at).
-        // When transitioning from starred=true to starred=false, fetch all unstarred rows.
-        // When staying within the same starred group, fetch rows with older timestamps.
-        conds.push(`((starred = false AND $${beforeStarredIdx}::boolean = true) OR (starred = $${beforeStarredIdx}::boolean AND coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz))`);
+        // Keyset pagination: fetch rows after the cursor by (starred DESC, updated_at DESC).
+        // Use the standard (col1 < val1) OR (col1 = val1 AND col2 < val2) pattern.
+        // starred < true evaluates to starred = false; starred = true stays in starred section.
+        conds.push(`($${beforeStarredIdx}::boolean IS NOT NULL AND ((starred < $${beforeStarredIdx}::boolean) OR (starred = $${beforeStarredIdx}::boolean AND coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz)))`);
       }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
@@ -590,15 +597,12 @@ export async function handleRest(
     if (method === 'POST') {
       let title: string | null = null;
       try {
-        const b = JSON.parse(await readBody(req, 64 * 1024)) as { title?: string | null };
-        if (!checkJsonDepth(b, 10)) { json(res, 400, { error: 'request body structure too deeply nested' }, cors); return true; }
+        const b = parseJsonBody(await readBody(req, 64 * 1024)) as { title?: string | null };
         title = b.title ?? null;
       } catch (err) {
-        if (err instanceof SyntaxError) {
-          json(res, 400, { error: 'invalid JSON in request body' }, cors);
-          return true;
-        }
-        // For other errors, allow empty body and proceed
+        const msg = err instanceof SyntaxError ? 'invalid JSON in request body' : (err instanceof Error ? err.message : 'invalid request body');
+        json(res, 400, { error: msg }, cors);
+        return true;
       }
       const id = crypto.randomUUID();
       const sessions = services.sessions;
@@ -627,14 +631,11 @@ export async function handleRest(
       let body: unknown = {};
       // 64KB limit covers title (typical max ~256 bytes) and starred boolean; sufficient for current schema
       try {
-        body = JSON.parse(await readBody(req, 64 * 1024)) as unknown;
-        if (!checkJsonDepth(body, 10)) { json(res, 400, { error: 'request body structure too deeply nested' }, cors); return true; }
+        body = parseJsonBody(await readBody(req, 64 * 1024)) as unknown;
       } catch (err) {
-        if (err instanceof SyntaxError) {
-          json(res, 400, { error: 'invalid JSON in request body' }, cors);
-          return true;
-        }
-        // For other errors, empty body is acceptable (no updates)
+        const msg = err instanceof SyntaxError ? 'invalid JSON in request body' : (err instanceof Error ? err.message : 'invalid request body');
+        json(res, 400, { error: msg }, cors);
+        return true;
       }
       const bodyObj = body as Record<string, unknown>;
       const updates: string[] = ['updated_at=now()'];

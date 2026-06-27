@@ -128,8 +128,28 @@ export function ConversationList(): React.ReactElement {
     (rowId: string, nextStarred: boolean, updatedAt: string) => {
       setItems((prev) => {
         if (prev === null) return prev;
-        const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred, updated_at: updatedAt } : row);
-        return updated.sort(sortConversations);
+        // Find and update the item
+        const itemIdx = prev.findIndex((r) => r.id === rowId);
+        if (itemIdx === -1) return prev;
+        const updated = prev[itemIdx];
+        const newItem = { ...updated, starred: nextStarred, updated_at: updatedAt };
+        // Find the correct position for this item in sorted order
+        let newIdx = itemIdx;
+        if (nextStarred !== updated.starred) {
+          // Starred status changed, need to find new position
+          const before = prev.slice(0, itemIdx);
+          const after = prev.slice(itemIdx + 1);
+          const withoutItem = [...before, ...after];
+          newIdx = 0;
+          for (; newIdx < withoutItem.length; newIdx++) {
+            if (sortConversations(newItem, withoutItem[newIdx]) < 0) break;
+          }
+          return [...withoutItem.slice(0, newIdx), newItem, ...withoutItem.slice(newIdx)];
+        }
+        // Only updated_at changed within same starred group; position likely stays same or shifts slightly
+        const result = [...prev];
+        result[itemIdx] = newItem;
+        return result;
       });
     },
     [sortConversations],
