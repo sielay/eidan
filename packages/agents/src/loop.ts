@@ -36,6 +36,7 @@ interface EscalationsLike {
     limit?: number;
   }): Promise<Array<{
     id: string;
+    user_id: string | null;
     to_agent: string | null;
     trigger_prompt: string | null;
     response: { feedback?: string } | null;
