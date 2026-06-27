@@ -7,7 +7,7 @@ import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
-import { CORE_PLUGINS } from "./manifest.mjs";
+import { CORE_PLUGINS, installedPlugins } from "./manifest.mjs";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MATBOT_YAML = join(ROOT, "infra/fly-mb/matbot.yaml");
@@ -164,7 +164,8 @@ export function assemble(config) {
   const allBundleNames = (config.bundles ?? [])
     .filter((b) => b && b.name && !String(b.name).startsWith("//"))
     .map((b) => b.name);
-  const fronts = [...CORE_PLUGINS, ...allBundleNames]
+  const installed = installedPlugins(ROOT);
+  const fronts = [...new Set([...CORE_PLUGINS, ...allBundleNames, ...installed])]
     .map((name) => vendorFrontend(name))
     .filter(Boolean);
   if (fronts.length) writeFrontendRegistry(fronts);

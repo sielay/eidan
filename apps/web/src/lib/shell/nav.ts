@@ -109,7 +109,7 @@ export const SETTINGS_SECTION: NavSection = {
   group: "System",
 };
 
-/** Flatten contributions into resolved sections (chat first). */
+/** Flatten contributions into resolved sections, deduplicating by id (core contributions take precedence). */
 export function resolveSections(
   contributions: readonly NavContribution[] = [CORE_CONTRIBUTION],
 ): NavSection[] {
