@@ -124,6 +124,8 @@ export function AgentOrgChartPane(): React.ReactElement {
     lastNodeCount: number;
     renderVersion: number;
     bounds: { width: number; height: number; minX: number; maxX: number; minY: number; maxY: number };
+    lastQuadtreeIter: number;
+    quadtreeCache: QuadtreeNode | null;
   } | null>(null);
 
   // Load agents and escalations
@@ -247,6 +249,8 @@ export function AgentOrgChartPane(): React.ReactElement {
         lastNodeCount: initialNodes.length,
         renderVersion: 0,
         bounds,
+        lastQuadtreeIter: -1,
+        quadtreeCache: null,
       };
     } else {
       const sim = simulationRef.current;
@@ -276,6 +280,8 @@ export function AgentOrgChartPane(): React.ReactElement {
         sim.iterations = 0;
         sim.velocityHistory = [];
         sim.lastNodeCount = sim.nodes.length;
+        sim.quadtreeCache = null;
+        sim.lastQuadtreeIter = -1;
       }
       sim.animating = true;
       sim.bounds = bounds;
@@ -323,20 +329,28 @@ export function AgentOrgChartPane(): React.ReactElement {
             }
           }
         } else {
-          // Use quadtree for larger graphs: O(N log N) rebuild is worthwhile for N > 25
-          const qx = sim.bounds.minX;
-          const qy = sim.bounds.minY;
-          const qw = sim.bounds.maxX - sim.bounds.minX;
-          const qh = sim.bounds.maxY - sim.bounds.minY;
-          // Quadtree size: round to power of 2 that covers bounds exactly
-          // Nodes are constrained to [minX, maxX] × [minY, maxY] via bouncing, so no margin needed
-          const qsize = Math.pow(2, Math.ceil(Math.log2(Math.max(qw, qh))));
-          const qt = buildQuadtree(sim.nodes, qx, qy, qsize);
-          for (const node of sim.nodes) {
-            const { fx, fy } = repulsionFromQuadtree(node, qt, 10000);
-            const nodeForces = forces.get(node.id)!;
-            nodeForces.fx += fx;
-            nodeForces.fy += fy;
+          // Use quadtree for larger graphs: O(N log N) but rebuild only every 4 iterations
+          // to avoid expensive continuous rebuilding while nodes are still moving
+          if (sim.iterations - sim.lastQuadtreeIter >= 4) {
+            const qx = sim.bounds.minX;
+            const qy = sim.bounds.minY;
+            const qw = sim.bounds.maxX - sim.bounds.minX;
+            const qh = sim.bounds.maxY - sim.bounds.minY;
+            // Quadtree size: round to power of 2 that covers bounds. Nodes are constrained
+            // to [minX, maxX] × [minY, maxY] via bouncing, so quadtree covers all nodes
+            const qsize = Math.pow(2, Math.ceil(Math.log2(Math.max(qw, qh))));
+            sim.quadtreeCache = buildQuadtree(sim.nodes, qx, qy, qsize);
+            sim.lastQuadtreeIter = sim.iterations;
+          }
+
+          // Use cached quadtree for repulsion (rebuilt every 4 iterations)
+          if (sim.quadtreeCache) {
+            for (const node of sim.nodes) {
+              const { fx, fy } = repulsionFromQuadtree(node, sim.quadtreeCache, 10000);
+              const nodeForces = forces.get(node.id)!;
+              nodeForces.fx += fx;
+              nodeForces.fy += fy;
+            }
           }
         }
 
