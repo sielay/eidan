@@ -11,6 +11,12 @@ export interface XUserProfile {
   tweet_count?: number;
   verified?: boolean;
   verified_type?: string;
+  public_metrics?: {
+    followers_count?: number;
+    following_count?: number;
+    tweet_count?: number;
+    listed_count?: number;
+  };
 }
 
 export interface XTweet {

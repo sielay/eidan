@@ -38,7 +38,15 @@ test('XClient.postTweet rejects > 280 chars without a request', async () => {
 test('XClient.getMe returns the profile', async () => {
   const restore = mockFetch((url) => {
     assert.ok(url.includes('/users/me'));
-    return { data: { id: '12345', name: 'Test User', username: 'testuser', followers_count: 100, verified: false } };
+    return {
+      data: {
+        id: '12345',
+        name: 'Test User',
+        username: 'testuser',
+        verified: false,
+        public_metrics: { followers_count: 100, following_count: 50, tweet_count: 200 },
+      },
+    };
   });
   try {
     const r = await new XClient('test-token').getMe();
