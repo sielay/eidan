@@ -85,8 +85,8 @@
 
 **Blockers to handle:**
 - `FLY_API_TOKEN` must be in GH Actions secrets (operator responsibility, gitignored)
-- Migrations: post-deploy, `flyctl ssh` runs `pnpm --filter @eidandev/migrate migrate` idempotent
-- Secrets: Fly secrets (EIDAN_DATABASE_URL, keys) are pre-set; workflow does NOT edit them
+- Migrations: Fly's `release_command` runs idempotent `pnpm --filter @eidandev/migrate migrate` within the build environment; ensure `DATABASE_URL` and `pnpm` are available in the deploy image
+- Secrets: Fly secrets (EIDAN_DATABASE_URL, keys) are pre-set; workflow does NOT edit them; `FLY_API_TOKEN` is only used in GH Actions runner, not exposed on the deployed machine
 
 ---
 
@@ -115,7 +115,7 @@ docker-compose.yml
 
 **Promotion: Staging → Production**
 - Operator tests staging (manual curl, browser, etc.)
-- If ready: `docker compose -p kesha up -d --profile prod engine-prod:main-latest`
+- If ready: update `.env` with `EIDAN_ENGINE_IMAGE_TAG=main-latest`, then `docker compose -p kesha up -d --profile prod`
   - Redeploy prod to latest image
   - Old prod still running until new one's health check passes
 - If not: downtime is minimal (only if explicit promotion ordered)
@@ -123,7 +123,7 @@ docker-compose.yml
 **Implementation:**
 - New `infra/fly-mb/docker-compose.staging.yml` (profiles: prod, staging)
 - Kesha deploy target adds `.env` var: `KESHA_STAGING=1` (enables staging profile pull)
-- Kesha startup script (systemd or cron): `docker compose pull --quiet; docker compose up -d --profile prod --profile staging`
+- Kesha startup script (systemd or cron): `docker compose -p kesha pull --quiet; docker compose -p kesha up -d --profile prod --profile staging`
 - Optional: health-check endpoint (`/health`) returns git SHA + uptime; staging dashboard pings both slots
 
 **Self-healing:**
@@ -137,7 +137,8 @@ docker-compose.yml
   [Install]
   WantedBy=timers.target
   ```
-- Script: `docker compose pull --quiet; docker compose up -d --no-deps` (restart if changed)
+- Script: `docker compose -p kesha pull --quiet; docker compose -p kesha up -d --no-deps` (restart if changed)
+- **Interaction:** Timer runs independently from `kesha-eidan.service`; both pull + restart, but the service ExecStart is already detached (`-d`), so no race conditions with blocking startup
 
 ---
 
@@ -163,11 +164,11 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/eidan
 # On startup: pull latest images (fail gracefully if offline)
-ExecStartPre=/usr/bin/sh -c 'docker compose pull --quiet 2>/dev/null || true'
+ExecStartPre=/usr/bin/sh -c 'docker compose -p kesha pull --quiet 2>/dev/null || true'
 # Run the stack with prod profile (and staging if enabled)
-ExecStart=/usr/bin/docker compose up --remove-orphans
+ExecStart=/usr/bin/docker compose -p kesha up -d --remove-orphans
 # On stop: graceful shutdown
-ExecStop=/usr/bin/docker compose down
+ExecStop=/usr/bin/docker compose -p kesha down
 # Health check: query /health endpoint, auto-rollback if fails
 ExecStartPost=/usr/bin/sh -c '/opt/kesha-health-check.sh'
 
@@ -199,9 +200,9 @@ done
 
 # All retries failed → rollback
 echo "Health check failed after $MAX_RETRIES attempts. Rolling back to previous SHA: $KESHA_PREVIOUS_SHA"
-export KESHA_CURRENT_IMAGE="$KESHA_PREVIOUS_SHA"
-docker compose down
-docker compose up -d --profile prod
+export EIDAN_ENGINE_IMAGE_TAG="$KESHA_PREVIOUS_SHA"
+docker compose -p kesha down
+docker compose -p kesha up -d --profile prod
 sleep 5
 # Verify rollback
 if curl -sf "$HEALTH_URL" > /dev/null 2>&1; then
@@ -212,6 +213,8 @@ else
   exit 1
 fi
 ```
+
+**Note on ExecStartPost timing:** Since `ExecStart` runs in detached mode (`-d`), `ExecStartPost` fires immediately after containers are launched (not after they're healthy). The health check script itself handles retries and waits for services to be ready; the systemd unit does not block on service health.
 
 **Startup sequence:**
 1. Systemd starts: `docker compose pull` (non-blocking if offline)
@@ -258,12 +261,12 @@ fi
 
 | Blocker | Impact | Mitigation |
 |---------|--------|-----------|
-| **Secrets in GH Actions** | `FLY_API_TOKEN`, GHCR credentials must be in GH secrets | Operator responsibility. Store in GH Settings → Secrets. Never commit. Document in `.github/DEPLOY_SECRETS.md` (gitignored template). |
+| **Secrets in GH Actions** | `FLY_API_TOKEN`, GHCR credentials must be in GH secrets | Operator responsibility. Store in GH Settings → Secrets. Never commit. Document setup in external docs (wiki, notion, etc.) — do not track even a template in the repo. |
 | **Postgres migrations fail** | Deploy succeeds, but app can't start if schema is old | Migrations are idempotent. Post-deploy: `flyctl ssh -c 'pnpm --filter @eidandev/migrate migrate'`. Add to Fly's `release_command` in `fly.toml`. |
 | **Image pull rate limits** | GHCR pulls from CI + Kesha exhaust quota | Use GitHub Container Registry token (authed, higher limits). Store in Kesha `.env` as `DOCKER_AUTH_CONFIG`. |
 | **Database downtime during Kesha redeploy** | Staging + prod share same DB; schema changes block both | Use Postgres columns-are-additive strategy. Old code still sees new columns (just ignores them). Never drop/rename columns without coordination. |
-| **Fly secrets out of sync** | New env var added, but Fly not updated | All secrets pre-set via `fly secrets import` in initial deploy. Adds via gitignored `eidan.deploy.json`. `env-push` command syncs them. |
-| **Kesha can't reach GHCR** | Offline or rate-limited → staging can't pull | Kesha docker login via vault secret. If offline: keep `main-current` tag; fallback to previous working image. |
+| **Fly secrets out of sync** | New env var added, but Fly not updated | All secrets pre-set via `fly secrets import` in initial deploy. Update via `flyctl secrets import <(cat gitignored-secrets.txt)` for batch sync, or `flyctl secrets set KEY=VALUE` individually. |
+| **Kesha can't reach GHCR** | Offline or rate-limited → staging can't pull | Kesha docker login via vault secret. If offline: `ExecStartPre` fails gracefully (pull is non-blocking); health check detects failure and auto-rolls back to `KESHA_PREVIOUS_SHA`. For staging: manual pull via `docker compose -p kesha pull` can be retried when network is restored. |
 | **Concurrent deploys race** | Two `flyctl deploy` calls at same time | GitHub Actions workflow queue ensures sequential (default). Fly does not allow parallel deploys of same app. |
 | **Rollback without web UI access** | Web interface down → can't access dashboard to revert | MCP/A2A/SSH/Postgres remain available. Fly rollback via `flyctl` CLI. Kesha rollback via SSH. CI/CD rollback job available as safety net. |
 | **Kesha image pull fails mid-deploy** | Staging pulls `:main-latest`, but pull fails → staging stuck on old image | Health check detects failure, auto-rolls back to `KESHA_PREVIOUS_SHA`. Manual SSH recovery available. |
@@ -282,20 +285,19 @@ fi
 - [ ] Test rollback: merge a change, deploy, then rollback via `gh workflow run`
 
 ### Phase 2: Kesha Staging Slots (Week 2)
-- [ ] Create `infra/fly-mb/docker-compose.staging.yml` (prod + staging profiles)
-- [ ] Update `eidan-deploy.mjs` kesha target to pull staging profile
-- [ ] Kesha `.env`: add `KESHA_STAGING=1`, `KESHA_CURRENT_SHA=<main-latest>`, `KESHA_PREVIOUS_SHA=<fallback>` (gitignored)
-- [ ] Test: `docker compose up -d --profile staging` pulls `main-latest`
+- [ ] Create `infra/fly-mb/docker-compose.staging.yml` (prod + staging profiles, use `EIDAN_ENGINE_IMAGE_TAG` env var)
+- [ ] Kesha initial setup: create `.env` template with `KESHA_STAGING=1`, `EIDAN_ENGINE_IMAGE_TAG=main-latest`, `KESHA_PREVIOUS_SHA=<stable-sha>` (gitignored)
+- [ ] Test: `docker compose -p kesha up -d --profile staging` pulls image from `EIDAN_ENGINE_IMAGE_TAG`
 - [ ] Add health check endpoint to matbot host (git SHA + uptime + role)
-- [ ] Document: testing workflow for staging
+- [ ] Document: testing workflow for staging; manual promotion step
 - [ ] Implement health-check polling in Kesha systemd service (3 retries, auto-rollback on failure)
 
 ### Phase 3: Self-Healing & Emergency Recovery (Week 3)
-- [ ] Create systemd service + timer for Kesha auto-pull
-- [ ] Test: reboot Kesha → auto-pulls latest images
-- [ ] Add health-check polling to startup (fail if not ready, auto-rollback)
-- [ ] Fly `fly.toml`: enable `strategy = "rolling"` + configure `auto_stop_machines = true` for zero-cost idle
-- [ ] Document SSH recovery procedures for Kesha (manual rollback via prod image tag)
+- [ ] Create systemd service + timer for Kesha auto-pull (per section 4 above)
+- [ ] Test: reboot Kesha → auto-pulls latest images, runs health check, auto-rollbacks if needed
+- [ ] Fly `fly.toml`: enable `strategy = "rolling"` (zero-downtime rolling updates) + configure `auto_stop_machines = true` for zero-cost idle
+- [ ] Track `/opt/kesha-health-check.sh` in `infra/scripts/kesha-health-check.sh`; deploy during Kesha setup
+- [ ] Document SSH recovery procedures for Kesha (manual rollback: update `.env EIDAN_ENGINE_IMAGE_TAG=<sha>`, restart service)
 - [ ] Document MCP/A2A/Postgres access paths for when web UI is down
 - [ ] Verify emergency access paths work: test each (MCP curl, Postgres SSH, A2A port)
 
@@ -321,10 +323,10 @@ T+0:35  Fly: live, health checks passing
 
         [Meanwhile, background tasks on Kesha:]
 T+0:15  Kesha's docker daemon pulls new image (if `pull --quiet` is running)
-T+1:00  Kesha systemd timer fires: `docker compose pull; docker compose up -d --profile staging`
+T+1:00  Kesha systemd timer fires: `docker compose -p kesha pull; docker compose -p kesha up -d --profile staging`
         Staging slot now runs new code (prod unchanged)
 T+1:05  Operator tests staging via browser / curl
-T+1:10  [Manual] Operator promotes: `docker compose up -d --profile prod engine-prod:main-latest`
+T+1:10  [Manual] Operator promotes: update `.env EIDAN_ENGINE_IMAGE_TAG=main-latest`, then `docker compose -p kesha up -d --profile prod`
         Prod slot redeploys to new image (mirrors Fly)
 ```
 
@@ -337,16 +339,19 @@ T+1:10  [Manual] Operator promotes: `docker compose up -d --profile prod engine-
 **Tracked:**
 - `.github/workflows/deploy-on-merge.yml` (image build)
 - `.github/workflows/deploy-to-fly.yml` (Fly redeploy)
-- `infra/fly-mb/docker-compose.staging.yml` (staging topology)
-- `infra/fly-mb/kesha.service` (systemd template)
+- `infra/fly-mb/docker-compose.staging.yml` (staging topology; uses `EIDAN_ENGINE_IMAGE_TAG` env var)
+- `infra/fly-mb/kesha.service` (systemd service template; deployed to `/etc/systemd/system/kesha-eidan.service` on Kesha)
+- `infra/scripts/kesha-health-check.sh` (health check script template; deployed to `/opt/kesha-health-check.sh` on Kesha at setup)
 - `DEPLOY_STRATEGY.md` (this doc)
 
 **Gitignored (operator-private):**
 - `FLY_API_TOKEN` (GitHub Actions secret setting, not in repo)
-- `.env` (Kesha config: `KESHA_STAGING=1`, `KESHA_CURRENT_SHA=<main-latest>`, `KESHA_PREVIOUS_SHA=<fallback>`, `DOCKER_AUTH_CONFIG`, etc.)
+- `.env` (Kesha config: `KESHA_STAGING=1`, `EIDAN_ENGINE_IMAGE_TAG=<main-latest>`, `KESHA_PREVIOUS_SHA=<fallback>`, `DOCKER_AUTH_CONFIG`, etc.)
+  - `EIDAN_ENGINE_IMAGE_TAG` is updated by health check rollback script on emergency recovery
+  - `KESHA_PREVIOUS_SHA` is set manually or by automation before deploy
 - `eidan.deploy.json` (already gitignored)
 - `/etc/eidan/eidan.env` (Kesha system config)
-- `/opt/kesha-health-check.sh` (Kesha health check script, deployed at setup time)
+- `/opt/kesha-health-check.sh` (Kesha health check script, tracked in `infra/scripts/` and deployed at setup time)
 
 **No secrets ever committed.**
 
@@ -399,12 +404,10 @@ T+1:10  [Manual] Operator promotes: `docker compose up -d --profile prod engine-
 1. **Via SSH (manual, always available):**
    ```bash
    ssh pi@192.168.1.100
-   # Stop all services
-   sudo systemctl stop kesha-eidan
-   # Switch prod to previous known-good SHA
-   docker compose up -d --profile prod engine-prod:main-<previous-sha>
-   # Restart
-   sudo systemctl start kesha-eidan
+   # Update .env to use previous SHA
+   sed -i 's/EIDAN_ENGINE_IMAGE_TAG=.*/EIDAN_ENGINE_IMAGE_TAG=main-<previous-sha>/' /home/pi/eidan/.env
+   # Restart service (triggers health check)
+   sudo systemctl restart kesha-eidan
    ```
    Requires SSH key + `pi` sudo access (pre-configured at deploy time).
 
@@ -418,14 +421,14 @@ T+1:10  [Manual] Operator promotes: `docker compose up -d --profile prod engine-
    - Requires: Kesha can SSH to itself (or docker socket access to host)
    - Not recommended for emergency recovery (depends on the agent being alive)
 
-4. **Via Kesha systemd timer (least preferred):**
-   - Kesha's `docker compose up` in systemd service auto-restarts if crashed
-   - Restart with previous image: set `.env KESHA_CURRENT_IMAGE=<previous-sha>` before restart
+4. **Via health check auto-rollback (automatic if health checks enabled):**
+   - Startup health checks detect failure and automatically roll back to `.env KESHA_PREVIOUS_SHA`
+   - No manual intervention needed if auto-rollback is configured
 
 **Scenario: Kesha is running broken code, web interface is down:**
 - SSH into Kesha (192.168.1.100)
-- Check current state: `docker compose ps`
-- View logs: `docker compose logs engine-prod`
+- Check current state: `docker compose -p kesha ps`
+- View logs: `docker compose -p kesha logs engine-prod`
 - If broken: manually revert prod to previous SHA (see SSH path above)
 - Postgres is local to Kesha; data persists across container restarts
 
@@ -458,6 +461,7 @@ The web interface is ONE application layer. Core eidan services can still be acc
      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
    ```
    Eidan's MCP server is independent of the web UI. Can call tools, introspect state, trigger procedures.
+   *(Requires port 8091 mapped in `docker-compose.yml`: `ports: ["8091:8091"]` for the MCP service)*
 
 3. **A2A interface** (port 8095, agent-to-agent, if available):
    ```bash
@@ -466,6 +470,7 @@ The web interface is ONE application layer. Core eidan services can still be acc
      -d '{"agent_id":"sage","message":"what is my current state?"}'
    ```
    Allows remote agents (e.g., sage running elsewhere) to query eidan even if web UI is down.
+   *(Requires port 8095 mapped in `docker-compose.yml`: `ports: ["8095:8095"]` for the A2A service)*
 
 4. **Direct systemd/docker commands** (if SSH is available):
    ```bash
@@ -487,8 +492,8 @@ If a deploy is in progress and you detect a problem:
 - If deploying: `flyctl deployments cancel-v2 <deployment-id>` (stops the deploy mid-roll, reverts)
 
 **Kesha:**
-- If `docker compose pull` is hanging: `docker kill <pull-process>` or force-stop
-- If `docker compose up` is running: `Ctrl+C` in the systemd service (or `systemctl stop kesha-eidan`)
+- If `docker compose pull` is hanging (systemd timer): kill the timer job (`sudo systemctl stop kesha-eidan-update.timer`) or let it timeout
+- If `docker compose up` is running: `sudo systemctl stop kesha-eidan` (stops containers gracefully)
 - Previous image stays running; no change is committed
 
 ---
@@ -502,7 +507,7 @@ If a deploy is in progress and you detect a problem:
 | **Fly app is down** | `flyctl rollback --app <app>` | GitHub Actions: `gh workflow run rollback-to-fly.yml --raw` |
 | **Kesha app is down** | SSH: `ssh pi@192.168.1.100` → check `docker compose ps` | If SSH fails: reboot Kesha (power cycle or remote reboot if available) |
 | **Web UI is broken, everything else works** | Not an emergency; use MCP/A2A/Postgres directly (see "Web Interface Broken" above) | — |
-| **Web UI is down, need to rollback Kesha** | SSH: `sudo systemctl stop kesha-eidan` → `docker compose up -d --profile prod engine-prod:<previous-sha>` | Manual power cycle + health check auto-rollback |
+| **Web UI is down, need to rollback Kesha** | SSH: update `.env EIDAN_ENGINE_IMAGE_TAG=<previous-sha>` → `sudo systemctl restart kesha-eidan` | Manual power cycle + health check auto-rollback |
 | **Postgres data corruption** | Kesha: assess severity via `psql` | Restore from backup (operator's backup strategy) |
 | **Image pull is hanging** | `docker kill <pull-process>` or force-restart Kesha | Roll back to previous stable image |
 | **Deploy is in progress and failing** | For Fly: `flyctl deployments cancel-v2 <id>` | For Kesha: `systemctl stop kesha-eidan` |
@@ -515,6 +520,9 @@ If a deploy is in progress and you detect a problem:
 
 ---
 
-## Unknowns & Decisions Needed
+## Open questions
 
-See "Open questions" section at the end of the PR description.
+- **Health check auto-rollback:** Should it roll back automatically on failed checks (default), or only log and alert, requiring manual promotion from staging?
+- **Kesha staging promotion:** Should promotion from staging → production be manual (operator decision) or automatic (e.g., on successful health check + time gate)?
+- **Kesha Postgres backups:** What backup strategy for the local Kesha Postgres? Daily snapshots, continuous WAL archiving, or restore-from-Fly-on-emergency?
+- **Fly staging slot:** Is Fly-only staging (separate app instance) in scope, or is Kesha's parallel slot sufficient for testing before Fly deploy?
