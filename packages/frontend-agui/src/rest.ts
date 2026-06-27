@@ -604,7 +604,7 @@ export async function handleRest(
       );
       const rows = r.rows;
       const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred: boolean } | undefined;
-      const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
+      const nextBefore = rows.length === limit && last && (last.updated_at ?? last.created_at) ? iso(last.updated_at ?? last.created_at) : null;
       // starred is NOT NULL in schema, so it is always present when a row exists
       const nextBeforeStarred = rows.length === limit && last ? last.starred : null;
       json(res, 200, {
@@ -682,10 +682,10 @@ export async function handleRest(
         updates.push(`starred=$${paramIdx}`);
         paramIdx++;
       }
-      let row: { id?: unknown; title?: unknown; starred?: unknown; updated_at?: unknown } | undefined;
+      let row: { id?: unknown; title?: unknown; starred?: unknown; updated_at?: unknown; created_at?: unknown } | undefined;
       try {
         const r = await withPrincipal(principal, (q) => q(
-          `update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2 returning id, title, starred, updated_at`,
+          `update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2 returning id, title, starred, updated_at, created_at`,
           vals,
         ));
         row = r.rows[0];
