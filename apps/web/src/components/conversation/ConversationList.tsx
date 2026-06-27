@@ -76,7 +76,7 @@ export function ConversationList(): React.ReactElement {
 
   const [items, setItems] = React.useState<ConversationSummary[] | null>(null);
   const [nextBefore, setNextBefore] = React.useState<string | null>(null);
-  const [nextBeforeStarred, setNextBeforeStarred] = React.useState<string | null>(null);
+  const [nextBeforeStarred, setNextBeforeStarred] = React.useState<boolean | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
@@ -116,7 +116,15 @@ export function ConversationList(): React.ReactElement {
     setLoadingMore(true);
     try {
       const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore, beforeStarred: nextBeforeStarred });
-      setItems((prev) => [...(prev ?? []), ...page.conversations]);
+      setItems((prev) => {
+        const combined = [...(prev ?? []), ...page.conversations];
+        return combined.sort((a, b) => {
+          if ((b.starred ?? false) !== (a.starred ?? false)) {
+            return (b.starred ?? false) ? -1 : 1;
+          }
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+        });
+      });
       setNextBefore(page.nextBefore);
       setNextBeforeStarred(page.nextBeforeStarred);
     } catch { /* keep what we have; the next scroll-into-view retries */ } finally {

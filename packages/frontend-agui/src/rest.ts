@@ -610,10 +610,16 @@ export async function handleRest(
       const vals: unknown[] = [id, uid];
       if ('title' in body) { vals.push((body.title ?? '').toString().trim() || null); updates.push(`title=$${vals.length}`); }
       if ('starred' in body) { vals.push(body.starred ?? false); updates.push(`starred=$${vals.length}`); }
-      if (updates.length > 1) await withPrincipal(principal, (q) => q(`update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2`, vals));
+      try {
+        if (updates.length > 1) await withPrincipal(principal, (q) => q(`update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2`, vals));
+      } catch (err) {
+        json(res, 500, { error: 'failed to update conversation' }, cors);
+        return true;
+      }
       const r = await withPrincipal(principal, (q) => q('select title, starred, updated_at from eidan.conversations where id=$1 and user_id=$2', [id, uid]));
       const row = r.rows[0];
-      json(res, 200, { id, title: row?.title ?? null, starred: row?.starred === true, updated_at: iso(row?.updated_at) }, cors);
+      if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
+      json(res, 200, { id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at) }, cors);
       return true;
     }
 
