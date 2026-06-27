@@ -2,6 +2,7 @@
 import { notFound } from "next/navigation";
 
 import { ActivityChrome } from "@/components/admin/ActivityChrome";
+import { AgentOrgChartPane } from "@/components/admin/AgentOrgChartPane";
 import { DashboardPane } from "@/components/admin/DashboardPane";
 import { LogsPane } from "@/components/admin/LogsPane";
 import { NodesPane } from "@/components/admin/NodesPane";
@@ -15,15 +16,16 @@ const TAB_COMPONENTS: Record<string, () => React.ReactElement> = {
   dashboard: DashboardPane,
   nodes: NodesPane,
   usage: UsagePane,
+  agents: AgentOrgChartPane,
   live: LogsPane,
 };
 
-const TAB_ORDER = ["dashboard", "nodes", "usage", "live"] as const;
+const TAB_ORDER = ["dashboard", "nodes", "usage", "agents", "live"] as const;
 
 /**
  * Tab router for `/admin/activity/[tab]` (docs/014 §3 admin row).
  *
- * The three tabs are siblings rather than separate routes because
+ * The four tabs are siblings rather than separate routes because
  * the chrome banner ("X nodes online · Y conversations active")
  * polls the same backend regardless of which tab is in front, and
  * a chrome over-fetch is cheap. Unknown tab slugs fall through to
