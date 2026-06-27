@@ -58,6 +58,11 @@ jobs:
         # workspace and leaves apps/web/node_modules empty.
         run: pnpm install --frozen-lockfile --ignore-workspace
         working-directory: apps/web
+      - name: Vendor plugin frontends
+        # registry.generated.ts (tracked) imports apps/web/src/plugins/<bundle>/ mirror dirs that are
+        # gitignored — assemble vendors them at deploy time. Replay just that web-vendoring step
+        # (config-free) so a clean checkout resolves the imports.
+        run: node scripts/vendor-web-frontends.mjs
       - name: Typecheck apps/web
         run: pnpm run typecheck
         working-directory: apps/web
