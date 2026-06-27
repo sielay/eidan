@@ -530,7 +530,7 @@ export async function handleRest(
       const limit = Math.min(Math.max(Number(qp.get('limit')) || 50, 1), 100);
       const before = qp.get('before');
       const beforeStarredStr = qp.get('before_starred');
-      const beforeStarredBool = beforeStarredStr == null ? null : beforeStarredStr === 'true';
+      const beforeStarredBool = beforeStarredStr == null ? false : beforeStarredStr === 'true';
       const search = (qp.get('q') ?? '').trim();
       const kind = qp.get('kind');
       const conds: string[] = ['user_id = $1', 'deleted_at is null'];
@@ -538,12 +538,9 @@ export async function handleRest(
       if (kind === 'agents') conds.push(`metadata->>'origin' = 'agent'`);
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
-      if (before && beforeStarredBool !== null) {
+      if (before) {
         vals.push(beforeStarredBool, before);
         conds.push(`(starred, coalesce(updated_at, created_at)) < ($${vals.length - 1}::boolean, $${vals.length}::timestamptz)`);
-      } else if (before) {
-        vals.push(before);
-        conds.push(`coalesce(updated_at, created_at) < $${vals.length}::timestamptz`);
       }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
