@@ -624,12 +624,11 @@ export async function handleRest(
     }
 
     if (sub === undefined && method === 'PATCH') {
-      let body: { title?: string | null; starred?: boolean } = {};
+      let body: unknown = {};
       // 64KB limit covers title (typical max ~256 bytes) and starred boolean; sufficient for current schema
       try {
-        const parsed = JSON.parse(await readBody(req, 64 * 1024)) as unknown;
-        if (!checkJsonDepth(parsed, 10)) { json(res, 400, { error: 'request body structure too deeply nested' }, cors); return true; }
-        body = parsed as { title?: string | null; starred?: boolean };
+        body = JSON.parse(await readBody(req, 64 * 1024)) as unknown;
+        if (!checkJsonDepth(body, 10)) { json(res, 400, { error: 'request body structure too deeply nested' }, cors); return true; }
       } catch (err) {
         if (err instanceof SyntaxError) {
           json(res, 400, { error: 'invalid JSON in request body' }, cors);
@@ -637,18 +636,33 @@ export async function handleRest(
         }
         // For other errors, empty body is acceptable (no updates)
       }
+      const bodyObj = body as Record<string, unknown>;
       const updates: string[] = ['updated_at=now()'];
       const vals: unknown[] = [id, uid];
-      if ('title' in body) { vals.push((body.title ?? '').toString().trim() || null); updates.push(`title=$${vals.length}`); }
-      if ('starred' in body) { vals.push(body.starred ?? false); updates.push(`starred=$${vals.length}`); }
+      if ('title' in bodyObj) {
+        const titleVal = bodyObj.title;
+        if (typeof titleVal !== 'string' && titleVal !== null) { json(res, 400, { error: 'title must be a string or null' }, cors); return true; }
+        vals.push((titleVal ?? '').toString().trim() || null);
+        updates.push(`title=$${vals.length}`);
+      }
+      if ('starred' in bodyObj) {
+        const starredVal = bodyObj.starred;
+        if (typeof starredVal !== 'boolean') { json(res, 400, { error: 'starred must be a boolean' }, cors); return true; }
+        vals.push(starredVal);
+        updates.push(`starred=$${vals.length}`);
+      }
+      let row: { title?: unknown; starred?: unknown; updated_at?: unknown } | undefined;
       try {
-        if (updates.length > 1) await withPrincipal(principal, (q) => q(`update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2`, vals));
+        const r = await withPrincipal(principal, (q) => q(
+          `update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2 returning title, starred, updated_at`,
+          vals,
+        ));
+        row = r.rows[0];
       } catch (err) {
+        console.error('failed to update conversation:', err instanceof Error ? err.message : String(err));
         json(res, 500, { error: 'failed to update conversation' }, cors);
         return true;
       }
-      const r = await withPrincipal(principal, (q) => q('select title, starred, updated_at from eidan.conversations where id=$1 and user_id=$2', [id, uid]));
-      const row = r.rows[0];
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
       json(res, 200, { id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at) }, cors);
       return true;
