@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MatbotServices } from '@matatbread/matbot-plugin-api';
 import { plugin } from './index.js';
@@ -38,23 +38,7 @@ describe('ask-user-fallback', () => {
   });
 
   describe('toolresult hook behavior', () => {
-    let originalEnv: string | undefined;
-
-    beforeEach(() => {
-      originalEnv = process.env['IS_SUB_AGENT'];
-    });
-
-    afterEach(() => {
-      if (originalEnv) {
-        process.env['IS_SUB_AGENT'] = originalEnv;
-      } else {
-        delete process.env['IS_SUB_AGENT'];
-      }
-    });
-
     it('escalates ask_user confirm errors in non-interactive context', async () => {
-      process.env['IS_SUB_AGENT'] = '1';
-
       let escalationCalled = false;
       const mockServices = {
         hooks: { register() {} },
@@ -65,6 +49,9 @@ describe('ask-user-fallback', () => {
             assert.equal(args.severity, 'medium');
             return { id: 'esc-123' };
           },
+        },
+        AskUserFallbackConfig: {
+          isNonInteractive: true,
         },
       } as unknown as MatbotServices;
 
@@ -92,8 +79,6 @@ describe('ask-user-fallback', () => {
     });
 
     it('does not escalate if ask_user succeeded', async () => {
-      process.env['IS_SUB_AGENT'] = '1';
-
       let escalationCalled = false;
       const mockServices = {
         hooks: { register() {} },
@@ -102,6 +87,9 @@ describe('ask-user-fallback', () => {
             escalationCalled = true;
             return { id: 'esc-123' };
           },
+        },
+        AskUserFallbackConfig: {
+          isNonInteractive: true,
         },
       } as unknown as MatbotServices;
 
@@ -123,8 +111,6 @@ describe('ask-user-fallback', () => {
     });
 
     it('does not escalate for non-confirm types', async () => {
-      process.env['IS_SUB_AGENT'] = '1';
-
       let escalationCalled = false;
       const mockServices = {
         hooks: { register() {} },
@@ -133,6 +119,9 @@ describe('ask-user-fallback', () => {
             escalationCalled = true;
             return { id: 'esc-123' };
           },
+        },
+        AskUserFallbackConfig: {
+          isNonInteractive: true,
         },
       } as unknown as MatbotServices;
 
@@ -154,8 +143,6 @@ describe('ask-user-fallback', () => {
     });
 
     it('does not escalate in interactive context', async () => {
-      delete process.env['IS_SUB_AGENT'];
-
       let escalationCalled = false;
       const mockServices = {
         hooks: { register() {} },
@@ -164,6 +151,9 @@ describe('ask-user-fallback', () => {
             escalationCalled = true;
             return { id: 'esc-123' };
           },
+        },
+        AskUserFallbackConfig: {
+          isNonInteractive: false,
         },
       } as unknown as MatbotServices;
 
