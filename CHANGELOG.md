@@ -6,6 +6,15 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.9] — 2026-06-27
+
+### Added
+
+- **Tag / label files & folders** — same as conversations: a **Tag** action in the files select bar applies
+  a label to the chosen fs items, and rows show their labels as chips. Tags live in fs_nodes.metadata.tags
+  (no migration); `POST /api/fs {action:"tag", ids, add/remove}` + a `tag=` filter on the listing (the
+  cross-folder tag-filter UI is a small follow-up). Artifacts/Drive items aren't labellable.
+
 ## [0.13.8] — 2026-06-27
 
 ### Fixed

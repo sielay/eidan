@@ -3,7 +3,7 @@
 
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { CheckSquare, ChevronRight, Cloud, Download, ExternalLink, FilePlus, Folder, FolderPlus, FileText, Image as ImageIcon, ListChecks, RefreshCw, Square, Trash2, Upload, X } from "lucide-react";
+import { CheckSquare, ChevronRight, Cloud, Download, ExternalLink, FilePlus, Folder, FolderPlus, FileText, Image as ImageIcon, ListChecks, RefreshCw, Square, Tag, Trash2, Upload, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -27,10 +27,11 @@ interface Entry {
   name: string;
   mime: string | null;
   size: number | null;
+  tags?: string[];
 }
 interface Crumb { name: string; segs: string[] }
 
-interface FsNodeDto { id: string; kind: "file" | "folder"; name: string; mime: string | null; size_bytes: number | null }
+interface FsNodeDto { id: string; kind: "file" | "folder"; name: string; mime: string | null; size_bytes: number | null; tags?: string[] }
 interface ArtifactDto { id: string; filename: string; mime_type: string | null; size_bytes: number | null }
 interface DriveEntryDto { id: string; name: string; mime: string | null; kind: "file" | "folder" }
 
@@ -217,7 +218,7 @@ export function WorkspaceFiles(): React.ReactElement {
             return;
           }
           const nodes = await fsList(pid);
-          result = nodes.map((n) => ({ id: n.id, source: "fs" as const, kind: n.kind, name: n.name, mime: n.mime, size: n.size_bytes }));
+          result = nodes.map((n) => ({ id: n.id, source: "fs" as const, kind: n.kind, name: n.name, mime: n.mime, size: n.size_bytes, tags: n.tags ?? [] }));
           if (pid === null) {
             const aRes = await authFetch("/api/artifacts");
             const arts: ArtifactDto[] = aRes.ok ? (((await aRes.json()) as { files?: ArtifactDto[] }).files ?? []) : [];
@@ -327,6 +328,22 @@ export function WorkspaceFiles(): React.ReactElement {
   // Deletable in bulk: local fs entries AND agent artifacts (each routes to its own delete endpoint).
   const DELETABLE = React.useMemo(() => new Set<FileSource>(["fs", "artifact"]), []);
   const selectableIds = React.useMemo(() => (entries ?? []).filter((e) => DELETABLE.has(e.source)).map((e) => e.id), [entries, DELETABLE]);
+  const bulkTag = React.useCallback(async () => {
+    if (selected.size === 0 || bulkBusy) return;
+    const raw = typeof window !== "undefined" ? window.prompt(`Add a label to ${selected.size} item${selected.size === 1 ? "" : "s"}`) : null;
+    const tag = raw?.trim();
+    if (!tag) return;
+    // Only fs nodes carry tags (artifacts/Drive don't); tag the fs ids in the selection.
+    const ids = Array.from(selected).filter((id) => (entries ?? []).some((e) => e.id === id && e.source === "fs"));
+    if (!ids.length) { setError("Only local files/folders can be labelled."); return; }
+    setBulkBusy(true);
+    try {
+      const r = await authFetch("/api/fs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "tag", ids, add: [tag] }) });
+      if (!r.ok) throw new Error(String(r.status));
+      exitSelect();
+      setReload((n) => n + 1);
+    } catch { setError("Couldn't apply the label — try again."); } finally { setBulkBusy(false); }
+  }, [selected, bulkBusy, exitSelect, entries]);
   const bulkDelete = React.useCallback(async () => {
     if (selected.size === 0 || bulkBusy) return;
     if (typeof window !== "undefined" && !window.confirm(`Delete ${selected.size} item${selected.size === 1 ? "" : "s"}? Folders are removed with all their contents (recoverable from the archive).`)) return;
@@ -399,6 +416,9 @@ export function WorkspaceFiles(): React.ReactElement {
               <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{selected.size} selected</span>
               <button className="btn btn--ghost btn--sm" onClick={() => setSelected(new Set(selectableIds))}>All</button>
               <span style={{ flex: 1 }} />
+              <button className="btn btn--ghost btn--sm" disabled={selected.size === 0 || bulkBusy} onClick={() => void bulkTag()}>
+                <Tag className="i i-sm" aria-hidden /> Tag
+              </button>
               <button className="btn btn--ghost btn--sm" disabled={selected.size === 0 || bulkBusy} onClick={() => void bulkDelete()} style={{ color: "var(--alert)" }}>
                 <Trash2 className="i i-sm" aria-hidden /> {bulkBusy ? "Deleting…" : "Delete"}
               </button>
@@ -422,6 +442,13 @@ export function WorkspaceFiles(): React.ReactElement {
                       <Icon className="i i-sm" aria-hidden style={{ color: e.kind === "folder" ? "var(--accent)" : "var(--faint)", flexShrink: 0 }} />
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
                     </button>
+                    {e.tags && e.tags.length ? (
+                      <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        {e.tags.slice(0, 3).map((t) => (
+                          <span key={t} title={t} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "0 6px", borderRadius: 999, background: "var(--accent-soft, rgba(99,102,241,0.14))", color: "var(--accent-link, #4f46e5)", fontSize: 11, fontWeight: 500 }}><Tag className="i" style={{ width: 10, height: 10 }} aria-hidden />{t}</span>
+                        ))}
+                      </span>
+                    ) : null}
                     <span className="screen-sub" style={{ margin: 0, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{e.kind === "file" ? fmtSize(e.size) : ""}</span>
                     {selectMode ? null : e.kind === "file" ? (
                       <button className="btn btn--ghost btn--sm" title="Download" aria-label={`Download ${e.name}`} onClick={() => void openFile(e.source, e.id, e.name, true)} style={{ flexShrink: 0 }}><Download className="i i-sm" aria-hidden /></button>

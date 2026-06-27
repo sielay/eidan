@@ -26,18 +26,24 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (!sess) return new Response("unauthorized", { status: 401 });
 
   const parentId = req.nextUrl.searchParams.get("parent");
+  const tag = (req.nextUrl.searchParams.get("tag") ?? "").trim();
 
   const payload = await withUser(sess.userId, async (c) => {
-    const whereClause = parentId ? "and parent_id = $2" : "and parent_id is null";
-    const params = parentId ? [sess.userId, parentId] : [sess.userId];
+    // A `tag` filter searches the user's whole tree (ignores parent); otherwise list one folder.
+    const params: unknown[] = [sess.userId];
+    let where = "user_id = $1 and status = 'active'";
+    if (tag) { params.push(JSON.stringify([tag])); where += ` and coalesce(metadata->'tags','[]'::jsonb) @> $${params.length}::jsonb`; }
+    else if (parentId) { params.push(parentId); where += ` and parent_id = $${params.length}`; }
+    else { where += " and parent_id is null"; }
     const r = await c.query(
-      `select id, parent_id, kind, name, storage_kind, mime, size_bytes, created_at
+      `select id, parent_id, kind, name, storage_kind, mime, size_bytes, created_at,
+              coalesce(metadata->'tags','[]'::jsonb) as tags
          from plugin_fs.fs_nodes
-        where user_id = $1 ${whereClause} and status = 'active'
+        where ${where}
         order by kind desc, name`,
       params,
     );
-    const nodes = (r.rows as FsNode[]).map((row) => ({
+    const nodes = (r.rows as Array<FsNode & { tags?: unknown }>).map((row) => ({
       id: row.id,
       parent_id: row.parent_id,
       kind: row.kind,
@@ -46,6 +52,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       mime: row.mime,
       size_bytes: row.size_bytes,
       created_at: row.created_at,
+      tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
     }));
     return { nodes };
   });
@@ -65,6 +72,28 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const action = typeof body["action"] === "string" ? body["action"].trim() : "";
+  if (action === "tag") {
+    const ids = Array.isArray(body["ids"]) ? (body["ids"] as unknown[]).filter((x): x is string => typeof x === "string") : [];
+    const norm = (v: unknown): string[] => Array.isArray(v) ? Array.from(new Set((v as unknown[]).filter((x): x is string => typeof x === "string").map((s) => s.trim()).filter(Boolean))) : [];
+    const add = norm(body["add"]);
+    const remove = norm(body["remove"]);
+    if (!ids.length || (!add.length && !remove.length)) return Response.json({ error: "ids and add/remove required" }, { status: 400 });
+    const updated = await withUser(sess.userId, async (c) => {
+      let n = 0;
+      for (const id of ids) {
+        const cur = await c.query("select coalesce(metadata->'tags','[]'::jsonb) as tags from plugin_fs.fs_nodes where id=$1 and user_id=$2 and status='active'", [id, sess.userId]);
+        const row = cur.rows[0] as { tags?: unknown } | undefined;
+        if (!row) continue;
+        let tags = Array.isArray(row.tags) ? row.tags.map(String) : [];
+        if (add.length) tags = Array.from(new Set([...tags, ...add]));
+        if (remove.length) tags = tags.filter((t) => !remove.includes(t));
+        await c.query("update plugin_fs.fs_nodes set metadata = jsonb_set(coalesce(metadata,'{}'::jsonb), '{tags}', $2::jsonb, true), updated_at=now() where id=$1 and user_id=$3", [id, JSON.stringify(tags), sess.userId]);
+        n++;
+      }
+      return n;
+    });
+    return Response.json({ ok: true, updated });
+  }
   if (action === "mkdir") {
     const name = typeof body["name"] === "string" ? body["name"].trim() : "";
     const parentId = typeof body["parent_id"] === "string" ? body["parent_id"] : null;
