@@ -120,7 +120,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
 
     try {
       const agents = await store.responseTriggeredAgents();
-      const filteredAgents = agents.filter(a => !a.target_node || a.target_node === nodeId);
+      const filteredAgents = agents.filter(a => !a.target_node || (nodeId && a.target_node === nodeId));
       const agentResponses: Array<{ agent: typeof agents[0]; responses: EscalationResponse[] }> = [];
 
       // Batch-fetch responses in groups to limit concurrent queries
