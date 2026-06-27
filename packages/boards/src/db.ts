@@ -8,7 +8,7 @@ import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 
 type Q = (text: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount: number | null }>;
 
-export interface Board { id: string; user_id: string; name: string; scope_kind: string | null; scope_id: string | null; position: number; status: string; created_at: Date; updated_at: Date }
+export interface Board { id: string; user_id: string; name: string; prompt: string | null; scope_kind: string | null; scope_id: string | null; position: number; status: string; created_at: Date; updated_at: Date }
 export interface Card { id: string; board_id: string; user_id: string; title: string; body: string | null; status: string; position: number; metadata: Record<string, unknown>; created_at: Date; updated_at: Date }
 export interface CardRef { id: string; card_id: string; user_id: string; ref_kind: string; ref_id: string | null; ref_label: string | null; metadata: Record<string, unknown>; created_at: Date }
 export interface CardEvent { id: string; card_id: string; user_id: string; kind: string; body: string | null; author_kind: string; author_id: string | null; author_label: string | null; metadata: Record<string, unknown>; created_at: Date }
@@ -85,6 +85,8 @@ export class BoardsDb {
       await c.query(`alter table ${this.schema}.card_events add column if not exists author_kind text not null default 'user'`);
       await c.query(`alter table ${this.schema}.card_events add column if not exists author_id text`);
       await c.query(`alter table ${this.schema}.card_events add column if not exists author_label text`);
+      // A board prompt — standing context explaining what the board is for, given to agents working it.
+      await c.query(`alter table ${this.schema}.boards add column if not exists prompt text`);
       await c.query(`create index if not exists idx_${this.schema}_boards_scope on ${this.schema}.boards (user_id, scope_kind, scope_id)`);
       await c.query(`create index if not exists idx_${this.schema}_cards_board on ${this.schema}.cards (board_id)`);
       await c.query(`create index if not exists idx_${this.schema}_refs_card on ${this.schema}.card_refs (card_id)`);
@@ -192,6 +194,19 @@ export class BoardsDb {
       if (!r.rowCount) return false;
       await q(`update ${this.schema}.cards set status = 'archived', updated_at = now() where board_id = $1 and user_id = $2 and status <> 'archived'`, [id, uid]);
       return true;
+    });
+  }
+
+  async setBoardPrompt(id: string, prompt: string | null): Promise<Board | null> {
+    const uid = this.uid();
+    if (!uid) return null;
+    return this.tx(async (q) => {
+      const r = await q(
+        `update ${this.schema}.boards set prompt = $3, updated_at = now()
+          where id = $1 and user_id = $2 and status = 'active' returning *`,
+        [id, uid, prompt && prompt.trim() ? prompt : null],
+      );
+      return (r.rows[0] as Board | undefined) ?? null;
     });
   }
 

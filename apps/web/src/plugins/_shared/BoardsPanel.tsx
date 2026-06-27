@@ -13,7 +13,7 @@ import * as React from "react";
 import { authFetch } from "@/lib/auth";
 import { Avatar } from "@/plugins/_shared/Avatar";
 
-interface Board { id: string; name: string; position: number; status: string }
+interface Board { id: string; name: string; prompt?: string | null; position: number; status: string }
 interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number; metadata?: { labels?: string[] } }
 
 // Deterministic pastel colour per label name (no palette table needed).
@@ -67,6 +67,8 @@ export function BoardsPanel({ scopeKind = null, scopeId = null }: { scopeKind?: 
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [openCard, setOpenCard] = React.useState<Card | null>(null);
+  const [promptEditing, setPromptEditing] = React.useState(false);
+  const [promptInput, setPromptInput] = React.useState("");
 
   const scopeQS = scopeKind ? `scope_kind=${encodeURIComponent(scopeKind)}${scopeId ? `&scope_id=${encodeURIComponent(scopeId)}` : ""}` : "";
 
@@ -127,6 +129,16 @@ export function BoardsPanel({ scopeKind = null, scopeId = null }: { scopeKind?: 
       const r = await authFetch(`/api/boards?id=${encodeURIComponent(activeBoard)}`, { method: "DELETE" });
       if (!r.ok) throw new Error(`delete failed (${r.status})`);
       setActiveBoard(""); await loadBoards();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
+  async function saveBoardPrompt(): Promise<void> {
+    if (!activeBoard) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await authFetch(`/api/boards`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: activeBoard, prompt: promptInput }) });
+      if (!r.ok) throw new Error(`save failed (${r.status})`);
+      setPromptEditing(false); await loadBoards();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
@@ -201,6 +213,37 @@ export function BoardsPanel({ scopeKind = null, scopeId = null }: { scopeKind?: 
           </span>
         ) : null}
       </div>
+
+      {activeBoard ? (() => {
+        const active = boards.find((b) => b.id === activeBoard);
+        const prompt = active?.prompt ?? "";
+        return (
+          <div style={{ margin: "var(--s2) 0" }}>
+            {promptEditing ? (
+              <>
+                <textarea
+                  className="input"
+                  style={{ width: "100%", minHeight: 64, fontSize: "var(--fs-13)", resize: "vertical" }}
+                  placeholder="What is this board for? Standing context given to agents working its cards…"
+                  value={promptInput}
+                  onChange={(e) => setPromptInput(e.target.value)}
+                />
+                <div style={{ display: "flex", gap: "var(--s1)", marginTop: "var(--s1)" }}>
+                  <button className="btn btn--primary" disabled={busy} onClick={() => void saveBoardPrompt()}>Save</button>
+                  <button style={S.btn} disabled={busy} onClick={() => setPromptEditing(false)}>Cancel</button>
+                </div>
+              </>
+            ) : prompt ? (
+              <div style={{ display: "flex", gap: "var(--s2)", alignItems: "flex-start" }}>
+                <p className="screen-sub" style={{ margin: 0, whiteSpace: "pre-wrap", flex: 1 }}>{prompt}</p>
+                <button style={S.btn} title="Edit board prompt" onClick={() => { setPromptInput(prompt); setPromptEditing(true); }}>✎</button>
+              </div>
+            ) : (
+              <button style={{ ...S.tab(false), borderStyle: "dashed", fontWeight: 500 }} onClick={() => { setPromptInput(""); setPromptEditing(true); }}>+ Add board context / prompt</button>
+            )}
+          </div>
+        );
+      })() : null}
 
       {activeBoard ? (
         <div style={S.addRow}>

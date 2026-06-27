@@ -65,6 +65,21 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
       },
     },
     {
+      name: 'board_set_prompt',
+      description: "Set (or clear) a board's prompt — standing context explaining what the board is for, " +
+        'so agents working its cards know the goal. Markdown. Pass an empty prompt to clear it.',
+      inputSchema: obj({ board_id: { type: 'string' }, prompt: { type: 'string' } }, ['board_id']),
+      executor: {
+        async *execute(input) {
+          if (!tryCurrentPrincipal()) return yield noUser();
+          const a = (input ?? {}) as Record<string, unknown>;
+          const board = await db.setBoardPrompt(str(a['board_id']).trim(), str(a['prompt'] ?? '').trim() || null);
+          if (!board) return yield { type: 'error', message: 'no such board' };
+          yield { type: 'result', value: board };
+        },
+      },
+    },
+    {
       name: 'board_archive',
       description: 'Archive a board and its cards (soft-remove).',
       inputSchema: obj({ board_id: { type: 'string' } }, ['board_id']),

@@ -4,6 +4,20 @@ All notable changes to eidan are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases are cut by bumping
 `package.json` and merging `next-release` → `main` (which tags `v<version>` and builds images).
 
+## [0.12.4] — 2026-06-27
+
+### Added
+
+- **Board prompt** — every board (standalone in Planner, or scoped to a venture) can carry a **prompt /
+  context** explaining what it's for, given to agents working its cards. Editable inline in the boards
+  panel; new `board_set_prompt` tool. (Rename + delete already existed.)
+
+### Changed
+
+- **Agent org chart** layout tuned so linked clusters are readable: a **centering gravity** (nodes no
+  longer fling to the edges), an **ideal-length spring** on edges (related agents settle a readable
+  distance apart instead of collapsing into a blob), and stronger node separation.
+
 ## [0.12.3] — 2026-06-27
 
 ### Added

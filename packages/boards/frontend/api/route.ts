@@ -11,8 +11,8 @@ import type { NextRequest } from "next/server";
 import { verifyBearer } from "@/server/auth";
 import { withUser } from "@/server/db";
 
-interface BoardRow { id: string; name: string; scope_kind: string | null; scope_id: string | null; position: number; status: string }
-const COLS = "id, name, scope_kind, scope_id, position, status";
+interface BoardRow { id: string; name: string; prompt: string | null; scope_kind: string | null; scope_id: string | null; position: number; status: string }
+const COLS = "id, name, prompt, scope_kind, scope_id, position, status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,15 +71,27 @@ export async function PUT(req: NextRequest): Promise<Response> {
   let body: Record<string, unknown>;
   try { body = (await req.json()) as Record<string, unknown>; } catch { return Response.json({ error: "invalid JSON body" }, { status: 400 }); }
   const id = typeof body["id"] === "string" ? body["id"].trim() : "";
-  const name = typeof body["name"] === "string" ? body["name"].trim() : "";
   if (!id) return Response.json({ error: "id is required" }, { status: 400 });
-  if (!name) return Response.json({ error: "name is required" }, { status: 400 });
+  const hasName = typeof body["name"] === "string";
+  const hasPrompt = "prompt" in body; // present (incl. empty string) → set/clear the prompt
+  const name = hasName ? (body["name"] as string).trim() : null;
+  if (hasName && !name) return Response.json({ error: "name cannot be blank" }, { status: 400 });
+  const prompt = hasPrompt
+    ? (typeof body["prompt"] === "string" && (body["prompt"] as string).trim() ? (body["prompt"] as string) : null)
+    : undefined;
+  if (!hasName && prompt === undefined) return Response.json({ error: "name or prompt is required" }, { status: 400 });
+
+  const sets: string[] = [];
+  const vals: unknown[] = [id, sess.userId];
+  if (hasName) { vals.push(name); sets.push(`name = $${vals.length}`); }
+  if (prompt !== undefined) { vals.push(prompt); sets.push(`prompt = $${vals.length}`); }
+  sets.push("updated_at = now()");
 
   const board = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `update plugin_boards.boards set name = $3, updated_at = now()
+      `update plugin_boards.boards set ${sets.join(", ")}
         where id = $1 and user_id = $2 and status = 'active' returning ${COLS}`,
-      [id, sess.userId, name],
+      vals,
     );
     return r.rows[0] as BoardRow | undefined;
   });

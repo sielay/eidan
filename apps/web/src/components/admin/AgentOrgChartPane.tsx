@@ -317,10 +317,21 @@ export function AgentOrgChartPane(): React.ReactElement {
         // ponytail: quadtree size could be dynamic based on node bounds, but 1024 safely covers viewport
         const qt = buildQuadtree(sim.nodes, 0, 0, 1024);
         for (const node of sim.nodes) {
-          const { fx, fy } = repulsionFromQuadtree(node, qt, 10000);
+          const { fx, fy } = repulsionFromQuadtree(node, qt, 16000);
           const nodeForces = forces.get(node.id)!;
           nodeForces.fx += fx;
           nodeForces.fy += fy;
+        }
+
+        // Gravity toward the centre. Without it, repulsion flings nodes outward until they pile up
+        // against the bounds (the "everything at the edges" problem); a gentle pull keeps the whole
+        // graph centred and the clusters readable.
+        const cx = (sim.bounds.minX + sim.bounds.maxX) / 2;
+        const cy = (sim.bounds.minY + sim.bounds.maxY) / 2;
+        for (const node of sim.nodes) {
+          const nodeForces = forces.get(node.id)!;
+          nodeForces.fx += (cx - node.x) * 0.035;
+          nodeForces.fy += (cy - node.y) * 0.035;
         }
 
         // Collision detection for very close nodes to prevent overlap
@@ -331,10 +342,10 @@ export function AgentOrgChartPane(): React.ReactElement {
             const dx = n2.x - n1.x;
             const dy = n2.y - n1.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-            const minCollisionDist = 40; // 2x node radius
+            const minCollisionDist = 56; // keep node circles + labels from overlapping
             if (dist < minCollisionDist) {
               const overlap = minCollisionDist - dist;
-              const f = overlap * 5;
+              const f = overlap * 6;
               const nodeForces1 = forces.get(n1.id)!;
               const nodeForces2 = forces.get(n2.id)!;
               nodeForces1.fx -= (dx / dist) * f;
@@ -358,13 +369,16 @@ export function AgentOrgChartPane(): React.ReactElement {
           const dx = to.x - from.x;
           const dy = to.y - from.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-          const forceFromTo = dist * 0.3;
-          fromForces.fx += (dx / dist) * forceFromTo;
-          fromForces.fy += (dy / dist) * forceFromTo;
-
-          const forceToFrom = dist * 0.1;
-          toForces.fx -= (dx / dist) * forceToFrom;
-          toForces.fy -= (dy / dist) * forceToFrom;
+          // Spring toward an ideal link length: pull together when too far, push apart when too close —
+          // so related agents settle a readable distance apart instead of collapsing into a tight blob.
+          const IDEAL_LINK = 120;
+          const f = (dist - IDEAL_LINK) * 0.045;
+          const ux = dx / dist;
+          const uy = dy / dist;
+          fromForces.fx += ux * f;
+          fromForces.fy += uy * f;
+          toForces.fx -= ux * f;
+          toForces.fy -= uy * f;
         }
 
         // Apply velocity and position updates
