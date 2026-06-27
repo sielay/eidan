@@ -530,7 +530,6 @@ export async function handleRest(
       const limit = Math.min(Math.max(Number(qp.get('limit')) || 50, 1), 100);
       const before = qp.get('before');
       const beforeStarredStr = qp.get('before_starred');
-      const beforeStarredBool = beforeStarredStr == null ? false : beforeStarredStr === 'true';
       const search = (qp.get('q') ?? '').trim();
       const kind = qp.get('kind');
       const conds: string[] = ['user_id = $1', 'deleted_at is null'];
@@ -539,8 +538,12 @@ export async function handleRest(
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
       if (before && beforeStarredStr != null) {
+        const beforeStarredBool = beforeStarredStr === 'true';
         vals.push(beforeStarredBool, before);
         conds.push(`(starred < $${vals.length - 1}::boolean OR (starred = $${vals.length - 1}::boolean AND coalesce(updated_at, created_at) < $${vals.length}::timestamptz))`);
+      } else if (before != null) {
+        vals.push(before);
+        conds.push(`coalesce(updated_at, created_at) < $${vals.length}::timestamptz`);
       }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
@@ -561,7 +564,7 @@ export async function handleRest(
       const rows = r.rows;
       const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred?: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
-      const nextBeforeStarred = rows.length === limit && last && (last.starred === true || last.starred === false) ? String(last.starred === true) : null;
+      const nextBeforeStarred = rows.length === limit && last && last.starred !== undefined && last.starred !== null ? String(last.starred === true) : null;
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,

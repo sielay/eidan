@@ -94,6 +94,8 @@ export function ConversationList(): React.ReactElement {
     let cancelled = false;
     setItems(null);
     setError(null);
+    setNextBefore(null);
+    setNextBeforeStarred(null);
     (async () => {
       try {
         const { conversations, nextBefore, nextBeforeStarred } = await listConversations({ limit: PAGE, kind: filter, q: debounced });
