@@ -248,9 +248,11 @@ export function AgentOrgChartPane(): React.ReactElement {
         }
         const fromId = fromIds[0];
         const toId = toIds[0];
-        const key = `${fromId}→${toId}`;
-        const existing = edgeMap.get(key) ?? { escalations: 0 };
-        edgeMap.set(key, { ...existing, relationship: rel });
+        if (agentIds.has(fromId) && agentIds.has(toId)) {
+          const key = `${fromId}→${toId}`;
+          const existing = edgeMap.get(key) ?? { escalations: 0 };
+          edgeMap.set(key, { ...existing, relationship: rel });
+        }
       }
     }
 
