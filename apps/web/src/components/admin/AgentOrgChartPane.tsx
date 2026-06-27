@@ -102,12 +102,14 @@ export function AgentOrgChartPane(): React.ReactElement {
   const [nodes, setNodes] = React.useState<NodeData[]>([]);
   const [edges, setEdges] = React.useState<EdgeData[]>([]);
   const svgRef = React.useRef<SVGSVGElement>(null);
+  const edgesRef = React.useRef<EdgeData[]>([]);
   const simulationRef = React.useRef<{
     nodes: NodeData[];
     animating: boolean;
     iterations: number;
     velocityHistory: number[];
     rafId: number | null;
+    lastNodeCount: number;
   } | null>(null);
 
   // Load agents and escalations
@@ -159,33 +161,74 @@ export function AgentOrgChartPane(): React.ReactElement {
       newEdges.push({ from, to, escalations: count });
     }
 
+    edgesRef.current = newEdges;
     setNodes(newNodes);
     setEdges(newEdges);
   }, [agents, escalations]);
 
   // Force-directed simulation
   React.useEffect(() => {
-    if (nodes.length === 0) return;
+    if (!agents || agents.length === 0) return;
+
+    const initialNodes = agents.map((a) => ({
+      id: a.id,
+      name: a.name,
+      enabled: a.enabled,
+      provider: a.provider,
+      model: a.model,
+      persona: a.persona,
+      triggers: a.triggers.length,
+      x: Math.random() * 600 + 100,
+      y: Math.random() * 350 + 75,
+      vx: 0,
+      vy: 0,
+    }));
 
     if (!simulationRef.current) {
       simulationRef.current = {
-        nodes: nodes.map((n) => ({ ...n })),
+        nodes: initialNodes,
         animating: true,
         iterations: 0,
         velocityHistory: [],
         rafId: null,
+        lastNodeCount: initialNodes.length,
       };
     } else {
-      // Update working nodes from React state (syncs after external changes)
-      simulationRef.current.nodes = nodes.map((n) => ({ ...n }));
-      simulationRef.current.animating = true;
-      simulationRef.current.iterations = 0;
-      simulationRef.current.velocityHistory = [];
+      const sim = simulationRef.current;
+      const simNodeMap = new Map(sim.nodes.map((n) => [n.id, n]));
+      const newNodeIds = new Set(initialNodes.map((n) => n.id));
+
+      // Merge new data with existing nodes, preserving velocity
+      for (const newNode of initialNodes) {
+        const existing = simNodeMap.get(newNode.id);
+        if (existing) {
+          existing.name = newNode.name;
+          existing.enabled = newNode.enabled;
+          existing.provider = newNode.provider;
+          existing.model = newNode.model;
+          existing.persona = newNode.persona;
+          existing.triggers = newNode.triggers;
+        } else {
+          sim.nodes.push(newNode);
+        }
+      }
+
+      // Remove nodes no longer in data
+      sim.nodes = sim.nodes.filter((n) => newNodeIds.has(n.id));
+
+      // Reset simulation if structure changed
+      if (sim.nodes.length !== sim.lastNodeCount) {
+        sim.iterations = 0;
+        sim.velocityHistory = [];
+        sim.lastNodeCount = sim.nodes.length;
+      }
+      sim.animating = true;
     }
 
     const sim = simulationRef.current;
     const maxIterations = 1000;
     const convergenceWindow = 15;
+    let frameCount = 0;
 
     const animate = () => {
       let maxVelocity = 0;
@@ -199,7 +242,7 @@ export function AgentOrgChartPane(): React.ReactElement {
           forces.set(node.id, { fx: 0, fy: 0 });
         }
 
-        // Repulsion between nodes using quadtree (O(N log N) instead of O(N²))
+        // Repulsion between nodes using quadtree
         const qt = buildQuadtree(sim.nodes, 0, 0, 800);
         for (const node of sim.nodes) {
           const { fx, fy } = repulsionFromQuadtree(node, qt, 10000);
@@ -208,9 +251,9 @@ export function AgentOrgChartPane(): React.ReactElement {
           nodeForces.fy += fy;
         }
 
-        // Attraction along edges
+        // Attraction along edges (read from ref, not state, to avoid stale closure)
         const nodeMap = new Map(sim.nodes.map(n => [n.id, n]));
-        for (const edge of edges) {
+        for (const edge of edgesRef.current) {
           const from = nodeMap.get(edge.from);
           const to = nodeMap.get(edge.to);
           if (!from || !to) continue;
@@ -249,8 +292,11 @@ export function AgentOrgChartPane(): React.ReactElement {
         sim.iterations++;
       }
 
-      // Deep copy to React state
-      setNodes(sim.nodes.map((n) => ({ ...n })));
+      // Update React state only every 3 frames to reduce re-render overhead
+      if (frameCount % 3 === 0) {
+        setNodes(sim.nodes.map((n) => ({ ...n })));
+      }
+      frameCount++;
 
       // Check convergence
       sim.velocityHistory.push(maxVelocity);
@@ -260,6 +306,8 @@ export function AgentOrgChartPane(): React.ReactElement {
         const velocityChange = Math.max(...recentVelocities) - Math.min(...recentVelocities);
         if (velocityChange < 0.01) {
           sim.animating = false;
+          // Final render
+          setNodes(sim.nodes.map((n) => ({ ...n })));
         }
       }
 
@@ -276,7 +324,7 @@ export function AgentOrgChartPane(): React.ReactElement {
         cancelAnimationFrame(sim.rafId);
       }
     };
-  }, [nodes, edges]);
+  }, [agents, escalations]);
 
   const providerColor = (provider: string | null): string => {
     if (!provider) return COLORS.other;
