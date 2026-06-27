@@ -527,7 +527,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                 const strokeColor = edge.relationship
                   ? (RELATIONSHIP_COLORS[edge.relationship.relationship_type] || "#cbd5e1")
                   : "#cbd5e1";
-                const strokeDasharray = isRelationship ? "4,2" : "none";
+                const strokeDasharray = isRelationship ? "4,2" : "";
                 const relationshipStrength = edge.relationship?.strength ?? 3;
                 const relationshipStrokeWidth = relationshipStrength * 0.15 + 0.75;
                 const tooltipText = edge.relationship
