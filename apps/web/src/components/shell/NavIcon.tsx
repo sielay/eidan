@@ -77,6 +77,10 @@ export function NavIcon({
   name: string;
   className?: string;
 }): React.ReactElement {
-  const Cmp = MAP[name as NavIconKey] ?? MessageSquare;
+  const Cmp = MAP[name as NavIconKey];
+  if (!Cmp) {
+    console.error(`[NavIcon] Missing icon mapping for key: "${name}"`);
+    return <AlertCircle className={className} aria-hidden />;
+  }
   return <Cmp className={className} aria-hidden />;
 }
