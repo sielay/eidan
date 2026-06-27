@@ -49,3 +49,20 @@ export async function GET(req: NextRequest): Promise<Response> {
     }),
   });
 }
+
+// POST /api/notes — create a note from the Memory UI (the human counterpart to the agent's note tool).
+export async function POST(req: NextRequest): Promise<Response> {
+  const sess = verifyBearer(req);
+  if (!sess) return new Response("unauthorized", { status: 401 });
+  let content = "";
+  try {
+    const b = (await req.json()) as { content?: unknown };
+    if (typeof b.content === "string") content = b.content.trim();
+  } catch { return new Response("invalid JSON", { status: 400 }); }
+  if (!content) return new Response("content required", { status: 400 });
+  const row = await withUser(sess.userId, async (c) => {
+    const r = await c.query("insert into eidan.notes (user_id, content) values ($1, $2) returning id", [sess.userId, content]);
+    return r.rows[0] as { id: string };
+  });
+  return Response.json({ note: { id: row.id } }, { status: 201 });
+}

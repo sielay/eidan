@@ -40,20 +40,25 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!sess) return new Response("unauthorized", { status: 401 });
   const { id } = await ctx.params;
 
-  let content: string;
+  let body: { content?: unknown; pinned?: unknown };
   try {
-    const b = (await req.json()) as { content?: unknown };
-    if (typeof b.content !== "string") return new Response("content (string) required", { status: 400 });
-    content = b.content;
+    body = (await req.json()) as { content?: unknown; pinned?: unknown };
   } catch {
     return new Response("invalid JSON", { status: 400 });
   }
+  const content = typeof body.content === "string" ? body.content : undefined;
+  const pinned = typeof body.pinned === "boolean" ? body.pinned : undefined;
+  if (content === undefined && pinned === undefined) return new Response("content or pinned required", { status: 400 });
 
   try {
     const row = await withUser(sess.userId, async (c) => {
+      const sets: string[] = ["updated_at=now()"];
+      const params: unknown[] = [id, sess.userId];
+      if (content !== undefined) { params.push(content); sets.push(`content=$${params.length}`); }
+      if (pinned !== undefined) { params.push(JSON.stringify(pinned)); sets.push(`metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{pinned}', $${params.length}::jsonb, true)`); }
       const r = await c.query(
-        "update eidan.notes set content=$3, updated_at=now() where id=$1 and user_id=$2 and deleted_at is null returning id, content, updated_at",
-        [id, sess.userId, content],
+        `update eidan.notes set ${sets.join(", ")} where id=$1 and user_id=$2 and deleted_at is null returning id, content, updated_at`,
+        params,
       );
       return r.rows[0] as Record<string, unknown> | undefined;
     });

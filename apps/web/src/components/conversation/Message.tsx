@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 import { ChartBlock } from "./ChartBlock";
 import { MermaidBlock } from "./MermaidBlock";
+import { MentionAnchor } from "./MentionChip";
 import { ImageBlock } from "./ImageBlock";
 import type { PairedToolCall } from "./Thread";
 import { ToolDisclosure } from "./ToolDisclosure";
@@ -150,20 +151,7 @@ function MarkdownBody({ content }: { content: string }): React.ReactElement {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          a: ({ node, href, children, ...props }) => {
-            void node;
-            // @-mention tokens render as inline chips (the engine resolved them server-side; the link
-            // itself isn't navigable, so show the label as a styled reference rather than a broken link).
-            if (typeof href === "string" && href.startsWith("eidan:")) {
-              const type = href.split(":")[1] ?? "ref";
-              return (
-                <span className="eidan-mention" title={href} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "0 5px", borderRadius: 5, background: "var(--accent-soft, rgba(99,102,241,0.14))", color: "var(--accent-link, #4f46e5)", fontSize: "0.92em", fontWeight: 500, whiteSpace: "nowrap" }}>
-                  <span aria-hidden style={{ opacity: 0.7 }}>@</span>{children}<span aria-hidden style={{ opacity: 0.5, fontSize: "0.8em", textTransform: "uppercase" }}>{type}</span>
-                </span>
-              );
-            }
-            return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
-          },
+          a: ({ node, ...props }) => { void node; return <MentionAnchor {...props} />; },
           img: ({ node, src, alt }) => {
             void node;
             return <ImageBlock src={src} alt={typeof alt === "string" ? alt : undefined} />;

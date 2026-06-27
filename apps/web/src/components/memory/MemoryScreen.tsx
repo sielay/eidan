@@ -9,6 +9,7 @@ import {
   Hash,
   Pencil,
   Pin,
+  Plus,
   Search,
   Trash2,
 } from "lucide-react";
@@ -27,6 +28,7 @@ import {
 import { deleteEvent, setEventStatus } from "@/lib/api/events";
 import { useTextareaMentions } from "@/components/conversation/useTextareaMentions";
 import { MermaidBlock } from "@/components/conversation/MermaidBlock";
+import { MentionAnchor } from "@/components/conversation/MentionChip";
 
 // Shared markdown renderer for the Memory detail bodies (notes / events / knowledge) — GFM + mermaid,
 // so a stored markdown body shows formatted instead of as a raw paragraph blob.
@@ -42,6 +44,7 @@ function MemMarkdown({ children }: { children: string }): React.ReactElement {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
+        a: ({ node, ...props }) => { void node; return <MentionAnchor {...props} />; },
         pre: ({ node, children: c, ...props }) => {
           const { lang, text } = fencedLang(node);
           if (lang === "mermaid") return <MermaidBlock code={text} />;
@@ -169,6 +172,9 @@ function MemoryScreenInner(): React.ReactElement {
   const [selected, setSelected] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState(false);
   const [filter, setFilter] = React.useState("All");
+  const [query, setQuery] = React.useState("");
+  const [showSearch, setShowSearch] = React.useState(false);
+  const [creating, setCreating] = React.useState(false);
 
   // Detail views own the screen; the bar's Back returns to the list.
   if (selected && area === "notes") {
@@ -184,6 +190,9 @@ function MemoryScreenInner(): React.ReactElement {
   if (selected && area === "knowledge") {
     return <KnowledgeDetail id={selected} onBack={() => setSelected(null)} />;
   }
+  if (creating) {
+    return <CreateForm area={area} onDone={(id) => { setCreating(false); if (id) setSelected(id); }} />;
+  }
 
   return (
     <div className="content">
@@ -192,10 +201,26 @@ function MemoryScreenInner(): React.ReactElement {
           <h1 className="screen-title">Memory</h1>
           <div className="screen-sub">Notes · events · knowledge</div>
         </div>
-        <button type="button" className="iconbtn" aria-label="Search memory">
-          <Search className="i" aria-hidden />
-        </button>
+        <div className="erow" style={{ gap: 8 }}>
+          <button type="button" className="iconbtn" aria-label="Search memory" aria-pressed={showSearch} onClick={() => { setShowSearch((s) => !s); if (showSearch) setQuery(""); }}>
+            <Search className="i" aria-hidden />
+          </button>
+          <button type="button" className="btn btn--primary" style={{ minHeight: 36 }} onClick={() => setCreating(true)}>
+            <Plus className="i-sm" aria-hidden /> New
+          </button>
+        </div>
       </div>
+
+      {showSearch ? (
+        <input
+          className="input"
+          style={{ width: "100%", marginBottom: "var(--s3)" }}
+          placeholder={`Search ${area}…`}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          autoFocus
+        />
+      ) : null}
 
       <div className="subtabs" role="tablist" aria-label="Memory sections">
         {TABS.map((t) => (
@@ -216,11 +241,11 @@ function MemoryScreenInner(): React.ReactElement {
       </div>
 
       <div className="card card--flat" style={{ padding: "var(--s4)" }}>
-        {area === "notes" ? <NotesList onSelect={setSelected} /> : null}
+        {area === "notes" ? <NotesList onSelect={setSelected} query={query} /> : null}
         {area === "events" ? (
-          <EventsList filter={filter} setFilter={setFilter} onSelect={setSelected} />
+          <EventsList filter={filter} setFilter={setFilter} onSelect={setSelected} query={query} />
         ) : null}
-        {area === "knowledge" ? <KnowledgeList onSelect={setSelected} /> : null}
+        {area === "knowledge" ? <KnowledgeList onSelect={setSelected} query={query} /> : null}
       </div>
     </div>
   );
@@ -230,6 +255,91 @@ function EmptyArea({ what }: { what: string }): React.ReactElement {
   return (
     <div className="empty" style={{ padding: "24px 0" }}>
       <div className="empty__body">No {what} yet.</div>
+    </div>
+  );
+}
+
+// Create a note / event / knowledge entry from the UI (the human counterpart to the agent's writers).
+// Body fields support markdown + @-mention. On success, reload and jump to the new item.
+function CreateForm({ area, onDone }: { area: Area; onDone: (id?: string) => void }): React.ReactElement {
+  const { reload } = useMem();
+  const [skill, setSkill] = React.useState("");
+  const [title, setTitle] = React.useState("");
+  const [body, setBody] = React.useState("");
+  const [dueAt, setDueAt] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const taRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const mentions = useTextareaMentions(taRef, body, setBody);
+
+  const labels: Record<Area, string> = { notes: "note", events: "event", knowledge: "knowledge entry" };
+  const submit = async (): Promise<void> => {
+    setBusy(true); setError(null);
+    try {
+      let res: Response;
+      if (area === "notes") {
+        if (!body.trim()) { setError("Write something first."); setBusy(false); return; }
+        res = await authFetch("/api/notes", { method: "POST", body: JSON.stringify({ content: body }) });
+      } else if (area === "knowledge") {
+        if (!title.trim()) { setError("A title is required."); setBusy(false); return; }
+        res = await authFetch("/api/knowledge", { method: "POST", body: JSON.stringify({ skill, title, body }) });
+      } else {
+        if (!title.trim()) { setError("A title is required."); setBusy(false); return; }
+        res = await authFetch("/api/events", { method: "POST", body: JSON.stringify({ title, body, due_at: dueAt }) });
+      }
+      if (!res.ok) throw new Error(`save failed (${res.status})`);
+      const j = (await res.json().catch(() => ({}))) as { note?: { id: string }; event?: { id: string }; knowledge?: { id: string } };
+      reload();
+      onDone(j.note?.id ?? j.event?.id ?? j.knowledge?.id);
+    } catch (e) { setError(e instanceof Error ? e.message : "failed to save"); setBusy(false); }
+  };
+
+  return (
+    <div className="content">
+      <div className="mem-detail">
+        <div className="mem-detail__bar">
+          <button type="button" className="iconbtn mem-backbtn" onClick={() => onDone()} disabled={busy}>
+            <ChevronLeft className="i-sm" aria-hidden /> Cancel
+          </button>
+          <button type="button" className="btn btn--primary" style={{ minHeight: 38 }} onClick={() => void submit()} disabled={busy}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+        </div>
+        <h1 className="mem-detail__title">New {labels[area]}</h1>
+        {area === "knowledge" ? (
+          <div className="field"><span className="field__label">Skill / topic</span>
+            <input className="input" value={skill} onChange={(e) => setSkill(e.target.value)} placeholder="e.g. gardening (default: General)" />
+          </div>
+        ) : null}
+        {area !== "notes" ? (
+          <div className="field"><span className="field__label">Title</span>
+            <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" autoFocus />
+          </div>
+        ) : null}
+        {area === "events" ? (
+          <div className="field"><span className="field__label">Due (optional)</span>
+            <input className="input" type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
+          </div>
+        ) : null}
+        <div className="field">
+          <span className="field__label">{area === "events" ? "Details" : area === "notes" ? "Note" : "Body"} <span style={{ color: "var(--faint)", fontWeight: 400 }}>— markdown · @ to mention</span></span>
+          <div style={{ position: "relative" }}>
+            <textarea
+              ref={taRef}
+              className="input mem-textarea"
+              style={{ minHeight: 220, width: "100%", fontSize: "var(--fs-15)" }}
+              value={body}
+              onChange={(e) => { setBody(e.target.value); mentions.recompute(); }}
+              onKeyUp={() => mentions.recompute()}
+              onClick={() => mentions.recompute()}
+              onKeyDown={(e) => { mentions.handleKeyDown(e); }}
+              autoFocus={area === "notes"}
+            />
+            {mentions.popover}
+          </div>
+        </div>
+        {error ? <p className="login-err is-on" role="alert" style={{ marginTop: "var(--s3)" }}>{error}</p> : null}
+      </div>
     </div>
   );
 }
@@ -256,9 +366,11 @@ function NoteRow({ n, onSelect }: { n: Note; onSelect: (id: string) => void }): 
   );
 }
 
-function NotesList({ onSelect }: { onSelect: (id: string) => void }): React.ReactElement {
-  const { notes } = useMem();
-  if (notes.length === 0) return <EmptyArea what="notes" />;
+function NotesList({ onSelect, query }: { onSelect: (id: string) => void; query: string }): React.ReactElement {
+  const { notes: all } = useMem();
+  const q = query.trim().toLowerCase();
+  const notes = q ? all.filter((n) => n.title.toLowerCase().includes(q) || n.snippet.toLowerCase().includes(q) || n.tags.some((t) => t.toLowerCase().includes(q))) : all;
+  if (notes.length === 0) return <EmptyArea what={q ? "matching notes" : "notes"} />;
   const pinned = notes.filter((n) => n.pinned);
   const rest = notes.filter((n) => !n.pinned);
   return (
@@ -325,6 +437,15 @@ function NoteDetail({
     } catch { setBusy(false); }
   };
 
+  const onPin = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const r = await authFetch(`/api/notes/${id}`, { method: "PATCH", body: JSON.stringify({ pinned: !n?.pinned }) });
+      if (!r.ok) throw new Error(String(r.status));
+      reload();
+    } catch { /* keep view */ } finally { setBusy(false); }
+  };
+
   if (!n) {
     return (
       <div className="content">
@@ -343,7 +464,7 @@ function NoteDetail({
             <Pencil className="i-sm" aria-hidden />
             Edit
           </button>
-          <button type="button" className="iconbtn" aria-pressed={n.pinned} aria-label="Pin note">
+          <button type="button" className="iconbtn" aria-pressed={n.pinned} aria-label={n.pinned ? "Unpin note" : "Pin note"} onClick={() => void onPin()} disabled={busy} style={n.pinned ? { color: "var(--accent)" } : undefined}>
             <Pin className="i-sm" aria-hidden />
           </button>
           <button type="button" className="iconbtn" onClick={() => void onDelete()} disabled={busy} aria-label="Delete note" style={{ color: "var(--alert)" }}>
@@ -460,18 +581,22 @@ function EventsList({
   filter,
   setFilter,
   onSelect,
+  query,
 }: {
   filter: string;
   setFilter: (f: string) => void;
   onSelect: (id: string) => void;
+  query: string;
 }): React.ReactElement {
   const { events } = useMem();
   const filters = ["All", "Today", "Due", "Pending"];
   const map: Record<string, EventItem["status"]> = { Today: "today", Due: "due", Pending: "pending" };
-  const shown =
+  const q = query.trim().toLowerCase();
+  const byFilter =
     filter === "All"
       ? events
       : events.filter((e) => e.status === map[filter] || (filter === "Due" && e.zone === "alert"));
+  const shown = q ? byFilter.filter((e) => e.title.toLowerCase().includes(q) || e.note.toLowerCase().includes(q)) : byFilter;
   return (
     <div>
       <div className="erow" style={{ marginBottom: "var(--s4)" }}>
@@ -573,9 +698,13 @@ function EventDetail({ id, onBack }: { id: string; onBack: () => void }): React.
 }
 
 /* ---------------- Knowledge ---------------- */
-function KnowledgeList({ onSelect }: { onSelect: (id: string) => void }): React.ReactElement {
-  const { topics } = useMem();
-  if (topics.length === 0) return <EmptyArea what="knowledge" />;
+function KnowledgeList({ onSelect, query }: { onSelect: (id: string) => void; query: string }): React.ReactElement {
+  const { topics: allTopics } = useMem();
+  const q = query.trim().toLowerCase();
+  const topics = q
+    ? allTopics.map((g) => ({ ...g, items: g.items.filter((k) => k.title.toLowerCase().includes(q) || k.summary.toLowerCase().includes(q) || g.topic.toLowerCase().includes(q)) })).filter((g) => g.items.length)
+    : allTopics;
+  if (topics.length === 0) return <EmptyArea what={q ? "matching knowledge" : "knowledge"} />;
   return (
     <div className="mem-list">
       {topics.map((grp) => (

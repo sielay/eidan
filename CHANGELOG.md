@@ -6,6 +6,18 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.3] — 2026-06-27
+
+### Added
+
+- **Create from the Memory UI** — a **New** button on Notes / Events / Knowledge (you could edit + delete
+  but not create); `POST /api/notes`, `POST /api/knowledge` (upserts on skill+title like the agent tool),
+  `POST /api/events` (reminder, optional due date). Body fields support markdown + **@-mention**.
+- **Memory search** (the previously-dead toolbar button now filters the active tab) and a working **Pin**
+  on notes (`PATCH /api/notes/[id]` `{pinned}`).
+- **Mention chips render everywhere** — resolved `@`-mention tokens show as inline chips in the chat,
+  the file/markdown viewer, and Memory (not just chat), via a shared renderer.
+
 ## [0.13.2] — 2026-06-27
 
 ### Added

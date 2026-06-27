@@ -13,6 +13,7 @@ import { ArrowLeft, Download, Pencil, Save, Trash2 } from "lucide-react";
 import { authFetch } from "@/lib/auth";
 import { MermaidBlock } from "@/components/conversation/MermaidBlock";
 import { ChartBlock } from "@/components/conversation/ChartBlock";
+import { MentionAnchor } from "@/components/conversation/MentionChip";
 import { useTextareaMentions } from "@/components/conversation/useTextareaMentions";
 
 export interface FileScreenEntry { id: string; name: string; mime: string | null; source: string }
@@ -46,6 +47,7 @@ function MarkdownView({ content }: { content: string }): React.ReactElement {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          a: ({ node, ...props }) => { void node; return <MentionAnchor {...props} />; },
           pre: ({ node, children, ...props }) => {
             const { lang, text } = fenced(node);
             if (lang === "mermaid") return <MermaidBlock code={text} />;

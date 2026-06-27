@@ -56,3 +56,28 @@ export async function GET(req: NextRequest): Promise<Response> {
     }),
   });
 }
+
+// POST /api/events — create a reminder-type event from the UI. due_at optional (ISO); blank → undated.
+export async function POST(req: NextRequest): Promise<Response> {
+  const sess = verifyBearer(req);
+  if (!sess) return new Response("unauthorized", { status: 401 });
+  let title = "", body = "", dueAt: string | null = null;
+  try {
+    const b = (await req.json()) as { title?: unknown; body?: unknown; due_at?: unknown };
+    title = (typeof b.title === "string" ? b.title : "").trim();
+    body = typeof b.body === "string" ? b.body : "";
+    if (typeof b.due_at === "string" && b.due_at.trim()) {
+      const d = new Date(b.due_at);
+      if (!Number.isNaN(d.getTime())) dueAt = d.toISOString();
+    }
+  } catch { return new Response("invalid JSON", { status: 400 }); }
+  if (!title) return new Response("title required", { status: 400 });
+  const row = await withUser(sess.userId, async (c) => {
+    const r = await c.query(
+      "insert into eidan.events (user_id, type, title, body, due_at, status) values ($1, 'reminder', $2, $3, $4, 'pending') returning id",
+      [sess.userId, title, body, dueAt],
+    );
+    return r.rows[0] as { id: string };
+  });
+  return Response.json({ event: { id: row.id } }, { status: 201 });
+}
