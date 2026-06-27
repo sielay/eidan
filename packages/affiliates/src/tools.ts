@@ -358,21 +358,17 @@ async function generateLink(
     }
   }
 
-  const params = {
-    ...customParams,
-  };
-
-  switch (program.link_format) {
-    case 'url': {
+  const linkGenerators: Record<string, (prog: any, creds: any[], cid: string | null) => Promise<string>> = {
+    url: async (prog: any, creds: any[], cid: string | null) => {
       const affiliateIdCred =
-        credentials.find((c) => c.credential_type === 'affiliate_id') ||
-        credentials.find((c) => c.credential_type === 'api_key') ||
-        credentials.find((c) => c.credential_type === 'custom');
+        creds.find((c) => c.credential_type === 'affiliate_id') ||
+        creds.find((c) => c.credential_type === 'api_key') ||
+        creds.find((c) => c.credential_type === 'custom');
 
       if (!affiliateIdCred) throw new Error('Affiliate ID, API key, or custom credential required for URL format');
 
-      const signupUrl = program.signup_url ? String(program.signup_url).trim() : '';
-      const apiEndpoint = program.api_endpoint ? String(program.api_endpoint).trim() : '';
+      const signupUrl = prog.signup_url ? String(prog.signup_url).trim() : '';
+      const apiEndpoint = prog.api_endpoint ? String(prog.api_endpoint).trim() : '';
       const baseUrl = signupUrl || apiEndpoint;
 
       if (!baseUrl || typeof baseUrl !== 'string') {
@@ -385,23 +381,23 @@ async function generateLink(
       }
 
       const separator = baseUrl.includes('?') ? '&' : '?';
+      const providerParamMap: Record<string, string> = {
+        amazon: 'tag',
+        kdp: 'tag',
+        kobo: 'affiliate',
+      };
+      const paramName = providerParamMap[prog.provider] || 'ref';
 
-      if (program.provider === 'amazon' || program.provider === 'kdp') {
-        return `${baseUrl}${separator}tag=${encodeURIComponent(affiliateIdValue)}`;
-      } else if (program.provider === 'kobo') {
-        return `${baseUrl}${separator}affiliate=${encodeURIComponent(affiliateIdValue)}`;
-      } else {
-        return `${baseUrl}${separator}ref=${encodeURIComponent(affiliateIdValue)}`;
-      }
-    }
+      return `${baseUrl}${separator}${paramName}=${encodeURIComponent(affiliateIdValue)}`;
+    },
 
-    case 'api': {
-      const apiEndpoint = program.api_endpoint ? String(program.api_endpoint).trim() : '';
+    api: async (prog: any, creds: any[], cid: string | null) => {
+      const apiEndpoint = prog.api_endpoint ? String(prog.api_endpoint).trim() : '';
       if (!apiEndpoint || typeof apiEndpoint !== 'string') {
         throw new Error('Valid API endpoint required for API format');
       }
 
-      const apiKeyCred = credentials.find((c) => c.credential_type === 'api_key');
+      const apiKeyCred = creds.find((c) => c.credential_type === 'api_key');
       if (!apiKeyCred) {
         throw new Error('API key credential required for API format');
       }
@@ -414,15 +410,15 @@ async function generateLink(
       // 3. Call this endpoint only from server-side code with the key in memory.
       // Never expose this endpoint in client-side code with the credential.
       return apiEndpoint;
-    }
+    },
 
-    case 'pixel': {
-      const pixelEndpoint = program.api_endpoint ? String(program.api_endpoint).trim() : '';
+    pixel: async (prog: any, creds: any[], cid: string | null) => {
+      const pixelEndpoint = prog.api_endpoint ? String(prog.api_endpoint).trim() : '';
       if (!pixelEndpoint || typeof pixelEndpoint !== 'string') {
         throw new Error('Valid API endpoint (pixel src) required for pixel format');
       }
 
-      const trackingCodeCred = credentials.find((c) => c.credential_type === 'tracking_code');
+      const trackingCodeCred = creds.find((c) => c.credential_type === 'tracking_code');
       if (!trackingCodeCred) throw new Error('Tracking code credential required for pixel format');
 
       const trackingCodeValue = await getCredentialValue(trackingCodeCred);
@@ -435,29 +431,53 @@ async function generateLink(
       // 1. Generate the pixel URL on your backend with the tracking code
       // 2. Call the pixel endpoint from your backend, never expose it to clients
       // 3. Return a placeholder or 1x1 transparent GIF to the client
-      const pixelUrl = `${pixelEndpoint}${separator}code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}`;
+      const pixelUrl = `${pixelEndpoint}${separator}code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(cid || '')}`;
       return `<img src="${pixelUrl}" width="1" height="1" alt="" />`;
-    }
+    },
+  };
 
-    default:
-      throw new Error(`Unknown link format: ${program.link_format}`);
+  const generator = linkGenerators[program.link_format];
+  if (!generator) {
+    throw new Error(`Unknown link format: ${program.link_format}`);
   }
+
+  return generator(program, credentials, contentId);
 }
 
 function suggestPrograms(programs: any[], contentType: string, keywords: string[]): any[] {
   const keywordMatches: Record<string, number> = {};
 
-  for (const program of programs) {
-    let score = program.relevance_score || 0;
+  function matchScore(text: string, keyword: string): number {
+    const lower = text.toLowerCase();
+    if (!lower.includes(keyword)) return 0;
 
-    if (program.content_types.includes(contentType)) {
-      score += 2;
+    // Exact word match (word boundary)
+    const wordBoundary = new RegExp(`\\b${keyword}\\b`);
+    if (wordBoundary.test(lower)) return 3;
+
+    // Substring match starting at word boundary
+    const boundaryStart = new RegExp(`\\b${keyword}`);
+    if (boundaryStart.test(lower)) return 2;
+
+    // Any substring match
+    return 1;
+  }
+
+  for (const program of programs) {
+    let score = (program.relevance_score || 0) * 1.5;
+
+    if (program.content_types?.includes(contentType)) {
+      score += 4;
     }
 
     for (const keyword of keywords) {
-      if (program.program_name.toLowerCase().includes(keyword)) score += 3;
-      if (program.provider.toLowerCase().includes(keyword)) score += 3;
-      if (program.metadata?.tags?.some((t: string) => t.toLowerCase().includes(keyword))) score += 1;
+      const nameScore = matchScore(program.program_name, keyword);
+      const providerScore = matchScore(program.provider, keyword);
+      const tagScore = program.metadata?.tags?.reduce((max: number, t: string) => {
+        return Math.max(max, matchScore(t, keyword));
+      }, 0) || 0;
+
+      score += (nameScore * 3) + (providerScore * 2) + tagScore;
     }
 
     keywordMatches[program.id] = score;
