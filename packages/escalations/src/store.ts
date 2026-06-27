@@ -60,6 +60,7 @@ export interface EscalationRow {
   responded_at: string | null;
   resolved_at: string | null;
   responded_by: string | null;
+  agent_response_processed_at: string | null;
 }
 
 // The registered service interface other plugins consume via services.Escalations.
@@ -67,6 +68,7 @@ export interface EscalationsService {
   raise(args: RaiseArgs): Promise<{ id: string } | null>;
   respond(args: RespondArgs): Promise<{ id: string } | null>;
   list(args: { userId?: string; fromAgent?: string; toAgent?: string; status?: EscalationStatus; limit?: number }): Promise<EscalationRow[]>;
+  markResponseProcessed(id: string): Promise<void>;
 }
 
 const VALID_REASONS = new Set([
@@ -181,7 +183,8 @@ export class EscalationsStore {
     const r = await this.db.query(
       `select id, user_id, conversation_id, agent_id, severity, reason_class, suggested_action,
               evidence, status, metadata, from_agent, to_agent, escalation_type, response,
-              trigger_prompt, created_at, updated_at, responded_at, resolved_at, responded_by
+              trigger_prompt, created_at, updated_at, responded_at, resolved_at, responded_by,
+              agent_response_processed_at
          from eidan.escalations where ${where}
          order by created_at desc limit $${paramIdx}`,
       [...params, limit],
@@ -194,10 +197,20 @@ export class EscalationsStore {
     const r = await this.db.query(
       `select id, user_id, conversation_id, agent_id, severity, reason_class, suggested_action,
               evidence, status, metadata, from_agent, to_agent, escalation_type, response,
-              trigger_prompt, created_at, updated_at, responded_at, resolved_at, responded_by
+              trigger_prompt, created_at, updated_at, responded_at, resolved_at, responded_by,
+              agent_response_processed_at
          from eidan.escalations where id = $1`,
       [id],
     );
     return (r.rows[0] as EscalationRow | undefined) ?? null;
+  }
+
+  // Mark an escalation response as processed by the agent system (idempotent)
+  async markResponseProcessed(id: string): Promise<void> {
+    await this.db.query(
+      `update eidan.escalations set agent_response_processed_at = now()
+       where id = $1 and agent_response_processed_at is null`,
+      [id],
+    );
   }
 }

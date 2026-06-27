@@ -40,7 +40,9 @@ interface EscalationsLike {
     trigger_prompt: string | null;
     response: { feedback?: string } | null;
     responded_at: string | null;
+    agent_response_processed_at: string | null;
   }>>;
+  markResponseProcessed(id: string): Promise<void>;
 }
 
 // Escalate an agent to the operator's Inbox after this many consecutive failed fires (deduped per
@@ -60,9 +62,6 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   // must run on the node that has ollama). Unpinned agents may be fired by any node.
   const nodeId = process.env['EIDAN_NODE_ID'] ?? null;
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-  // escalation ids and their seen timestamps (for pruning); prune entries >1h old
-  const trackedResponses = new Map<string, number>();
-  const maxAgeMs = 60 * 60 * 1000; // 1 hour
 
   const fire = async (row: DueScheduleRow, fireKey: string, overridePersona?: string): Promise<void> => {
     const provider = effectiveProvider(services, row.provider ?? opts.defaultProvider, row.model);
@@ -105,14 +104,6 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
 
   const handleResponses = async (esc: EscalationsLike): Promise<void> => {
     try {
-      // Prune old tracked responses to prevent memory leak
-      const now = Date.now();
-      for (const [id, ts] of trackedResponses.entries()) {
-        if (now - ts > maxAgeMs) {
-          trackedResponses.delete(id);
-        }
-      }
-
       const agents = await store.responseTriggeredAgents();
 
       for (const a of agents) {
@@ -124,9 +115,9 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
           limit: 10,
         });
         for (const resp of responses) {
-          if (trackedResponses.has(resp.id)) continue; // already handled
+          // Skip if already processed by agent system (checked via agent_response_processed_at)
+          if (resp.agent_response_processed_at) continue;
           if (!resp.responded_at) continue; // shouldn't happen but safety check
-          trackedResponses.set(resp.id, Date.now());
 
           // Blend the trigger prompt into the persona
           const feedback = resp.response?.feedback ?? '';
@@ -136,6 +127,8 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
 
           const won = await store.claimRun(a.trigger_id, a.agent_id, a.user_id, fireKey);
           if (!won) continue; // another node is handling this fire
+          // Mark as processed before firing (ensures we don't reprocess even if fire fails)
+          void esc.markResponseProcessed(resp.id).catch(() => undefined);
           void fire(a as DueScheduleRow, fireKey, blendedPersona);
         }
       }
@@ -158,10 +151,21 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       // owns its full lifecycle (finish/escalate in its own try/catch); the per-fire timeout bounds it.
       void fire(r, fireKey);
     }
-    // Response-triggered fires (only if Escalations service is available)
-    const esc = (services as { Escalations?: EscalationsLike }).Escalations;
-    if (esc) {
-      await handleResponses(esc);
+  };
+
+  // Separate response handling loop: decoupled from schedule scanning for better latency and resilience.
+  // Runs independently every pollMs, fetching responses for agents with response triggers.
+  const responseLoop = async (): Promise<void> => {
+    while (!stopped) {
+      try {
+        const esc = (services as { Escalations?: EscalationsLike }).Escalations;
+        if (esc) {
+          await handleResponses(esc);
+        }
+      } catch (e) {
+        console.warn('[agents] response handler error:', e instanceof Error ? e.message : e);
+      }
+      await sleep(pollMs);
     }
   };
 
@@ -170,11 +174,12 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       try {
         await tick();
       } catch (e) {
-        console.warn('[agents] scan error:', e instanceof Error ? e.message : e);
+        console.warn('[agents] schedule scan error:', e instanceof Error ? e.message : e);
       }
       await sleep(pollMs);
     }
   };
   void loop();
+  void responseLoop();
   return async () => { stopped = true; };
 }
