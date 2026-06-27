@@ -445,7 +445,12 @@ export function Composer({
   const appendText = React.useCallback((text: string) => {
     if (!text) return;
     setValue((v) => (v.trim() ? `${v.trim()} ${text}` : text));
-    requestAnimationFrame(() => { autosize(); taRef.current?.focus(); });
+    requestAnimationFrame(() => {
+      if (taRef.current) {
+        autosize();
+        taRef.current.focus();
+      }
+    });
   }, [autosize]);
 
   const mic = useMicRecorder(appendText);
