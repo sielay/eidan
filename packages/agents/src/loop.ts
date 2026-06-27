@@ -10,6 +10,17 @@ interface NotifyLike {
   emit(topic: string, text: string, severity?: string): Promise<void>;
 }
 
+// Escalation response object returned by Escalations.list()
+interface EscalationResponse {
+  id: string;
+  user_id: string | null;
+  to_agent: string | null;
+  trigger_prompt: string | null;
+  response: { feedback?: string } | null;
+  responded_at: string | null;
+  agent_response_processed_at: string | null;
+}
+
 // @eidandev/escalations registers `Escalations`; narrowed here so agents has no hard dependency on it.
 interface EscalationsLike {
   raise(args: {
@@ -26,15 +37,7 @@ interface EscalationsLike {
     toAgent?: string;
     status?: string;
     limit?: number;
-  }): Promise<Array<{
-    id: string;
-    user_id: string | null;
-    to_agent: string | null;
-    trigger_prompt: string | null;
-    response: { feedback?: string } | null;
-    responded_at: string | null;
-    agent_response_processed_at: string | null;
-  }>>;
+  }): Promise<EscalationResponse[]>;
   markResponseProcessed(id: string): Promise<void>;
 }
 
@@ -118,7 +121,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
     try {
       const agents = await store.responseTriggeredAgents();
       const filteredAgents = agents.filter(a => !a.target_node || a.target_node === nodeId);
-      const agentResponses: Array<{ agent: typeof agents[0]; responses: any[] }> = [];
+      const agentResponses: Array<{ agent: typeof agents[0]; responses: EscalationResponse[] }> = [];
 
       // Batch-fetch responses in groups to limit concurrent queries
       for (let i = 0; i < filteredAgents.length; i += batchSize) {
