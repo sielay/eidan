@@ -29,9 +29,10 @@ export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
     description:
-      'LinkedIn Social: post to LinkedIn, search posts, read profile and feed (linkedin_post, ' +
-      'linkedin_search, linkedin_get_profile, linkedin_list_feed) across the operator\'s connected ' +
-      'LinkedIn accounts (managed in Connections; BYO OAuth2 client, tokens sealed per-account in the vault).',
+      'LinkedIn Social: post to LinkedIn, read profile and list your own posts ' +
+      '(linkedin_post, linkedin_get_profile, linkedin_list_feed) across the operator\'s connected ' +
+      'LinkedIn accounts (managed in Connections; BYO OAuth2 client, tokens sealed per-account in the vault). ' +
+      'Note: engagement metrics currently unavailable due to API permission restrictions (requires standard tier).',
   },
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];

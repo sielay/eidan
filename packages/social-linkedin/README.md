@@ -37,8 +37,9 @@ LinkedIn Social integration for Eidan: post to LinkedIn, search posts, get profi
 
 5. **Restart Eidan** and verify tools are loaded:
    ```
-   [social-linkedin] plugin loaded: linkedin_post, linkedin_search, linkedin_get_profile, linkedin_list_feed
+   [social-linkedin] plugin loaded (oauth on :8103)
    ```
+   Available tools: `linkedin_post`, `linkedin_get_profile`, `linkedin_list_feed`
 
 ## Tools
 
@@ -63,24 +64,6 @@ linkedin_post({
 - Enforces 3000-character limit
 - Posts to your personal feed (public visibility)
 
-### `linkedin_search`
-
-Search LinkedIn for posts by keyword, topic, or company name.
-
-**Parameters:**
-- `query` (required): Search text (keywords, company names, topics)
-- `limit` (optional, 1–100): Max results (default: 20)
-
-**Example:**
-```
-linkedin_search({
-  query: "AI agents productivity",
-  limit: 10
-})
-```
-
-**Returns:** Posts with text, author, and engagement metrics (likes, comments)
-
 ### `linkedin_get_profile`
 
 Get the authenticated user's LinkedIn profile information.
@@ -96,7 +79,7 @@ linkedin_get_profile({})
 
 ### `linkedin_list_feed`
 
-Read your LinkedIn feed.
+List recent posts published **by** your connected LinkedIn account (your own posts, or your organization's Page posts).
 
 **Parameters:**
 - `limit` (optional, 1–100): Max posts (default: 20)
@@ -106,7 +89,9 @@ Read your LinkedIn feed.
 linkedin_list_feed({ limit: 30 })
 ```
 
-**Returns:** Recent posts from your network with engagement metrics
+**Returns:** Recent posts authored by this account with metadata (text, post IDs)
+
+**⚠️ Engagement Limitation:** Likes and comments currently return `0` because LinkedIn's Community Management API requires the restricted `r_member_social_feed` permission (available only on standard tier). The operator has filed for standard tier access. Once approved, engagement data can be fetched from the Reactions API. See the [upgrade path](#upgrade-path-engagement-metrics-once-standard-tier-approved) below.
 
 ## How It Works
 
@@ -161,6 +146,33 @@ Then redeploy. This approach prevents SSRF by requiring explicit configuration r
 - Token rotation: Generate a new token in LinkedIn developer settings if compromised
 - Note: LinkedIn tokens are typically valid for ~2 months; plan for regular rotation
 
+## API Permissions & Limitations
+
+### Current Permission Status
+
+| Feature | Endpoint | Permission Required | Status | Notes |
+|---------|----------|-------------------|--------|-------|
+| Post to LinkedIn | `/ugcPosts` | `w_member_social` | ✅ Working | Create posts with text and images |
+| Get profile | `/userinfo`, `/organizations/{id}` | OpenID Connect (implicit) | ✅ Working | Retrieve authenticated user/org details |
+| List own posts | `/posts?q=author` | `r_member_social` | ✅ Working | Read posts authored by this account |
+| **Engagement metrics** | **`/reactions?q=post`** | **`r_member_social_feed` (restricted)** | ⏳ Pending | Blocked until standard tier approved |
+
+### Known Limitations
+
+1. **Engagement Data Unavailable**: The `likes` and `comments` fields in `linkedin_list_feed` return `0` because the Reactions API requires the restricted `r_member_social_feed` permission. This permission is only available to select LinkedIn developers and requires filing for standard tier access.
+
+2. **Own Posts Only**: LinkedIn has no public API to read other members' feeds or search across all posts. The `linkedin_list_feed` tool only returns posts authored by your connected account.
+
+3. **No Direct Messages**: LinkedIn API v2 does not support direct messaging (blocked by LinkedIn for consumer use).
+
+### Workaround for Important Posts
+
+If you need engagement metrics for critical posts before standard tier is approved:
+
+1. **Manual Check**: Visit your post directly on LinkedIn.com to see live engagement
+2. **Export Metrics**: Screenshot or copy engagement data from the UI
+3. **Escalation**: Contact LinkedIn Developer Support to prioritize your standard tier request
+
 ## Troubleshooting
 
 ### "LinkedIn isn't connected"
@@ -199,7 +211,6 @@ LinkedIn enforces rate limits per token. If you hit limits:
 ## Limits
 
 - Posts: 3000 characters max
-- Search: 100 results max per call
 - Feed: 100 posts max per call
 - Access token: valid for ~2 months (LinkedIn default)
 - Rate limits: LinkedIn API rate limits per token
@@ -219,38 +230,16 @@ Result: {
   message: "Posted to LinkedIn"
 }
 
-Agent: Find recent discussions about AI and productivity.
-
-Agent → linkedin_search({
-  query: "AI productivity tools",
-  limit: 5
-})
-
-Result: {
-  query: "AI productivity tools",
-  count: 5,
-  posts: [
-    {
-      id: "7111111111",
-      text: "Just launched our new AI productivity suite...",
-      author: "urn:li:person:ABC123",
-      likes: 234,
-      comments: 12
-    },
-    ...
-  ]
-}
-
-Agent: Check your profile and read your feed.
+Agent: Check your profile and list your recent posts.
 
 Agent → linkedin_get_profile({})
 
 Result: {
   id: "XYZ789",
-  firstName: "John",
-  lastName: "Doe",
+  name: "John Doe",
+  kind: "member",
   headline: "AI Engineer at TechCorp",
-  profilePicture: "https://media.licdn.com/..."
+  picture: "https://media.licdn.com/..."
 }
 
 Agent → linkedin_list_feed({ limit: 5 })
@@ -259,14 +248,15 @@ Result: {
   count: 5,
   posts: [
     {
-      id: "7222222222",
+      id: "urn:li:share:7222222222",
       text: "New research on LLMs dropped today...",
-      author: "urn:li:person:DEF456",
-      likes: 567,
-      comments: 89
+      likes: 0,
+      comments: 0,
+      engagement_data_available: false
     },
     ...
-  ]
+  ],
+  notice: "Engagement metrics (likes, comments) are currently unavailable. Requires LinkedIn Community Management API standard tier + r_member_social_feed permission."
 }
 ```
 
@@ -279,6 +269,26 @@ If your token expires:
 3. Go to "Auth" tab
 4. Generate a new Bearer token
 5. Update vault via Settings UI (Connections → LinkedIn Social → LINKEDIN_ACCESS_TOKEN)
+
+## Upgrade Path: Engagement Metrics (Once Standard Tier Approved)
+
+LinkedIn's Community Management API currently does not return engagement metrics (likes, comments) in the `/posts` endpoint due to permission restrictions. The operator has filed for standard tier access with the `r_member_social_feed` permission.
+
+**Current Status:**
+- Tier: Development
+- Permission: Not yet granted
+- Engagement metrics: `likes: 0, comments: 0` (placeholder values)
+
+**Once Standard Tier + r_member_social_feed Permission is Approved:**
+1. The `linkedin_list_feed` tool can be enhanced to fetch engagement metrics via the Reactions API
+2. Implementation: For each post, call `/reactions?q=post` with the post URN
+3. Parse reaction types (LIKE, COMMENT_LIKE, etc.) to populate `likes` and `comments` fields
+4. The `engagement_data_available` field on each post will switch to `true`
+
+**References:**
+- LinkedIn Reactions API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/reactions-api
+- Community Management API Permissions: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/authentication
+- Post this upgrade path in the PR/issue tracker for visibility when standard tier is approved
 
 ## Future Enhancements
 
