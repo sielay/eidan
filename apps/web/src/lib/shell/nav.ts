@@ -16,6 +16,8 @@
  *   (by `mobileHome`), with everything else under "More".
  */
 
+// Keep in sync with the icon map in NavIcon.tsx. As this grows, consider refactoring
+// to dynamically generate from the map to avoid manual duplication.
 export type NavIconKey =
   | "chat"
   | "memory"
@@ -111,9 +113,16 @@ export const SETTINGS_SECTION: NavSection = {
 export function resolveSections(
   contributions: readonly NavContribution[] = [CORE_CONTRIBUTION],
 ): NavSection[] {
-  return contributions.flatMap((c) =>
+  const sections = contributions.flatMap((c) =>
     c.sections.map((s) => ({ ...s, bundle: c.bundle, group: c.group })),
   );
+  // Deduplicate by id: first occurrence wins (core contributions take precedence).
+  const seen = new Set<string>();
+  return sections.filter((s) => {
+    if (seen.has(s.id)) return false;
+    seen.add(s.id);
+    return true;
+  });
 }
 
 export interface RailGroup {

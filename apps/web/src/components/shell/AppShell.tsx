@@ -260,6 +260,7 @@ function RailLink({
       href={section.href}
       className="navitem"
       aria-current={isActive(section, pathname) ? "page" : undefined}
+      title={section.label}
     >
       <NavIcon name={section.icon} />
       <span className="navitem__label">{section.label}</span>
