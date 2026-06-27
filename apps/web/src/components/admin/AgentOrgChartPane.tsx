@@ -224,7 +224,7 @@ export function AgentOrgChartPane(): React.ReactElement {
         newEdges.push({ id: `${from}|${to}|esc`, from, to, escalations: data.escalations });
       }
       if (data.relationship) {
-        newEdges.push({ id: `${from}|${to}|rel-${data.relationship.relationship_type}`, from, to, escalations: 0, relationship: data.relationship });
+        newEdges.push({ id: `${from}|${to}|rel-${data.relationship.id}`, from, to, escalations: 0, relationship: data.relationship });
       }
     }
 
@@ -727,7 +727,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                   .map((e) => {
                     const target = nodes.find((n) => n.id === e.to);
                     return (
-                      <div key={e.to} className="text-xs">
+                      <div key={e.id} className="text-xs">
                         <p className="font-mono">
                           → {target?.name} <span className="text-muted-foreground">({e.relationship?.relationship_type})</span>
                         </p>
@@ -749,7 +749,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                   .map((e) => {
                     const source = nodes.find((n) => n.id === e.from);
                     return (
-                      <div key={e.from} className="text-xs">
+                      <div key={e.id} className="text-xs">
                         <p className="font-mono">
                           ← {source?.name} <span className="text-muted-foreground">({e.relationship?.relationship_type})</span>
                         </p>
