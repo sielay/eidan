@@ -6,6 +6,15 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.8] — 2026-06-27
+
+### Fixed
+
+- **Markdown spacing no longer collapses** — gaps after lists, before/after headings, and between
+  paragraphs were cramped (and absent entirely in the file viewer + popup preview, which had no prose
+  CSS). All markdown surfaces (chat, memory, file viewer, preview) now share a generous, consistent
+  vertical rhythm using margin-top-only spacing so adjacent margins cannot collapse to nothing.
+
 ## [0.13.7] — 2026-06-27
 
 ### Added

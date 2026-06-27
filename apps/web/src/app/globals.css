@@ -398,13 +398,28 @@
 .mem-detail__title { font-size: var(--fs-24); letter-spacing: -.02em; margin-bottom: var(--s3); }
 .mem-textarea { min-height: 160px; align-items: flex-start; padding: var(--s3) var(--s4); white-space: pre-wrap; line-height: var(--lh); }
 
-/* prose / markdown body */
-.md { font-size: var(--fs-15); line-height: var(--lh-loose); color: var(--text); }
-.md > * + * { margin-top: var(--s3); }
-.md h3 { font-size: var(--fs-17); font-weight: 600; }
-.md p { text-wrap: pretty; }
-.md ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
-.md li { text-wrap: pretty; }
+/* prose / markdown body — generous, consistent vertical rhythm shared by every markdown surface
+   (chat detail, memory, file viewer, popup preview). Element margins are zeroed and spacing is applied
+   only as margin-top between top-level blocks, so adjacent margins never collapse to nothing — the
+   complaint was that gaps after lists / headers / between paragraphs vanished. */
+.md, .md-body, .md-preview { font-size: var(--fs-15); line-height: var(--lh-loose); color: var(--text); }
+.md > * + *, .md-body > * + *, .md-preview > * + * { margin-top: var(--s4); }
+.md :is(p, ul, ol, pre, blockquote, table, hr),
+.md-body :is(p, ul, ol, pre, blockquote, table, hr),
+.md-preview :is(p, ul, ol, pre, blockquote, table, hr) { margin: 0; }
+.md :is(h1, h2, h3, h4),
+.md-body :is(h1, h2, h3, h4),
+.md-preview :is(h1, h2, h3, h4) { margin: 0; font-weight: 600; line-height: var(--lh-tight); }
+/* a little extra air before a heading that follows other content (but not the first block) */
+.md > :is(h1, h2, h3, h4) + *, .md-body > :is(h1, h2, h3, h4) + *, .md-preview > :is(h1, h2, h3, h4) + * { margin-top: var(--s3); }
+.md > * + :is(h1, h2, h3, h4), .md-body > * + :is(h1, h2, h3, h4), .md-preview > * + :is(h1, h2, h3, h4) { margin-top: var(--s5); }
+.md h2, .md-body h2, .md-preview h2 { font-size: var(--fs-17); }
+.md h3, .md-body h3, .md-preview h3 { font-size: var(--fs-16); }
+.md :is(p, li), .md-body :is(p, li), .md-preview :is(p, li) { text-wrap: pretty; }
+.md :is(ul, ol), .md-body :is(ul, ol), .md-preview :is(ul, ol) { padding-left: 1.5em; }
+.md ul, .md-body ul, .md-preview ul { list-style: disc; }
+.md ol, .md-body ol, .md-preview ol { list-style: decimal; }
+.md li + li, .md-body li + li, .md-preview li + li { margin-top: 4px; }
 .md-code { display: inline-block; font-family: var(--font-num); font-size: var(--fs-13); background: var(--surface-2); padding: 3px 8px; border-radius: var(--r-sm); color: var(--muted); }
 .res-ic { width: 36px; height: 36px; border-radius: var(--r-md); background: var(--surface-2); color: var(--muted); display: grid; place-items: center; flex: none; }
 
