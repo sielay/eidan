@@ -104,6 +104,36 @@ backend reads the new columns.
 `MatbotServices` with `YourService?: YourService`, consume via `services.YourService?.…`. Name the
 key after the interface.
 
+## Common failure modes (hard-won — read before you finish a PR)
+
+These are real defects that have shipped green and broken at deploy. The CI gates
+(`.github/workflows/test.yml`) now catch most, but catch them yourself first — an agent
+working here runs the same model with less context, so this list *is* that context.
+
+- **UI changes: typecheck `apps/web` before you finish.** It is NOT a pnpm workspace member, so the
+  unit-test job never sees it — `apps/web` Type errors merge green and only break at `vercel deploy`.
+  Run `cd apps/web && pnpm install && pnpm run typecheck`. (CI now has a `web-typecheck` job too.)
+- **Never write route paths through a shell-escaping file tool.** Next route groups `(main)` and
+  dynamic `[tab]` segments must be *literal directory names*, never `\(main\)` / `\[tab\]`. A
+  backslash in a tracked path is always a bug — CI rejects it; so should you.
+- **Don't touch `pnpm-lock.yaml` unless you changed dependencies.** Never "regenerate" it as a
+  side-effect — a destructive rewrite breaks CI at `pnpm install --frozen-lockfile`. If you added a
+  dep, run a real `pnpm install` and commit the minimal lockfile delta. For a heavy/optional dep
+  (e.g. a WASM engine), put it in `optionalDependencies` so lean nodes skip it.
+- **A new node-side plugin must go in `CORE_PLUGINS` (`deploy/manifest.mjs`)** — or a bundle in
+  `eidan.deploy.json`. Editing the tracked `infra/fly-mb/matbot.yaml` does *nothing*: `assemble`
+  regenerates it, so a plugin wired only there is silently stripped from every deploy.
+- **Postgres migrations are idempotent + additive.** Use `ADD COLUMN IF NOT EXISTS` and
+  `CREATE INDEX IF NOT EXISTS`, but there is **no `ADD CONSTRAINT IF NOT EXISTS`** — drop-then-add
+  instead. A brand-new table may use a plain `CREATE TABLE` (the runner is once-only, keyed by
+  filename, so a duplicate `NNNN_` number is harmless, just untidy).
+- **No query-string routing in the UI.** Route by URL path/slug (`/p/<plugin>/<slug>`), never
+  `?id=…` — the host router supports `/*` wildcard routes (`apps/web/src/plugins/routeMatch.ts`).
+- **Config + secrets resolve from the vault, not `.env`/`process.env`.** The web tier can't read the
+  sealed vault, so vaulted features proxy through engine HTTP routes under `runAs(principal)`.
+- **Build a working feature, not a façade.** A UI that calls endpoints which don't exist (or with
+  unauthenticated `fetch()` instead of `authFetch`) is not done. Wire the backend, use `authFetch`.
+
 ## Code-review-graph MCP tools
 
 This repo is exposed via the `code-review-graph` MCP server. Prefer graph tools

@@ -25,7 +25,7 @@ export interface TriggerRow {
 }
 
 // A schedule trigger joined with its (enabled) agent — the unit the dispatch loop fires.
-export interface DueScheduleRow {
+export interface FireableRow {
   trigger_id: string;
   agent_id: string;
   user_id: string;
@@ -34,6 +34,9 @@ export interface DueScheduleRow {
   provider: string | null;
   model: string | null;
   target_node: string | null;
+}
+
+export interface DueScheduleRow extends FireableRow {
   schedule: string;
 }
 
@@ -239,6 +242,19 @@ export class AgentsStore {
     return tz ?? 'UTC';
   }
 
+  // Find agents with response triggers (for dispatch on escalation response)
+  async responseTriggeredAgents(): Promise<FireableRow[]> {
+    const r = await this.db.query(
+      `select t.id as trigger_id, a.id as agent_id, a.user_id, a.name, a.persona, a.provider,
+              a.model, a.target_node
+         from eidan.agent_triggers t
+         join eidan.agents a on a.id = t.agent_id
+        where t.type = 'response' and t.enabled and t.deleted_at is null
+          and a.enabled and a.deleted_at is null`,
+    );
+    return r.rows as FireableRow[];
+  }
+
   // Claim a fire. The unique (trigger_id, fire_key) index means exactly one node wins; the others get
   // a no-op insert and skip. Returns true if THIS caller claimed the fire.
   async claimRun(triggerId: string, agentId: string, userId: string, fireKey: string): Promise<boolean> {
@@ -266,7 +282,7 @@ export class AgentsStore {
   async finishRun(
     triggerId: string,
     fireKey: string,
-    status: 'delivered' | 'failed',
+    status: 'delivered' | 'failed' | 'interrupted',
     detail: string,
     conversationId: string | null,
   ): Promise<void> {
@@ -276,4 +292,57 @@ export class AgentsStore {
       [triggerId, fireKey, status, detail.slice(0, 4000), conversationId],
     );
   }
+
+  // ----- graceful-shutdown continuation (cross-user; the dispatch loop owns these) -----
+
+  // Queue an interrupted fire for resume after the node comes back. Called from the shutdown handler,
+  // so it must be a single fast write (the process is exiting). `state` snapshots what re-firing needs.
+  async enqueueRestart(args: {
+    agentId: string;
+    triggerId: string | null;
+    userId: string;
+    conversationId: string | null;
+    fireKey: string | null;
+    nodeId: string | null;
+    reason: string;
+    state: Record<string, unknown>;
+  }): Promise<void> {
+    await this.db.query(
+      `insert into eidan.agent_restart_queue
+         (agent_id, trigger_id, user_id, conversation_id, fire_key, node_id, reason, state)
+       values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+      [args.agentId, args.triggerId, args.userId, args.conversationId, args.fireKey,
+        args.nodeId, args.reason, JSON.stringify(args.state)],
+    );
+  }
+
+  // Atomically claim this node's pending continuations on boot (FOR UPDATE SKIP LOCKED → only one node
+  // grabs each; an unpinned row may be claimed by any node). Marks them 'resumed' as it returns them,
+  // so a crash mid-resume doesn't re-fire them forever — they're recorded as handled exactly once.
+  async claimPendingRestarts(nodeId: string | null, limit = 50): Promise<RestartRow[]> {
+    const r = await this.db.query(
+      `update eidan.agent_restart_queue q
+          set status = 'resumed', resumed_at = now(), updated_at = now()
+        where q.id in (
+          select id from eidan.agent_restart_queue
+           where status = 'pending' and deleted_at is null
+             and (node_id is not distinct from $1 or node_id is null)
+           order by created_at
+           limit $2
+           for update skip locked)
+      returning q.id, q.agent_id, q.user_id, q.conversation_id, q.fire_key, q.reason, q.state`,
+      [nodeId, limit],
+    );
+    return r.rows as RestartRow[];
+  }
+}
+
+export interface RestartRow {
+  id: string;
+  agent_id: string;
+  user_id: string;
+  conversation_id: string | null;
+  fire_key: string | null;
+  reason: string | null;
+  state: { persona?: string; provider?: string; model?: string | null; name?: string };
 }

@@ -11,6 +11,7 @@ import type { Tool, ToolContext } from '@matatbread/matbot-plugin-api';
 import { DriveClient } from './drive.js';
 import { OAuthError, refreshAccessToken } from './oauth.js';
 import { secretOpt } from './vault.js';
+import { detectFormatParser, parseExcel, ParseError } from './parsers.js';
 import { parseCSV } from './csv-parser.js';
 
 const LIST_SCHEMA = {
@@ -37,16 +38,26 @@ const READ_SCHEMA = {
     file_id: { type: 'string', minLength: 1, description: 'Drive file id from gdrive_list_recent or gdrive_search.' },
     format: {
       type: 'string',
-      enum: ['text', 'csv', 'table'],
+      enum: ['text', 'csv', 'table', 'pdf', 'ocr', 'docx', 'excel', 'excel_full'],
       description:
-        'Output format: "text" (default) returns raw content; "csv" returns array of objects ' +
-        '{col: val, ...}; "table" returns {headers, rows} for clarity. CSV/table parse Google ' +
-        'Sheets and CSV files; other formats ignore this and return text.',
+        'Output/parse format. "text" (default) returns raw content; "csv" returns an array of ' +
+        '{col: val} objects and "table" returns {headers, rows} — both for Google Sheets/CSV. ' +
+        '"pdf" (text+tables), "ocr" (image→text), "docx" (structure), "excel" (sheet summaries→JSON), ' +
+        'and "excel_full" (all cell values→JSON, may exceed token limits) parse downloaded binary files; ' +
+        'the binary format is auto-detected from the MIME type if omitted. ' +
+        'NOTE: Text content is truncated to ~16k chars, but structured data (tables/sections) is preserved in full.',
     },
   },
 };
 
+// ponytail: MAX_TEXT is a simple limit to fit large documents into LLM context.
+// For structured formats (PDF with tables, Excel, DOCX with sections), the text field
+// is truncated but structured data (tables/sections) is always preserved. Agents receive
+// a note if content is truncated but structured data remains. Consider smarter summarization
+// or chunking for very large documents in future iterations.
 const MAX_TEXT = 16000;
+const TEXT_FORMATS = ['text', 'csv', 'table'];
+const BINARY_FORMATS = ['pdf', 'ocr', 'docx', 'excel', 'excel_full'];
 
 interface OAuthCreds {
   clientId: string;
@@ -132,9 +143,9 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
   const gdriveReadFileTool: Tool = {
     name: 'gdrive_read_file',
     description:
-      'Read one Drive file by id. Supports raw text (default) or structured CSV/table format for ' +
-      'Google Sheets and CSV files. Google Docs/Slides are exported to plain text; plain-text files ' +
-      'downloaded directly. Binary types are not supported.',
+      'Read one Drive file by id. Google Docs/Slides export to plain text and Google Sheets to CSV; ' +
+      'plain-text files download directly. Pass format=csv|table to structure a Sheet/CSV, or ' +
+      'format=pdf|ocr|docx|excel to parse a downloaded binary file (auto-detected from MIME if omitted).',
     inputSchema: READ_SCHEMA,
     executor: {
       async *execute(input, ctx) {
@@ -146,17 +157,94 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
           yield { type: 'error', message: 'file_id is required' };
           return;
         }
-
-        if (!['text', 'csv', 'table'].includes(format)) {
-          yield { type: 'error', message: 'format must be "text", "csv", or "table"' };
+        if (![...TEXT_FORMATS, ...BINARY_FORMATS].includes(format)) {
+          yield { type: 'error', message: `format must be one of ${[...TEXT_FORMATS, ...BINARY_FORMATS].join(', ')}` };
           return;
         }
 
-        const { file, text } = await new DriveClient(await accessToken(ctx, resolveShared)).readFileText(fileId);
+        const wantBinary = BINARY_FORMATS.includes(format);
+        const client = new DriveClient(await accessToken(ctx, resolveShared));
 
-        // Default: return raw text
-        if (format === 'text') {
-          const truncated = text.length > MAX_TEXT;
+        // Text-first read (Google Docs/Slides → text, Sheets → CSV, plain text downloaded), unless a
+        // document/binary parser was explicitly requested. A binary file that can't be read as text
+        // falls through to MIME-auto-detected parsing below.
+        let textRead: { file: Awaited<ReturnType<DriveClient['readFileText']>>['file']; text: string } | null = null;
+        if (!wantBinary) {
+          try {
+            textRead = await client.readFileText(fileId);
+          } catch {
+            // not text-readable — fall through to binary parsing
+          }
+        }
+
+        if (textRead) {
+          const { file, text } = textRead;
+          const meta = {
+            id: file.id,
+            name: file.name,
+            mimeType: file.mimeType,
+            modifiedTime: file.modifiedTime,
+            owner: file.owner,
+            webViewLink: file.webViewLink,
+          };
+
+          // Default: raw text.
+          if (format === 'text') {
+            const truncated = text.length > MAX_TEXT;
+            yield { type: 'result', value: { ...meta, truncated, content: truncated ? text.slice(0, MAX_TEXT) : text } };
+            return;
+          }
+
+          // Structured CSV/table — only for CSV-exportable types; else return raw text with a note.
+          const isCsvExportable =
+            file.mimeType === 'application/vnd.google-apps.spreadsheet' ||
+            file.mimeType === 'text/csv' ||
+            file.mimeType === 'application/csv';
+          if (!isCsvExportable) {
+            const truncated = text.length > MAX_TEXT;
+            yield {
+              type: 'result',
+              value: {
+                ...meta,
+                note: `format="${format}" only works with Google Sheets or CSV files; returning raw text instead`,
+                content: truncated ? text.slice(0, MAX_TEXT) : text,
+                truncated,
+              },
+            };
+            return;
+          }
+
+          const parsed = parseCSV(text);
+          if (format === 'csv') {
+            yield { type: 'result', value: { ...meta, content: parsed.rows } };
+          } else {
+            yield { type: 'result', value: { ...meta, headers: parsed.headers, rows: parsed.rows } };
+          }
+          return;
+        }
+
+        // Document/binary parsing (PDF, OCR, DOCX, Excel) — explicit format, or text read failed.
+        const { file, bytes, mime } = await client.readFileBytes(fileId);
+        const parser = detectFormatParser(mime, wantBinary ? format : undefined);
+        if (!parser) {
+          yield {
+            type: 'error',
+            message: `unsupported file type: ${file.mimeType || mime || 'unknown'} (try format=pdf|ocr|docx|excel|excel_full)`,
+          };
+          return;
+        }
+
+        try {
+          // Special handling for excel_full: pass fullText flag
+          const parsed = format === 'excel_full' ? await parseExcel(bytes, true) : await parser(bytes);
+
+          const truncated = parsed.text.length > MAX_TEXT;
+          const hasStructuredContent = (parsed.tables?.length ?? 0) > 0 || (parsed.sections?.length ?? 0) > 0;
+          const note = truncated && hasStructuredContent
+            ? `Content exceeds ${MAX_TEXT} chars; text truncated but tables/sections preserved for full analysis.`
+            : truncated && format === 'excel_full'
+              ? `Excel full-text exceeds ${MAX_TEXT} chars. Review the tables field for all cell values.`
+              : undefined;
           yield {
             type: 'result',
             value: {
@@ -166,65 +254,21 @@ export function makeDriveTools(deps: DriveToolsDeps): Tool[] {
               modifiedTime: file.modifiedTime,
               owner: file.owner,
               webViewLink: file.webViewLink,
+              format: parsed.format,
               truncated,
-              content: truncated ? text.slice(0, MAX_TEXT) : text,
+              content: truncated ? parsed.text.slice(0, MAX_TEXT) : parsed.text,
+              tables: parsed.tables,
+              sections: parsed.sections,
+              metadata: parsed.metadata,
+              ...(note && { note }),
             },
           };
-          return;
-        }
-
-        // Structured CSV/table format (only for CSV-exportable types)
-        const isCsvExportable = file.mimeType === 'application/vnd.google-apps.spreadsheet' ||
-                                file.mimeType === 'text/csv' ||
-                                file.mimeType === 'application/csv';
-
-        if (!isCsvExportable) {
-          yield {
-            type: 'result',
-            value: {
-              id: file.id,
-              name: file.name,
-              mimeType: file.mimeType,
-              modifiedTime: file.modifiedTime,
-              owner: file.owner,
-              webViewLink: file.webViewLink,
-              note: `format="${format}" only works with Google Sheets or CSV files; returning raw text instead`,
-              content: text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) : text,
-              truncated: text.length > MAX_TEXT,
-            },
-          };
-          return;
-        }
-
-        const parsed = parseCSV(text);
-
-        if (format === 'csv') {
-          yield {
-            type: 'result',
-            value: {
-              id: file.id,
-              name: file.name,
-              mimeType: file.mimeType,
-              modifiedTime: file.modifiedTime,
-              owner: file.owner,
-              webViewLink: file.webViewLink,
-              content: parsed.rows,
-            },
-          };
-        } else if (format === 'table') {
-          yield {
-            type: 'result',
-            value: {
-              id: file.id,
-              name: file.name,
-              mimeType: file.mimeType,
-              modifiedTime: file.modifiedTime,
-              owner: file.owner,
-              webViewLink: file.webViewLink,
-              headers: parsed.headers,
-              rows: parsed.rows,
-            },
-          };
+        } catch (exc) {
+          if (exc instanceof ParseError) {
+            yield { type: 'error', message: `parse error: ${exc.message}` };
+          } else {
+            yield { type: 'error', message: `parsing failed: ${exc instanceof Error ? exc.message : String(exc)}` };
+          }
         }
       },
     },

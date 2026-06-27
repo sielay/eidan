@@ -6,6 +6,7 @@ import { AgentOrgChartPane } from "@/components/admin/AgentOrgChartPane";
 import { DashboardPane } from "@/components/admin/DashboardPane";
 import { LogsPane } from "@/components/admin/LogsPane";
 import { NodesPane } from "@/components/admin/NodesPane";
+import { UsagePane } from "@/components/admin/UsagePane";
 
 // Admin is intentionally lean: conversations have their own surface (/c/…); jobs have theirs (/jobs);
 // triggers/routines were retired into agents (eidan.agent_triggers); the cursors pane only ever showed
@@ -14,11 +15,12 @@ import { NodesPane } from "@/components/admin/NodesPane";
 const TAB_COMPONENTS: Record<string, () => React.ReactElement> = {
   dashboard: DashboardPane,
   nodes: NodesPane,
+  usage: UsagePane,
   agents: AgentOrgChartPane,
   live: LogsPane,
 };
 
-const TAB_ORDER = ["dashboard", "nodes", "agents", "live"] as const;
+const TAB_ORDER = ["dashboard", "nodes", "usage", "agents", "live"] as const;
 
 /**
  * Tab router for `/admin/activity/[tab]` (docs/014 §3 admin row).

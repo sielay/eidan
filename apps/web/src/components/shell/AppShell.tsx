@@ -11,6 +11,7 @@ import { NavIcon } from "@/components/shell/NavIcon";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { pluginNav } from "@/plugins/registry.generated";
 import {
+  ADMIN_CONTRIBUTION,
   bottomTabs,
   chatSection,
   CORE_CONTRIBUTION,
@@ -19,6 +20,7 @@ import {
   railGroups,
   resolveSections,
   SETTINGS_SECTION,
+  TOOLS_CONTRIBUTION,
   type NavSection,
 } from "@/lib/shell/nav";
 
@@ -42,16 +44,17 @@ export function AppShell({
   const pathname = usePathname();
   const { user, signOut } = useAuth();
 
-  // Core sections + whatever installed plugins contribute (design §4). The `fs` plugin contributes a
-  // duplicate "Files" surface (/p/fs) that's currently empty/unused; the core "Files" page (/files)
-  // supersedes it while the single virtual-filesystem story is consolidated, so drop it here to avoid
-  // two "Files" entries. (Reversible: remove this filter once fs is the unified backend.)
+  // Filter to only show non-integration bundles in the rail.
+  // Integrations (group="Integrations") are demoted to Settings instead of the main nav.
   const contributedNav = React.useMemo(
-    () => pluginNav.map((c) => ({ ...c, sections: c.sections.filter((s) => s.href !== "/p/fs") })).filter((c) => c.sections.length > 0),
+    () => pluginNav
+      .filter((c) => c.group !== "Integrations")
+      .map((c) => ({ ...c, sections: c.sections.filter((s) => s.href !== "/p/fs") }))
+      .filter((c) => c.sections.length > 0),
     [],
   );
   const sections = React.useMemo(
-    () => resolveSections([CORE_CONTRIBUTION, ...contributedNav]),
+    () => resolveSections([CORE_CONTRIBUTION, TOOLS_CONTRIBUTION, ADMIN_CONTRIBUTION, ...contributedNav]),
     [contributedNav],
   );
   const chat = chatSection(sections);
@@ -257,6 +260,7 @@ function RailLink({
       href={section.href}
       className="navitem"
       aria-current={isActive(section, pathname) ? "page" : undefined}
+      title={section.label}
     >
       <NavIcon name={section.icon} />
       <span className="navitem__label">{section.label}</span>

@@ -44,7 +44,7 @@ if (!process.env.DATABASE_URL) {
           status: "open",
         });
         assert.ok(rows.length > 0);
-        const row = rows[0];
+        const row = rows[0]!;
         assert.strictEqual(row.from_agent, "Researcher");
         assert.strictEqual(row.to_agent, "Analyzer");
         assert.strictEqual(row.escalation_type, "agent_to_agent");
@@ -81,7 +81,7 @@ if (!process.env.DATABASE_URL) {
           status: "responded",
         });
         assert.ok(rows.length > 0);
-        const row = rows[0];
+        const row = rows[0]!;
         assert.ok(row.response?.feedback?.includes("processed"));
         assert.strictEqual(row.response?.decision, "proceed_with_partial");
       });
@@ -113,7 +113,7 @@ if (!process.env.DATABASE_URL) {
           status: "responded",
         });
         assert.ok(responses.length > 0);
-        assert.strictEqual(responses[0].response?.feedback, "Done, result is X");
+        assert.strictEqual(responses[0]!.response?.feedback, "Done, result is X");
       });
     });
 

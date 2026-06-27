@@ -61,6 +61,9 @@ export async function runAgentTurn(
   provider: string,
   onConversation?: (conversationId: string) => Promise<void>,
   timeoutMs?: number,
+  // External abort (graceful shutdown). Composed with the per-turn timeout below: whichever fires
+  // first aborts the turn. matbot's runner persists the partial session before yielding `aborted`.
+  extSignal?: AbortSignal,
 ): Promise<{ text: string; conversationId: string }> {
   const run = services.run;
   const sessions = services.sessions;
@@ -72,6 +75,11 @@ export async function runAgentTurn(
     // Tag the conversation as agent-origin before the turn runs (keeps it out of the human sidebar).
     if (onConversation) await onConversation(session.id);
     const ac = new AbortController();
+    const onExt = (): void => ac.abort(extSignal?.reason ?? 'shutdown');
+    if (extSignal) {
+      if (extSignal.aborted) ac.abort(extSignal.reason ?? 'shutdown');
+      else extSignal.addEventListener('abort', onExt, { once: true });
+    }
     // Hard cap: a slow/stuck provider (e.g. a local model grinding on a big prompt) must not run
     // forever — abort the turn so it records a failure instead. The loop detaches fires, but the
     // timeout also bounds resource use per fire.
@@ -90,8 +98,22 @@ export async function runAgentTurn(
       return { text: final ? lastAssistantText(final) : '', conversationId: session.id };
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      if (extSignal) extSignal.removeEventListener('abort', onExt);
     }
   });
+}
+
+// Preamble prepended to an agent's persona when re-firing it after a node restart interrupted its run.
+// References the interrupted conversation so the agent can pick up where it left off (the partial turn
+// was persisted before the abort) rather than starting blind.
+export function continuationPreamble(conversationId: string | null): string {
+  const ref = conversationId
+    ? `Your previous run was interrupted mid-task; that conversation is \`${conversationId}\` (recall it for what you'd done so far). `
+    : 'Your previous run was interrupted mid-task. ';
+  return (
+    `⏩ Resuming after a node restart (a deployment cut your last run short). ${ref}` +
+    'Continue the task below from where you left off; avoid repeating work you had already completed.\n\n---\n\n'
+  );
 }
 
 // Manual "run now" (test affordance, surfaced via POST /api/agents/:id/run). Starts the agent's turn

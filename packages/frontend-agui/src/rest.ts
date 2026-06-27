@@ -31,13 +31,50 @@ function json(res: ServerResponse, code: number, obj: unknown, cors: Record<stri
   res.end(JSON.stringify(obj));
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+function readTextBody(req: IncomingMessage, maxBytes = 256 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (d: Buffer) => chunks.push(d));
+    let size = 0;
+    req.on('data', (d: Buffer) => {
+      size += d.length;
+      if (size > maxBytes) { reject(new Error('request body too large')); req.destroy(); return; }
+      chunks.push(d);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
+}
+
+function checkJsonDepth(obj: unknown, maxDepth = 10): boolean {
+  // maxDepth=10 is a reasonable default: typical JSON payloads (titles, starred bools) nest at most 2-3 levels;
+  // 10 provides ample headroom while preventing algorithmic attacks via deeply nested structures.
+  if (maxDepth < 0) return false;
+  if (typeof obj !== 'object' || obj === null) return true;
+  if (Array.isArray(obj)) {
+    for (const val of obj) {
+      if (!checkJsonDepth(val, maxDepth - 1)) return false;
+    }
+  } else {
+    for (const val of Object.values(obj)) {
+      if (!checkJsonDepth(val, maxDepth - 1)) return false;
+    }
+  }
+  return true;
+}
+
+// Parse JSON from request body with depth validation to prevent deeply nested JSON attacks.
+// Throws SyntaxError on invalid JSON, Error with specific message on depth validation failure.
+function parseJsonBody(body: string): unknown {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch (err) {
+    // Re-throw JSON parse errors as-is so callers can distinguish them
+    if (err instanceof SyntaxError) throw err;
+    throw new Error('invalid JSON in request body');
+  }
+  if (!checkJsonDepth(parsed, 10)) throw new Error('request body structure too deeply nested');
+  return parsed;
 }
 
 // Raw bytes (for binary uploads like audio). Capped at 25MB — the Whisper API's own per-file limit.
@@ -524,14 +561,30 @@ export async function handleRest(
       const qp = new URL(req.url ?? '', 'http://x').searchParams;
       const limit = Math.min(Math.max(Number(qp.get('limit')) || 50, 1), 100);
       const before = qp.get('before');
+      const beforeStarredStr = qp.get('before_starred');
       const search = (qp.get('q') ?? '').trim();
       const kind = qp.get('kind');
+      if (kind && !['all', 'agents', 'chats'].includes(kind)) { json(res, 400, { error: 'invalid kind parameter' }, cors); return true; }
       const conds: string[] = ['user_id = $1', 'deleted_at is null'];
       const vals: unknown[] = [uid];
       if (kind === 'agents') conds.push(`metadata->>'origin' = 'agent'`);
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
-      if (before) { vals.push(before); conds.push(`coalesce(updated_at, created_at) < $${vals.length}::timestamptz`); }
+      if (before) {
+        // When using keyset pagination with 'before' cursor, 'before_starred' must be provided and valid.
+        // This ensures consistent pagination across the (starred DESC, updated_at DESC) sort order.
+        if (beforeStarredStr !== 'true' && beforeStarredStr !== 'false') {
+          json(res, 400, { error: 'before_starred must be provided and be "true" or "false" when before is used' }, cors);
+          return true;
+        }
+        const beforeStarredBool = beforeStarredStr === 'true';
+        const beforeStarredIdx = vals.length + 1;
+        const beforeTimestampIdx = vals.length + 2;
+        vals.push(beforeStarredBool, before);
+        // Keyset pagination: fetch rows after the cursor by (starred DESC, updated_at DESC).
+        // Use the standard (col1 < val1) OR (col1 = val1 AND col2 < val2) pattern.
+        conds.push(`((starred < $${beforeStarredIdx}::boolean) OR (starred = $${beforeStarredIdx}::boolean AND coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz))`);
+      }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
         q(
@@ -541,28 +594,38 @@ export async function handleRest(
                             || coalesce(title, metadata->>'agent_name', '')
                        else title end as title,
                   metadata->>'origin' as origin, metadata->>'agent_name' as agent_name,
-                  created_at, updated_at
+                  created_at, updated_at, starred
              from eidan.conversations
             where ${conds.join(' and ')}
-            order by coalesce(updated_at, created_at) desc limit $${vals.length}`,
+            order by starred desc, coalesce(updated_at, created_at) desc limit $${vals.length}`,
           vals,
         ),
       );
       const rows = r.rows;
-      const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown } | undefined;
+      const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
+      // starred is NOT NULL in schema, so it is always present when a row exists
+      const nextBeforeStarred = rows.length === limit && last ? last.starred : null;
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
-          created_at: iso(row.created_at), updated_at: iso(row.updated_at),
+          created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
         })),
         next_before: nextBefore,
+        next_before_starred: nextBeforeStarred,
       }, cors);
       return true;
     }
     if (method === 'POST') {
       let title: string | null = null;
-      try { const b = JSON.parse(await readBody(req)) as { title?: string | null }; title = b.title ?? null; } catch { /* empty body ok */ }
+      try {
+        const b = parseJsonBody(await readTextBody(req, 64 * 1024)) as { title?: string | null };
+        title = b.title ?? null;
+      } catch (err) {
+        const msg = err instanceof SyntaxError ? 'invalid JSON in request body' : (err instanceof Error ? err.message : 'invalid request body');
+        json(res, 400, { error: msg }, cors);
+        return true;
+      }
       const id = crypto.randomUUID();
       const sessions = services.sessions;
       if (!sessions) { json(res, 500, { error: 'sessions unavailable' }, cors); return true; }
@@ -579,18 +642,59 @@ export async function handleRest(
     const sub = parts[3];
 
     if (sub === undefined && method === 'GET') {
-      const r = await withPrincipal(principal, (q) => q('select id, title, created_at, updated_at from eidan.conversations where id=$1 and user_id=$2 and deleted_at is null', [id, uid]));
-      const row = r.rows[0];
+      const r = await withPrincipal(principal, (q) => q('select id, title, created_at, updated_at, starred from eidan.conversations where id=$1 and user_id=$2 and deleted_at is null', [id, uid]));
+      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown } | undefined;
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
-      json(res, 200, { id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at) }, cors);
+      json(res, 200, { id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true }, cors);
       return true;
     }
 
     if (sub === undefined && method === 'PATCH') {
-      let title: string | null = null;
-      try { const b = JSON.parse(await readBody(req)) as { title?: string | null }; title = (b.title ?? '').toString().trim() || null; } catch { /* */ }
-      await withPrincipal(principal, (q) => q('update eidan.conversations set title=$2, updated_at=now() where id=$1 and user_id=$3', [id, title, uid]));
-      json(res, 200, { id, title }, cors);
+      let body: unknown = {};
+      // 64KB limit covers title (typical max ~256 bytes) and starred boolean; sufficient for current schema
+      try {
+        body = parseJsonBody(await readTextBody(req, 64 * 1024)) as unknown;
+      } catch (err) {
+        const msg = err instanceof SyntaxError ? 'invalid JSON in request body' : (err instanceof Error ? err.message : 'invalid request body');
+        json(res, 400, { error: msg }, cors);
+        return true;
+      }
+      if (typeof body !== 'object' || body === null) {
+        json(res, 400, { error: 'request body must be a JSON object' }, cors);
+        return true;
+      }
+      const bodyObj = body as Record<string, unknown>;
+      const updates: string[] = ['updated_at=now()'];
+      const vals: unknown[] = [id, uid];
+      let paramIdx = vals.length + 1;
+      if ('title' in bodyObj) {
+        const titleVal = bodyObj.title;
+        if (typeof titleVal !== 'string' && titleVal !== null) { json(res, 400, { error: 'title must be a string or null' }, cors); return true; }
+        vals.push((titleVal ?? '').toString().trim() || null);
+        updates.push(`title=$${paramIdx}`);
+        paramIdx++;
+      }
+      if ('starred' in bodyObj) {
+        const starredVal = bodyObj.starred;
+        if (typeof starredVal !== 'boolean') { json(res, 400, { error: 'starred must be a boolean' }, cors); return true; }
+        vals.push(starredVal);
+        updates.push(`starred=$${paramIdx}`);
+        paramIdx++;
+      }
+      let row: { id?: unknown; title?: unknown; starred?: unknown; updated_at?: unknown } | undefined;
+      try {
+        const r = await withPrincipal(principal, (q) => q(
+          `update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2 returning id, title, starred, updated_at`,
+          vals,
+        ));
+        row = r.rows[0];
+      } catch (err) {
+        console.error('failed to update conversation:', err instanceof Error ? err.message : String(err));
+        json(res, 500, { error: 'failed to update conversation' }, cors);
+        return true;
+      }
+      if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
+      json(res, 200, { id: row.id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at) }, cors);
       return true;
     }
 

@@ -81,17 +81,21 @@ export interface ConversationSummary {
   agent_name: string | null;
   created_at: string;
   updated_at: string;
+  starred: boolean;
 }
 
 interface ConversationsResponse {
   conversations: ConversationSummary[];
   next_before: string | null;
+  next_before_starred: boolean | null;
 }
 
 export interface ListConversationsOpts {
   limit?: number;
   /** Keyset cursor: the prior page's `nextBefore` (an updated_at iso). */
   before?: string | null;
+  /** Keyset cursor: the prior page's `nextBeforeStarred` (starred boolean). */
+  beforeStarred?: boolean | null;
   /** Case-insensitive title / agent-name search. */
   q?: string;
   /** all | agents | chats (server-side, so it composes with pagination). */
@@ -99,12 +103,15 @@ export interface ListConversationsOpts {
 }
 
 // One page of conversations + the cursor for the next page (null when the last page was reached).
+// Returns pagination cursors (nextBefore and nextBeforeStarred) that are separate from ConversationSummary
+// and used internally for keyset pagination across the (starred DESC, updated_at DESC) sort order.
 export async function listConversations(
   opts: ListConversationsOpts = {},
-): Promise<{ conversations: ConversationSummary[]; nextBefore: string | null }> {
+): Promise<{ conversations: ConversationSummary[]; nextBefore: string | null; nextBeforeStarred: boolean | null }> {
   const qs = new URLSearchParams();
   if (opts.limit) qs.set("limit", String(opts.limit));
   if (opts.before) qs.set("before", opts.before);
+  if (opts.beforeStarred !== null && opts.beforeStarred !== undefined) qs.set("before_starred", opts.beforeStarred ? 'true' : 'false');
   if (opts.q && opts.q.trim()) qs.set("q", opts.q.trim());
   if (opts.kind && opts.kind !== "all") qs.set("kind", opts.kind);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
@@ -116,7 +123,11 @@ export async function listConversations(
     throw new Error(`GET /api/conversations returned ${res.status}`);
   }
   const body = (await res.json()) as ConversationsResponse;
-  return { conversations: body.conversations, nextBefore: body.next_before ?? null };
+  return {
+    conversations: body.conversations,
+    nextBefore: body.next_before ?? null,
+    nextBeforeStarred: body.next_before_starred ?? null,
+  };
 }
 
 /**
@@ -209,4 +220,34 @@ export async function regenerateConversationTitle(
     );
   }
   return (await res.json()) as UpdateConversationResponse;
+}
+
+interface StarConversationResponse {
+  id: string;
+  title: string | null;
+  starred: boolean;
+  updated_at: string;
+}
+
+/**
+ * Toggle a conversation's starred state.
+ */
+export async function toggleConversationStar(
+  conversationId: string,
+  starred: boolean,
+): Promise<StarConversationResponse> {
+  const res = await authFetch(
+    `/api/conversations/${conversationId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ starred }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `PATCH /api/conversations/${conversationId} returned ${res.status}`,
+    );
+  }
+  return (await res.json()) as StarConversationResponse;
 }

@@ -559,3 +559,251 @@ export async function cursorAction(
     throw new Error(`POST ${path} returned ${res.status}`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Usage & cost analytics endpoints
+// ---------------------------------------------------------------------------
+
+export interface UsageSummaryGroup {
+  group: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  call_count: number;
+}
+
+export interface UsageSummary {
+  total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_creation_tokens: number;
+  by_group: UsageSummaryGroup[];
+}
+
+export async function getUsageSummary(options: {
+  start_date?: string;
+  end_date?: string;
+  group_by?: "model" | "provider" | "node" | "role";
+} = {}): Promise<UsageSummary> {
+  const params = new URLSearchParams();
+  if (options.start_date) params.set("start_date", options.start_date);
+  if (options.end_date) params.set("end_date", options.end_date);
+  if (options.group_by) params.set("group_by", options.group_by);
+
+  const qs = params.toString();
+  const path = `/api/admin/usage/summary${qs ? `?${qs}` : ""}`;
+  const res = await authFetch(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} returned ${res.status}`);
+  }
+  return (await res.json()) as UsageSummary;
+}
+
+export interface TimeSeriesPoint {
+  bucket: string;
+  group: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+}
+
+export interface TimeSeriesResponse {
+  interval: "day" | "week" | "month";
+  group_by: string;
+  data: TimeSeriesPoint[];
+}
+
+export async function getUsageTimeSeries(options: {
+  start_date?: string;
+  end_date?: string;
+  interval?: "day" | "week" | "month";
+  group_by?: "provider" | "model" | "node";
+} = {}): Promise<TimeSeriesResponse> {
+  const params = new URLSearchParams();
+  if (options.start_date) params.set("start_date", options.start_date);
+  if (options.end_date) params.set("end_date", options.end_date);
+  if (options.interval) params.set("interval", options.interval);
+  if (options.group_by) params.set("group_by", options.group_by);
+
+  const qs = params.toString();
+  const path = `/api/admin/usage/timeseries${qs ? `?${qs}` : ""}`;
+  const res = await authFetch(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} returned ${res.status}`);
+  }
+  return (await res.json()) as TimeSeriesResponse;
+}
+
+export interface ModelBreakdown {
+  model: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  call_count: number;
+}
+
+export interface ModelsResponse {
+  models: ModelBreakdown[];
+}
+
+export async function getUsageModels(options: {
+  start_date?: string;
+  end_date?: string;
+  order_by?: "cost" | "count" | "tokens";
+} = {}): Promise<ModelsResponse> {
+  const params = new URLSearchParams();
+  if (options.start_date) params.set("start_date", options.start_date);
+  if (options.end_date) params.set("end_date", options.end_date);
+  if (options.order_by) params.set("order_by", options.order_by);
+
+  const qs = params.toString();
+  const path = `/api/admin/usage/models${qs ? `?${qs}` : ""}`;
+  const res = await authFetch(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} returned ${res.status}`);
+  }
+  return (await res.json()) as ModelsResponse;
+}
+
+export interface ProviderBreakdown {
+  provider: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  call_count: number;
+}
+
+export interface ProvidersResponse {
+  providers: ProviderBreakdown[];
+}
+
+export async function getUsageProviders(options: {
+  start_date?: string;
+  end_date?: string;
+  order_by?: "cost" | "count" | "tokens";
+} = {}): Promise<ProvidersResponse> {
+  const params = new URLSearchParams();
+  if (options.start_date) params.set("start_date", options.start_date);
+  if (options.end_date) params.set("end_date", options.end_date);
+  if (options.order_by) params.set("order_by", options.order_by);
+
+  const qs = params.toString();
+  const path = `/api/admin/usage/providers${qs ? `?${qs}` : ""}`;
+  const res = await authFetch(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} returned ${res.status}`);
+  }
+  return (await res.json()) as ProvidersResponse;
+}
+
+export interface NodeBreakdown {
+  node_id: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  call_count: number;
+}
+
+export interface NodesResponse {
+  nodes: NodeBreakdown[];
+}
+
+export async function getUsageNodes(options: {
+  start_date?: string;
+  end_date?: string;
+  order_by?: "cost" | "count" | "tokens";
+} = {}): Promise<NodesResponse> {
+  const params = new URLSearchParams();
+  if (options.start_date) params.set("start_date", options.start_date);
+  if (options.end_date) params.set("end_date", options.end_date);
+  if (options.order_by) params.set("order_by", options.order_by);
+
+  const qs = params.toString();
+  const path = `/api/admin/usage/nodes${qs ? `?${qs}` : ""}`;
+  const res = await authFetch(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} returned ${res.status}`);
+  }
+  return (await res.json()) as NodesResponse;
+}
+
+export interface LlmCall {
+  id: string;
+  conversation_id: string | null;
+  message_id: string | null;
+  agent_id: string | null;
+  provider: string;
+  model: string;
+  role: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  cost_usd: number;
+  latency_ms: number | null;
+  error: string | null;
+  request_id: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface RecentCallsResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  calls: LlmCall[];
+}
+
+export async function getRecentCalls(options: {
+  limit?: number;
+  offset?: number;
+  provider?: string;
+  model?: string;
+  role?: string;
+  since?: string;
+} = {}): Promise<RecentCallsResponse> {
+  const params = new URLSearchParams();
+  if (options.limit) params.set("limit", String(options.limit));
+  if (options.offset) params.set("offset", String(options.offset));
+  if (options.provider) params.set("provider", options.provider);
+  if (options.model) params.set("model", options.model);
+  if (options.role) params.set("role", options.role);
+  if (options.since) params.set("since", options.since);
+
+  const qs = params.toString();
+  const path = `/api/admin/usage/recent-calls${qs ? `?${qs}` : ""}`;
+  const res = await authFetch(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} returned ${res.status}`);
+  }
+  return (await res.json()) as RecentCallsResponse;
+}

@@ -16,20 +16,7 @@
  *   (by `mobileHome`), with everything else under "More".
  */
 
-export type NavIconKey =
-  | "chat"
-  | "memory"
-  | "inbox"
-  | "plugins"
-  | "procedures"
-  | "admin"
-  | "settings"
-  | "more"
-  | "plus"
-  | "search"
-  | "sun"
-  | "moon"
-  | "chevron";
+import { type NavIconKey } from "../../components/shell/NavIcon";
 
 export interface NavSection {
   id: string;
@@ -58,16 +45,32 @@ export interface NavContribution {
 /** Core sections — always present, real routes. */
 export const CORE_CONTRIBUTION: NavContribution = {
   bundle: "core",
-  group: "System",
+  group: "Work",
   sections: [
     { id: "chat", label: "Chat", icon: "chat", href: "/", mobileHome: 0 },
-    { id: "memory", label: "Memory", icon: "memory", href: "/memory", mobileHome: 1 },
-    { id: "inbox", label: "Inbox", icon: "inbox", href: "/escalations", mobileHome: 2 },
+    { id: "escalations", label: "Escalations", icon: "escalations", href: "/escalations", mobileHome: 2 },
     { id: "agents", label: "Agents", icon: "agents", href: "/agents", mobileHome: null },
+  ],
+};
+
+/** Tools & Knowledge sections. */
+export const TOOLS_CONTRIBUTION: NavContribution = {
+  bundle: "core",
+  group: "Tools",
+  sections: [
+    { id: "memory", label: "Memory", icon: "memory", href: "/memory", mobileHome: 1 },
     { id: "files", label: "Files", icon: "files", href: "/files", mobileHome: null },
     { id: "jobs", label: "Jobs", icon: "jobs", href: "/jobs", mobileHome: null },
     { id: "procedures", label: "Procedures", icon: "procedures", href: "/procedures", mobileHome: null },
     { id: "plugins", label: "Plugins", icon: "plugins", href: "/plugins", mobileHome: 3 },
+  ],
+};
+
+/** Admin sections. */
+export const ADMIN_CONTRIBUTION: NavContribution = {
+  bundle: "core",
+  group: "System",
+  sections: [
     { id: "admin", label: "Admin", icon: "admin", href: "/admin/activity", mobileHome: null, desktopOnly: true },
   ],
 };
@@ -83,13 +86,31 @@ export const SETTINGS_SECTION: NavSection = {
   group: "System",
 };
 
-/** Flatten contributions into resolved sections (chat first). */
+/** Flatten contributions into resolved sections, deduplicating by id (core contributions take precedence). */
 export function resolveSections(
   contributions: readonly NavContribution[] = [CORE_CONTRIBUTION],
 ): NavSection[] {
-  return contributions.flatMap((c) =>
+  const sections = contributions.flatMap((c) =>
     c.sections.map((s) => ({ ...s, bundle: c.bundle, group: c.group })),
   );
+  // Deduplicate by id: first occurrence wins (core contributions take precedence).
+  // This means core sections override plugin sections with the same id, and earlier
+  // plugins override later ones.
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  const result = sections.filter((s) => {
+    if (seen.has(s.id)) {
+      duplicates.push(s.id);
+      return false;
+    }
+    seen.add(s.id);
+    return true;
+  });
+  if (duplicates.length > 0) {
+    const msg = `[nav] Duplicate section IDs detected (core/earlier plugins take precedence): ${duplicates.join(", ")}. Check plugin configurations for ID collisions.`;
+    throw new Error(msg);
+  }
+  return result;
 }
 
 export interface RailGroup {
