@@ -455,8 +455,9 @@ export class LinkedInClient {
       text: p.commentary ?? '',
       likes: 0,
       comments: 0,
-      // engagement_data_available is hardcoded to false until r_member_social_feed permission
-      // is granted. See upgrade path comment above.
+      // TODO: Once r_member_social_feed permission is granted, set this to true and fetch actual
+      // engagement data via /reactions?q=post for each post. Parse LIKE/COMMENT_LIKE reaction types
+      // to populate likes/comments above. See the UPGRADE PATH comment above.
       engagement_data_available: false,
     }));
     return { posts };
