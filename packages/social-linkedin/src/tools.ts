@@ -206,9 +206,10 @@ export function makeLinkedinTools(store: AccountStore | null, seal?: SealFn): To
                 engagement_data_available: post.engagement_data_available,
               })),
               count: result.posts?.length ?? 0,
-              // NOTE: engagement_data_available is currently always false (see client.ts TODO).
-              // Once r_member_social_feed permission is granted, this notice will only appear
-              // if any posts have unavailable engagement data. For now, it's always present.
+              // NOTE: engagement_data_available is currently hardcoded to false in client.ts,
+              // so this .every() check will always be false and notice will always be defined.
+              // Once r_member_social_feed permission is granted and engagement data can be
+              // fetched, this notice will only appear if some (but not all) posts have data.
               notice: !result.posts?.every((p) => p.engagement_data_available)
                 ? 'Engagement metrics (likes, comments) are currently unavailable. Requires LinkedIn Community Management API standard tier + r_member_social_feed permission.'
                 : undefined,

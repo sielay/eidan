@@ -455,6 +455,8 @@ export class LinkedInClient {
       text: p.commentary ?? '',
       likes: 0,
       comments: 0,
+      // engagement_data_available is hardcoded to false until r_member_social_feed permission
+      // is granted. See upgrade path comment above.
       engagement_data_available: false,
     }));
     return { posts };
