@@ -108,19 +108,25 @@ export function AgentOrgChartPane(): React.ReactElement {
     const nodesWorkingCopy = nodes.map((n) => ({ ...n }));
     const velocityHistory: number[] = [];
     const convergenceWindow = 15;
+    const nodeMap = new Map(nodesWorkingCopy.map(n => [n.id, n]));
+    let rafId: number | null = null;
 
     const animate = () => {
       let maxVelocity = 0;
       const iterationsPerFrame = 2;
 
       for (let iter = 0; iter < iterationsPerFrame && iterations < maxIterations && animating; iter++) {
-        // Apply forces
+        const forces = new Map<string, { fx: number; fy: number }>();
+
+        // Initialize forces for all nodes
+        for (const node of nodesWorkingCopy) {
+          forces.set(node.id, { fx: 0, fy: 0 });
+        }
+
+        // Repulsion between nodes
         for (let i = 0; i < nodesWorkingCopy.length; i++) {
           const node = nodesWorkingCopy[i];
-          let fx = 0,
-            fy = 0;
-
-          // Repulsion between nodes
+          const nodeForces = forces.get(node.id)!;
           for (let j = 0; j < nodesWorkingCopy.length; j++) {
             if (i === j) continue;
             const other = nodesWorkingCopy[j];
@@ -128,38 +134,37 @@ export function AgentOrgChartPane(): React.ReactElement {
             const dy = node.y - other.y || 0.1;
             const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
             const force = 10000 / (dist * dist);
-            fx += (dx / dist) * force;
-            fy += (dy / dist) * force;
+            nodeForces.fx += (dx / dist) * force;
+            nodeForces.fy += (dy / dist) * force;
           }
+        }
 
-          // Attraction along edges
-          for (const edge of edges) {
-            if (edge.from === node.id) {
-              const target = nodesWorkingCopy.find((n) => n.id === edge.to);
-              if (target) {
-                const dx = target.x - node.x;
-                const dy = target.y - node.y;
-                const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-                const force = dist * 0.3;
-                fx += (dx / dist) * force;
-                fy += (dy / dist) * force;
-              }
-            } else if (edge.to === node.id) {
-              const source = nodesWorkingCopy.find((n) => n.id === edge.from);
-              if (source) {
-                const dx = source.x - node.x;
-                const dy = source.y - node.y;
-                const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-                const force = dist * 0.1;
-                fx += (dx / dist) * force;
-                fy += (dy / dist) * force;
-              }
-            }
-          }
+        // Attraction along edges - iterate once for O(E) complexity
+        for (const edge of edges) {
+          const from = nodeMap.get(edge.from);
+          const to = nodeMap.get(edge.to);
+          if (!from || !to) continue;
 
-          // Damping + update velocity
-          node.vx = (node.vx + fx * 0.01) * 0.95;
-          node.vy = (node.vy + fy * 0.01) * 0.95;
+          const fromForces = forces.get(from.id)!;
+          const toForces = forces.get(to.id)!;
+
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+          const forceFromTo = dist * 0.3;
+          fromForces.fx += (dx / dist) * forceFromTo;
+          fromForces.fy += (dy / dist) * forceFromTo;
+
+          const forceToFrom = dist * 0.1;
+          toForces.fx -= (dx / dist) * forceToFrom;
+          toForces.fy -= (dy / dist) * forceToFrom;
+        }
+
+        // Apply velocity and position updates
+        for (const node of nodesWorkingCopy) {
+          const nodeForces = forces.get(node.id)!;
+          node.vx = (node.vx + nodeForces.fx * 0.01) * 0.95;
+          node.vy = (node.vy + nodeForces.fy * 0.01) * 0.95;
           node.x += node.vx;
           node.y += node.vy;
 
@@ -190,14 +195,17 @@ export function AgentOrgChartPane(): React.ReactElement {
 
       // Stop if converged, max iterations reached, or velocity below threshold
       if (animating && maxVelocity > 0.1 && iterations < maxIterations) {
-        requestAnimationFrame(animate);
+        rafId = requestAnimationFrame(animate);
       }
     };
 
-    animate();
+    rafId = requestAnimationFrame(animate);
 
     return () => {
       animating = false;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
     };
   }, [edges]);
 
