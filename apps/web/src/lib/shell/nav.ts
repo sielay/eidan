@@ -16,30 +16,7 @@
  *   (by `mobileHome`), with everything else under "More".
  */
 
-// Keep in sync with the icon map in NavIcon.tsx. As this grows, consider refactoring
-// to dynamically generate from the map to avoid manual duplication.
-export type NavIconKey =
-  | "chat"
-  | "memory"
-  | "agents"
-  | "boards"
-  | "escalations"
-  | "skills"
-  | "calendar"
-  | "procedures"
-  | "ventures"
-  | "decision-log"
-  | "jobs"
-  | "files"
-  | "plugins"
-  | "admin"
-  | "settings"
-  | "more"
-  | "plus"
-  | "search"
-  | "sun"
-  | "moon"
-  | "chevron";
+import { type NavIconKey } from "../../components/shell/NavIcon";
 
 export interface NavSection {
   id: string;
@@ -117,12 +94,24 @@ export function resolveSections(
     c.sections.map((s) => ({ ...s, bundle: c.bundle, group: c.group })),
   );
   // Deduplicate by id: first occurrence wins (core contributions take precedence).
+  // This means core sections override plugin sections with the same id, and earlier
+  // plugins override later ones.
   const seen = new Set<string>();
-  return sections.filter((s) => {
-    if (seen.has(s.id)) return false;
+  const duplicates: string[] = [];
+  const result = sections.filter((s) => {
+    if (seen.has(s.id)) {
+      duplicates.push(s.id);
+      return false;
+    }
     seen.add(s.id);
     return true;
   });
+  if (duplicates.length > 0) {
+    console.warn(
+      `[nav] Duplicate section IDs deduplicated (core/earlier plugins take precedence): ${duplicates.join(", ")}`,
+    );
+  }
+  return result;
 }
 
 export interface RailGroup {

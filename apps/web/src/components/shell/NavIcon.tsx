@@ -31,7 +31,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-const MAP: Record<string, LucideIcon> = {
+export const MAP = {
   chat: MessageSquare,
   memory: BookOpen,
   inbox: Inbox,
@@ -61,7 +61,9 @@ const MAP: Record<string, LucideIcon> = {
   "scroll-text": ScrollText,
   receipt: Receipt,
   analytics: BarChart3,
-};
+} as const satisfies Record<string, LucideIcon>;
+
+export type NavIconKey = keyof typeof MAP;
 
 /**
  * Stroke line icon for the shell, sized + coloured by the `.i` design
@@ -75,6 +77,6 @@ export function NavIcon({
   name: string;
   className?: string;
 }): React.ReactElement {
-  const Cmp = MAP[name] ?? MessageSquare;
+  const Cmp = MAP[name as NavIconKey] ?? MessageSquare;
   return <Cmp className={className} aria-hidden />;
 }
