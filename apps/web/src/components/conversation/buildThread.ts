@@ -39,11 +39,15 @@ export interface BuildThreadInput {
  * call still renders.
  */
 // Extract the persisted ⑂ Compare legs from an assistant row's metadata.fork, if present + well-formed.
-function forkFrom(row: MessageRow): { legs: Array<{ model: string; text: string }> } | undefined {
+// Each leg may include truncation status and token usage metadata.
+function forkFrom(row: MessageRow): { legs: Array<{ model: string; text: string; truncated?: boolean; inputTokens?: number; outputTokens?: number }> } | undefined {
   const f = (row.metadata as { fork?: unknown } | null)?.fork as { legs?: unknown } | undefined;
   if (!f || !Array.isArray(f.legs)) return undefined;
   const legs = f.legs
-    .filter((l): l is { model: string; text: string } => !!l && typeof (l as { model?: unknown }).model === "string" && typeof (l as { text?: unknown }).text === "string");
+    .filter((l): l is { model: string; text: string; truncated?: boolean; inputTokens?: number; outputTokens?: number } => {
+      const leg = l as { model?: unknown; text?: unknown; truncated?: unknown; inputTokens?: unknown; outputTokens?: unknown };
+      return !!l && typeof leg.model === "string" && typeof leg.text === "string";
+    });
   return legs.length ? { legs } : undefined;
 }
 

@@ -158,8 +158,12 @@ async function resolveMentions(principal: Principal, mentions: Array<{ kind: str
 // the user's prompt plus each candidate model's answer, and asks the judge to emit the single best
 // merged answer followed by a "## Model comparison" section. Kept out of the persisted user/assistant
 // messages so the conversation reads cleanly: clean prompt in, merged answer out.
-function buildJudgeBriefing(prompt: string, legs: Array<{ model: string; text: string }>): string {
-  const candidates = legs.map((l, i) => `### Candidate ${i + 1} — ${l.model}\n${l.text}`).join('\n\n');
+// Includes truncation markers if any responses were cut off.
+function buildJudgeBriefing(prompt: string, legs: Array<{ model: string; text: string; truncated?: boolean }>): string {
+  const candidates = legs.map((l, i) => {
+    const truncMarker = l.truncated ? '\n\n_[This response was truncated — the model reached its token limit]_' : '';
+    return `### Candidate ${i + 1} — ${l.model}\n${l.text}${truncMarker}`;
+  }).join('\n\n');
   return [
     `${legs.length} different models each answered the user's request below. Your job is to judge them and merge the best result.`,
     ``,
@@ -169,7 +173,7 @@ function buildJudgeBriefing(prompt: string, legs: Array<{ model: string; text: s
     ``,
     candidates,
     ``,
-    `Now write the single best answer to the request: synthesise the strongest parts of each candidate and correct any mistakes. This merged answer is what the user sees, so write it directly — do NOT say "candidate" or "model" in it.`,
+    `Now write the single best answer to the request: synthesise the strongest parts of each candidate and correct any mistakes. Prefer complete answers over truncated ones. This merged answer is what the user sees, so write it directly — do NOT say "candidate" or "model" in it.`,
     `After the answer, add a section titled exactly "## Model comparison": one bullet per model (use the model names shown above) summarising its take in a few words, then a final line in bold "**Strongest:** <model> — <one-line why>".`,
   ].join('\n');
 }
@@ -337,7 +341,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
 
     // The resolved Compare legs, persisted onto the merged assistant message once the judge turn commits
     // (so the chat can show a disclosure of each model's raw answer alongside the merge).
-    let forkLegs: Array<{ model: string; text: string }> = [];
+    // Each leg includes token usage and truncation status.
+    let forkLegs: Array<{ model: string; text: string; truncated?: boolean; inputTokens?: number; outputTokens?: number }> = [];
 
     // Run the fork candidates (one-shot completions — no session, no junk conversations) and arm a
     // one-shot `screen` hook that injects them as EPHEMERAL context for the judge turn below. Ephemeral
@@ -348,19 +353,33 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     if (doFork && services.singleTurn) {
       const singleTurn = services.singleTurn.bind(services);
       const legLedger = services.LlmCalls;
+      // Request responses with a generous token budget to avoid mid-sentence truncation; the judge
+      // can handle longer context and will synthesize it down to the best answer.
+      const maxTokens = 4000;
       const settled = await Promise.allSettled(compareModels.map(async (m) => {
-        const resp = await singleTurn({ provider: m, prompt: text });
+        const resp = await singleTurn({ provider: m, prompt: text, maxTokens });
         const legModel = services.providers.get(m)?.model ?? m;
+        // Detect truncation: responses ending with "[truncated]", "...", or if stop_reason is 'length'.
+        // ponytail: these heuristics catch common model truncation patterns; a more robust approach would
+        // require the singleTurn signature to return explicit truncation status from the provider.
+        const respText = typeof resp?.text === 'string' ? resp.text : '';
+        const stopReason = typeof resp?.stopReason === 'string' ? resp.stopReason : undefined;
+        const truncated = respText.includes('[truncated]') || respText.trim().endsWith('...') || stopReason === 'length';
+        // Append truncation marker if detected and not already present
+        const text_ = truncated && !respText.includes('[truncated]') ? `${respText.trim()}\n\n_[Response truncated at token limit]_` : respText;
         // Record each compare leg in the cost ledger (role='compare_leg') so the trace/cost rollup
         // counts them — they run outside the streamed turn, so they weren't being recorded before.
-        if (legLedger && resp.usage) {
-          void legLedger.record({ userId: principal.id, conversationId, provider: m, model: legModel, role: 'compare_leg', inputTokens: resp.usage.inputTokens, outputTokens: resp.usage.outputTokens });
+        if (legLedger && resp?.usage) {
+          void legLedger.record({
+            userId: principal.id, conversationId, provider: m, model: legModel, role: 'compare_leg',
+            inputTokens: resp.usage.inputTokens ?? 0, outputTokens: resp.usage.outputTokens ?? 0,
+          });
         }
-        return { model: legModel, text: resp.text };
+        return { model: legModel, text: text_, truncated: truncated || false, inputTokens: resp?.usage?.inputTokens ?? 0, outputTokens: resp?.usage?.outputTokens ?? 0 };
       }));
       const legs = settled.flatMap((r) => (r.status === 'fulfilled' && r.value.text.trim() ? [r.value] : []));
       if (legs.length >= 2) {
-        forkLegs = legs;
+        forkLegs = legs.map(l => ({ model: l.model, text: l.text, truncated: l.truncated, inputTokens: l.inputTokens, outputTokens: l.outputTokens }));
         const briefing = buildJudgeBriefing(text, legs);
         const armedAt = Date.now();
         let fired = false;
