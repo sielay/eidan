@@ -23,16 +23,18 @@ The decision point is logged as a pending escalation, allowing the operator to a
 The plugin registers a high-priority `toolresult` hook that:
 
 - Detects when `ask_user` with `type='confirm'` fails with an error
-- Checks if we're in a non-interactive context (via `IS_SUB_AGENT` env var)
+- Checks if we're in a non-interactive context (via service configuration)
 - If both true: escalates the decision to the inbox, returns a stub response
 - If not: lets the error propagate (interactive path, or non-confirm types)
 
 ## Non-interactive context detection
 
-Non-interactive contexts set `IS_SUB_AGENT=1`:
+The non-interactive state is passed through service configuration (`AskUserFallbackConfig.isNonInteractive`), set by:
 - Background agent runs (via `background` tool)
 - Scheduled jobs / routines
 - Procedures running in isolated VMs
+
+The host runtime sets `isNonInteractive: true` when deploying in these contexts, making the configuration flexible across different environments (Node.js, serverless, etc.) rather than relying on environment variables.
 
 ## Testing
 
