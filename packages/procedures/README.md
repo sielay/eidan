@@ -45,3 +45,8 @@ upsert), applied by the core migrate runner.
 - `EIDAN_DATABASE_URL` (or `DATABASE_URL`) — Postgres connection (**required**).
 - `EIDAN_PROCEDURE_TOOLS` — comma list of tool names a procedure may call
   (default `remember,recall`). Deny-by-default: anything not listed is unreachable.
+  ⚠️ **Security**: Any tool in this allowlist gains access to the procedure context
+  (user identity, session). Do NOT allowlist `secrets_action`, `vault`, or tools that
+  modify system state without user confirmation. A promoted procedure inherits the
+  principal's privileges, so audit carefully — a malicious or buggy procedure can
+  escalate privileges or cause unintended side effects.
