@@ -6,6 +6,7 @@ import {
   BookOpen,
   Calendar,
   ChevronRight,
+  Clock,
   Database,
   FileText,
   FolderOpen,
@@ -40,6 +41,7 @@ export const MAP = {
   escalations: AlertCircle,
   skills: Lightbulb,
   calendar: Calendar,
+  jobs: Clock,
   procedures: ListChecks,
   ventures: Briefcase,
   "decision-log": FileText,
@@ -58,6 +60,7 @@ export const MAP = {
   database: Database,
   link: LinkIcon,
   share: Share2,
+  social: Share2,
   "scroll-text": ScrollText,
   receipt: Receipt,
   analytics: BarChart3,
@@ -77,10 +80,9 @@ export function NavIcon({
   name: string;
   className?: string;
 }): React.ReactElement {
-  const Cmp = MAP[name as NavIconKey];
-  if (!Cmp) {
+  const Cmp = MAP[name as NavIconKey] || AlertCircle;
+  if (!MAP[name as NavIconKey]) {
     console.error(`[NavIcon] Missing icon mapping for key: "${name}"`);
-    return <AlertCircle className={className} aria-hidden />;
   }
   return <Cmp className={className} aria-hidden />;
 }
