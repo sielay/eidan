@@ -104,8 +104,9 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     let animating = true;
     let iterations = 0;
-    const maxIterations = 500;
+    const maxIterations = 1000;
     const nodesWorkingCopy = nodes.map((n) => ({ ...n }));
+    let renderCount = 0;
 
     const animate = () => {
       let maxVelocity = 0;
@@ -168,12 +169,15 @@ export function AgentOrgChartPane(): React.ReactElement {
         maxVelocity = Math.max(maxVelocity, Math.abs(node.vx) + Math.abs(node.vy));
       }
 
-      setNodes([...nodesWorkingCopy]);
+      // ponytail: batch React renders every 3 frames to reduce render pressure on large graphs
+      if (renderCount++ % 3 === 0) {
+        setNodes([...nodesWorkingCopy]);
+      }
       iterations++;
 
       // Stop if converged or max iterations reached
       if (animating && maxVelocity > 0.1 && iterations < maxIterations) {
-        setTimeout(animate, 16);
+        requestAnimationFrame(animate);
       }
     };
 
