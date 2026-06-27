@@ -37,6 +37,7 @@ interface EscalationsLike {
     toAgent?: string;
     toAgentIds?: string[];
     status?: string;
+    unprocessedOnly?: boolean;
     limit?: number;
   }): Promise<EscalationResponse[]>;
   markResponseProcessed(id: string): Promise<void>;
@@ -79,10 +80,11 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
 
   const fire = async (row: FireableRow, fireKey: string, overridePersona?: string): Promise<void> => {
     const provider = effectiveProvider(services, row.provider ?? opts.defaultProvider, row.model);
-    const persona = overridePersona ?? row.persona;
+    // Use override persona if provided (e.g., blended with escalation response context), else use agent's base persona
+    const personaToUse = overridePersona ?? row.persona;
     try {
       const { text, conversationId } = await runAgentTurn(
-        services, row.user_id, persona, provider,
+        services, row.user_id, personaToUse, provider,
         (cid) => store.markAgentConversation(cid, row.agent_id, row.name),
         opts.turnTimeoutMs,
       );
@@ -124,12 +126,13 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
 
       if (filteredAgents.length === 0) return;
 
-      // Fetch all responded escalations for all response-triggered agents in a single query
+      // Fetch unprocessed responded escalations for all response-triggered agents in a single query
       const agentIds = filteredAgents.map(a => a.agent_id);
       const allResponses = await esc.list({
         toAgentIds: agentIds,
         status: 'responded',
-        limit: 100,
+        unprocessedOnly: true,
+        limit: maxPerTick,
       });
 
       // Create a lookup map for efficient agent matching
@@ -137,8 +140,6 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
 
       for (const resp of allResponses) {
         if (totalProcessed >= maxPerTick) break;
-        // Skip if already processed by agent system (checked via agent_response_processed_at)
-        if (resp.agent_response_processed_at) continue;
         if (!resp.responded_at) continue; // shouldn't happen but safety check
         if (!resp.to_agent) continue; // must have a target agent
 
