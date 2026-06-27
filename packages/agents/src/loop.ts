@@ -1,21 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MatbotServices } from '@matatbread/matbot-plugin-api';
-import { AgentsStore, type DueScheduleRow, type RestartRow } from './store.js';
+import { AgentsStore, type DueScheduleRow, type FireableRow, type RestartRow } from './store.js';
 import { dueWindow } from './schedule.js';
 import { runAgentTurn, effectiveProvider, continuationPreamble } from './runner.js';
-
-export interface AgentsLoopOpts {
-  defaultProvider: string;
-  pollMs?: number;
-  graceMinutes?: number;
-  /** Hard cap per fire; a turn that exceeds it is aborted and recorded as failed. */
-  turnTimeoutMs?: number;
-}
 
 // @eidandev/notify augments MatbotServices with `Notify`; agents does not depend on it — we narrow to
 // the one method we call. Missing service / unrouted topic ⇒ the call is a no-op.
 interface NotifyLike {
   emit(topic: string, text: string, severity?: string): Promise<void>;
+}
+
+// Escalation response object returned by Escalations.list()
+interface EscalationResponse {
+  id: string;
+  user_id: string | null;
+  to_agent: string | null;
+  trigger_prompt: string | null;
+  response: { feedback?: string } | null;
+  responded_at: string | null;
+  agent_response_processed_at: string | null;
 }
 
 // @eidandev/escalations registers `Escalations`; narrowed here so agents has no hard dependency on it.
@@ -28,6 +31,24 @@ interface EscalationsLike {
     evidence?: unknown[];
     agentId?: string;
   }): Promise<{ id: string } | null>;
+  listUnprocessedResponsesForAgents(toAgentIds: string[], limit?: number): Promise<EscalationResponse[]>;
+  markResponseProcessed(id: string): Promise<void>;
+}
+
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    Notify?: NotifyLike;
+    Escalations?: EscalationsLike;
+  }
+}
+
+export interface AgentsLoopOpts {
+  defaultProvider: string;
+  pollMs?: number;
+  responsePollMs?: number;
+  graceMinutes?: number;
+  /** Hard cap per fire; a turn that exceeds it is aborted and recorded as failed. */
+  turnTimeoutMs?: number;
 }
 
 // Escalate an agent to the operator's Inbox after this many consecutive failed fires (deduped per
@@ -45,31 +66,33 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   // handler doesn't ALSO record itself 'failed' / escalate — the handler owns its 'interrupted' record.
   let shuttingDown = false;
   const pollMs = opts.pollMs ?? 60_000;
+  const responsePollMs = opts.responsePollMs ?? 5_000;
   const grace = opts.graceMinutes ?? 30;
   // This node's id. An agent pinned to a target_node is only fired by that node (e.g. an ollama agent
   // must run on the node that has ollama). Unpinned agents may be fired by any node.
   const nodeId = process.env['EIDAN_NODE_ID'] ?? null;
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-  // In-flight scheduled fires, keyed by fireKey, so the shutdown handler can abort each turn and queue
-  // it for resume. `conversationId` is filled once the turn creates its session (markAgentConversation).
-  interface InFlight { row: DueScheduleRow; fireKey: string; ac: AbortController; conversationId: string | null }
+  // In-flight fires, keyed by fireKey, so the shutdown handler can abort each turn and queue it for
+  // resume. `conversationId` is filled once the turn creates its session (markAgentConversation).
+  interface InFlight { row: FireableRow; fireKey: string; ac: AbortController; conversationId: string | null }
   const inFlight = new Map<string, InFlight>();
 
-  const fire = async (row: DueScheduleRow, fireKey: string): Promise<void> => {
+  const fire = async (row: FireableRow, fireKey: string, overridePersona?: string): Promise<void> => {
     const provider = effectiveProvider(services, row.provider ?? opts.defaultProvider, row.model);
+    // Override persona if provided (e.g. blended with escalation-response context), else the base persona.
+    const personaToUse = overridePersona ?? row.persona;
     const entry: InFlight = { row, fireKey, ac: new AbortController(), conversationId: null };
     inFlight.set(fireKey, entry);
     try {
       const { text, conversationId } = await runAgentTurn(
-        services, row.user_id, row.persona, provider,
+        services, row.user_id, personaToUse, provider,
         async (cid) => { entry.conversationId = cid; await store.markAgentConversation(cid, row.agent_id, row.name); },
         opts.turnTimeoutMs,
         entry.ac.signal,
       );
       const body = text.trim() ? text.trim() : '(agent produced no text)';
-      const notify = (services as { Notify?: NotifyLike }).Notify;
-      await notify?.emit('agent', `🤖 ${row.name}\n\n${body}`, 'info');
+      await services.Notify?.emit('agent', `🤖 ${row.name}\n\n${body}`, 'info');
       await store.finishRun(row.trigger_id, fireKey, 'delivered', body, conversationId);
       console.log(`[agents] fired "${row.name}" (agent ${row.agent_id}, provider=${provider}) for ${fireKey}`);
     } catch (e) {
@@ -84,8 +107,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       try {
         const streak = await store.recentFailureStreak(row.agent_id);
         if (streak >= FAIL_STREAK_TO_ESCALATE) {
-          const esc = (services as { Escalations?: EscalationsLike }).Escalations;
-          await esc?.raise({
+          await services.Escalations?.raise({
             userId: row.user_id,
             severity: 'medium',
             reasonClass: 'external_failure',
@@ -99,6 +121,62 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       }
     } finally {
       inFlight.delete(fireKey);
+    }
+  };
+
+  const handleResponses = async (esc: EscalationsLike): Promise<void> => {
+    let totalProcessed = 0;
+    const maxPerTick = 20; // Limit responses processed per tick to prevent DB thrashing
+
+    try {
+      const agents = await store.responseTriggeredAgents();
+      const filteredAgents = agents.filter(a => !a.target_node || (nodeId && a.target_node === nodeId));
+
+      if (filteredAgents.length === 0) return;
+
+      // Fetch unprocessed responded escalations for all response-triggered agents in a single
+      // cross-user query (the loop has no ambient principal — this scan bypasses it, like dueScheduleScan).
+      const agentIds = filteredAgents.map(a => a.agent_id);
+      const allResponses = await esc.listUnprocessedResponsesForAgents(agentIds, maxPerTick);
+
+      // Create a lookup map for efficient agent matching
+      const agentMap = new Map(filteredAgents.map(a => [a.agent_id, a]));
+
+      for (const resp of allResponses) {
+        if (totalProcessed >= maxPerTick) break;
+        if (!resp.responded_at) continue; // shouldn't happen but safety check
+        if (!resp.to_agent) continue; // must have a target agent
+
+        const agent = agentMap.get(resp.to_agent);
+        if (!agent) continue; // agent was filtered out (e.g., wrong node)
+
+        // Blend the trigger prompt into the persona
+        const feedback = resp.response?.feedback ?? '';
+        const triggerPrompt = resp.trigger_prompt;
+
+        // Use trigger_prompt if available (prepared at raise time), else fall back to operator feedback
+        const promptSuffix = triggerPrompt || (feedback ? `[Response feedback] ${feedback}` : '');
+        const blendedPersona = promptSuffix ? `${agent.persona}\n\n${promptSuffix}` : agent.persona;
+        const fireKey = `response:${resp.id}`;
+
+        const won = await store.claimRun(agent.trigger_id, agent.agent_id, agent.user_id, fireKey);
+        if (!won) continue; // another node is handling this fire
+
+        // Fire the agent and ensure response is only marked processed after fire completes.
+        // Awaiting fire ensures markResponseProcessed is called only after the agent run
+        // (success or failure) is fully recorded, preventing premature marking.
+        await fire(agent, fireKey, blendedPersona).catch(() => {
+          /* fire handles its own logging; just continue on error */
+        });
+        totalProcessed++;
+
+        // Mark response as processed after fire completes
+        await esc.markResponseProcessed(resp.id).catch(() => {
+          /* best-effort; don't fail loop for escalation metadata */
+        });
+      }
+    } catch (e) {
+      console.warn('[agents] response scan error:', e instanceof Error ? e.message : e);
     }
   };
 
@@ -118,17 +196,33 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
     }
   };
 
+  // Separate response handling loop: decoupled from schedule scanning for better latency and resilience.
+  // Runs independently every responsePollMs, fetching responses for agents with response triggers.
+  const responseLoop = async (): Promise<void> => {
+    while (!stopped) {
+      try {
+        if (services.Escalations) {
+          await handleResponses(services.Escalations);
+        }
+      } catch (e) {
+        console.warn('[agents] response handler error:', e instanceof Error ? e.message : e);
+      }
+      await sleep(responsePollMs);
+    }
+  };
+
   const loop = async (): Promise<void> => {
     while (!stopped) {
       try {
         await tick();
       } catch (e) {
-        console.warn('[agents] scan error:', e instanceof Error ? e.message : e);
+        console.warn('[agents] schedule scan error:', e instanceof Error ? e.message : e);
       }
       await sleep(pollMs);
     }
   };
   void loop();
+  void responseLoop();
 
   // Graceful shutdown (matbot calls this via the plugin's teardown() on SIGTERM/SIGINT). Stop the
   // scan, then for every in-flight turn: abort it (matbot persists the partial session), queue a
