@@ -54,7 +54,7 @@ export class XClient {
       }
 
       // Extract followers/following/tweet counts from public_metrics
-      const profile = result.data;
+      const profile = { ...result.data };
       if (result.data.public_metrics) {
         profile.followers_count = result.data.public_metrics.followers_count;
         profile.following_count = result.data.public_metrics.following_count;
