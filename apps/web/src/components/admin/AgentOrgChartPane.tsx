@@ -22,6 +22,7 @@ interface NodeData {
 }
 
 interface EdgeData {
+  id: string;
   from: string;
   to: string;
   escalations: number;
@@ -200,6 +201,16 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     const agentNameToIdMap = new Map(agents.map((a) => [a.name, a.id]));
     const agentIds = new Set(agents.map((a) => a.id));
+    // Warn if agent names are not unique, as the mapping above will only retain the last agent with each name
+    const agentNameCounts = new Map<string, number>();
+    for (const a of agents) {
+      agentNameCounts.set(a.name, (agentNameCounts.get(a.name) ?? 0) + 1);
+    }
+    const duplicateNames = Array.from(agentNameCounts.entries()).filter(([, count]) => count > 1);
+    if (duplicateNames.length > 0) {
+      console.warn("Agent names are not unique. Some relationships may be dropped:", duplicateNames.map(([name]) => name));
+    }
+
     const newEdges: EdgeData[] = [];
     const edgeMap = new Map<string, { escalations: number; relationship?: AgentRelationship }>();
 
@@ -229,7 +240,11 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     for (const [key, data] of edgeMap) {
       const [from, to] = key.split("→");
-      newEdges.push({ from, to, escalations: data.escalations, relationship: data.relationship });
+      // ponytail: unique edge IDs prevent SVG marker collisions; includes type to distinguish
+      // escalation vs relationship edges with same endpoints (if future design allows this)
+      const typePrefix = data.relationship ? `rel-${data.relationship.relationship_type}` : "esc";
+      const edgeId = `${from}|${to}|${typePrefix}`;
+      newEdges.push({ id: edgeId, from, to, escalations: data.escalations, relationship: data.relationship });
     }
 
     setNodes(newNodes);
@@ -521,11 +536,11 @@ export function AgentOrgChartPane(): React.ReactElement {
                 const description = edge.relationship?.description;
 
                 return (
-                  <g key={`${edge.from}→${edge.to}`} opacity={opacity}>
+                  <g key={edge.id} opacity={opacity}>
                     {/* Arrow */}
                     <defs>
                       <marker
-                        id={`arrow-${edge.from}-${edge.to}`}
+                        id={`arrow-${edge.id}`}
                         markerWidth="10"
                         markerHeight="10"
                         refX="8"
@@ -544,7 +559,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                       stroke={strokeColor}
                       strokeWidth={isRelationship ? 1 : 1.5}
                       strokeDasharray={strokeDasharray}
-                      markerEnd={`url(#arrow-${edge.from}-${edge.to})`}
+                      markerEnd={`url(#arrow-${edge.id})`}
                     >
                       {description && <title>{description}</title>}
                     </line>
