@@ -549,7 +549,9 @@ export async function handleRest(
       if (before != null) {
         const beforeStarredBool = beforeStarredStr === 'true';
         vals.push(beforeStarredBool, before);
-        conds.push(`(starred < $${vals.length - 1}::boolean OR (starred = $${vals.length - 1}::boolean AND coalesce(updated_at, created_at) < $${vals.length}::timestamptz))`);
+        const beforeStarredIdx = vals.length - 1;
+        const beforeTimestampIdx = vals.length;
+        conds.push(`((starred = false AND $${beforeStarredIdx}::boolean = true) OR (starred = $${beforeStarredIdx}::boolean AND coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz))`);
       }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>

@@ -111,6 +111,30 @@ export function ConversationList(): React.ReactElement {
     return () => { cancelled = true; };
   }, [config, user, filter, debounced]);
 
+  const sortConversations = React.useCallback(
+    (a: ConversationSummary, b: ConversationSummary) => {
+      if ((b.starred ?? false) !== (a.starred ?? false)) {
+        return (b.starred ?? false) ? -1 : 1;
+      }
+      const aTime = new Date(a.updated_at || 0).getTime();
+      const bTime = new Date(b.updated_at || 0).getTime();
+      const timeDiff = bTime - aTime;
+      return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
+    },
+    [],
+  );
+
+  const onRowStarChange = React.useCallback(
+    (rowId: string, nextStarred: boolean, updatedAt: string) => {
+      setItems((prev) => {
+        if (prev === null) return prev;
+        const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred, updated_at: updatedAt } : row);
+        return updated.sort(sortConversations);
+      });
+    },
+    [sortConversations],
+  );
+
   const loadMore = React.useCallback(async () => {
     if (loadingMore || !nextBefore || !config) return;
     setLoadingMore(true);
@@ -163,30 +187,6 @@ export function ConversationList(): React.ReactElement {
       setItems((prev) => prev === null ? prev : prev.map((row) => row.id === rowId ? { ...row, title: nextTitle } : row));
     },
     [],
-  );
-
-  const sortConversations = React.useCallback(
-    (a: ConversationSummary, b: ConversationSummary) => {
-      if ((b.starred ?? false) !== (a.starred ?? false)) {
-        return (b.starred ?? false) ? -1 : 1;
-      }
-      const aTime = new Date(a.updated_at || 0).getTime();
-      const bTime = new Date(b.updated_at || 0).getTime();
-      const timeDiff = bTime - aTime;
-      return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
-    },
-    [],
-  );
-
-  const onRowStarChange = React.useCallback(
-    (rowId: string, nextStarred: boolean, updatedAt: string) => {
-      setItems((prev) => {
-        if (prev === null) return prev;
-        const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred, updated_at: updatedAt } : row);
-        return updated.sort(sortConversations);
-      });
-    },
-    [sortConversations],
   );
 
   if (loading || !user) {
