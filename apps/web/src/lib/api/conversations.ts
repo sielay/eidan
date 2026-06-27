@@ -81,7 +81,7 @@ export interface ConversationSummary {
   agent_name: string | null;
   created_at: string;
   updated_at: string;
-  starred?: boolean;
+  starred: boolean;
 }
 
 interface ConversationsResponse {

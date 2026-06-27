@@ -167,7 +167,7 @@ export function ConversationList(): React.ReactElement {
         const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred } : row);
         return updated.sort((a, b) => {
           if ((b.starred ?? false) !== (a.starred ?? false)) {
-            return (b.starred ?? false) ? 1 : -1;
+            return (b.starred ?? false) ? -1 : 1;
           }
           return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
         });

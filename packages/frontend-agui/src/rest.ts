@@ -532,7 +532,7 @@ export async function handleRest(
       if (kind === 'agents') conds.push(`metadata->>'origin' = 'agent'`);
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
-      if (before && beforeStarred !== null) {
+      if (before && (beforeStarred === 'true' || beforeStarred === 'false')) {
         vals.push(beforeStarred === 'true', before);
         conds.push(`(starred, coalesce(updated_at, created_at)) < ($${vals.length - 1}::boolean, $${vals.length}::timestamptz)`);
       } else if (before) {
