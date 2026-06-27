@@ -111,20 +111,6 @@ export function ConversationList(): React.ReactElement {
     return () => { cancelled = true; };
   }, [config, user, filter, debounced]);
 
-  const sortConversations = React.useCallback(
-    (a: ConversationSummary, b: ConversationSummary) => {
-      // Stable sort: first by starred status (starred last), then by updated_at descending, with id as tie-breaker
-      if ((b.starred ?? false) !== (a.starred ?? false)) {
-        return (b.starred ?? false) ? -1 : 1;
-      }
-      const aTime = new Date(a.updated_at || 0).getTime();
-      const bTime = new Date(b.updated_at || 0).getTime();
-      const timeDiff = bTime - aTime;
-      return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
-    },
-    [],
-  );
-
   const onRowStarChange = React.useCallback(
     (rowId: string, nextStarred: boolean, updatedAt: string) => {
       setItems((prev) => {
@@ -134,13 +120,11 @@ export function ConversationList(): React.ReactElement {
         if (itemIdx === -1) return prev;
         const updated = prev[itemIdx];
         const newItem = { ...updated, starred: nextStarred, updated_at: updatedAt };
-        // Remove item, update it, and re-sort to guarantee correct position
-        const withoutItem = [...prev.slice(0, itemIdx), ...prev.slice(itemIdx + 1)];
-        const withUpdated = [...withoutItem, newItem];
-        return withUpdated.sort(sortConversations);
+        // Update the item in place; server sorts on retrieval, so just update the row
+        return [...prev.slice(0, itemIdx), newItem, ...prev.slice(itemIdx + 1)];
       });
     },
-    [sortConversations],
+    [],
   );
 
   const loadMore = React.useCallback(async () => {

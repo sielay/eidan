@@ -564,12 +564,13 @@ export async function handleRest(
       const beforeStarredStr = qp.get('before_starred');
       const search = (qp.get('q') ?? '').trim();
       const kind = qp.get('kind');
+      if (kind && !['all', 'agents', 'chats'].includes(kind)) { json(res, 400, { error: 'invalid kind parameter' }, cors); return true; }
       const conds: string[] = ['user_id = $1', 'deleted_at is null'];
       const vals: unknown[] = [uid];
       if (kind === 'agents') conds.push(`metadata->>'origin' = 'agent'`);
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
-      if (before != null) {
+      if (before) {
         // When using keyset pagination with 'before' cursor, 'before_starred' must be provided and valid.
         // This ensures consistent pagination across the (starred DESC, updated_at DESC) sort order.
         if (beforeStarredStr !== 'true' && beforeStarredStr !== 'false') {
@@ -642,7 +643,7 @@ export async function handleRest(
 
     if (sub === undefined && method === 'GET') {
       const r = await withPrincipal(principal, (q) => q('select id, title, created_at, updated_at, starred from eidan.conversations where id=$1 and user_id=$2 and deleted_at is null', [id, uid]));
-      const row = r.rows[0];
+      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown } | undefined;
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
       json(res, 200, { id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true }, cors);
       return true;
