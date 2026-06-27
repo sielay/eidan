@@ -35,22 +35,33 @@ interface QuadtreeNode {
   children: QuadtreeNode[] | null;
 }
 
-function buildQuadtree(nodes: NodeData[], x: number, y: number, size: number): QuadtreeNode {
+function buildQuadtree(
+  nodes: NodeData[],
+  x: number,
+  y: number,
+  size: number,
+  depth: number = 0,
+): QuadtreeNode {
   const qt: QuadtreeNode = { x, y, size, nodes: [], children: null };
   const maxPerNode = 4;
   const minSize = 20;
+  const maxDepth = 8;
 
   const nodesInCell = nodes.filter(
     n => n.x >= x && n.x < x + size && n.y >= y && n.y < y + size
   );
 
-  if (nodesInCell.length > maxPerNode && size > minSize) {
+  if (
+    nodesInCell.length > maxPerNode &&
+    size > minSize &&
+    depth < maxDepth
+  ) {
     const half = size / 2;
     qt.children = [
-      buildQuadtree(nodesInCell, x, y, half),
-      buildQuadtree(nodesInCell, x + half, y, half),
-      buildQuadtree(nodesInCell, x, y + half, half),
-      buildQuadtree(nodesInCell, x + half, y + half, half),
+      buildQuadtree(nodesInCell, x, y, half, depth + 1),
+      buildQuadtree(nodesInCell, x + half, y, half, depth + 1),
+      buildQuadtree(nodesInCell, x, y + half, half, depth + 1),
+      buildQuadtree(nodesInCell, x + half, y + half, half, depth + 1),
     ];
   } else {
     qt.nodes = nodesInCell;
@@ -101,8 +112,9 @@ export function AgentOrgChartPane(): React.ReactElement {
   const [selectedNode, setSelectedNode] = React.useState<string | null>(null);
   const [nodes, setNodes] = React.useState<NodeData[]>([]);
   const [edges, setEdges] = React.useState<EdgeData[]>([]);
+  const [viewBoxDim, setViewBoxDim] = React.useState({ w: 800, h: 500 });
   const svgRef = React.useRef<SVGSVGElement>(null);
-  const edgesRef = React.useRef<EdgeData[]>([]);
+  const containerRef = React.useRef<HTMLDivElement>(null);
   const simulationRef = React.useRef<{
     nodes: NodeData[];
     animating: boolean;
@@ -110,6 +122,8 @@ export function AgentOrgChartPane(): React.ReactElement {
     velocityHistory: number[];
     rafId: number | null;
     lastNodeCount: number;
+    renderVersion: number;
+    bounds: { width: number; height: number; minX: number; maxX: number; minY: number; maxY: number };
   } | null>(null);
 
   // Load agents and escalations
@@ -125,6 +139,36 @@ export function AgentOrgChartPane(): React.ReactElement {
         setError(e instanceof Error ? e.message : String(e));
       });
   }, [user]);
+
+  // Update viewBox based on container size
+  React.useEffect(() => {
+    const updateViewBox = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          // Maintain 16:10 ratio for viewBox, or fit to container aspect ratio
+          const containerAspect = rect.width / rect.height;
+          let w = 800;
+          let h = 500;
+          const targetAspect = 16 / 10;
+          if (containerAspect > targetAspect) {
+            w = Math.round(h * containerAspect);
+          } else {
+            h = Math.round(w / containerAspect);
+          }
+          setViewBoxDim({ w, h });
+        }
+      }
+    };
+
+    updateViewBox();
+    const observer = new ResizeObserver(updateViewBox);
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
 
   // Build graph when agents/escalations change
   React.useEffect(() => {
@@ -161,7 +205,6 @@ export function AgentOrgChartPane(): React.ReactElement {
       newEdges.push({ from, to, escalations: count });
     }
 
-    edgesRef.current = newEdges;
     setNodes(newNodes);
     setEdges(newEdges);
   }, [agents, escalations]);
@@ -169,6 +212,16 @@ export function AgentOrgChartPane(): React.ReactElement {
   // Force-directed simulation
   React.useEffect(() => {
     if (!agents || agents.length === 0) return;
+
+    // Calculate bounds from viewBox dimensions (responsive to container size)
+    const bounds = {
+      width: viewBoxDim.w,
+      height: viewBoxDim.h,
+      minX: viewBoxDim.w * 0.0375,
+      maxX: viewBoxDim.w * 0.9625,
+      minY: viewBoxDim.h * 0.06,
+      maxY: viewBoxDim.h * 0.94,
+    };
 
     const initialNodes = agents.map((a) => ({
       id: a.id,
@@ -178,8 +231,8 @@ export function AgentOrgChartPane(): React.ReactElement {
       model: a.model,
       persona: a.persona,
       triggers: a.triggers.length,
-      x: Math.random() * 600 + 100,
-      y: Math.random() * 350 + 75,
+      x: Math.random() * (bounds.maxX - bounds.minX) + bounds.minX,
+      y: Math.random() * (bounds.maxY - bounds.minY) + bounds.minY,
       vx: 0,
       vy: 0,
     }));
@@ -192,6 +245,8 @@ export function AgentOrgChartPane(): React.ReactElement {
         velocityHistory: [],
         rafId: null,
         lastNodeCount: initialNodes.length,
+        renderVersion: 0,
+        bounds,
       };
     } else {
       const sim = simulationRef.current;
@@ -223,6 +278,7 @@ export function AgentOrgChartPane(): React.ReactElement {
         sim.lastNodeCount = sim.nodes.length;
       }
       sim.animating = true;
+      sim.bounds = bounds;
     }
 
     const sim = simulationRef.current;
@@ -274,9 +330,9 @@ export function AgentOrgChartPane(): React.ReactElement {
           }
         }
 
-        // Attraction along edges (read from ref, not state, to avoid stale closure)
+        // Attraction along edges
         const nodeMap = new Map(sim.nodes.map(n => [n.id, n]));
-        for (const edge of edgesRef.current) {
+        for (const edge of edges) {
           const from = nodeMap.get(edge.from);
           const to = nodeMap.get(edge.to);
           if (!from || !to) continue;
@@ -304,20 +360,32 @@ export function AgentOrgChartPane(): React.ReactElement {
           node.x += node.vx;
           node.y += node.vy;
 
-          // Bounce off edges
-          if (node.x < 30) { node.x = 30; node.vx = Math.abs(node.vx); }
-          if (node.x > 770) { node.x = 770; node.vx = -Math.abs(node.vx); }
-          if (node.y < 30) { node.y = 30; node.vy = Math.abs(node.vy); }
-          if (node.y > 470) { node.y = 470; node.vy = -Math.abs(node.vy); }
+          // Bounce off edges using bounds
+          if (node.x < sim.bounds.minX) {
+            node.x = sim.bounds.minX;
+            node.vx = Math.abs(node.vx);
+          }
+          if (node.x > sim.bounds.maxX) {
+            node.x = sim.bounds.maxX;
+            node.vx = -Math.abs(node.vx);
+          }
+          if (node.y < sim.bounds.minY) {
+            node.y = sim.bounds.minY;
+            node.vy = Math.abs(node.vy);
+          }
+          if (node.y > sim.bounds.maxY) {
+            node.y = sim.bounds.maxY;
+            node.vy = -Math.abs(node.vy);
+          }
 
           maxVelocity = Math.max(maxVelocity, Math.abs(node.vx) + Math.abs(node.vy));
         }
         sim.iterations++;
       }
 
-      // Update React state only every 3 frames to reduce re-render overhead
+      // Update render every 3 frames with new array ref (reuses node objects, avoids expensive spreading)
       if (frameCount % 3 === 0) {
-        setNodes(sim.nodes.map((n) => ({ ...n })));
+        setNodes([...sim.nodes]);
       }
       frameCount++;
 
@@ -330,7 +398,7 @@ export function AgentOrgChartPane(): React.ReactElement {
         if (velocityChange < 0.01) {
           sim.animating = false;
           // Final render
-          setNodes(sim.nodes.map((n) => ({ ...n })));
+          setNodes([...sim.nodes]);
         }
       }
 
@@ -347,7 +415,7 @@ export function AgentOrgChartPane(): React.ReactElement {
         cancelAnimationFrame(sim.rafId);
       }
     };
-  }, [agents, escalations]);
+  }, [agents, edges, viewBoxDim]);
 
   const providerColor = (provider: string | null): string => {
     if (!provider) return COLORS.other;
@@ -392,12 +460,15 @@ export function AgentOrgChartPane(): React.ReactElement {
 
       <div className="flex gap-4" style={{ height: "600px" }}>
         {/* Canvas */}
-        <div className="flex-1 overflow-hidden rounded-md border border-border bg-background">
+        <div
+          ref={containerRef}
+          className="flex-1 overflow-hidden rounded-md border border-border bg-background"
+        >
           <svg
             ref={svgRef}
             width="100%"
             height="100%"
-            viewBox="0 0 800 500"
+            viewBox={`0 0 ${viewBoxDim.w} ${viewBoxDim.h}`}
             preserveAspectRatio="xMidYMid meet"
             style={{ background: "#fafafa" }}
           >
