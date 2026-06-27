@@ -5,18 +5,19 @@ import { Db } from './db.js';
 import { EscalationsStore, type EscalationsService } from './store.js';
 import { buildEscalateTools } from './tools.js';
 
+// @eidandev/notify augments MatbotServices with `Notify`; escalations narrows to the one method it
+// calls so it has no hard dependency. Missing service / unrouted topic ⇒ the emit is a no-op.
+interface NotifyLike {
+  emit(topic: string, text: string, severity?: string): Promise<void>;
+}
+
 // Advertise the human-in-the-loop inbox writer so any plugin can flag the operator with type safety:
 // services.Escalations?.raise({ severity, reasonClass, suggestedAction, … }).
 declare module '@matatbread/matbot-plugin-api' {
   interface MatbotServices {
     Escalations?: EscalationsService;
+    Notify?: NotifyLike;
   }
-}
-
-// @eidandev/notify augments MatbotServices with `Notify`; escalations narrows to the one method it
-// calls so it has no hard dependency. Missing service / unrouted topic ⇒ the emit is a no-op.
-interface NotifyLike {
-  emit(topic: string, text: string, severity?: string): Promise<void>;
 }
 
 // @eidandev/frontend-telegram registers `TelegramChats` (the same path routines deliver on: vault bot
@@ -56,16 +57,37 @@ export const plugin: MatbotPluginSpec = {
           const tg = (services as { TelegramChats?: TelegramChatsLike }).TelegramChats;
           if (userId && tg) await tg.sendToUser(userId, text).catch(() => undefined);
           // notify topic too (Slack/other), if a route + token are configured.
-          const notify = (services as { Notify?: NotifyLike }).Notify;
-          await notify?.emit('escalation', text, args.severity === 'high' ? 'error' : 'warn').catch(() => undefined);
+          await services.Notify?.emit('escalation', text, args.severity === 'high' ? 'error' : 'warn').catch(() => undefined);
         }
         return res;
       },
       async respond(args) {
-        return await store.respond(args);
+        const res = await store.respond(args);
+        if (res) {
+          const escalation = await store.getEscalation(args.id);
+          if (escalation && escalation.to_agent) {
+            const responseText = args.feedback;
+            const triggerPrompt = escalation.trigger_prompt;
+            const payload = JSON.stringify({
+              escalation_id: escalation.id,
+              agent_id: escalation.to_agent,
+              user_id: escalation.user_id,
+              response_text: responseText,
+              trigger_prompt: triggerPrompt,
+            });
+            await services.Notify?.emit('escalations:response', payload, 'info').catch(() => undefined);
+          }
+        }
+        return res;
       },
       async list(args) {
         return await store.list(args);
+      },
+      async listUnprocessedResponsesForAgents(toAgentIds, limit) {
+        return await store.listUnprocessedResponsesForAgents(toAgentIds, limit);
+      },
+      async markResponseProcessed(id: string) {
+        return await store.markResponseProcessed(id);
       },
     };
 

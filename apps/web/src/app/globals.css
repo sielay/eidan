@@ -354,6 +354,27 @@
 .composer__model-opt-name { font-size: var(--fs-15); }
 .composer__model-opt-hint { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Mobile menu: collapse attach/record/model into a single ⋯ button with popover. */
+.composer__more-wrap { position: relative; flex: none; }
+.composer__more-btn { height: 44px; width: 44px; min-width: 44px; padding: 0; flex: none; }
+.composer__more-backdrop { position: fixed; inset: 0; z-index: 40; background: transparent; border: none; padding: 0; cursor: pointer; }
+.composer__more-menu { position: absolute; z-index: 41; bottom: calc(100% + 6px); right: 0; min-width: 140px; max-width: min(240px, 90vw); max-height: 60vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--e2); display: flex; flex-direction: column; }
+.composer__more-submenu { display: flex; flex-direction: column; }
+.composer__more-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 8px; border: none; background: none; cursor: pointer; border-radius: var(--r-sm); text-align: left; font-family: inherit; font-size: var(--fs-13); color: var(--text); }
+.composer__more-item:hover { background: var(--surface-2); }
+.composer__more-item:disabled { opacity: .5; cursor: default; }
+.composer__more-item.is-recording { color: var(--alert); background: var(--alert-tint); }
+.composer__more-item-spin { animation: eidan-spin 0.9s linear infinite; }
+.composer__more-back { padding-left: 8px; }
+.composer__more-back .i { transform: rotate(90deg); }
+.composer__more-models { display: flex; flex-direction: column; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 4px; }
+.composer__more-model-opt { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 8px; border: none; background: none; cursor: pointer; border-radius: var(--r-sm); text-align: left; font-family: inherit; font-size: var(--fs-13); color: var(--text); }
+.composer__more-model-opt:hover { background: var(--surface-2); }
+.composer__more-model-tick { flex: none; opacity: 0; color: var(--accent-link); }
+.composer__more-model-tick.is-on { opacity: 1; }
+.composer__more-model-opt span:nth-child(2) { flex: 1; min-width: 0; }
+.composer__more-model-hint { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ============================================================ MEMORY (core)
    Styling authored to match the system — the design bundle shipped the
    memory screens (core-memory.jsx) without their CSS. */

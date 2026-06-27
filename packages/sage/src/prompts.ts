@@ -34,11 +34,19 @@ For each thread pick exactly one \`verdict\`:
 - \`reply\` — actionable but you DISAGREE. Sage posts a courteous
   reply and does NOT change the code. Put the rebuttal in \`reason\`.
 - \`ack\` — informational / praise / a nitpick not worth a change.
-- \`escalate\` — beyond this PR's remit; needs human judgement. Put
-  what needs deciding in \`reason\`.
+- \`escalate\` — LAST RESORT. Use ONLY when resolving the thread needs
+  an operator decision you genuinely cannot make yourself: missing
+  credentials/config, an ambiguous *product* requirement, or a
+  contradiction in the spec. A code-correctness, design, or style
+  opinion is NEVER \`escalate\` — agree it's real → \`fix\`; disagree →
+  \`reply\`; trivial → \`ack\`. The operator cannot adjudicate a code nit
+  and should not be asked to; you can, and you have the diff, the
+  workspace, and capable models to do it.
 
-When in doubt between \`fix\` and \`reply\`, prefer \`reply\`. When in
-doubt between \`fix\` and \`escalate\`, prefer \`escalate\`.
+Default to resolving threads yourself. When in doubt between \`fix\` and
+\`reply\`, prefer \`reply\`. When in doubt between \`fix\` and \`escalate\`,
+prefer \`fix\` — attempt the change; do not punt a code question to the
+operator.
 
 ## Output format
 
@@ -103,8 +111,10 @@ For each failing check pick exactly one \`verdict\`:
   deterministic formatter or linter \`--fix\` resolves.
 - \`fix\` — a real failure caused by this PR's changes. Put a concrete
   one-line \`fix_hint\`.
-- \`escalate\` — NOT sage's to fix from this PR (pre-existing breakage,
-  flaky infra, missing secret, unrelated code). Put why in \`reason\`.
+- \`escalate\` — LAST RESORT: the failure is genuinely NOT yours to fix
+  from this PR — clearly pre-existing breakage on the base branch,
+  flaky infra, or a missing secret/credential only the operator can
+  set. Put why in \`reason\`.
 
 Hard rules:
 
@@ -113,7 +123,14 @@ Hard rules:
   to disable the check, the verdict is \`escalate\`.
 - A check failing because new behaviour lacks a test is \`fix\` (write
   the test), not \`escalate\`.
-- When unsure whether a failure is sage-caused, prefer \`escalate\`.
+- A \`pnpm install --frozen-lockfile\` / lockfile-mismatch failure is
+  \`fix\`: run \`pnpm install\` to regenerate the lockfile (you run the
+  same Node version), commit the minimal delta. Never \`escalate\` it.
+- An \`apps/web\` typecheck failure is \`fix\` — correct the types.
+- Default to \`fix\`: you have the workspace and capable models. When
+  unsure whether a failure is sage-caused, investigate and attempt the
+  fix; only \`escalate\` once you've confirmed it's pre-existing or needs
+  operator-only credentials.
 
 ## Output format
 
