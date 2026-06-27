@@ -339,6 +339,11 @@ export function buildAffiliateTools(db: AffiliateDb, services: MatbotServices): 
   ];
 }
 
+function appendQueryParam(baseUrl: string, paramName: string, paramValue: string): string {
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}${paramName}=${encodeURIComponent(paramValue)}`;
+}
+
 async function generateLink(
   program: any,
   credentials: any[],
@@ -380,7 +385,6 @@ async function generateLink(
         throw new Error('Credential value is empty or invalid');
       }
 
-      const separator = baseUrl.includes('?') ? '&' : '?';
       const providerParamMap: Record<string, string> = {
         amazon: 'tag',
         kdp: 'tag',
@@ -388,7 +392,7 @@ async function generateLink(
       };
       const paramName = providerParamMap[prog.provider] || 'ref';
 
-      return `${baseUrl}${separator}${paramName}=${encodeURIComponent(affiliateIdValue)}`;
+      return appendQueryParam(baseUrl, paramName, affiliateIdValue);
     },
 
     api: async (prog: any, creds: any[], cid: string | null) => {
@@ -422,7 +426,6 @@ async function generateLink(
       if (!trackingCodeCred) throw new Error('Tracking code credential required for pixel format');
 
       const trackingCodeValue = await getCredentialValue(trackingCodeCred);
-      const separator = pixelEndpoint.includes('?') ? '&' : '?';
 
       // Security WARNING: Tracking code and content ID are exposed in the pixel URL.
       // NEVER include PII, API keys, or sensitive user data in tracking parameters.
@@ -431,7 +434,8 @@ async function generateLink(
       // 1. Generate the pixel URL on your backend with the tracking code
       // 2. Call the pixel endpoint from your backend, never expose it to clients
       // 3. Return a placeholder or 1x1 transparent GIF to the client
-      const pixelUrl = `${pixelEndpoint}${separator}code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(cid || '')}`;
+      let pixelUrl = appendQueryParam(pixelEndpoint, 'code', trackingCodeValue);
+      pixelUrl = appendQueryParam(pixelUrl, 'content', cid || '');
       return `<img src="${pixelUrl}" width="1" height="1" alt="" />`;
     },
   };
@@ -446,6 +450,24 @@ async function generateLink(
 
 function suggestPrograms(programs: any[], contentType: string, keywords: string[]): any[] {
   const keywordMatches: Record<string, number> = {};
+
+  // Provider-to-content-type affinity: programs that naturally fit certain content types
+  const providerAffinity: Record<string, Record<string, number>> = {
+    kobo: { article: 2, book: 3, post: 1 },
+    'apple-books': { article: 2, book: 3, post: 1 },
+    'google-play': { article: 2, book: 3, post: 1 },
+    amazon: { article: 2, book: 3, post: 1 },
+    kdp: { article: 2, book: 3, post: 1 },
+    scribd: { article: 2, book: 3, post: 1 },
+    audible: { article: 1, book: 2, post: 0 },
+    skillshare: { article: 2, video: 3, post: 1 },
+    udemy: { article: 2, video: 3, post: 1 },
+    coursera: { article: 2, video: 3, post: 1 },
+    nordvpn: { article: 2, video: 2, post: 1 },
+    expressvpn: { article: 2, video: 2, post: 1 },
+    fiverr: { article: 2, post: 2, video: 1 },
+    upwork: { article: 2, post: 2, video: 1 },
+  };
 
   function matchScore(text: string, keyword: string): number {
     const lower = text.toLowerCase();
@@ -466,18 +488,33 @@ function suggestPrograms(programs: any[], contentType: string, keywords: string[
   for (const program of programs) {
     let score = (program.relevance_score || 0) * 1.5;
 
+    // Strong boost for exact content type match
     if (program.content_types?.includes(contentType)) {
-      score += 4;
+      score += 5;
     }
 
+    // Provider affinity boost
+    const providerLower = (program.provider || '').toLowerCase();
+    const affinityBoost = providerAffinity[providerLower]?.[contentType] || 0;
+    if (affinityBoost > 0) {
+      score += affinityBoost;
+    }
+
+    // Commission rate as monetization signal (small boost)
+    if (program.commission_rate && program.commission_rate > 10) {
+      score += 0.5;
+    }
+
+    // Keyword matching with higher weights
     for (const keyword of keywords) {
       const nameScore = matchScore(program.program_name, keyword);
       const providerScore = matchScore(program.provider, keyword);
+      const categoryScore = matchScore(program.category || '', keyword) ? 1 : 0;
       const tagScore = program.metadata?.tags?.reduce((max: number, t: string) => {
         return Math.max(max, matchScore(t, keyword));
       }, 0) || 0;
 
-      score += (nameScore * 3) + (providerScore * 2) + tagScore;
+      score += (nameScore * 4) + (providerScore * 3) + (categoryScore * 2) + tagScore;
     }
 
     keywordMatches[program.id] = score;
