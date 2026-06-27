@@ -129,7 +129,11 @@ export function ConversationList(): React.ReactElement {
             ? [...remaining, newItem]
             : [...remaining.slice(0, insertIdx), newItem, ...remaining.slice(insertIdx)];
         }
-        return [...remaining, newItem];
+        // When unstarring, insert back into unstarred items maintaining updated_at DESC order
+        const insertIdx = remaining.findIndex((r) => r.starred || r.updated_at < updatedAt);
+        return insertIdx === -1
+          ? [...remaining, newItem]
+          : [...remaining.slice(0, insertIdx), newItem, ...remaining.slice(insertIdx)];
       });
     },
     [],
