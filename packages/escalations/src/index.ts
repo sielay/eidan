@@ -89,6 +89,15 @@ export const plugin: MatbotPluginSpec = {
       async markResponseProcessed(id: string) {
         return await store.markResponseProcessed(id);
       },
+      async listAgentRelationships(userId: string, options) {
+        return await store.listAgentRelationships(userId, options);
+      },
+      async setAgentRelationship(userId: string, rel) {
+        return await store.setAgentRelationship(userId, rel);
+      },
+      async deleteAgentRelationship(userId: string, fromAgent: string, toAgent: string) {
+        return await store.deleteAgentRelationship(userId, fromAgent, toAgent);
+      },
     };
 
     await services.register('Escalations', svc);

@@ -5,6 +5,7 @@ import { Db } from './db.js';
 export type Severity = 'low' | 'medium' | 'high';
 export type EscalationStatus = 'pending' | 'acknowledged' | 'resolved' | 'open' | 'responded' | 'rejected';
 export type EscalationType = 'agent_to_operator' | 'agent_to_agent' | 'operator_to_agent' | 'operator_prompt' | 'decision_gate';
+export type RelationshipType = 'reads_from' | 'writes_to' | 'asks' | 'depends_on' | 'notifies';
 
 export interface RaiseArgs {
   severity: Severity;
@@ -63,6 +64,18 @@ export interface EscalationRow {
   agent_response_processed_at: string | null;
 }
 
+export interface AgentRelationship {
+  id: string;
+  user_id: string;
+  from_agent_name: string;
+  to_agent_name: string;
+  relationship_type: RelationshipType;
+  strength: number;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // The registered service interface other plugins consume via services.Escalations.
 export interface EscalationsService {
   raise(args: RaiseArgs): Promise<{ id: string } | null>;
@@ -72,6 +85,9 @@ export interface EscalationsService {
   // 'responded' escalations addressed to the given response-triggered agents.
   listUnprocessedResponsesForAgents(toAgentIds: string[], limit?: number): Promise<EscalationRow[]>;
   markResponseProcessed(id: string): Promise<void>;
+  listAgentRelationships(userId: string, options?: { fromAgent?: string; toAgent?: string }): Promise<AgentRelationship[]>;
+  setAgentRelationship(userId: string, rel: { fromAgent: string; toAgent: string; type: RelationshipType; strength?: number; description?: string }): Promise<AgentRelationship>;
+  deleteAgentRelationship(userId: string, fromAgent: string, toAgent: string): Promise<void>;
 }
 
 const VALID_REASONS = new Set([
@@ -235,6 +251,53 @@ export class EscalationsStore {
       `update eidan.escalations set agent_response_processed_at = now()
        where id = $1 and agent_response_processed_at is null`,
       [id],
+    );
+  }
+
+  // List agent relationships for the given user with optional filters
+  async listAgentRelationships(userId: string, options?: { fromAgent?: string; toAgent?: string }): Promise<AgentRelationship[]> {
+    const params: unknown[] = [userId];
+    let where = 'user_id = $1';
+    let paramIdx = 2;
+
+    if (options?.fromAgent) {
+      params.push(options.fromAgent);
+      where += ` and from_agent_name = $${paramIdx++}`;
+    }
+    if (options?.toAgent) {
+      params.push(options.toAgent);
+      where += ` and to_agent_name = $${paramIdx++}`;
+    }
+
+    const r = await this.db.query(
+      `select id, user_id, from_agent_name, to_agent_name, relationship_type, strength, description, created_at, updated_at
+         from eidan.agent_relationships where ${where}
+         order by from_agent_name, to_agent_name`,
+      params,
+    );
+    return r.rows as AgentRelationship[];
+  }
+
+  // Create or update an agent relationship
+  async setAgentRelationship(userId: string, rel: { fromAgent: string; toAgent: string; type: RelationshipType; strength?: number; description?: string }): Promise<AgentRelationship> {
+    const strength = Math.min(Math.max(rel.strength ?? 3, 1), 5);
+    const r = await this.db.query(
+      `insert into eidan.agent_relationships
+         (user_id, from_agent_name, to_agent_name, relationship_type, strength, description)
+       values ($1, $2, $3, $4, $5, $6)
+       on conflict (user_id, from_agent_name, to_agent_name) do update set
+         relationship_type = $4, strength = $5, description = $6, updated_at = now()
+       returning id, user_id, from_agent_name, to_agent_name, relationship_type, strength, description, created_at, updated_at`,
+      [userId, rel.fromAgent, rel.toAgent, rel.type, strength, rel.description ?? null],
+    );
+    return r.rows[0] as AgentRelationship;
+  }
+
+  // Delete an agent relationship
+  async deleteAgentRelationship(userId: string, fromAgent: string, toAgent: string): Promise<void> {
+    await this.db.query(
+      `delete from eidan.agent_relationships where user_id = $1 and from_agent_name = $2 and to_agent_name = $3`,
+      [userId, fromAgent, toAgent],
     );
   }
 }

@@ -3,6 +3,15 @@
 
 import { authFetch } from "@/lib/auth";
 
+export interface AgentRelationship {
+  id: string;
+  from_agent_name: string;
+  to_agent_name: string;
+  relationship_type: "reads_from" | "writes_to" | "asks" | "depends_on" | "notifies";
+  strength: number;
+  description?: string;
+}
+
 /**
  * One row from ``GET /api/escalations`` — mirrors the backend
  * envelope from `docs/022 §3`. The inbox renders these grouped by
@@ -111,4 +120,20 @@ export async function respondEscalation(
       `POST /api/escalations/${id}/respond returned ${res.status}`,
     );
   }
+}
+
+interface ListAgentRelationshipsResponse {
+  relationships: AgentRelationship[];
+}
+
+export async function listAgentRelationships(): Promise<AgentRelationship[]> {
+  const res = await authFetch(
+    "/api/agent-relationships",
+    { method: "GET", headers: { Accept: "application/json" } },
+  );
+  if (!res.ok) {
+    throw new Error(`GET /api/agent-relationships returned ${res.status}`);
+  }
+  const body = (await res.json()) as ListAgentRelationshipsResponse;
+  return body.relationships;
 }
