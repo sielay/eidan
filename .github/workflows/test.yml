@@ -53,7 +53,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/web/pnpm-lock.yaml
       - name: Install apps/web
-        run: pnpm install --frozen-lockfile
+        # --ignore-workspace: apps/web has its own package.json + lockfile but sits under the root
+        # pnpm-workspace.yaml (of which it is NOT a member); without this pnpm resolves to the parent
+        # workspace and leaves apps/web/node_modules empty.
+        run: pnpm install --frozen-lockfile --ignore-workspace
         working-directory: apps/web
       - name: Typecheck apps/web
         run: pnpm run typecheck
