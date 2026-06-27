@@ -6,6 +6,21 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.12] — 2026-06-27
+
+### Fixed
+
+- **Agents no longer act as orchestrators** — running under the same Eidan identity + full toolset as chat,
+  capable models read their persona as a request to "Eidan the OS" and reached for agent_create /
+  agent_schedule / agent_delegate / jobs / procedures — spinning up MORE agents and jobs instead of doing
+  the task. Every agent turn now leads with firm framing pinning the model into the WORKER role (do the
+  task yourself; do not create/schedule/delegate agents or create jobs/routines/procedures unless the task
+  is explicitly about managing agents). (A stronger follow-up: deny those tools entirely during agent runs.)
+- **LinkedIn integration** (#477, by sage) — drop the non-functional `linkedin_search` (LinkedIn has no
+  public search API) and be honest about engagement metrics: `linkedin_list_feed` now returns
+  `engagement_data_available: false` with a notice (likes/comments need the restricted r_member_social_feed
+  permission / standard tier). Docs + tool descriptions updated.
+
 ## [0.13.11] — 2026-06-27
 
 ### Fixed
