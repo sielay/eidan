@@ -1,1 +1,9 @@
-/* AUTO-GENERATED: bundle stylesheets (eidan deploy assembly). Empty in the base build. */
+/*
+  AUTO-GENERATED: bundle stylesheets (eidan deploy assembly).
+
+  This file is EMPTY in the base checkout to allow `pnpm dev` / `pnpm build`
+  to run without an `eidan deploy` assembly step. In a deployed instance,
+  `eidan deploy` overwrites this with actual plugin CSS imports. Local
+  development (without deploy) has no plugin stylesheets, but the type-check
+  and dev server work standalone.
+*/

@@ -4,9 +4,11 @@
 //
 // This committed copy is the EMPTY base case (no plugin frontends), so a
 // plain `pnpm dev` / `pnpm build` from the core checkout type-checks and
-// runs without an assembly step. `eidan deploy` overwrites it (and the
-// sibling `apps/web/src/plugins/<name>/` dirs) with the operator's
-// assembled plugin frontends, which are gitignored.
+// runs without an assembly step. In deployed instances, `eidan deploy`
+// overwrites this (and the sibling `apps/web/src/plugins/<name>/` dirs)
+// with the operator's assembled plugin frontends, which are gitignored.
+// Local development without `eidan deploy` will have no plugins loaded,
+// but the type-check, dev server, and build all succeed standalone.
 import type { ComponentType } from "react";
 import type { NavContribution } from "@/lib/shell/nav";
 
