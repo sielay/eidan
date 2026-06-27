@@ -1021,7 +1021,7 @@ export default function VenturesScreen(): React.ReactElement {
             )}
           </div>
 
-          <BoardsPanel key={current.id} scopeKind="venture" scopeId={current.id} />
+          <BoardsPanel key={current.id} scopeKind="venture" scopeId={current.id} basePath={`${BASE}/${current.slug}`} />
 
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card__head">

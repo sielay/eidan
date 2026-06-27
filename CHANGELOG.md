@@ -4,6 +4,15 @@ All notable changes to eidan are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases are cut by bumping
 `package.json` and merging `next-release` → `main` (which tags `v<version>` and builds images).
 
+## [Unreleased]
+
+### Added
+
+- **Board permalinks / own screen** — the active board now lives in the URL (`<basePath>/<board-id>`,
+  path not query), so every board is shareable + browser back/forward works, in both the standalone
+  **Planner** (`/p/boards/<id>`) and a **venture's** boards (`/p/charles-ventures/<slug>/<id>`). Built
+  via a `basePath` prop on the shared `BoardsPanel`. (Built, not yet released.)
+
 ## [0.12.4] — 2026-06-27
 
 ### Added

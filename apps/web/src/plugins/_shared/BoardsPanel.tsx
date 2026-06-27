@@ -9,6 +9,7 @@
 // chrome uses the global design system (.card/.field/.input/.btn/.pill).
 
 import * as React from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 import { authFetch } from "@/lib/auth";
 import { Avatar } from "@/plugins/_shared/Avatar";
@@ -55,7 +56,17 @@ const S = {
   drawer: { width: "min(420px, 100%)", height: "100%", overflowY: "auto" as const, background: "var(--bg, #fff)", borderLeft: "1px solid var(--border)", padding: "var(--s4)", display: "flex", flexDirection: "column" as const, gap: "var(--s3)" },
 };
 
-export function BoardsPanel({ scopeKind = null, scopeId = null }: { scopeKind?: string | null; scopeId?: string | null }): React.ReactElement {
+export function BoardsPanel({ scopeKind = null, scopeId = null, basePath }: { scopeKind?: string | null; scopeId?: string | null; basePath?: string }): React.ReactElement {
+  const router = useRouter();
+  const pathname = usePathname();
+  // When a basePath is given, the active board lives in the URL (`<basePath>/<board-id>`) so each board
+  // has a permalink and back/forward work — house rule: path, not query string. The board id is the
+  // first segment after basePath (the venture screen ignores it; it only reads its own slug segment).
+  const urlBoardId = React.useMemo(() => {
+    if (!basePath || !pathname || !pathname.startsWith(basePath)) return "";
+    const rest = pathname.slice(basePath.length).replace(/^\/+/, "");
+    return rest ? decodeURIComponent(rest.split("/")[0]) : "";
+  }, [basePath, pathname]);
   const [boards, setBoards] = React.useState<Board[]>([]);
   const [activeBoard, setActiveBoard] = React.useState("");
   const [boardsLoading, setBoardsLoading] = React.useState(true);
@@ -95,6 +106,16 @@ export function BoardsPanel({ scopeKind = null, scopeId = null }: { scopeKind?: 
 
   React.useEffect(() => { void loadBoards(); }, [loadBoards]);
   React.useEffect(() => { void loadCards(activeBoard); }, [activeBoard, loadCards]);
+  // Follow the URL (permalink + browser back/forward) when basePath routing is on.
+  React.useEffect(() => {
+    if (basePath && urlBoardId && boards.some((b) => b.id === urlBoardId)) setActiveBoard(urlBoardId);
+  }, [basePath, urlBoardId, boards]);
+
+  // Select a board AND, when permalinked, push its URL so it's shareable/back-able.
+  const selectBoard = React.useCallback((id: string): void => {
+    setActiveBoard(id);
+    if (basePath && id) router.push(`${basePath}/${encodeURIComponent(id)}`);
+  }, [basePath, router]);
 
   async function createBoard(): Promise<void> {
     const n = boardInput.trim();
@@ -106,7 +127,7 @@ export function BoardsPanel({ scopeKind = null, scopeId = null }: { scopeKind?: 
       if (!r.ok) throw new Error(j.error ?? "add board failed");
       setBoardInput(""); setMode(null);
       await loadBoards();
-      if (j.board?.id) setActiveBoard(j.board.id);
+      if (j.board?.id) selectBoard(j.board.id);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
@@ -197,8 +218,8 @@ export function BoardsPanel({ scopeKind = null, scopeId = null }: { scopeKind?: 
           <div className="skel" style={{ height: 30, width: 120 }} />
         ) : (
           boards.map((b) => (
-            <button key={b.id} style={S.tab(b.id === activeBoard)} onClick={() => setActiveBoard(b.id)}
-              onDoubleClick={() => { setActiveBoard(b.id); setBoardInput(b.name); setMode("rename"); }} title="Double-click to rename">
+            <button key={b.id} style={S.tab(b.id === activeBoard)} onClick={() => selectBoard(b.id)}
+              onDoubleClick={() => { selectBoard(b.id); setBoardInput(b.name); setMode("rename"); }} title="Double-click to rename">
               {b.name}
             </button>
           ))

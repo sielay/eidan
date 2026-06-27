@@ -15,7 +15,7 @@ export default function Boards(): React.ReactElement {
       <p className="screen-sub" style={{ marginTop: 0 }}>
         Standalone boards — plan anything; cards can link to assets, ventures, jobs and agents, and carry their own activity log.
       </p>
-      <BoardsPanel />
+      <BoardsPanel basePath="/p/boards" />
     </div>
   );
 }

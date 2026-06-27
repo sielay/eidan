@@ -22,6 +22,10 @@
         {
           "path": "/",
           "component": "Boards.tsx"
+        },
+        {
+          "path": "/*",
+          "component": "Boards.tsx"
         }
       ],
       "api": [
