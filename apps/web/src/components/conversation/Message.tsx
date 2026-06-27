@@ -8,6 +8,7 @@ import { formatAbsolute, formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
 import { ChartBlock } from "./ChartBlock";
+import { MermaidBlock } from "./MermaidBlock";
 import { ImageBlock } from "./ImageBlock";
 import type { PairedToolCall } from "./Thread";
 import { ToolDisclosure } from "./ToolDisclosure";
@@ -160,6 +161,7 @@ function MarkdownBody({ content }: { content: string }): React.ReactElement {
           pre: ({ node, children, ...props }) => {
             const { lang, text } = fencedBlock(node);
             if (lang === "chart") return <ChartBlock config={text} />;
+            if (lang === "mermaid") return <MermaidBlock code={text} />;
             return <pre {...props}>{children}</pre>;
           },
         }}
