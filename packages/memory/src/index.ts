@@ -4,7 +4,7 @@ import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { EidanMemory } from './eidan-memory.js';
 import { EidanKnowledgeIndex } from './knowledge-index.js';
-import { rememberTool, recallTool } from './tools.js';
+import { rememberTool, recallTool, conversationListTool, conversationArchiveTool } from './tools.js';
 
 // Advertise EidanMemory on the service registry so other plugins (bundles) can consume the
 // relational memory surface with full type safety: services.EidanMemory?.searchKnowledge(...).
@@ -22,12 +22,16 @@ export const plugin: MatbotPluginSpec = {
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
     if (!url) throw new Error('EIDAN_DATABASE_URL (or DATABASE_URL) must be set for @eidandev/memory');
-    const mem = new EidanMemory(new Db(url));
+    const db = new Db(url);
+    const mem = new EidanMemory(db);
     await services.register('EidanMemory', mem);
     // Expose the SAME relational knowledge as matbot's KnowledgeIndex, so skills/cognition/rumsfeld
     // read+write eidan.knowledge (one unified store) rather than a separate matbot index.
     await services.register('KnowledgeIndex', new EidanKnowledgeIndex(mem));
     services.tools.register(rememberTool(mem));
     services.tools.register(recallTool(mem));
+    // Conversation housekeeping (agent-facing counterpart to the UI delete). RLS-scoped to the owner.
+    services.tools.register(conversationListTool(db));
+    services.tools.register(conversationArchiveTool(db));
   },
 };

@@ -24,7 +24,8 @@ All notable changes to eidan are recorded here. The format follows
   malformed diagrams fall back to source). Reused by the upcoming file markdown viewer.
 - **Delete a conversation** — from the row's kebab menu (soft-delete; messages kept for audit, the
   conversation drops out of every list; navigates away if it was open). `DELETE /api/conversations/:id`
-  on the engine. (Agent-tool variant is a small follow-up.)
+  on the engine. **Agents** can do the same via two new memory-plugin tools — `conversation_list`
+  (find the id) and `conversation_archive` (soft-delete it) — RLS-scoped to the owner.
 - **Board permalinks / own screen** — the active board now lives in the URL (`<basePath>/<board-id>`,
   path not query), so every board is shareable + browser back/forward works, in both the standalone
   **Planner** (`/p/boards/<id>`) and a **venture's** boards (`/p/charles-ventures/<slug>/<id>`). Built
