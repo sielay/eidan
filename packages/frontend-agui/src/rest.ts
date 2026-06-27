@@ -573,7 +573,7 @@ export async function handleRest(
       const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred?: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
       // starred is NOT NULL in schema, but be defensive: default to false if missing (should never happen)
-      const nextBeforeStarred = rows.length === limit && last ? (last.starred === true) : null;
+      const nextBeforeStarred = rows.length === limit && last ? (last.starred ?? false) : null;
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
@@ -586,7 +586,11 @@ export async function handleRest(
     }
     if (method === 'POST') {
       let title: string | null = null;
-      try { const b = JSON.parse(await readBody(req)) as { title?: string | null }; title = b.title ?? null; } catch { /* empty body ok */ }
+      try {
+        const b = JSON.parse(await readBody(req, 64 * 1024)) as { title?: string | null };
+        if (!checkJsonDepth(b, 10)) throw new Error('body structure too deeply nested');
+        title = b.title ?? null;
+      } catch { /* empty body ok */ }
       const id = crypto.randomUUID();
       const sessions = services.sessions;
       if (!sessions) { json(res, 500, { error: 'sessions unavailable' }, cors); return true; }
