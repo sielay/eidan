@@ -363,9 +363,11 @@ async function generateLink(
       if (!affiliateIdCred) throw new Error('Affiliate ID, API key, or custom credential required for URL format');
 
       const affiliateIdValue = await getCredentialValue(affiliateIdCred);
-      const baseUrl = program.signup_url || program.api_endpoint || '';
+      const baseUrl = program.signup_url || program.api_endpoint;
 
-      if (!baseUrl) throw new Error('Signup URL or API endpoint required for URL format');
+      if (!baseUrl || baseUrl.trim() === '') {
+        throw new Error('Signup URL or API endpoint required for URL format');
+      }
 
       const separator = baseUrl.includes('?') ? '&' : '?';
 
@@ -379,12 +381,14 @@ async function generateLink(
 
     case 'api':
       const apiKeyCred = credentials.find((c) => c.credential_type === 'api_key');
-      if (!program.api_endpoint) throw new Error('API endpoint required for API format');
+      if (!program.api_endpoint || program.api_endpoint.trim() === '') {
+        throw new Error('API endpoint required for API format');
+      }
 
       if (apiKeyCred) {
         const apiKeyValue = await getCredentialValue(apiKeyCred);
-        // WARNING: API key is exposed in URL. Use only in server-side requests, never client-side.
-        // If the API supports it, prefer POST requests with key in request body.
+        // SECURITY WARNING: API key is exposed in URL. Only use in server-side requests.
+        // If the API supports it, implement POST request with key in request body instead.
         return `${program.api_endpoint}?key=${encodeURIComponent(apiKeyValue)}`;
       }
       return program.api_endpoint;
@@ -392,11 +396,13 @@ async function generateLink(
     case 'pixel':
       const trackingCodeCred = credentials.find((c) => c.credential_type === 'tracking_code');
       if (!trackingCodeCred) throw new Error('Tracking code credential required for pixel format');
-      if (!program.api_endpoint) throw new Error('API endpoint required for pixel format');
+      if (!program.api_endpoint || program.api_endpoint.trim() === '') {
+        throw new Error('API endpoint required for pixel format');
+      }
 
       const trackingCodeValue = await getCredentialValue(trackingCodeCred);
-      // WARNING: Tracking code and content ID are exposed in pixel URL (logs, referrer, browser history).
-      // Ensure tracked data is non-sensitive. For highly sensitive tracking, use server-side requests instead.
+      // SECURITY WARNING: Tracking code and content ID are exposed in pixel URL (logs, referrer, browser history).
+      // Implement as server-side request for sensitive tracking data.
       return `<img src="${program.api_endpoint}?code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}" width="1" height="1" />`;
 
     default:
