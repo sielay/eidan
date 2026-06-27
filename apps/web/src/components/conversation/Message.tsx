@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
+import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ChevronDown, GitFork } from "lucide-react";
 
 import { formatAbsolute, formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
@@ -50,6 +52,8 @@ export interface MessageBlockProps {
   streaming?: boolean;
   /** ISO timestamp shown subtly under the bubble (omitted for optimistic/streaming rows). */
   time?: string;
+  /** ⑂ Compare: the candidate models' raw answers, shown in a disclosure below the merged answer. */
+  fork?: { legs: Array<{ model: string; text: string }> };
 }
 
 /**
@@ -72,6 +76,7 @@ export function MessageBlock({
   interrupted,
   streaming,
   time,
+  fork,
 }: MessageBlockProps): React.ReactElement {
   const hasBody = content !== null && content.length > 0;
   const hasToolCalls = toolCalls !== undefined && toolCalls.length > 0;
@@ -121,6 +126,51 @@ export function MessageBlock({
         </div>
       ) : null}
       {hasToolCalls ? <ToolDisclosure calls={toolCalls!} /> : null}
+      {fork && fork.legs.length ? <ForkDisclosure legs={fork.legs} /> : null}
+    </div>
+  );
+}
+
+// ⑂ Compare: a collapsible showing each candidate model's raw answer (the merged answer is the bubble
+// above). Persisted on the assistant message's metadata.fork by the engine when a Compare turn runs.
+function ForkDisclosure({ legs }: { legs: Array<{ model: string; text: string }> }): React.ReactElement {
+  const [open, setOpen] = React.useState(false);
+  const [shown, setShown] = React.useState<number>(0);
+  return (
+    <div className="mt-1.5 rounded-md border border-border bg-background/50 text-xs">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-muted-foreground hover:text-foreground"
+      >
+        <GitFork className="h-3 w-3" />
+        <span className="font-medium">⑂ Compared {legs.length} models</span>
+        <span className="text-[10px] text-muted-foreground/70">— see each raw answer</span>
+        <ChevronDown className={cn("ml-auto h-3 w-3 transition-transform", open && "rotate-180")} />
+      </button>
+      {open ? (
+        <div className="border-t border-border">
+          <div className="flex flex-wrap gap-1 px-2.5 py-1.5">
+            {legs.map((l, i) => (
+              <button
+                key={`${l.model}-${i}`}
+                type="button"
+                onClick={() => setShown(i)}
+                className={cn(
+                  "rounded px-2 py-0.5 font-mono text-[10px]",
+                  i === shown ? "bg-accent text-accent-foreground" : "bg-muted/60 text-muted-foreground hover:bg-accent/60",
+                )}
+              >
+                {l.model}
+              </button>
+            ))}
+          </div>
+          <div className="max-h-80 overflow-y-auto border-t border-border px-2.5 py-2">
+            <MarkdownBody content={legs[shown]?.text ?? ""} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

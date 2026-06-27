@@ -6,6 +6,16 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.10] — 2026-06-27
+
+### Added
+
+- **⑂ Compare shows each model's raw answer** — the candidate legs are now persisted onto the merged
+  assistant message (metadata.fork) and rendered in a collapsible **⑂ Compared N models** disclosure below
+  the answer, with a tab per model showing its full raw response (the verdict stays in the merge's
+  "## Model comparison" section). Legs are also already in the cost trace (role=compare_leg, 0.13.7).
+  (Live per-leg streaming — watching all models think at once — is a larger SSE change, still to come.)
+
 ## [0.13.9] — 2026-06-27
 
 ### Added

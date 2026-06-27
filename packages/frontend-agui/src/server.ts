@@ -335,6 +335,10 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     const emitter = new AguiEmitter(conversationId);
     for (const e of emitter.start()) sse(res, e);
 
+    // The resolved Compare legs, persisted onto the merged assistant message once the judge turn commits
+    // (so the chat can show a disclosure of each model's raw answer alongside the merge).
+    let forkLegs: Array<{ model: string; text: string }> = [];
+
     // Run the fork candidates (one-shot completions — no session, no junk conversations) and arm a
     // one-shot `screen` hook that injects them as EPHEMERAL context for the judge turn below. Ephemeral
     // = prepended to this turn's model calls, never persisted and elided from history — so the user
@@ -356,6 +360,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
       }));
       const legs = settled.flatMap((r) => (r.status === 'fulfilled' && r.value.text.trim() ? [r.value] : []));
       if (legs.length >= 2) {
+        forkLegs = legs;
         const briefing = buildJudgeBriefing(text, legs);
         const armedAt = Date.now();
         let fired = false;
@@ -432,6 +437,18 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
             });
           }
           if (ev.type === 'done' || ev.type === 'aborted') flushUsage(lastIdByRole(ev.session, 'user'));
+          // Fork-and-merge: stamp the candidate legs onto the just-committed assistant message so the chat
+          // can render a "compared N models" disclosure. metadata is a denormalised column (the session is
+          // reconstructed from content_blocks), so patching it post-commit doesn't disturb the store.
+          if (ev.type === 'done' && forkLegs.length >= 2) {
+            const asstId = lastIdByRole(ev.session, 'assistant');
+            if (asstId) {
+              void withPrincipal(principal, (q) => q(
+                `update eidan.messages set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{fork}', $2::jsonb, true) where id=$1 and user_id=$3`,
+                [asstId, JSON.stringify({ legs: forkLegs }), principal.id],
+              )).catch(() => { /* disclosure is best-effort; the merged answer still stands */ });
+            }
+          }
           for (const a of emitter.map(ev)) sse(res, a);
           if (ev.type === 'done' || ev.type === 'error' || ev.type === 'aborted' || ev.type === 'cancelled') break;
         }

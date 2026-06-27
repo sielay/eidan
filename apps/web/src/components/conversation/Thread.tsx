@@ -36,6 +36,8 @@ export interface ThreadMessage {
   interrupted?: boolean;
   /** ISO timestamp of the persisted row (undefined for optimistic/streaming rows). */
   created_at?: string;
+  /** ⑂ Compare: persisted candidate legs (from the assistant row's metadata.fork). */
+  fork?: { legs: Array<{ model: string; text: string }> };
 }
 
 export interface ThreadProps {
@@ -84,6 +86,7 @@ export function Thread({ messages }: ThreadProps): React.ReactElement {
           streaming={m.streaming}
           interrupted={m.interrupted}
           time={m.created_at}
+          fork={m.fork}
         />
       ))}
       <div ref={bottomRef} />

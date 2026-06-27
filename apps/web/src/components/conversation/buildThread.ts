@@ -38,6 +38,15 @@ export interface BuildThreadInput {
  * (or a tool takes no args) we fall back to an empty object so the
  * call still renders.
  */
+// Extract the persisted ⑂ Compare legs from an assistant row's metadata.fork, if present + well-formed.
+function forkFrom(row: MessageRow): { legs: Array<{ model: string; text: string }> } | undefined {
+  const f = (row.metadata as { fork?: unknown } | null)?.fork as { legs?: unknown } | undefined;
+  if (!f || !Array.isArray(f.legs)) return undefined;
+  const legs = f.legs
+    .filter((l): l is { model: string; text: string } => !!l && typeof (l as { model?: unknown }).model === "string" && typeof (l as { text?: unknown }).text === "string");
+  return legs.length ? { legs } : undefined;
+}
+
 function parseToolArgs(argsText: string): Record<string, unknown> {
   if (!argsText) return {};
   try {
@@ -123,6 +132,7 @@ export function buildThread({
         role: row.role,
         content: row.content,
         created_at: row.created_at,
+        ...(row.role === "assistant" ? { fork: forkFrom(row) } : {}),
       });
       i++;
     }
