@@ -445,9 +445,11 @@ export class LinkedInClient {
     if (result.error) {
       return { error: result.error };
     }
-    // Hardcoded engagement_data_available: false indicates the current limitation.
-    // When standard tier + r_member_social_feed is approved, set to true and implement
-    // the upgrade path documented above.
+    // TODO: Once standard tier + r_member_social_feed permission is granted:
+    // 1. Set engagement_data_available to true
+    // 2. For each post, call /reactions?q=post with the post URN to fetch engagement
+    // 3. Parse reaction types (LIKE, COMMENT_LIKE, etc.) to populate likes/comments
+    // See the upgrade path documentation above and https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/reactions-api
     const posts = (result.data?.elements ?? []).map((p) => ({
       id: p.id ?? '',
       text: p.commentary ?? '',
