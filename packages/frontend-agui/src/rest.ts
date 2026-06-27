@@ -564,7 +564,7 @@ export async function handleRest(
       const rows = r.rows;
       const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred?: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
-      const nextBeforeStarred = rows.length === limit && last && last.starred !== undefined ? String(last.starred === true) : null;
+      const nextBeforeStarred = rows.length === limit && last && (last.starred === true || last.starred === false) ? String(last.starred === true) : null;
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
