@@ -198,7 +198,7 @@ export function AgentOrgChartPane(): React.ReactElement {
       vy: 0,
     }));
 
-    const agentNameMap = new Map(agents.map((a) => [a.name, a.id]));
+    const agentNameToIdMap = new Map(agents.map((a) => [a.name, a.id]));
     const agentIds = new Set(agents.map((a) => a.id));
     const newEdges: EdgeData[] = [];
     const edgeMap = new Map<string, { escalations: number; relationship?: AgentRelationship }>();
@@ -215,8 +215,8 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     if (relationships) {
       for (const rel of relationships) {
-        const fromId = agentNameMap.get(rel.from_agent_name);
-        const toId = agentNameMap.get(rel.to_agent_name);
+        const fromId = agentNameToIdMap.get(rel.from_agent_name);
+        const toId = agentNameToIdMap.get(rel.to_agent_name);
         if (fromId && toId && agentIds.has(fromId) && agentIds.has(toId)) {
           const key = `${fromId}→${toId}`;
           const existing = edgeMap.get(key) ?? { escalations: 0 };
@@ -512,11 +512,11 @@ export function AgentOrgChartPane(): React.ReactElement {
                 const isSelected = selectedNode === from.id || selectedNode === to.id;
                 const opacity = !selectedNode || isSelected ? 1 : 0.2;
                 const isRelationship = !!edge.relationship;
-                const strokeColor = isRelationship
-                  ? RELATIONSHIP_COLORS[edge.relationship.relationship_type] || "#cbd5e1"
+                const strokeColor = edge.relationship
+                  ? (RELATIONSHIP_COLORS[edge.relationship.relationship_type] || "#cbd5e1")
                   : "#cbd5e1";
                 const strokeDasharray = isRelationship ? "4,2" : "none";
-                const description = isRelationship ? edge.relationship.description : undefined;
+                const description = edge.relationship?.description;
 
                 return (
                   <g key={`${edge.from}→${edge.to}`} opacity={opacity}>

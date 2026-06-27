@@ -9,10 +9,6 @@ export type PluginRoute = { plugin: string; path: string; load: PluginLoad };
 export type PluginSlotEntry = { plugin: string; slot: string; load: PluginLoad };
 
 export const pluginRoutes: PluginRoute[] = [
-  { plugin: "imap", path: "/", load: () => import("@/plugins/imap/Accounts") },
-  { plugin: "ical", path: "/", load: () => import("@/plugins/ical/Calendars") },
-  { plugin: "google", path: "/", load: () => import("@/plugins/google/Connections") },
-  { plugin: "google", path: "/callback", load: () => import("@/plugins/google/Callback") },
   { plugin: "boards", path: "/", load: () => import("@/plugins/boards/Boards") },
   { plugin: "charles-domains", path: "/", load: () => import("@/plugins/charles-domains/Domains") },
   { plugin: "charles-ventures", path: "/*", load: () => import("@/plugins/charles-ventures/Ventures") },
@@ -22,6 +18,10 @@ export const pluginRoutes: PluginRoute[] = [
   { plugin: "fs", path: "/", load: () => import("@/plugins/fs/FileBrowser") },
   { plugin: "github", path: "/", load: () => import("@/plugins/github/Connections") },
   { plugin: "glue", path: "/", load: () => import("@/plugins/glue/Setup") },
+  { plugin: "google", path: "/", load: () => import("@/plugins/google/Connections") },
+  { plugin: "google", path: "/callback", load: () => import("@/plugins/google/Callback") },
+  { plugin: "ical", path: "/", load: () => import("@/plugins/ical/Calendars") },
+  { plugin: "imap", path: "/", load: () => import("@/plugins/imap/Accounts") },
   { plugin: "logs", path: "/", load: () => import("@/plugins/logs/Sources") },
   { plugin: "social-bluesky", path: "/", load: () => import("@/plugins/social-bluesky/Connections") },
   { plugin: "social-facebook", path: "/", load: () => import("@/plugins/social-facebook/Connections") },
@@ -44,9 +44,6 @@ export const pluginSlots: PluginSlotEntry[] = [
 ];
 
 export const pluginNav: NavContribution[] = [
-  {"bundle":"imap","group":"Integrations","sections":[{"id":"mail","label":"Mail","icon":"mail","href":"/p/imap","mobileHome":5}]},
-  {"bundle":"ical","group":"Integrations","sections":[{"id":"calendars","label":"Calendars","icon":"calendar","href":"/p/ical","mobileHome":4}]},
-  {"bundle":"google","group":"Integrations","sections":[{"id":"gmail","label":"Google","icon":"mail","href":"/p/google","mobileHome":5}]},
   {"bundle":"boards","group":"Plan","sections":[{"id":"boards","label":"Planner","icon":"analytics","href":"/p/boards","mobileHome":null}]},
   {"bundle":"charles-domains","group":"Charles · business","sections":[{"id":"domains","label":"Domains","icon":"link","href":"/p/charles-domains","mobileHome":null}]},
   {"bundle":"charles-ventures","group":"Charles · business","sections":[{"id":"ventures","label":"Ventures","icon":"ventures","href":"/p/charles-ventures","mobileHome":1}]},
@@ -55,6 +52,9 @@ export const pluginNav: NavContribution[] = [
   {"bundle":"fs","group":"Files","sections":[{"id":"fs","label":"Files","icon":"link","href":"/p/fs","mobileHome":null}]},
   {"bundle":"github","group":"Integrations","sections":[{"id":"github","label":"GitHub","icon":"link","href":"/p/github","mobileHome":null}]},
   {"bundle":"glue","group":"Integrations","sections":[{"id":"glue","label":"Glue marketing","icon":"share","href":"/p/glue","mobileHome":null}]},
+  {"bundle":"google","group":"Integrations","sections":[{"id":"gmail","label":"Google","icon":"mail","href":"/p/google","mobileHome":5}]},
+  {"bundle":"ical","group":"Integrations","sections":[{"id":"calendars","label":"Calendars","icon":"calendar","href":"/p/ical","mobileHome":4}]},
+  {"bundle":"imap","group":"Integrations","sections":[{"id":"mail","label":"Mail","icon":"mail","href":"/p/imap","mobileHome":5}]},
   {"bundle":"logs","group":"Integrations","sections":[{"id":"logs","label":"Logs","icon":"scroll-text","href":"/p/logs","mobileHome":7}]},
   {"bundle":"social-bluesky","group":"Integrations","sections":[{"id":"social-bluesky","label":"Bluesky","icon":"share","href":"/p/social-bluesky","mobileHome":null}]},
   {"bundle":"social-facebook","group":"Integrations","sections":[{"id":"social-facebook","label":"Facebook","icon":"share","href":"/p/social-facebook","mobileHome":null}]},
