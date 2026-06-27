@@ -121,8 +121,8 @@ export function ConversationList(): React.ReactElement {
       const timeDiff = bTime - aTime;
       return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
     },
-    // Pure function: depends only on input parameters (a, b), not external state or variables.
-    // ConversationSummary properties (starred, updated_at, id) are accessed directly from parameters.
+    // Pure function: depends only on input parameters (a, b). If external state or config
+    // is added (e.g., sort direction, locale), add to this dependency array.
     [],
   );
 
