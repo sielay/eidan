@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MatbotTool, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
-import type { AffiliateDb } from './db.js';
+import type { AffiliateDb, AffiliateProgram } from './db.js';
 
 export function buildAffiliateTools(db: AffiliateDb, services: MatbotServices): MatbotTool[] {
   return [
@@ -157,12 +157,21 @@ export function buildAffiliateTools(db: AffiliateDb, services: MatbotServices): 
         const programId = String(inp['program_id'] ?? '');
 
         try {
-          const program = await db.updateProgram(principal.user_id, programId, {
-            ...(inp['approval_status'] ? { approval_status: String(inp['approval_status']) as any } : {}),
-            ...(inp['commission_rate'] ? { commission_rate: Number(inp['commission_rate']) } : {}),
-            ...(inp['relevance_score'] ? { relevance_score: Number(inp['relevance_score']) } : {}),
-            ...(Array.isArray(inp['content_types']) ? { content_types: inp['content_types'].map(String) } : {}),
-          } as any);
+          const updateData: Partial<AffiliateProgram> = {};
+          if (inp['approval_status']) {
+            updateData.approval_status = String(inp['approval_status']) as AffiliateProgram['approval_status'];
+          }
+          if (inp['commission_rate']) {
+            updateData.commission_rate = Number(inp['commission_rate']);
+          }
+          if (inp['relevance_score']) {
+            updateData.relevance_score = Number(inp['relevance_score']);
+          }
+          if (Array.isArray(inp['content_types'])) {
+            updateData.content_types = inp['content_types'].map(String);
+          }
+
+          const program = await db.updateProgram(principal.user_id, programId, updateData);
 
           if (!program) return { error: 'Program not found' };
           return { ok: true, program_name: program.program_name };
@@ -390,7 +399,8 @@ async function generateLink(
       }
 
       const apiKeyValue = await getCredentialValue(apiKeyCred);
-      return `${program.api_endpoint}?key=${encodeURIComponent(apiKeyValue)}`;
+      const separator = program.api_endpoint.includes('?') ? '&' : '?';
+      return `${program.api_endpoint}${separator}key=${encodeURIComponent(apiKeyValue)}`;
     }
 
     case 'pixel': {
@@ -402,7 +412,8 @@ async function generateLink(
       if (!trackingCodeCred) throw new Error('Tracking code credential required for pixel format');
 
       const trackingCodeValue = await getCredentialValue(trackingCodeCred);
-      return `<img src="${program.api_endpoint}?code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}" width="1" height="1" />`;
+      const separator = program.api_endpoint.includes('?') ? '&' : '?';
+      return `<img src="${program.api_endpoint}${separator}code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}" width="1" height="1" />`;
     }
 
     default:
