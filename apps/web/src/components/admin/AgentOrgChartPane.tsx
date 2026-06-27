@@ -187,7 +187,7 @@ export function AgentOrgChartPane(): React.ReactElement {
   React.useEffect(() => {
     if (!agents) return;
     const newNodes: NodeData[] = agents.map((a) => ({
-      id: String(a.id),
+      id: a.id,
       name: a.name,
       enabled: a.enabled,
       provider: a.provider,
