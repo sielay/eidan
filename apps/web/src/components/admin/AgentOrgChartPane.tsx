@@ -6,6 +6,7 @@ import { listAgents, type AgentInfo } from "@/lib/api/admin";
 import { listEscalations, type EscalationSummary, listAgentRelationships, type AgentRelationship } from "@/lib/api/escalations";
 import { useAuth } from "@/components/providers/auth-provider";
 import { cn } from "@/lib/utils";
+import { ORG_CHART_COLORS } from "@/lib/org-chart-colors";
 
 interface NodeData {
   id: string;
@@ -98,21 +99,6 @@ function repulsionFromQuadtree(node: NodeData, qt: QuadtreeNode, force: number):
   return { fx, fy };
 }
 
-const COLORS = {
-  enabled: "#10b981",
-  disabled: "#6b7280",
-  claude: "#9f7aea",
-  openai: "#3b82f6",
-  other: "#ec4899",
-};
-
-const RELATIONSHIP_COLORS: Record<string, string> = {
-  reads_from: "#10b981",
-  writes_to: "#f59e0b",
-  asks: "#f97316",
-  depends_on: "#ef4444",
-  notifies: "#8b5cf6",
-};
 
 export function AgentOrgChartPane(): React.ReactElement {
   const { user } = useAuth();
@@ -455,10 +441,10 @@ export function AgentOrgChartPane(): React.ReactElement {
   }, [agents, edges, viewBoxDim]);
 
   const providerColor = (provider: string | null): string => {
-    if (!provider) return COLORS.other;
-    if (provider.includes("claude")) return COLORS.claude;
-    if (provider.includes("openai") || provider.includes("gpt")) return COLORS.openai;
-    return COLORS.other;
+    if (!provider) return ORG_CHART_COLORS.nodeProvider.other;
+    if (provider.includes("claude")) return ORG_CHART_COLORS.nodeProvider.claude;
+    if (provider.includes("openai") || provider.includes("gpt")) return ORG_CHART_COLORS.nodeProvider.openai;
+    return ORG_CHART_COLORS.nodeProvider.other;
   };
 
   const selected = selectedNode ? nodes.find((n) => n.id === selectedNode) : null;
@@ -482,11 +468,11 @@ export function AgentOrgChartPane(): React.ReactElement {
 
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
-            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS.enabled }} />
+            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: ORG_CHART_COLORS.nodeStatus.enabled }} />
             <span>Enabled</span>
           </div>
           <div className="flex items-center gap-1">
-            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS.disabled }} />
+            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: ORG_CHART_COLORS.nodeStatus.disabled }} />
             <span>Paused</span>
           </div>
           <div className="text-muted-foreground/60">Provider: claude (purple) • openai (blue) • other (pink)</div>
@@ -525,7 +511,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                 const opacity = !selectedNode || isSelected ? 1 : 0.2;
                 const isRelationship = !!edge.relationship;
                 const strokeColor = edge.relationship
-                  ? (RELATIONSHIP_COLORS[edge.relationship.relationship_type] || "#cbd5e1")
+                  ? (ORG_CHART_COLORS.relationships[edge.relationship.relationship_type] || "#cbd5e1")
                   : "#cbd5e1";
                 const strokeDasharray = isRelationship ? "4,2" : "";
                 const relationshipStrength = edge.relationship?.strength ?? 3;
@@ -601,7 +587,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                 const size = isSelected ? 28 : 20;
                 const color = node.enabled
                   ? providerColor(node.provider)
-                  : COLORS.disabled;
+                  : ORG_CHART_COLORS.nodeStatus.disabled;
 
                 return (
                   <g

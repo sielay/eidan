@@ -5,6 +5,7 @@ import { authFetch } from "@/lib/auth";
 
 export interface AgentRelationship {
   id: string;
+  user_id: string;
   from_agent_id: string;
   to_agent_id: string;
   relationship_type: "reads_from" | "writes_to" | "asks" | "depends_on" | "notifies";
@@ -130,8 +131,8 @@ export async function listAgentRelationships(
   options?: { fromAgentId?: string; toAgentId?: string },
 ): Promise<AgentRelationship[]> {
   const params = new URLSearchParams();
-  if (options?.fromAgentId) params.set("fromAgentId", options.fromAgentId);
-  if (options?.toAgentId) params.set("toAgentId", options.toAgentId);
+  if (options?.fromAgentId) params.set("from", options.fromAgentId);
+  if (options?.toAgentId) params.set("to", options.toAgentId);
   const qs = params.toString();
   const res = await authFetch(
     `/api/agent-relationships${qs ? `?${qs}` : ""}`,
