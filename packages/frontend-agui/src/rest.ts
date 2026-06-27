@@ -681,10 +681,10 @@ export async function handleRest(
         updates.push(`starred=$${paramIdx}`);
         paramIdx++;
       }
-      let row: { title?: unknown; starred?: unknown; updated_at?: unknown } | undefined;
+      let row: { id?: unknown; title?: unknown; starred?: unknown; updated_at?: unknown } | undefined;
       try {
         const r = await withPrincipal(principal, (q) => q(
-          `update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2 returning title, starred, updated_at`,
+          `update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2 returning id, title, starred, updated_at`,
           vals,
         ));
         row = r.rows[0];
@@ -694,7 +694,7 @@ export async function handleRest(
         return true;
       }
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
-      json(res, 200, { id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at) }, cors);
+      json(res, 200, { id: row.id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at) }, cors);
       return true;
     }
 

@@ -120,8 +120,16 @@ export function ConversationList(): React.ReactElement {
         if (itemIdx === -1) return prev;
         const updated = prev[itemIdx];
         const newItem = { ...updated, starred: nextStarred, updated_at: updatedAt };
-        // Update the item in place; server sorts on retrieval, so just update the row
-        return [...prev.slice(0, itemIdx), newItem, ...prev.slice(itemIdx + 1)];
+        // Remove the item and re-sort to match server sort order (starred DESC, updated_at DESC)
+        const remaining = [...prev.slice(0, itemIdx), ...prev.slice(itemIdx + 1)];
+        if (nextStarred) {
+          // Find insertion point: after other starred items with same or later updated_at
+          const insertIdx = remaining.findIndex((r) => !r.starred || r.updated_at < updatedAt);
+          return insertIdx === -1
+            ? [...remaining, newItem]
+            : [...remaining.slice(0, insertIdx), newItem, ...remaining.slice(insertIdx)];
+        }
+        return [...remaining, newItem];
       });
     },
     [],
