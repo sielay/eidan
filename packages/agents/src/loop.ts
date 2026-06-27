@@ -4,6 +4,17 @@ import { AgentsStore, type DueScheduleRow } from './store.js';
 import { dueWindow } from './schedule.js';
 import { runAgentTurn, effectiveProvider } from './runner.js';
 
+interface FireableRow {
+  trigger_id: string;
+  agent_id: string;
+  user_id: string;
+  name: string;
+  persona: string;
+  provider: string | null;
+  model: string | null;
+  target_node: string | null;
+}
+
 export interface AgentsLoopOpts {
   defaultProvider: string;
   pollMs?: number;
@@ -63,7 +74,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   const nodeId = process.env['EIDAN_NODE_ID'] ?? null;
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-  const fire = async (row: DueScheduleRow, fireKey: string, overridePersona?: string): Promise<void> => {
+  const fire = async (row: FireableRow, fireKey: string, overridePersona?: string): Promise<void> => {
     const provider = effectiveProvider(services, row.provider ?? opts.defaultProvider, row.model);
     const persona = overridePersona ?? row.persona;
     try {
@@ -110,7 +121,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
         if (a.target_node && a.target_node !== nodeId) continue; // pinned to another node
         const responses = await esc.list({
           userId: a.user_id,
-          toAgent: a.name,
+          toAgent: a.agent_id,
           status: 'responded',
           limit: 10,
         });
@@ -129,7 +140,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
           if (!won) continue; // another node is handling this fire
           // Mark as processed before firing (ensures we don't reprocess even if fire fails)
           void esc.markResponseProcessed(resp.id).catch(() => undefined);
-          void fire(a as DueScheduleRow, fireKey, blendedPersona);
+          void fire(a, fireKey, blendedPersona);
         }
       }
     } catch (e) {
