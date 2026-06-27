@@ -38,8 +38,8 @@ export const plugin: MatbotPluginSpec = {
   async setup(services: MatbotServices) {
     const svc = services as { Escalations?: EscalationsService; AskUserFallbackConfig?: AskUserFallbackConfig };
 
-    const config: AskUserFallbackConfig = {
-      isNonInteractive: !!process.env['IS_SUB_AGENT'],
+    const config: AskUserFallbackConfig = svc.AskUserFallbackConfig ?? {
+      isNonInteractive: typeof process !== 'undefined' && !!process.env['IS_SUB_AGENT'],
     };
 
     services.hooks.register({
