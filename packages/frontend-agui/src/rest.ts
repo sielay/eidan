@@ -659,10 +659,6 @@ export async function handleRest(
         json(res, 400, { error: msg }, cors);
         return true;
       }
-      if (!checkJsonDepth(body)) {
-        json(res, 400, { error: 'request body structure too deeply nested' }, cors);
-        return true;
-      }
       if (typeof body !== 'object' || body === null) {
         json(res, 400, { error: 'request body must be a JSON object' }, cors);
         return true;
