@@ -371,8 +371,11 @@ async function generateLink(
 
       if (!affiliateIdCred) throw new Error('Affiliate ID, API key, or custom credential required for URL format');
 
-      const baseUrl = program.signup_url || program.api_endpoint;
-      if (!baseUrl || baseUrl.trim() === '') {
+      const signupUrl = program.signup_url ? String(program.signup_url).trim() : '';
+      const apiEndpoint = program.api_endpoint ? String(program.api_endpoint).trim() : '';
+      const baseUrl = signupUrl || apiEndpoint;
+
+      if (!baseUrl) {
         throw new Error('Signup URL or API endpoint required for URL format');
       }
 
@@ -389,7 +392,8 @@ async function generateLink(
     }
 
     case 'api': {
-      if (!program.api_endpoint || program.api_endpoint.trim() === '') {
+      const apiEndpoint = program.api_endpoint ? String(program.api_endpoint).trim() : '';
+      if (!apiEndpoint) {
         throw new Error('API endpoint required for API format');
       }
 
@@ -399,13 +403,14 @@ async function generateLink(
       }
 
       // Security: API keys must NOT be embedded in URLs (exposure risk in logs, browser history, referrer headers).
-      // API key should be transmitted server-side via POST request body if the API supports it.
-      // Returning the endpoint; the server should add the API key when making the actual request.
-      return program.api_endpoint;
+      // Callers must transmit the API key server-side via POST request body if the API supports it,
+      // or ensure this endpoint is only used in server-side requests, never client-side.
+      return apiEndpoint;
     }
 
     case 'pixel': {
-      if (!program.api_endpoint || program.api_endpoint.trim() === '') {
+      const pixelEndpoint = program.api_endpoint ? String(program.api_endpoint).trim() : '';
+      if (!pixelEndpoint) {
         throw new Error('API endpoint (pixel src) required for pixel format');
       }
 
@@ -413,10 +418,12 @@ async function generateLink(
       if (!trackingCodeCred) throw new Error('Tracking code credential required for pixel format');
 
       const trackingCodeValue = await getCredentialValue(trackingCodeCred);
-      const separator = program.api_endpoint.includes('?') ? '&' : '?';
-      // Note: Tracking code and content ID are exposed in the pixel URL (data exposure concern).
-      // Consider server-side implementation if sensitive data is being tracked.
-      return `<img src="${program.api_endpoint}${separator}code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}" width="1" height="1" />`;
+      const separator = pixelEndpoint.includes('?') ? '&' : '?';
+
+      // Security: Tracking code and content ID are exposed in the pixel URL (data exposure concern).
+      // Consider implementing this as a server-side call if tracking sensitive data.
+      // For client-side pixels, ensure only non-sensitive tracking codes are used.
+      return `<img src="${pixelEndpoint}${separator}code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}" width="1" height="1" />`;
     }
 
     default:
