@@ -1,12 +1,39 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Multi-format file parsers for PDF, images (OCR), DOCX, and Excel files.
 
+export interface TableRow {
+  rows: string[] | Record<string, unknown>[];
+  sheet?: string;
+}
+
+export interface Section {
+  heading: string;
+  content: string;
+}
+
+export interface PdfMetadata {
+  pages: number;
+  version?: string;
+}
+
+export interface OcrMetadata {
+  confidence: number;
+  language: string;
+}
+
+export interface ExcelMetadata {
+  sheetCount: number;
+  fullTextIncluded: boolean;
+}
+
+export type ContentMetadata = PdfMetadata | OcrMetadata | ExcelMetadata | Record<string, unknown>;
+
 export interface ParsedContent {
   text: string;
   format: string;
-  tables?: Record<string, unknown>[] | undefined;
-  sections?: { heading: string; content: string }[] | undefined;
-  metadata?: Record<string, unknown> | undefined;
+  tables?: TableRow[] | undefined;
+  sections?: Section[] | undefined;
+  metadata?: ContentMetadata | undefined;
 }
 
 export class ParseError extends Error {}
@@ -23,20 +50,34 @@ async function getTesseractWorker() {
   return tesseractWorker;
 }
 
-// Clean up Tesseract worker on process exit.
-if (typeof process !== 'undefined') {
-  process.on('exit', async () => {
-    if (tesseractWorker) {
+// Gracefully terminate Tesseract worker when process exits or receives shutdown signals.
+async function cleanupTesseractWorker() {
+  if (tesseractWorker) {
+    try {
       await tesseractWorker.terminate();
+      tesseractWorker = null;
+    } catch (err) {
+      // Suppress errors during cleanup to avoid masking the original exit cause
     }
+  }
+}
+
+if (typeof process !== 'undefined') {
+  process.on('exit', cleanupTesseractWorker);
+  process.on('SIGINT', async () => {
+    await cleanupTesseractWorker();
+    process.exit(0);
+  });
+  process.on('SIGTERM', async () => {
+    await cleanupTesseractWorker();
+    process.exit(0);
   });
 }
 
 // Dynamically load pdf-parse with error handling for missing dependency.
-async function getPdfParse() {
+async function getPdfParse(): Promise<(buffer: Uint8Array) => Promise<{ text: string; numpages: number; version?: string }>> {
   try {
-    // @ts-ignore
-    const mod = await import('pdf-parse/lib/pdf-parse.js');
+    const mod = await import('pdf-parse/lib/pdf-parse.js') as any;
     return mod.default || mod;
   } catch {
     throw new ParseError(
@@ -49,8 +90,7 @@ async function getPdfParse() {
 // ⚠️ NOTE: Table and heading detection use heuristics. Validate accuracy with diverse PDF documents.
 // For high-precision or complex table extraction, consider specialized libraries (pdfplumber, camelot-py).
 export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
-  const pdfParse = await getPdfParse();
-  const pdf = pdfParse.default || pdfParse;
+  const pdf = await getPdfParse();
 
   try {
     const data = await pdf(bytes);
@@ -64,7 +104,7 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
     // extraction libraries (e.g., camelot-py for Python-based pipelines, or pdfplumber for advanced layouts).
     // Current approach is sufficient for most structured PDFs exported from spreadsheets or reports.
     const lines = text.split('\n');
-    const tables: Record<string, unknown>[] = [];
+    const tables: TableRow[] = [];
     let currentTable: string[] = [];
 
     for (const line of lines) {
@@ -92,8 +132,8 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
     // or miss hierarchical structure (H1 vs H2). Validate accuracy with your document styles.
     // For precise heading hierarchy, consider NLP (spaCy, NLTK) or structural PDF libraries (pdfplumber).
     // Current approach is suitable for extracting top-level content sections from most PDFs.
-    const sections: { heading: string; content: string }[] = [];
-    let currentSection = { heading: '', content: '' };
+    const sections: Section[] = [];
+    let currentSection: Section = { heading: '', content: '' };
 
     for (const line of lines) {
       const trimmed = line.trim();
@@ -134,10 +174,9 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
 }
 
 // Dynamically load Tesseract.js for OCR with error handling.
-async function getTesseract() {
+async function getTesseract(): Promise<any> {
   try {
-    // @ts-ignore
-    return await import('tesseract.js');
+    return await import('tesseract.js') as any;
   } catch {
     throw new ParseError(
       'OCR is not available on this node. tesseract.js is an optional dependency (a heavy WASM ' +
@@ -176,10 +215,9 @@ export async function parseImageOcr(bytes: Uint8Array): Promise<ParsedContent> {
 }
 
 // Dynamically load mammoth for DOCX parsing.
-async function getMammoth() {
+async function getMammoth(): Promise<any> {
   try {
-    // @ts-ignore
-    return await import('mammoth');
+    return await import('mammoth') as any;
   } catch {
     throw new ParseError(
       'DOCX parsing requires the mammoth library. Install with: pnpm add -w mammoth',
@@ -187,56 +225,23 @@ async function getMammoth() {
   }
 }
 
-// Extract text from HTML by stripping tags. TRUSTED INPUT ONLY.
-// ⚠️ SECURITY: This function is unsafe for untrusted or user-supplied HTML. It implements a
-// custom state machine for tag removal without sanitization. Use ONLY for trusted sources like
-// mammoth.js DOCX conversions. For any untrusted input, use a battle-tested library (dompurify, xss).
-// Trusted usage: mammoth.js outputs well-formed HTML with no script injection risk.
-function stripTrustedHtmlTags(html: string): string {
-  let text = '';
-  let inTag = false;
-  let inComment = false;
+// Extract text from HTML by stripping tags using xss library for robust sanitization.
+function stripHtmlTags(html: string): string {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const xss = require('xss') as (html: string, options?: Record<string, unknown>) => string;
+  const cleaned = xss(html, {
+    whiteList: {},
+    stripIgnoredTag: true,
+    stripComment: true,
+    onTagAttr: () => '',
+  });
 
-  for (let i = 0; i < html.length; i++) {
-    const char = html[i];
-    const nextChars = html.substring(i, Math.min(i + 4, html.length));
-
-    // Check for comment start
-    if (!inTag && nextChars === '<!--') {
-      inComment = true;
-      i += 3;
-      continue;
-    }
-
-    // Check for comment end
-    if (inComment && nextChars === '-->') {
-      inComment = false;
-      i += 2;
-      continue;
-    }
-
-    // Skip if inside comment
-    if (inComment) {
-      continue;
-    }
-
-    // Handle tag boundaries
-    if (char === '<') {
-      inTag = true;
-    } else if (char === '>') {
-      inTag = false;
-      text += '\n';
-    } else if (!inTag) {
-      text += char;
-    }
-  }
-
-  return text
-    .replace(/\n\n+/g, '\n')
+  return cleaned
     .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&')
+    .replace(/\n\n+/g, '\n')
     .trim();
 }
 
@@ -251,14 +256,14 @@ export async function parseDocx(bytes: Uint8Array): Promise<ParsedContent> {
     const messages = result.messages ?? [];
 
     // Extract headings from HTML before stripping tags
-    const headings = Array.from(html.matchAll(/<h[1-6][^>]*>([^<]*)<\/h[1-6]>/gi)).map(
-      (m) => m[1]?.trim() ?? '',
-    );
+    const headings: string[] = [];
+    for (const m of html.matchAll(/<h[1-6][^>]*>([^<]*)<\/h[1-6]>/gi)) {
+      const heading = m[1]?.trim() ?? '';
+      if (heading) headings.push(heading);
+    }
 
-    // Strip HTML tags using robust state machine approach.
-    // Safe because mammoth.js produces trusted, well-formed HTML with no injection risk.
-    // If ever used with untrusted input, replace with a battle-tested sanitizer (dompurify, xss).
-    const text = stripTrustedHtmlTags(html);
+    // Strip HTML tags using xss library for robust sanitization.
+    const text = stripHtmlTags(html);
 
     return {
       text,
@@ -274,10 +279,9 @@ export async function parseDocx(bytes: Uint8Array): Promise<ParsedContent> {
 }
 
 // Dynamically load xlsx for Excel parsing.
-async function getXlsx() {
+async function getXlsx(): Promise<any> {
   try {
-    // @ts-ignore
-    return await import('xlsx');
+    return await import('xlsx') as any;
   } catch {
     throw new ParseError(
       'Excel parsing requires the xlsx library. Install with: pnpm add -w xlsx',
@@ -293,7 +297,7 @@ export async function parseExcel(bytes: Uint8Array, fullText?: boolean): Promise
 
   try {
     const workbook = XLSX.read(bytes, { type: 'array' });
-    const sheets: Record<string, unknown>[] = [];
+    const sheets: TableRow[] = [];
     let allText = '';
 
     for (const sheet of workbook.SheetNames) {
