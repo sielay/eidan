@@ -363,7 +363,10 @@ async function generateLink(
       if (!affiliateIdCred) throw new Error('Affiliate ID, API key, or custom credential required for URL format');
 
       const affiliateIdValue = await getCredentialValue(affiliateIdCred);
-      let baseUrl = program.signup_url || program.api_endpoint || '';
+      const baseUrl = program.signup_url || program.api_endpoint || '';
+
+      if (!baseUrl) throw new Error('Signup URL or API endpoint required for URL format');
+
       const separator = baseUrl.includes('?') ? '&' : '?';
 
       if (program.provider === 'amazon' || program.provider === 'kdp') {
@@ -376,16 +379,24 @@ async function generateLink(
 
     case 'api':
       const apiKeyCred = credentials.find((c) => c.credential_type === 'api_key');
+      if (!program.api_endpoint) throw new Error('API endpoint required for API format');
+
       if (apiKeyCred) {
         const apiKeyValue = await getCredentialValue(apiKeyCred);
-        return program.api_endpoint ? `${program.api_endpoint}?key=${encodeURIComponent(apiKeyValue)}` : program.api_endpoint || '';
+        // WARNING: API key is exposed in URL. Use only in server-side requests, never client-side.
+        // If the API supports it, prefer POST requests with key in request body.
+        return `${program.api_endpoint}?key=${encodeURIComponent(apiKeyValue)}`;
       }
-      return program.api_endpoint || '';
+      return program.api_endpoint;
 
     case 'pixel':
       const trackingCodeCred = credentials.find((c) => c.credential_type === 'tracking_code');
       if (!trackingCodeCred) throw new Error('Tracking code credential required for pixel format');
+      if (!program.api_endpoint) throw new Error('API endpoint required for pixel format');
+
       const trackingCodeValue = await getCredentialValue(trackingCodeCred);
+      // WARNING: Tracking code and content ID are exposed in pixel URL (logs, referrer, browser history).
+      // Ensure tracked data is non-sensitive. For highly sensitive tracking, use server-side requests instead.
       return `<img src="${program.api_endpoint}?code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}" width="1" height="1" />`;
 
     default:
