@@ -187,7 +187,7 @@ export function AgentOrgChartPane(): React.ReactElement {
   React.useEffect(() => {
     if (!agents) return;
     const newNodes: NodeData[] = agents.map((a) => ({
-      id: a.id,
+      id: String(a.id),
       name: a.name,
       enabled: a.enabled,
       provider: a.provider,
@@ -515,7 +515,7 @@ export function AgentOrgChartPane(): React.ReactElement {
             <span>Paused</span>
           </div>
           <div className="text-muted-foreground/60">Provider: claude (purple) • openai (blue) • other (pink)</div>
-          <div className="text-muted-foreground/60">Relationships: reads_from (green) • writes_to (amber) • asks (orange) • depends_on (red) • notifies (purple) — dashed lines</div>
+          <div className="text-muted-foreground/60">Relationships: reads_from (green) • writes_to (amber) • asks (orange) • depends_on (red) • notifies (purple)</div>
         </div>
       </div>
 
