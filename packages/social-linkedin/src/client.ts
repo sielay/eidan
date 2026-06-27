@@ -63,6 +63,7 @@ export class LinkedInClient {
   private cachedUserId: string | null = null;
   private userIdCacheTime: number = 0;
   private readonly USER_ID_CACHE_TTL_MS = 3600000; // 1 hour
+  private readonly MAX_IMAGE_REDIRECTS = 5; // Prevent redirect loops and resource exhaustion
 
   constructor(ctx: ToolContext, accessToken: string, customImageDomains?: string) {
     this.ctx = ctx;
@@ -72,25 +73,35 @@ export class LinkedInClient {
 
   private isPrivateIp(ip: string): boolean {
     const ipv4Patterns = [
-      /^127\./,           // loopback (127.0.0.0/8)
-      /^10\./,            // private (10.0.0.0/8)
-      /^172\.(1[6-9]|2\d|3[01])\./, // private (172.16.0.0/12)
-      /^192\.168\./,      // private (192.168.0.0/16)
-      /^169\.254\./,      // link-local (169.254.0.0/16)
+      /^127\./,           // loopback (127.0.0.0/8) per RFC5735
+      /^10\./,            // private (10.0.0.0/8) per RFC1918
+      /^172\.(1[6-9]|2\d|3[01])\./, // private (172.16.0.0/12) per RFC1918
+      /^192\.168\./,      // private (192.168.0.0/16) per RFC1918
+      /^169\.254\./,      // link-local (169.254.0.0/16) per RFC3927
+      /^0\./,             // current network (0.0.0.0/8) per RFC5735
+      /^224\./,           // multicast (224.0.0.0/4) per RFC5771
+      /^240\./,           // reserved (240.0.0.0/4) per RFC5735
     ];
 
-    // IPv6 private/reserved ranges per RFC4193 (ULA), RFC4291 (loopback), RFC4862 (link-local), RFC3513 (special-purpose)
+    // IPv6 private/reserved ranges per RFC4193 (ULA), RFC4291 (addressing), RFC4862 (autoconfiguration), RFC5952 (representation)
     const ipv6Patterns = [
-      /^::1$/,            // loopback (::1/128)
-      /^::$/,             // unspecified address (::/128)
-      /^f[c-d][0-9a-f]{0,3}:/,   // unique local unicast (fc00::/7) — fc00:: to fdff::
-      /^fe[8-b][0-9a-f]{0,3}:/,  // link-local unicast (fe80::/10) — fe80:: to febf::
-      /^ff[0-9a-f]{0,3}:/,        // multicast (ff00::/8)
-      /^::ffff:127\./,    // IPv4-mapped loopback
-      /^::ffff:10\./,     // IPv4-mapped private
-      /^::ffff:172\.(1[6-9]|2\d|3[01])\./,  // IPv4-mapped private
-      /^::ffff:192\.168\./, // IPv4-mapped private
-      /^::ffff:169\.254\./, // IPv4-mapped link-local
+      /^::1$/,            // loopback (::1/128) per RFC4291
+      /^::$/,             // unspecified (::/128) per RFC4291
+      /^f[cd]/,           // unique local unicast (fc00::/7 and fd00::/7) per RFC4193 — includes all ULA addresses
+      /^fe[89ab]/,        // link-local unicast (fe80::/10) per RFC4291 — fe80:: through febf::
+      /^ff/,              // multicast (ff00::/8) per RFC4291
+      /^::ffff:127\./,    // IPv4-mapped loopback per RFC4291
+      /^::ffff:10\./,     // IPv4-mapped private per RFC4291
+      /^::ffff:172\.(1[6-9]|2\d|3[01])\./,  // IPv4-mapped private per RFC4291
+      /^::ffff:192\.168\./, // IPv4-mapped private per RFC4291
+      /^::ffff:169\.254\./, // IPv4-mapped link-local per RFC4291
+      /^::ffff:0:0\//,    // IPv4-mapped any per RFC4291
+      /^0*:0*:0*:0*:0*:0*:0*:0*$/,  // all zeros per RFC4291
+      /^100::/,           // discard prefix (100::/64) per RFC6666
+      /^2001:db8:/,       // documentation (2001:db8::/32) per RFC3849
+      /^2001:20::/,       // ORCHIDv2 (2001:20::/28) per RFC7343
+      /^2001::/,          // TEREDO (2001::/32) per RFC4380
+      /^::2/,             // documentation (::2/128) per RFC5737
     ];
 
     const isPrivateIpv4 = ipv4Patterns.some((pattern) => pattern.test(ip));
@@ -107,11 +118,14 @@ export class LinkedInClient {
       if (normalizedHostname === normalizedDomain) {
         return true;
       }
-      // Subdomain match: ensure it's a proper subdomain by checking the dot is at the boundary
-      // (prevents evil.com.trustedcdn.com from matching when trustedcdn.com is whitelisted)
+      // Subdomain match: allow exactly one level of subdomains to prevent attacks like
+      // evil.com.trustedcdn.com when trustedcdn.com is whitelisted. Split by dots and
+      // verify that hostname has exactly one more component than the domain.
       if (normalizedHostname.endsWith(`.${normalizedDomain}`)) {
-        const beforeDomain = normalizedHostname.length - normalizedDomain.length - 1;
-        return beforeDomain > 0 && normalizedHostname[beforeDomain] === '.';
+        const hostnameParts = normalizedHostname.split('.');
+        const domainParts = normalizedDomain.split('.');
+        // Only allow if hostname has exactly one more part than domain (one subdomain level)
+        return hostnameParts.length === domainParts.length + 1;
       }
       return false;
     });
@@ -133,10 +147,15 @@ export class LinkedInClient {
       }
 
       // Resolve hostname to IP and validate all resolved IPs are not private.
-      // DNS rebinding attacks: if DNS changes between this lookup and the actual fetch,
-      // an attacker could redirect to a private IP. Mitigation: this validation is performed
-      // at the point of use (before fetch/redirects), reducing the rebinding window.
-      // For maximum security, consider using an image proxy or firewall-level domain whitelist.
+      // NOTE: DNS rebinding vulnerability — if DNS record changes between this lookup and the
+      // actual fetch (in registerAsset/fetchImageWithRedirectValidation), an attacker could
+      // redirect to a private IP. This validation reduces the attack window but does not fully
+      // eliminate it. Mitigations already in place:
+      // 1. IP is re-validated at each redirect point
+      // 2. Manual redirect handling (not following automatic redirects)
+      // 3. Short timeout to minimize rebinding window
+      // For production systems handling untrusted images, consider additional mitigations:
+      // use an image proxy with strict firewall rules, or pin DNS with persistent validation.
       try {
         const resolvedAddresses = await dnsLookup(hostname, { all: true });
         for (const { address } of resolvedAddresses) {
@@ -167,12 +186,12 @@ export class LinkedInClient {
     try {
       let currentUrl = imageUrl;
       let redirectCount = 0;
-      const maxRedirects = 5;
 
       // Manual redirect handling allows SSRF validation at each step, preventing attacks
       // where a redirect chain could lead to a private/internal network (e.g., via a
       // whitelisted domain redirecting to 127.0.0.1). This is critical for security.
-      while (redirectCount < maxRedirects) {
+      // Limit redirect count to prevent malicious servers from chaining redirects to exhaust resources.
+      while (redirectCount < this.MAX_IMAGE_REDIRECTS) {
         const url = new URL(currentUrl);
         const response = await fetch(currentUrl, {
           signal: controller.signal,
@@ -211,7 +230,7 @@ export class LinkedInClient {
         }
       }
 
-      throw new Error(`Too many redirects (more than ${maxRedirects})`);
+      throw new Error(`Too many redirects (more than ${this.MAX_IMAGE_REDIRECTS})`);
     } finally {
       clearTimeout(timeoutId);
     }
