@@ -199,6 +199,15 @@ export async function updateConversationTitle(
   return (await res.json()) as UpdateConversationResponse;
 }
 
+/** Soft-delete a conversation (owner-scoped) — it drops out of every list; messages stay for audit. */
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const res = await authFetch(`/api/conversations/${conversationId}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`DELETE /api/conversations/${conversationId} returned ${res.status}`);
+}
+
 /**
  * Force-regenerate a conversation's title from its first user +
  * assistant exchange. The backend runs a one-shot haiku-class summary

@@ -4,7 +4,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { MoreHorizontal, Pencil, Plus, RefreshCw, Search, Star } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, RefreshCw, Search, Star, Trash2 } from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
   createConversation,
   listConversations,
   regenerateConversationTitle,
+  deleteConversation,
   updateConversationTitle,
   toggleConversationStar,
   type ConversationSummary,
@@ -190,6 +191,14 @@ export function ConversationList(): React.ReactElement {
     [],
   );
 
+  const onRowDeleted = React.useCallback(
+    (rowId: string) => {
+      setItems((prev) => (prev === null ? prev : prev.filter((row) => row.id !== rowId)));
+      if (rowId === activeId) router.push("/c"); // the open conversation was deleted → leave it
+    },
+    [activeId, router],
+  );
+
   if (loading || !user) {
     return (
       <div
@@ -271,6 +280,7 @@ export function ConversationList(): React.ReactElement {
                 active={row.id === activeId}
                 onTitleChange={(next) => onRowTitleChange(row.id, next)}
                 onStarChange={(next, updatedAt) => onRowStarChange(row.id, next, updatedAt)}
+                onDeleted={() => onRowDeleted(row.id)}
               />
             </li>
           ))}
@@ -288,16 +298,18 @@ function ConversationRow({
   active,
   onTitleChange,
   onStarChange,
+  onDeleted,
 }: {
   row: ConversationSummary;
   active: boolean;
   onTitleChange: (next: string | null) => void;
   onStarChange: (next: boolean, updatedAt: string) => void;
+  onDeleted: () => void;
 }): React.ReactElement {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState("");
-  const [busy, setBusy] = React.useState<"save" | "regen" | "star" | null>(null);
+  const [busy, setBusy] = React.useState<"save" | "regen" | "star" | "delete" | null>(null);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -380,6 +392,20 @@ function ConversationRow({
       setBusy(null);
     }
   }, [busy, onStarChange, row.id, row.starred]);
+
+  const onDelete = React.useCallback(async () => {
+    setMenuOpen(false);
+    if (busy !== null) return;
+    if (typeof window !== "undefined" && !window.confirm("Delete this conversation? Its messages are kept for audit but it's removed from your list.")) return;
+    setBusy("delete");
+    try {
+      await deleteConversation(row.id);
+      onDeleted(); // parent removes the row (and navigates away if it was active)
+    } catch (err) {
+      console.error("Failed to delete conversation:", err instanceof Error ? err.message : String(err));
+      setBusy(null);
+    }
+  }, [busy, onDeleted, row.id]);
 
   if (editing) {
     return (
@@ -507,6 +533,15 @@ function ConversationRow({
             >
               <RefreshCw className="h-3 w-3" />
               Regenerate title
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => void onDelete()}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
             </button>
           </div>
         ) : null}

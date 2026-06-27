@@ -649,6 +649,14 @@ export async function handleRest(
       return true;
     }
 
+    if (sub === undefined && method === 'DELETE') {
+      // Soft-delete (deleted_at); messages stay for audit but the conversation drops out of every list.
+      const r = await withPrincipal(principal, (q) => q('update eidan.conversations set deleted_at=now(), updated_at=now() where id=$1 and user_id=$2 and deleted_at is null', [id, uid]));
+      if (!(r.rowCount ?? 0)) { json(res, 404, { error: 'not found' }, cors); return true; }
+      json(res, 200, { ok: true }, cors);
+      return true;
+    }
+
     if (sub === undefined && method === 'PATCH') {
       let body: unknown = {};
       // 64KB limit covers title (typical max ~256 bytes) and starred boolean; sufficient for current schema
