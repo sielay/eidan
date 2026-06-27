@@ -19,9 +19,17 @@
 export type NavIconKey =
   | "chat"
   | "memory"
-  | "inbox"
-  | "plugins"
+  | "agents"
+  | "boards"
+  | "escalations"
+  | "skills"
+  | "calendar"
   | "procedures"
+  | "ventures"
+  | "decision-log"
+  | "jobs"
+  | "files"
+  | "plugins"
   | "admin"
   | "settings"
   | "more"
@@ -58,16 +66,32 @@ export interface NavContribution {
 /** Core sections — always present, real routes. */
 export const CORE_CONTRIBUTION: NavContribution = {
   bundle: "core",
-  group: "System",
+  group: "Work",
   sections: [
     { id: "chat", label: "Chat", icon: "chat", href: "/", mobileHome: 0 },
-    { id: "memory", label: "Memory", icon: "memory", href: "/memory", mobileHome: 1 },
-    { id: "inbox", label: "Inbox", icon: "inbox", href: "/escalations", mobileHome: 2 },
+    { id: "escalations", label: "Escalations", icon: "escalations", href: "/escalations", mobileHome: 2 },
     { id: "agents", label: "Agents", icon: "agents", href: "/agents", mobileHome: null },
+  ],
+};
+
+/** Tools & Knowledge sections. */
+export const TOOLS_CONTRIBUTION: NavContribution = {
+  bundle: "core",
+  group: "Tools",
+  sections: [
+    { id: "memory", label: "Memory", icon: "memory", href: "/memory", mobileHome: 1 },
     { id: "files", label: "Files", icon: "files", href: "/files", mobileHome: null },
     { id: "jobs", label: "Jobs", icon: "jobs", href: "/jobs", mobileHome: null },
     { id: "procedures", label: "Procedures", icon: "procedures", href: "/procedures", mobileHome: null },
     { id: "plugins", label: "Plugins", icon: "plugins", href: "/plugins", mobileHome: 3 },
+  ],
+};
+
+/** Admin sections. */
+export const ADMIN_CONTRIBUTION: NavContribution = {
+  bundle: "core",
+  group: "System",
+  sections: [
     { id: "admin", label: "Admin", icon: "admin", href: "/admin/activity", mobileHome: null, desktopOnly: true },
   ],
 };
