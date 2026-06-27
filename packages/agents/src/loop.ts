@@ -30,6 +30,7 @@ interface EscalationsLike {
     suggestedAction?: string;
     evidence?: unknown[];
     agentId?: string;
+    metadata?: Record<string, unknown>;
   }): Promise<{ id: string } | null>;
   listUnprocessedResponsesForAgents(toAgentIds: string[], limit?: number): Promise<EscalationResponse[]>;
   markResponseProcessed(id: string): Promise<void>;
@@ -114,6 +115,8 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
             suggestedAction: `Agent "${row.name}" has failed ${streak} runs in a row (last error: ${msg}). Check its provider/config, or pause it.`,
             evidence: [`error: ${msg}`, `fire_key: ${fireKey}`],
             agentId: row.agent_id,
+            // Provenance for the inbox: which agent, by name, so the operator sees its avatar + a link.
+            metadata: { source: 'agent', agent_name: row.name },
           });
         }
       } catch {

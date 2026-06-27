@@ -6,6 +6,7 @@ import * as React from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { JobMarkdown } from "@/components/admin/JobMarkdown";
+import { Avatar } from "@/plugins/_shared/Avatar";
 import {
   acknowledgeEscalation,
   listEscalations,
@@ -186,12 +187,6 @@ function EscalationRow({
       : row.severity === "medium"
         ? "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
         : "border-border bg-background";
-  const sourceLabel =
-    typeof row.metadata?.source === "string"
-      ? (row.metadata.source as string)
-      : null;
-  const agentLabel = row.from_agent ? `from ${row.from_agent}` : sourceLabel ? `from ${sourceLabel}` : null;
-
   return (
     <article
       className={cn(
@@ -218,13 +213,9 @@ function EscalationRow({
             {row.escalation_type.replace(/_/g, " ")}
           </span>
         ) : null}
-        {agentLabel ? (
-          <span className="font-mono text-[10px] text-muted-foreground/70">
-            {agentLabel}
-          </span>
-        ) : null}
         <span className="ml-auto">{formatRelative(row.created_at)}</span>
       </header>
+      <EscalationSource row={row} />
       {row.suggested_action ? (
         <div className="text-foreground">
           <JobMarkdown>{linkifyRefs(row.suggested_action)}</JobMarkdown>
@@ -390,6 +381,58 @@ function collectRefs(row: EscalationSummary): Array<{ label: string; href: strin
   }
   if (row.metadata) scan(row.metadata);
   return refs;
+}
+
+// Provenance: who/what raised this escalation, so the operator can tell a specific agent from sage and
+// jump to the source. sage → its avatar-chip + a link to the PR (where its reasoning + comments live);
+// a standing agent → its avatar + name, a link to the agent, and a link to the originating chat.
+function EscalationSource({ row }: { row: EscalationSummary }): React.ReactElement | null {
+  const md = (row.metadata ?? {}) as Record<string, unknown>;
+  const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+  const source = str(md["source"]);
+
+  const repo = str(md["repo"]);
+  const prNum = md["pr_number"] != null ? String(md["pr_number"]) : null;
+  const isSage = source === "sage" || row.from_agent === "sage" || prNum != null;
+  if (isSage) {
+    const prUrl = str(md["pr_url"]) ?? (repo && prNum ? `https://github.com/${repo}/pull/${prNum}` : null);
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">from</span>
+        <span className="inline-flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-800 dark:bg-violet-900/50 dark:text-violet-200">
+          🤖 sage
+        </span>
+        {prUrl ? (
+          <a href={prUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] text-blue-700 hover:bg-muted dark:text-blue-400">
+            {prNum ? `PR #${prNum}` : "pull request"} <span aria-hidden>↗</span>
+          </a>
+        ) : null}
+      </div>
+    );
+  }
+
+  // The eidan.agents id lives in metadata.agent_id (the agent_id column references personas, not agents).
+  const agentId = str(md["agent_id"]);
+  const agentName = str(md["agent_name"]) ?? row.from_agent;
+  if (agentId || agentName) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">from</span>
+        {agentId ? <Avatar kind="agent" seed={agentId} size={18} title={agentName ?? "agent"} /> : null}
+        {agentId ? (
+          <Link href={`/agents/${agentId}`} className="text-xs font-medium text-foreground hover:underline">{agentName ?? "agent"}</Link>
+        ) : (
+          <span className="text-xs font-medium text-foreground">{agentName}</span>
+        )}
+        {row.conversation_id ? (
+          <Link href={`/c/${row.conversation_id}`} className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] text-blue-700 hover:bg-muted dark:text-blue-400">
+            chat <span aria-hidden>→</span>
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
+  return null;
 }
 
 function EscalationRefs({ row }: { row: EscalationSummary }): React.ReactElement | null {
