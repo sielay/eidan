@@ -60,6 +60,9 @@ export class LinkedInClient {
   private ctx: ToolContext;
   private accessToken: string;
   private allowedImageDomains: string[];
+  private cachedUserId: string | null = null;
+  private userIdCacheTime: number = 0;
+  private readonly USER_ID_CACHE_TTL_MS = 3600000; // 1 hour
 
   constructor(ctx: ToolContext, accessToken: string, customImageDomains?: string) {
     this.ctx = ctx;
@@ -76,11 +79,13 @@ export class LinkedInClient {
       /^169\.254\./,      // link-local (169.254.0.0/16)
     ];
 
-    // IPv6 private/reserved ranges per RFC4193 (ULA), RFC4291 (loopback), RFC4862 (link-local)
+    // IPv6 private/reserved ranges per RFC4193 (ULA), RFC4291 (loopback), RFC4862 (link-local), RFC3513 (special-purpose)
     const ipv6Patterns = [
-      /^::1$/,            // loopback
+      /^::1$/,            // loopback (::1/128)
+      /^::$/,             // unspecified address (::/128)
       /^f[c-d][0-9a-f]{0,3}:/,   // unique local unicast (fc00::/7) — fc00:: to fdff::
       /^fe[8-b][0-9a-f]{0,3}:/,  // link-local unicast (fe80::/10) — fe80:: to febf::
+      /^ff[0-9a-f]{0,3}:/,        // multicast (ff00::/8)
       /^::ffff:127\./,    // IPv4-mapped loopback
       /^::ffff:10\./,     // IPv4-mapped private
       /^::ffff:172\.(1[6-9]|2\d|3[01])\./,  // IPv4-mapped private
@@ -98,7 +103,17 @@ export class LinkedInClient {
     const normalizedHostname = hostname.toLowerCase();
     return this.allowedImageDomains.some((domain) => {
       const normalizedDomain = domain.toLowerCase();
-      return normalizedHostname === normalizedDomain || normalizedHostname.endsWith(`.${normalizedDomain}`);
+      // Exact match
+      if (normalizedHostname === normalizedDomain) {
+        return true;
+      }
+      // Subdomain match: ensure it's a proper subdomain by checking the dot is at the boundary
+      // (prevents evil.com.trustedcdn.com from matching when trustedcdn.com is whitelisted)
+      if (normalizedHostname.endsWith(`.${normalizedDomain}`)) {
+        const beforeDomain = normalizedHostname.length - normalizedDomain.length - 1;
+        return beforeDomain > 0 && normalizedHostname[beforeDomain] === '.';
+      }
+      return false;
     });
   }
 
@@ -158,9 +173,15 @@ export class LinkedInClient {
       // where a redirect chain could lead to a private/internal network (e.g., via a
       // whitelisted domain redirecting to 127.0.0.1). This is critical for security.
       while (redirectCount < maxRedirects) {
+        const url = new URL(currentUrl);
         const response = await fetch(currentUrl, {
           signal: controller.signal,
           redirect: 'manual',
+          headers: {
+            // Add Host header to prevent DNS rebinding: ensures server-side validation
+            // checks match the intended hostname, not the IP it resolves to
+            'Host': url.hostname,
+          },
         });
 
         if (response.status >= 300 && response.status < 400) {
@@ -371,15 +392,20 @@ export class LinkedInClient {
   }
 
   async post(text: string, imageUrl?: string): Promise<{ id?: string; error?: string }> {
-    const userResult = await this.request<{ id: string }>('/me');
-    if (userResult.error) {
-      return { error: `Failed to get user ID: ${userResult.error}` };
+    // Use cached user ID if available and not expired
+    let userId = this.cachedUserId;
+    if (!userId || Date.now() - this.userIdCacheTime > this.USER_ID_CACHE_TTL_MS) {
+      const userResult = await this.request<{ id: string }>('/me');
+      if (userResult.error) {
+        return { error: `Failed to get user ID: ${userResult.error}` };
+      }
+      if (!userResult.data?.id) {
+        return { error: 'No user ID received' };
+      }
+      userId = userResult.data.id;
+      this.cachedUserId = userId;
+      this.userIdCacheTime = Date.now();
     }
-    if (!userResult.data?.id) {
-      return { error: 'No user ID received' };
-    }
-
-    const userId = userResult.data.id;
 
     let mediaUrn: string | undefined;
     if (imageUrl) {

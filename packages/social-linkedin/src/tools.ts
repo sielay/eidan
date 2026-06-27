@@ -120,12 +120,12 @@ export function makeLinkedInTools(): Tool[] {
           return;
         }
 
-        // Note: inputSchema validates limit as integer 1-100; casting handles edge cases
+        // Note: inputSchema validates limit as integer 1-100; use nullish coalescing since schema ensures valid input
         try {
           const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
           const customDomains = await secretOpt(ctx, 'LINKEDIN_ALLOWED_IMAGE_DOMAINS');
           const client = new LinkedInClient(ctx, token, customDomains ?? undefined);
-          const result = await client.search(query, Number(args.limit) || 20);
+          const result = await client.search(query, args.limit ?? 20);
 
           if (result.error) {
             yield { type: 'error', message: result.error };
@@ -210,12 +210,12 @@ export function makeLinkedInTools(): Tool[] {
       async *execute(input: any, ctx: ToolContext) {
         const args = (input ?? {}) as { limit?: number };
 
-        // Note: inputSchema validates limit as integer 1-100 if provided; defaults to 20
+        // Note: inputSchema validates limit as integer 1-100 if provided; use nullish coalescing since schema ensures valid input
         try {
           const token = await secretRequired(ctx, 'LINKEDIN_ACCESS_TOKEN');
           const customDomains = await secretOpt(ctx, 'LINKEDIN_ALLOWED_IMAGE_DOMAINS');
           const client = new LinkedInClient(ctx, token, customDomains ?? undefined);
-          const result = await client.listFeed(Number(args.limit) || 20);
+          const result = await client.listFeed(args.limit ?? 20);
 
           if (result.error) {
             yield { type: 'error', message: result.error };
