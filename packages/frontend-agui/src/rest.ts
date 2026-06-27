@@ -31,7 +31,7 @@ function json(res: ServerResponse, code: number, obj: unknown, cors: Record<stri
   res.end(JSON.stringify(obj));
 }
 
-function readBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<string> {
+function readTextBody(req: IncomingMessage, maxBytes = 256 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -46,6 +46,8 @@ function readBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<string>
 }
 
 function checkJsonDepth(obj: unknown, maxDepth = 10): boolean {
+  // maxDepth=10 is a reasonable default: typical JSON payloads (titles, starred bools) nest at most 2-3 levels;
+  // 10 provides ample headroom while preventing algorithmic attacks via deeply nested structures.
   if (maxDepth < 0) return false;
   if (typeof obj !== 'object' || obj === null) return true;
   if (Array.isArray(obj)) {
@@ -560,20 +562,19 @@ export async function handleRest(
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
       if (before != null) {
-        const beforeStarredBool = beforeStarredStr === 'true' ? true : (beforeStarredStr === 'false' ? false : null);
+        // When using keyset pagination with 'before' cursor, 'before_starred' must be provided and valid.
+        // This ensures consistent pagination across the (starred DESC, updated_at DESC) sort order.
+        if (beforeStarredStr !== 'true' && beforeStarredStr !== 'false') {
+          json(res, 400, { error: 'before_starred must be provided and be "true" or "false" when before is used' }, cors);
+          return true;
+        }
+        const beforeStarredBool = beforeStarredStr === 'true';
+        const beforeStarredIdx = vals.length + 1;
+        const beforeTimestampIdx = vals.length + 2;
+        vals.push(beforeStarredBool, before);
         // Keyset pagination: fetch rows after the cursor by (starred DESC, updated_at DESC).
         // Use the standard (col1 < val1) OR (col1 = val1 AND col2 < val2) pattern.
-        // starred < true evaluates to starred = false; starred = true stays in starred section.
-        if (beforeStarredBool !== null) {
-          const beforeStarredIdx = vals.length + 1;
-          const beforeTimestampIdx = vals.length + 2;
-          vals.push(beforeStarredBool, before);
-          conds.push(`((starred < $${beforeStarredIdx}::boolean) OR (starred = $${beforeStarredIdx}::boolean AND coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz))`);
-        } else {
-          const beforeTimestampIdx = vals.length + 1;
-          vals.push(before);
-          conds.push(`coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz`);
-        }
+        conds.push(`((starred < $${beforeStarredIdx}::boolean) OR (starred = $${beforeStarredIdx}::boolean AND coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz))`);
       }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
@@ -592,10 +593,10 @@ export async function handleRest(
         ),
       );
       const rows = r.rows;
-      const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred?: boolean } | undefined;
+      const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
-      // starred is NOT NULL in schema, but be defensive: default to false if missing (should never happen)
-      const nextBeforeStarred = rows.length === limit && last ? (last.starred ?? false) : null;
+      // starred is NOT NULL in schema, so it is always present when a row exists
+      const nextBeforeStarred = rows.length === limit && last ? last.starred : null;
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
@@ -609,7 +610,7 @@ export async function handleRest(
     if (method === 'POST') {
       let title: string | null = null;
       try {
-        const b = parseJsonBody(await readBody(req, 64 * 1024)) as { title?: string | null };
+        const b = parseJsonBody(await readTextBody(req, 64 * 1024)) as { title?: string | null };
         title = b.title ?? null;
       } catch (err) {
         const msg = err instanceof SyntaxError ? 'invalid JSON in request body' : (err instanceof Error ? err.message : 'invalid request body');
@@ -643,10 +644,14 @@ export async function handleRest(
       let body: unknown = {};
       // 64KB limit covers title (typical max ~256 bytes) and starred boolean; sufficient for current schema
       try {
-        body = parseJsonBody(await readBody(req, 64 * 1024)) as unknown;
+        body = parseJsonBody(await readTextBody(req, 64 * 1024)) as unknown;
       } catch (err) {
         const msg = err instanceof SyntaxError ? 'invalid JSON in request body' : (err instanceof Error ? err.message : 'invalid request body');
         json(res, 400, { error: msg }, cors);
+        return true;
+      }
+      if (typeof body !== 'object' || body === null) {
+        json(res, 400, { error: 'request body must be a JSON object' }, cors);
         return true;
       }
       const bodyObj = body as Record<string, unknown>;

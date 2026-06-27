@@ -121,7 +121,7 @@ export function ConversationList(): React.ReactElement {
       const timeDiff = bTime - aTime;
       return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
     },
-    [], // No dependencies; function only uses its parameters
+    [], // Pure function, no external state or props
   );
 
   const onRowStarChange = React.useCallback(
