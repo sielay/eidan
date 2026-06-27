@@ -186,6 +186,7 @@ export function AgentOrgChartPane(): React.ReactElement {
     }));
 
     const agentIds = new Set(agents.map((a) => a.id));
+    const nameToId = new Map(agents.map((a) => [a.name, a.id]));
     const newEdges: EdgeData[] = [];
     const edgeMap = new Map<string, { escalations: number; relationship?: AgentRelationship }>();
 
@@ -205,8 +206,10 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     if (relationships) {
       for (const rel of relationships) {
-        if (agentIds.has(rel.from_agent_id) && agentIds.has(rel.to_agent_id)) {
-          const key = `${rel.from_agent_id}→${rel.to_agent_id}`;
+        const fromId = nameToId.get(rel.from_agent_name);
+        const toId = nameToId.get(rel.to_agent_name);
+        if (fromId && toId) {
+          const key = `${fromId}→${toId}`;
           let entry = edgeMap.get(key);
           if (!entry) {
             entry = { escalations: 0 };

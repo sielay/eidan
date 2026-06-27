@@ -69,8 +69,8 @@ export interface EscalationRow {
 export interface AgentRelationship {
   id: string;
   user_id: string;
-  from_agent_id: string;
-  to_agent_id: string;
+  from_agent_name: string;
+  to_agent_name: string;
   relationship_type: RelationshipType;
   strength: number;
   description: string | null;
@@ -87,9 +87,9 @@ export interface EscalationsService {
   // 'responded' escalations addressed to the given response-triggered agents.
   listUnprocessedResponsesForAgents(toAgentIds: string[], limit?: number): Promise<EscalationRow[]>;
   markResponseProcessed(id: string): Promise<void>;
-  listAgentRelationships(userId: string, options?: { fromAgentId?: string; toAgentId?: string }): Promise<AgentRelationship[]>;
-  setAgentRelationship(userId: string, rel: { fromAgentId: string; toAgentId: string; type: RelationshipType; strength?: number; description?: string }): Promise<AgentRelationship>;
-  deleteAgentRelationship(userId: string, fromAgentId: string, toAgentId: string): Promise<void>;
+  listAgentRelationships(userId: string, options?: { fromAgentName?: string; toAgentName?: string }): Promise<AgentRelationship[]>;
+  setAgentRelationship(userId: string, rel: { fromAgentName: string; toAgentName: string; type: RelationshipType; strength?: number; description?: string }): Promise<AgentRelationship>;
+  deleteAgentRelationship(userId: string, fromAgentName: string, toAgentName: string): Promise<void>;
 }
 
 const VALID_REASONS = new Set([
@@ -257,31 +257,31 @@ export class EscalationsStore {
   }
 
   // List agent relationships for the given user with optional filters
-  async listAgentRelationships(userId: string, options?: { fromAgentId?: string; toAgentId?: string }): Promise<AgentRelationship[]> {
+  async listAgentRelationships(userId: string, options?: { fromAgentName?: string; toAgentName?: string }): Promise<AgentRelationship[]> {
     const params: unknown[] = [userId];
     let where = 'user_id = $1';
     let paramIdx = 2;
 
-    if (options?.fromAgentId) {
-      params.push(options.fromAgentId);
-      where += ` and from_agent_id = $${paramIdx++}`;
+    if (options?.fromAgentName) {
+      params.push(options.fromAgentName);
+      where += ` and from_agent_name = $${paramIdx++}`;
     }
-    if (options?.toAgentId) {
-      params.push(options.toAgentId);
-      where += ` and to_agent_id = $${paramIdx++}`;
+    if (options?.toAgentName) {
+      params.push(options.toAgentName);
+      where += ` and to_agent_name = $${paramIdx++}`;
     }
 
     const r = await this.db.query(
-      `select id, user_id, from_agent_id, to_agent_id, relationship_type, strength, description, created_at, updated_at
+      `select id, user_id, from_agent_name, to_agent_name, relationship_type, strength, description, created_at, updated_at
          from eidan.agent_relationships where ${where}
-         order by from_agent_id, to_agent_id`,
+         order by from_agent_name, to_agent_name`,
       params,
     );
     return r.rows as AgentRelationship[];
   }
 
   // Create or update an agent relationship
-  async setAgentRelationship(userId: string, rel: { fromAgentId: string; toAgentId: string; type: RelationshipType; strength?: number; description?: string }): Promise<AgentRelationship> {
+  async setAgentRelationship(userId: string, rel: { fromAgentName: string; toAgentName: string; type: RelationshipType; strength?: number; description?: string }): Promise<AgentRelationship> {
     if (!VALID_RELATIONSHIP_TYPES.has(rel.type)) {
       throw new Error(`Invalid relationship type: ${rel.type}. Must be one of: ${Array.from(VALID_RELATIONSHIP_TYPES).join(', ')}`);
     }
@@ -300,21 +300,21 @@ export class EscalationsStore {
 
     const r = await this.db.query(
       `insert into eidan.agent_relationships
-         (user_id, from_agent_id, to_agent_id, relationship_type, strength, description)
+         (user_id, from_agent_name, to_agent_name, relationship_type, strength, description)
        values ($1, $2, $3, $4, $5, $6)
-       on conflict (user_id, from_agent_id, to_agent_id) do update set
+       on conflict (user_id, from_agent_name, to_agent_name) do update set
          relationship_type = $4, strength = $5, description = $6, updated_at = now()
-       returning id, user_id, from_agent_id, to_agent_id, relationship_type, strength, description, created_at, updated_at`,
-      [userId, rel.fromAgentId, rel.toAgentId, rel.type, strength, description],
+       returning id, user_id, from_agent_name, to_agent_name, relationship_type, strength, description, created_at, updated_at`,
+      [userId, rel.fromAgentName, rel.toAgentName, rel.type, strength, description],
     );
     return r.rows[0] as AgentRelationship;
   }
 
   // Delete an agent relationship
-  async deleteAgentRelationship(userId: string, fromAgentId: string, toAgentId: string): Promise<void> {
+  async deleteAgentRelationship(userId: string, fromAgentName: string, toAgentName: string): Promise<void> {
     await this.db.query(
-      `delete from eidan.agent_relationships where user_id = $1 and from_agent_id = $2 and to_agent_id = $3`,
-      [userId, fromAgentId, toAgentId],
+      `delete from eidan.agent_relationships where user_id = $1 and from_agent_name = $2 and to_agent_name = $3`,
+      [userId, fromAgentName, toAgentName],
     );
   }
 }

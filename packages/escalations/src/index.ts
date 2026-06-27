@@ -89,14 +89,14 @@ export const plugin: MatbotPluginSpec = {
       async markResponseProcessed(id: string) {
         return await store.markResponseProcessed(id);
       },
-      async listAgentRelationships(userId: string, options?: { fromAgentId?: string; toAgentId?: string }) {
+      async listAgentRelationships(userId: string, options?: { fromAgentName?: string; toAgentName?: string }) {
         return await store.listAgentRelationships(userId, options);
       },
-      async setAgentRelationship(userId: string, rel: { fromAgentId: string; toAgentId: string; type: RelationshipType; strength?: number; description?: string }) {
+      async setAgentRelationship(userId: string, rel: { fromAgentName: string; toAgentName: string; type: RelationshipType; strength?: number; description?: string }) {
         return await store.setAgentRelationship(userId, rel);
       },
-      async deleteAgentRelationship(userId: string, fromAgentId: string, toAgentId: string) {
-        return await store.deleteAgentRelationship(userId, fromAgentId, toAgentId);
+      async deleteAgentRelationship(userId: string, fromAgentName: string, toAgentName: string) {
+        return await store.deleteAgentRelationship(userId, fromAgentName, toAgentName);
       },
     };
 
