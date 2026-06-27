@@ -446,9 +446,10 @@ export function Composer({
     if (!text) return;
     setValue((v) => (v.trim() ? `${v.trim()} ${text}` : text));
     requestAnimationFrame(() => {
-      if (taRef.current) {
+      const ta = taRef.current;
+      if (ta) {
         autosize();
-        taRef.current.focus();
+        ta.focus();
       }
     });
   }, [autosize]);
