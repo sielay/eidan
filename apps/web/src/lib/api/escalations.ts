@@ -127,11 +127,11 @@ interface ListAgentRelationshipsResponse {
 }
 
 export async function listAgentRelationships(
-  options?: { fromAgent?: string; toAgent?: string },
+  options?: { fromAgentId?: string; toAgentId?: string },
 ): Promise<AgentRelationship[]> {
   const params = new URLSearchParams();
-  if (options?.fromAgent) params.set("from", options.fromAgent);
-  if (options?.toAgent) params.set("to", options.toAgent);
+  if (options?.fromAgentId) params.set("fromAgentId", options.fromAgentId);
+  if (options?.toAgentId) params.set("toAgentId", options.toAgentId);
   const qs = params.toString();
   const res = await authFetch(
     `/api/agent-relationships${qs ? `?${qs}` : ""}`,
