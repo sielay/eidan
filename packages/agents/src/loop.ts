@@ -129,7 +129,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
               userId: a.user_id,
               toAgent: a.agent_id,
               status: 'responded',
-              limit: 10,
+              limit: 20,
             }).then(responses => ({ agent: a, responses }))
           )
         );
