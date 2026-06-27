@@ -46,6 +46,8 @@ async function getPdfParse() {
 }
 
 // Parse PDF files: extract text, detect tables and headings.
+// ⚠️ NOTE: Table and heading detection use heuristics. Validate accuracy with diverse PDF documents.
+// For high-precision or complex table extraction, consider specialized libraries (pdfplumber, camelot-py).
 export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
   const pdfParse = await getPdfParse();
   const pdf = pdfParse.default || pdfParse;
@@ -86,11 +88,10 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
     }
 
     // Heading detection (heuristic): lines that are all-caps OR short (<80 chars), capitalized lines.
-    // Limitations: Works best for standard document styles; may false-positive on short capitalized
-    // phrases, miss headings with irregular capitalization (Title Case vs lowercase subtitles), or
-    // miss hierarchical structure (h1 vs h2). For document analysis requiring precise heading hierarchy,
-    // consider NLP-based approaches (spaCy, NLTK) or PDF libraries with structural awareness (pdfplumber,
-    // PDFMiner). Current approach is suitable for extracting top-level content sections from most PDFs.
+    // ⚠️ LIMITATIONS: May false-positive on short capitalized phrases, miss irregular capitalization,
+    // or miss hierarchical structure (H1 vs H2). Validate accuracy with your document styles.
+    // For precise heading hierarchy, consider NLP (spaCy, NLTK) or structural PDF libraries (pdfplumber).
+    // Current approach is suitable for extracting top-level content sections from most PDFs.
     const sections: { heading: string; content: string }[] = [];
     let currentSection = { heading: '', content: '' };
 
@@ -254,7 +255,9 @@ export async function parseDocx(bytes: Uint8Array): Promise<ParsedContent> {
       (m) => m[1]?.trim() ?? '',
     );
 
-    // Strip HTML tags using robust state machine approach (mammoth.js output is trusted)
+    // Strip HTML tags using robust state machine approach.
+    // Safe because mammoth.js produces trusted, well-formed HTML with no injection risk.
+    // If ever used with untrusted input, replace with a battle-tested sanitizer (dompurify, xss).
     const text = stripTrustedHtmlTags(html);
 
     return {

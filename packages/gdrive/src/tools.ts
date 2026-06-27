@@ -44,7 +44,8 @@ const READ_SCHEMA = {
         '{col: val} objects and "table" returns {headers, rows} — both for Google Sheets/CSV. ' +
         '"pdf" (text+tables), "ocr" (image→text), "docx" (structure), "excel" (sheet summaries→JSON), ' +
         'and "excel_full" (all cell values→JSON, may exceed token limits) parse downloaded binary files; ' +
-        'the binary format is auto-detected from the MIME type if omitted.',
+        'the binary format is auto-detected from the MIME type if omitted. ' +
+        'NOTE: Text content is truncated to ~16k chars, but structured data (tables/sections) is preserved in full.',
     },
   },
 };
