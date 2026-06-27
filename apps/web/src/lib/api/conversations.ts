@@ -103,6 +103,8 @@ export interface ListConversationsOpts {
 }
 
 // One page of conversations + the cursor for the next page (null when the last page was reached).
+// Returns pagination cursors (nextBefore and nextBeforeStarred) that are separate from ConversationSummary
+// and used internally for keyset pagination across the (starred DESC, updated_at DESC) sort order.
 export async function listConversations(
   opts: ListConversationsOpts = {},
 ): Promise<{ conversations: ConversationSummary[]; nextBefore: string | null; nextBeforeStarred: boolean | null }> {

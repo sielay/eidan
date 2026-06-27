@@ -63,8 +63,16 @@ function checkJsonDepth(obj: unknown, maxDepth = 10): boolean {
 }
 
 // Parse JSON from request body with depth validation to prevent deeply nested JSON attacks.
+// Throws SyntaxError on invalid JSON, Error with specific message on depth validation failure.
 function parseJsonBody(body: string): unknown {
-  const parsed = JSON.parse(body);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch (err) {
+    // Re-throw JSON parse errors as-is so callers can distinguish them
+    if (err instanceof SyntaxError) throw err;
+    throw new Error('invalid JSON in request body');
+  }
   if (!checkJsonDepth(parsed, 10)) throw new Error('request body structure too deeply nested');
   return parsed;
 }
@@ -657,17 +665,20 @@ export async function handleRest(
       const bodyObj = body as Record<string, unknown>;
       const updates: string[] = ['updated_at=now()'];
       const vals: unknown[] = [id, uid];
+      let paramIdx = vals.length + 1;
       if ('title' in bodyObj) {
         const titleVal = bodyObj.title;
         if (typeof titleVal !== 'string' && titleVal !== null) { json(res, 400, { error: 'title must be a string or null' }, cors); return true; }
         vals.push((titleVal ?? '').toString().trim() || null);
-        updates.push(`title=$${vals.length}`);
+        updates.push(`title=$${paramIdx}`);
+        paramIdx++;
       }
       if ('starred' in bodyObj) {
         const starredVal = bodyObj.starred;
         if (typeof starredVal !== 'boolean') { json(res, 400, { error: 'starred must be a boolean' }, cors); return true; }
         vals.push(starredVal);
-        updates.push(`starred=$${vals.length}`);
+        updates.push(`starred=$${paramIdx}`);
+        paramIdx++;
       }
       let row: { title?: unknown; starred?: unknown; updated_at?: unknown } | undefined;
       try {

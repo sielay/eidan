@@ -113,6 +113,7 @@ export function ConversationList(): React.ReactElement {
 
   const sortConversations = React.useCallback(
     (a: ConversationSummary, b: ConversationSummary) => {
+      // Stable sort: first by starred status (starred last), then by updated_at descending, with id as tie-breaker
       if ((b.starred ?? false) !== (a.starred ?? false)) {
         return (b.starred ?? false) ? -1 : 1;
       }
@@ -121,7 +122,7 @@ export function ConversationList(): React.ReactElement {
       const timeDiff = bTime - aTime;
       return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
     },
-    [], // Pure function, no external state or props
+    [],
   );
 
   const onRowStarChange = React.useCallback(
