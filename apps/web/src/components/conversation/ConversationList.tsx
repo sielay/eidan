@@ -121,12 +121,13 @@ export function ConversationList(): React.ReactElement {
       const timeDiff = bTime - aTime;
       return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
     },
-    [],
+    [], // No dependencies; function only uses its parameters
   );
 
   const onRowStarChange = React.useCallback(
     (rowId: string, nextStarred: boolean, updatedAt: string) => {
       setItems((prev) => {
+        // No items loaded yet; defer until items are available
         if (prev === null) return prev;
         const itemIdx = prev.findIndex((r) => r.id === rowId);
         if (itemIdx === -1) return prev;
@@ -379,8 +380,8 @@ function ConversationRow({
       const nextStarred = !(row.starred ?? false);
       const body = await toggleConversationStar(row.id, nextStarred);
       onStarChange(body.starred, body.updated_at);
-    } catch {
-      // Swallow: operator can retry.
+    } catch (err) {
+      console.error("Failed to toggle star:", err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
     }

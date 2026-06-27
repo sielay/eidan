@@ -48,8 +48,14 @@ function readBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<string>
 function checkJsonDepth(obj: unknown, maxDepth = 10): boolean {
   if (maxDepth < 0) return false;
   if (typeof obj !== 'object' || obj === null) return true;
-  for (const val of Object.values(obj)) {
-    if (!checkJsonDepth(val, maxDepth - 1)) return false;
+  if (Array.isArray(obj)) {
+    for (const val of obj) {
+      if (!checkJsonDepth(val, maxDepth - 1)) return false;
+    }
+  } else {
+    for (const val of Object.values(obj)) {
+      if (!checkJsonDepth(val, maxDepth - 1)) return false;
+    }
   }
   return true;
 }
@@ -555,13 +561,19 @@ export async function handleRest(
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
       if (before != null) {
         const beforeStarredBool = beforeStarredStr === 'true' ? true : (beforeStarredStr === 'false' ? false : null);
-        const beforeStarredIdx = vals.length + 1;
-        const beforeTimestampIdx = vals.length + 2;
-        vals.push(beforeStarredBool, before);
         // Keyset pagination: fetch rows after the cursor by (starred DESC, updated_at DESC).
         // Use the standard (col1 < val1) OR (col1 = val1 AND col2 < val2) pattern.
         // starred < true evaluates to starred = false; starred = true stays in starred section.
-        conds.push(`($${beforeStarredIdx}::boolean IS NOT NULL AND ((starred < $${beforeStarredIdx}::boolean) OR (starred = $${beforeStarredIdx}::boolean AND coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz)))`);
+        if (beforeStarredBool !== null) {
+          const beforeStarredIdx = vals.length + 1;
+          const beforeTimestampIdx = vals.length + 2;
+          vals.push(beforeStarredBool, before);
+          conds.push(`((starred < $${beforeStarredIdx}::boolean) OR (starred = $${beforeStarredIdx}::boolean AND coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz))`);
+        } else {
+          const beforeTimestampIdx = vals.length + 1;
+          vals.push(before);
+          conds.push(`coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz`);
+        }
       }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
