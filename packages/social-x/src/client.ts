@@ -41,7 +41,7 @@ export class XClient {
     try {
       const result = await this.makeRequest<XUserResponse>(
         'GET',
-        '/users/me?user.fields=created_at,description,followers_count,following_count,public_metrics,verified,verified_type'
+        '/users/me?user.fields=created_at,description,public_metrics,verified,verified_type'
       );
 
       if (!result.data) {
@@ -53,7 +53,15 @@ export class XClient {
         };
       }
 
-      return { profile: result.data };
+      // Extract followers/following/tweet counts from public_metrics
+      const profile = result.data;
+      if (result.data.public_metrics) {
+        profile.followers_count = result.data.public_metrics.followers_count;
+        profile.following_count = result.data.public_metrics.following_count;
+        profile.tweet_count = result.data.public_metrics.tweet_count;
+      }
+
+      return { profile };
     } catch (exc) {
       const errorMessage = exc instanceof Error ? exc.message : 'Unknown error';
       return {
