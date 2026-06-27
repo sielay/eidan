@@ -67,9 +67,21 @@ function codingPrompt(owner: string, repo: string, title: string, goal: string):
     `Repository: ${owner}/${repo}\n` +
     `Task: ${title}\n\n` +
     `${goal}\n\n` +
+    '## Decision-making: pragmatic defaults\n\n' +
+    'When the task describes a design decision (polling vs events, materialized views, OCR language, schema variants, UI options, etc.):\n' +
+    '1. Make the pragmatic default choice that follows existing codebase patterns\n' +
+    '2. Document your choice inline (code comment or git commit message)\n' +
+    '3. ONLY escalate genuine blockers: missing credentials, external API down, permission denied, contradictory spec, or deployment setup changes needed\n' +
+    '4. DO NOT ask design trade-off questions in the "Open questions" section\n\n' +
+    'Examples:\n' +
+    '- Which OCR language? → Use \'eng\', note it\'s configurable\n' +
+    '- Polling vs events? → Use polling (matches schedule trigger pattern); add TODO for later performance refactoring if needed\n' +
+    '- Materialized views? → Use on-the-fly queries; add TODO if performance becomes a problem\n' +
+    '- Node ID or metadata? → Use what exists; add fallback if missing\n' +
+    '- Multiple valid schema designs? → Pick the one requiring least future refactoring; document the choice\n\n' +
     'When you are done, END your reply with a section headed exactly `## Open questions` — list ' +
-    'anything the operator should decide or confirm. A few bullets at most. If there are genuinely ' +
-    'none, write `None.` on the line under the heading.\n'
+    'anything the operator should decide or confirm. A few bullets at most. Use this ONLY for genuine blockers. ' +
+    'If there are genuinely none, write `None.` on the line under the heading.\n'
   );
 }
 

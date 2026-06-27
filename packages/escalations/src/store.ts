@@ -20,23 +20,23 @@ export interface RaiseArgs {
   /** Explicit owner for background callers with no ambient principal; else taken from the principal. */
   userId?: string;
   /** V2: which agent raised this escalation */
-  fromAgent?: string;
+  fromAgent?: string | undefined;
   /** V2: which agent should consume the response */
-  toAgent?: string;
+  toAgent?: string | undefined;
   /** V2: type of escalation (defaults to agent_to_operator for backwards compat) */
-  escalationType?: EscalationType;
+  escalationType?: EscalationType | undefined;
   /** V2: how should the next agent act on this */
-  triggerPrompt?: string;
+  triggerPrompt?: string | undefined;
 }
 
 export interface RespondArgs {
   id: string;
   feedback: string;
-  reasoning?: string;
-  decision?: string;
-  tags?: string[];
-  nextAgent?: string;
-  userId?: string;
+  reasoning?: string | undefined;
+  decision?: string | undefined;
+  tags?: string[] | undefined;
+  nextAgent?: string | undefined;
+  userId?: string | undefined;
 }
 
 export interface EscalationRow {
@@ -67,7 +67,10 @@ export interface EscalationRow {
 export interface EscalationsService {
   raise(args: RaiseArgs): Promise<{ id: string } | null>;
   respond(args: RespondArgs): Promise<{ id: string } | null>;
-  list(args: { userId?: string; fromAgent?: string; toAgent?: string; status?: EscalationStatus; limit?: number }): Promise<EscalationRow[]>;
+  list(args: { userId?: string | undefined; fromAgent?: string | undefined; toAgent?: string | undefined; status?: EscalationStatus | undefined; limit?: number | undefined }): Promise<EscalationRow[]>;
+  // Cross-user (no ambient principal): the agents response loop's scan for still-unprocessed
+  // 'responded' escalations addressed to the given response-triggered agents.
+  listUnprocessedResponsesForAgents(toAgentIds: string[], limit?: number): Promise<EscalationRow[]>;
   markResponseProcessed(id: string): Promise<void>;
 }
 
@@ -158,7 +161,7 @@ export class EscalationsStore {
   }
 
   // Query escalations with optional filters (used by agents to check for responses)
-  async list(args: { userId?: string; fromAgent?: string; toAgent?: string; status?: EscalationStatus; limit?: number }): Promise<EscalationRow[]> {
+  async list(args: { userId?: string | undefined; fromAgent?: string | undefined; toAgent?: string | undefined; status?: EscalationStatus | undefined; limit?: number | undefined }): Promise<EscalationRow[]> {
     const userId = args.userId ?? tryCurrentPrincipal()?.id;
     if (!userId) throw new Error('escalations: no user context (user_id is required for list)');
 
@@ -203,6 +206,27 @@ export class EscalationsStore {
       [id],
     );
     return (r.rows[0] as EscalationRow | undefined) ?? null;
+  }
+
+  // Cross-user (no ambient principal): every owner's still-unprocessed 'responded' escalation addressed
+  // to one of the given response-triggered agents. Mirrors the agents loop's other cross-user scans
+  // (e.g. dueScheduleScan) — only the background dispatch loop calls it, so it bypasses the principal.
+  async listUnprocessedResponsesForAgents(toAgentIds: string[], limit = 20): Promise<EscalationRow[]> {
+    if (toAgentIds.length === 0) return [];
+    const r = await this.db.query(
+      `select id, user_id, conversation_id, agent_id, severity, reason_class, suggested_action,
+              evidence, status, metadata, from_agent, to_agent, escalation_type, response,
+              trigger_prompt, created_at, updated_at, responded_at, resolved_at, responded_by,
+              agent_response_processed_at
+         from eidan.escalations
+        where status = 'responded' and deleted_at is null
+          and agent_response_processed_at is null
+          and to_agent = any($1::text[])
+        order by responded_at asc nulls last
+        limit $2`,
+      [toAgentIds, Math.min(limit, 200)],
+    );
+    return r.rows as EscalationRow[];
   }
 
   // Mark an escalation response as processed by the agent system (idempotent)

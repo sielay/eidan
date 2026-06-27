@@ -83,6 +83,9 @@ export const plugin: MatbotPluginSpec = {
       async list(args) {
         return await store.list(args);
       },
+      async listUnprocessedResponsesForAgents(toAgentIds, limit) {
+        return await store.listUnprocessedResponsesForAgents(toAgentIds, limit);
+      },
       async markResponseProcessed(id: string) {
         return await store.markResponseProcessed(id);
       },

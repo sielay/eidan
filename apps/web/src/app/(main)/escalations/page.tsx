@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 "use client";
 
+import Link from "next/link";
 import * as React from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { JobMarkdown } from "@/components/admin/JobMarkdown";
 import {
   acknowledgeEscalation,
   listEscalations,
@@ -224,10 +226,11 @@ function EscalationRow({
         <span className="ml-auto">{formatRelative(row.created_at)}</span>
       </header>
       {row.suggested_action ? (
-        <p className="whitespace-pre-wrap text-foreground">
-          {row.suggested_action}
-        </p>
+        <div className="text-foreground">
+          <JobMarkdown>{linkifyRefs(row.suggested_action)}</JobMarkdown>
+        </div>
       ) : null}
+      <EscalationRefs row={row} />
       {row.evidence.length > 0 ? (
         <details className="text-xs text-muted-foreground">
           <summary className="cursor-pointer">evidence</summary>
@@ -243,7 +246,11 @@ function EscalationRow({
       {row.response ? (
         <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded p-2 text-xs">
           <p className="font-semibold text-blue-900 dark:text-blue-300">Response:</p>
-          <p className="text-blue-800 dark:text-blue-200">{row.response.feedback}</p>
+          {row.response.feedback ? (
+            <div className="text-blue-800 dark:text-blue-200">
+              <JobMarkdown>{row.response.feedback}</JobMarkdown>
+            </div>
+          ) : null}
           {row.response.decision && (
             <p className="text-blue-700 dark:text-blue-300 text-[10px]">
               Decision: <span className="font-mono">{row.response.decision}</span>
@@ -332,6 +339,82 @@ function EscalationRow({
         </span>
       </footer>
     </article>
+  );
+}
+
+// App-internal routes the agent may name in prose ("review /files/reports/q3.md"). remark-gfm
+// autolinks http(s):// on its own but NOT app paths, so wrap those as markdown links. The leading
+// whitespace/start anchor skips paths already inside a markdown link (preceded by `(` or `[`).
+const APP_PATH_RE = /(^|\s)(\/(?:files|c|p|agents|knowledge|api\/fs)\/[^\s)\]]+)/g;
+function linkifyRefs(text: string): string {
+  return text.replace(APP_PATH_RE, (_m, pre: string, path: string) => `${pre}[${path}](${path})`);
+}
+
+function isUrlLike(s: string): boolean {
+  return /^https?:\/\//.test(s) || /^\/(?:files|c|p|agents|knowledge|api)\//.test(s);
+}
+
+// Last meaningful path segment, for a short chip label ("q3.md" not the whole URL).
+function shortName(href: string): string {
+  try {
+    const path = href.startsWith("http") ? new URL(href).pathname : href;
+    const tail = path.split("/").filter(Boolean).pop();
+    return tail ? decodeURIComponent(tail) : href;
+  } catch {
+    return href;
+  }
+}
+
+// Pull every reviewable reference out of the structured fields so the operator always has a click
+// target — even when the agent only named a file in prose. conversation_id is the surest anchor
+// (the work happened there); evidence/metadata may carry explicit file urls/paths/ids.
+const REF_KEYS = ["url", "href", "path", "file", "file_path", "link"] as const;
+function collectRefs(row: EscalationSummary): Array<{ label: string; href: string }> {
+  const refs: Array<{ label: string; href: string }> = [];
+  const seen = new Set<string>();
+  const push = (label: string, href: string): void => {
+    if (seen.has(href)) return;
+    seen.add(href);
+    refs.push({ label, href });
+  };
+  if (row.conversation_id) push("conversation", `/c/${row.conversation_id}`);
+  const scan = (obj: Record<string, unknown>): void => {
+    for (const k of REF_KEYS) {
+      const v = obj[k];
+      if (typeof v === "string" && isUrlLike(v)) push(shortName(v), v);
+    }
+  };
+  for (const ev of row.evidence) {
+    if (typeof ev === "string" && isUrlLike(ev)) push(shortName(ev), ev);
+    else if (ev && typeof ev === "object") scan(ev as Record<string, unknown>);
+  }
+  if (row.metadata) scan(row.metadata);
+  return refs;
+}
+
+function EscalationRefs({ row }: { row: EscalationSummary }): React.ReactElement | null {
+  const refs = collectRefs(row);
+  if (refs.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+        review:
+      </span>
+      {refs.map((r) => {
+        const external = r.href.startsWith("http");
+        const className =
+          "inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] text-blue-700 hover:bg-muted dark:text-blue-400";
+        return external ? (
+          <a key={r.href} href={r.href} target="_blank" rel="noopener noreferrer" className={className}>
+            {r.label} <span aria-hidden>↗</span>
+          </a>
+        ) : (
+          <Link key={r.href} href={r.href} className={className}>
+            {r.label} <span aria-hidden>→</span>
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 

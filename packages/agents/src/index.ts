@@ -4,7 +4,7 @@ import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { AgentsStore } from './store.js';
 import { buildAgentTools } from './tools.js';
-import { startAgentsLoop } from './loop.js';
+import { startAgentsLoop, resumePendingRestarts } from './loop.js';
 import { fireAgentNow } from './runner.js';
 
 // Advertise the agents store so other plugins / surfaces can read or manage agents with type safety:
@@ -49,8 +49,12 @@ export const plugin: MatbotPluginSpec = {
     // Manual "run now" (test). Wired here because it needs `services` + the run opts the data layer
     // doesn't hold; the registered Agents service is the same object, so consumers see it immediately.
     store.runNow = (agentId, userId) => fireAgentNow(services, store, agentId, userId, { defaultProvider, turnTimeoutMs });
-    stop = startAgentsLoop(services, store, { defaultProvider, pollMs, graceMinutes, turnTimeoutMs });
+    const loopOpts = { defaultProvider, pollMs, graceMinutes, turnTimeoutMs };
+    stop = startAgentsLoop(services, store, loopOpts);
     console.log(`[agents] loop started (defaultProvider=${defaultProvider}, poll=${pollMs}ms, grace=${graceMinutes}m)`);
+    // Resume any runs a prior graceful shutdown queued. Deferred a few seconds so the matbot runner +
+    // storage are surely up before the continuation turns fire; detached so it never blocks setup.
+    setTimeout(() => { void resumePendingRestarts(services, store, loopOpts); }, 5_000).unref();
   },
   async teardown() {
     if (stop) await stop();
