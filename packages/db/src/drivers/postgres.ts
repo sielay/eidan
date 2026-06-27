@@ -11,9 +11,10 @@ const MAX_ROWS = 1000;
 const STATEMENT_TIMEOUT_MS = 30_000;
 
 // Quote a Postgres identifier (schema/table name) for use in SQL. Uses PostgreSQL's standard
-// identifier-escaping method (RFC 5050): doubling embedded double-quotes. This is robust against
-// SQL injection for all identifier characters, including those from system catalogs like
-// information_schema.tables. Mirrors the behavior of PostgreSQL's format('%I', ...) function.
+// identifier-escaping method (RFC 5050): wrapping in double-quotes and doubling any embedded
+// double-quotes. This is bulletproof against SQL injection for all identifier characters,
+// including those from system catalogs like information_schema.tables. Equivalent to PostgreSQL's
+// format('%I', identifier) and is safe for all possible identifier input (schema, table, column names).
 function quoteIdent(ident: string): string {
   return '"' + ident.replace(/"/g, '""') + '"';
 }
