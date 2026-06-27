@@ -48,6 +48,7 @@ declare module '@matatbread/matbot-plugin-api' {
 export interface AgentsLoopOpts {
   defaultProvider: string;
   pollMs?: number;
+  responsePollMs?: number;
   graceMinutes?: number;
   /** Hard cap per fire; a turn that exceeds it is aborted and recorded as failed. */
   turnTimeoutMs?: number;
@@ -65,6 +66,7 @@ const FAIL_STREAK_TO_ESCALATE = 3;
 export function startAgentsLoop(services: MatbotServices, store: AgentsStore, opts: AgentsLoopOpts): () => Promise<void> {
   let stopped = false;
   const pollMs = opts.pollMs ?? 60_000;
+  const responsePollMs = opts.responsePollMs ?? 5_000;
   const grace = opts.graceMinutes ?? 30;
   // This node's id. An agent pinned to a target_node is only fired by that node (e.g. an ollama agent
   // must run on the node that has ollama). Unpinned agents may be fired by any node.
@@ -179,7 +181,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   };
 
   // Separate response handling loop: decoupled from schedule scanning for better latency and resilience.
-  // Runs independently every pollMs, fetching responses for agents with response triggers.
+  // Runs independently every responsePollMs, fetching responses for agents with response triggers.
   const responseLoop = async (): Promise<void> => {
     while (!stopped) {
       try {
@@ -189,7 +191,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       } catch (e) {
         console.warn('[agents] response handler error:', e instanceof Error ? e.message : e);
       }
-      await sleep(pollMs);
+      await sleep(responsePollMs);
     }
   };
 
