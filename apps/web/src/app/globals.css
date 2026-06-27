@@ -357,7 +357,7 @@
 /* Mobile menu: collapse attach/record/model into a single ⋯ button with popover. */
 .composer__more-wrap { position: relative; flex: none; }
 .composer__more-btn { height: 44px; width: 44px; min-width: 44px; padding: 0; flex: none; }
-.composer__more-backdrop { position: fixed; inset: 0; z-index: 40; background: transparent; border: none; padding: 0; cursor: default; }
+.composer__more-backdrop { position: fixed; inset: 0; z-index: 40; background: transparent; border: none; padding: 0; cursor: pointer; }
 .composer__more-menu { position: absolute; z-index: 41; bottom: calc(100% + 6px); right: 0; min-width: 140px; max-width: min(240px, 90vw); max-height: 60vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--e2); display: flex; flex-direction: column; }
 .composer__more-submenu { display: flex; flex-direction: column; }
 .composer__more-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 8px; border: none; background: none; cursor: pointer; border-radius: var(--r-sm); text-align: left; font-family: inherit; font-size: var(--fs-13); color: var(--text); }

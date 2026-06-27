@@ -190,70 +190,6 @@ function ComposerMoreModelMenu({
   );
 }
 
-// Voice input state and controls (shared between desktop button and mobile menu).
-function useMicRecorder(onText: (t: string) => void): {
-  available: boolean;
-  recording: boolean;
-  busy: boolean;
-  start: () => Promise<void>;
-  stop: () => void;
-} {
-  const [available, setAvailable] = React.useState(false);
-  const [recording, setRecording] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-  const recRef = React.useRef<MediaRecorder | null>(null);
-  const chunksRef = React.useRef<Blob[]>([]);
-  const streamRef = React.useRef<MediaStream | null>(null);
-
-  const canRecord = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
-
-  React.useEffect(() => {
-    if (!canRecord) return;
-    void isTranscribeAvailable().then(setAvailable).catch(() => setAvailable(false));
-  }, [canRecord]);
-
-  const stopTracks = React.useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-  }, []);
-
-  React.useEffect(() => () => { recRef.current?.stop(); stopTracks(); }, [stopTracks]);
-
-  const start = React.useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
-        : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      rec.onstop = () => {
-        stopTracks();
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
-        chunksRef.current = [];
-        if (blob.size === 0) return;
-        setBusy(true);
-        void transcribeAudio(blob).then(onText).catch(() => { /* no text on failure */ }).finally(() => setBusy(false));
-      };
-      rec.start();
-      recRef.current = rec;
-      setRecording(true);
-    } catch {
-      stopTracks();
-      setRecording(false);
-    }
-  }, [onText, stopTracks]);
-
-  const stop = React.useCallback(() => {
-    recRef.current?.stop();
-    recRef.current = null;
-    setRecording(false);
-  }, []);
-
-  return { available, recording, busy, start, stop };
-}
-
 // Voice input: records via MediaRecorder, sends the clip to the engine's /api/transcribe, and hands
 // the transcript back to the composer (which fills the prompt — the user reviews before sending).
 // Hidden entirely when the engine has no STT configured or the browser can't record.
@@ -454,7 +390,60 @@ export function Composer({
     });
   }, [autosize]);
 
-  const mic = useMicRecorder(appendText);
+  const [micAvailable, setMicAvailable] = React.useState(false);
+  const [recording, setRecording] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const recRef = React.useRef<MediaRecorder | null>(null);
+  const chunksRef = React.useRef<Blob[]>([]);
+  const streamRef = React.useRef<MediaStream | null>(null);
+
+  const canRecord = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+
+  React.useEffect(() => {
+    if (!canRecord) return;
+    void isTranscribeAvailable().then(setMicAvailable).catch(() => setMicAvailable(false));
+  }, [canRecord]);
+
+  const stopTracks = React.useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  React.useEffect(() => () => { recRef.current?.stop(); stopTracks(); }, [stopTracks]);
+
+  const micStart = React.useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+        : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      rec.onstop = () => {
+        stopTracks();
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+        chunksRef.current = [];
+        if (blob.size === 0) return;
+        setBusy(true);
+        void transcribeAudio(blob).then(appendText).catch(() => { /* no text on failure */ }).finally(() => setBusy(false));
+      };
+      rec.start();
+      recRef.current = rec;
+      setRecording(true);
+    } catch {
+      stopTracks();
+      setRecording(false);
+    }
+  }, [appendText, stopTracks]);
+
+  const micStop = React.useCallback(() => {
+    recRef.current?.stop();
+    recRef.current = null;
+    setRecording(false);
+  }, []);
+
+  const mic = { available: micAvailable, recording, busy, start: micStart, stop: micStop };
 
   const onPickFiles = React.useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
