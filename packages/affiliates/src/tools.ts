@@ -398,9 +398,10 @@ async function generateLink(
         throw new Error('API key credential required for API format');
       }
 
-      const apiKeyValue = await getCredentialValue(apiKeyCred);
-      const separator = program.api_endpoint.includes('?') ? '&' : '?';
-      return `${program.api_endpoint}${separator}key=${encodeURIComponent(apiKeyValue)}`;
+      // Security: API keys must NOT be embedded in URLs (exposure risk in logs, browser history, referrer headers).
+      // API key should be transmitted server-side via POST request body if the API supports it.
+      // Returning the endpoint; the server should add the API key when making the actual request.
+      return program.api_endpoint;
     }
 
     case 'pixel': {
@@ -413,6 +414,8 @@ async function generateLink(
 
       const trackingCodeValue = await getCredentialValue(trackingCodeCred);
       const separator = program.api_endpoint.includes('?') ? '&' : '?';
+      // Note: Tracking code and content ID are exposed in the pixel URL (data exposure concern).
+      // Consider server-side implementation if sensitive data is being tracked.
       return `<img src="${program.api_endpoint}${separator}code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}" width="1" height="1" />`;
     }
 
