@@ -128,9 +128,11 @@ interface ListAgentRelationshipsResponse {
 }
 
 export async function listAgentRelationships(
+  userId: string,
   options?: { fromAgentId?: string; toAgentId?: string },
 ): Promise<AgentRelationship[]> {
   const params = new URLSearchParams();
+  params.set("user_id", userId);
   if (options?.fromAgentId) params.set("from", options.fromAgentId);
   if (options?.toAgentId) params.set("to", options.toAgentId);
   const qs = params.toString();

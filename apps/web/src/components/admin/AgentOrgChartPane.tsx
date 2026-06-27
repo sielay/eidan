@@ -126,7 +126,7 @@ export function AgentOrgChartPane(): React.ReactElement {
   // Load agents, escalations, and relationships
   React.useEffect(() => {
     if (!user) return;
-    Promise.all([listAgents(), listEscalations({ limit: 1000 }), listAgentRelationships()])
+    Promise.all([listAgents(), listEscalations({ limit: 1000 }), listAgentRelationships(user.id)])
       .then(([agentsData, escalationsData, relationshipsData]) => {
         setAgents(agentsData);
         setEscalations(escalationsData);
