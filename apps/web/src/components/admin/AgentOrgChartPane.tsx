@@ -106,10 +106,12 @@ export function AgentOrgChartPane(): React.ReactElement {
     let iterations = 0;
     const maxIterations = 1000;
     const nodesWorkingCopy = nodes.map((n) => ({ ...n }));
+    const velocityHistory: number[] = [];
+    const convergenceWindow = 15;
 
     const animate = () => {
       let maxVelocity = 0;
-      const iterationsPerFrame = 10;
+      const iterationsPerFrame = 2;
 
       for (let iter = 0; iter < iterationsPerFrame && iterations < maxIterations && animating; iter++) {
         // Apply forces
@@ -175,7 +177,18 @@ export function AgentOrgChartPane(): React.ReactElement {
       // Deep copy nodes to ensure immutability for React state
       setNodes(nodesWorkingCopy.map((n) => ({ ...n })));
 
-      // Stop if converged or max iterations reached
+      // Check convergence: stop if velocity has stabilized
+      velocityHistory.push(maxVelocity);
+      if (velocityHistory.length > convergenceWindow) {
+        velocityHistory.shift();
+        const recentVelocities = velocityHistory.slice(-convergenceWindow);
+        const velocityChange = Math.max(...recentVelocities) - Math.min(...recentVelocities);
+        if (velocityChange < 0.01) {
+          animating = false;
+        }
+      }
+
+      // Stop if converged, max iterations reached, or velocity below threshold
       if (animating && maxVelocity > 0.1 && iterations < maxIterations) {
         requestAnimationFrame(animate);
       }
