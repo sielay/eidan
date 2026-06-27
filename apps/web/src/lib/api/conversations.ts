@@ -87,7 +87,7 @@ export interface ConversationSummary {
 interface ConversationsResponse {
   conversations: ConversationSummary[];
   next_before: string | null;
-  next_before_starred?: string | null;
+  next_before_starred: string | null;
 }
 
 export interface ListConversationsOpts {

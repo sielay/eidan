@@ -600,8 +600,8 @@ export async function handleRest(
       try { body = JSON.parse(await readBody(req)) as { title?: string | null; starred?: boolean }; } catch { /* */ }
       const updates: string[] = ['updated_at=now()'];
       const vals: unknown[] = [id, uid];
-      if ('title' in body) { updates.unshift('title=$3'); vals.push((body.title ?? '').toString().trim() || null); }
-      if ('starred' in body) { updates.unshift(`starred=$${3 + ('title' in body ? 1 : 0)}`); vals.push(body.starred ?? false); }
+      if ('title' in body) { vals.push((body.title ?? '').toString().trim() || null); updates.push(`title=$${vals.length}`); }
+      if ('starred' in body) { vals.push(body.starred ?? false); updates.push(`starred=$${vals.length}`); }
       if (updates.length > 1) await withPrincipal(principal, (q) => q(`update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2`, vals));
       const r = await withPrincipal(principal, (q) => q('select title, starred from eidan.conversations where id=$1 and user_id=$2', [id, uid]));
       const row = r.rows[0];
