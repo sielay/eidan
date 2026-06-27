@@ -4,8 +4,8 @@
 CREATE TABLE IF NOT EXISTS eidan.agent_relationships (
   id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES eidan.users(id) ON DELETE CASCADE,
-  from_agent_name text NOT NULL,
-  to_agent_name text NOT NULL,
+  from_agent_id uuid NOT NULL REFERENCES eidan.agents(id) ON DELETE CASCADE,
+  to_agent_id uuid NOT NULL REFERENCES eidan.agents(id) ON DELETE CASCADE,
   relationship_type text NOT NULL,
   strength integer DEFAULT 3 NOT NULL,
   description text,
@@ -23,14 +23,14 @@ CREATE TABLE IF NOT EXISTS eidan.agent_relationships (
 
 -- Unique constraint: one relationship per direction per user
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_relationships_unique
-  ON eidan.agent_relationships (user_id, from_agent_name, to_agent_name);
+  ON eidan.agent_relationships (user_id, from_agent_id, to_agent_id);
 
 -- Indexes for querying by type
 CREATE INDEX IF NOT EXISTS idx_agent_relationships_from_agent_type
-  ON eidan.agent_relationships (user_id, from_agent_name, relationship_type);
+  ON eidan.agent_relationships (user_id, from_agent_id, relationship_type);
 
 CREATE INDEX IF NOT EXISTS idx_agent_relationships_to_agent_type
-  ON eidan.agent_relationships (user_id, to_agent_name, relationship_type);
+  ON eidan.agent_relationships (user_id, to_agent_id, relationship_type);
 
 -- Trigger for updated_at
 CREATE TRIGGER eidan_agent_relationships_updated_at

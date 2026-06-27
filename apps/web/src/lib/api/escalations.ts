@@ -5,8 +5,8 @@ import { authFetch } from "@/lib/auth";
 
 export interface AgentRelationship {
   id: string;
-  from_agent_name: string;
-  to_agent_name: string;
+  from_agent_id: string;
+  to_agent_id: string;
   relationship_type: "reads_from" | "writes_to" | "asks" | "depends_on" | "notifies";
   strength: number;
   description?: string;
