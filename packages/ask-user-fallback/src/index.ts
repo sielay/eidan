@@ -26,6 +26,9 @@ declare module '@matatbread/matbot-plugin-api' {
   }
 }
 
+const formatConfirmEscalationMessage = (label: string): string =>
+  `${label}: decision escalated to inbox (non-interactive context)`;
+
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
@@ -39,7 +42,7 @@ export const plugin: MatbotPluginSpec = {
     const svc = services as { Escalations?: EscalationsService; AskUserFallbackConfig?: AskUserFallbackConfig };
 
     const config: AskUserFallbackConfig = svc.AskUserFallbackConfig ?? {
-      isNonInteractive: typeof process !== 'undefined' && !!process.env['IS_SUB_AGENT'],
+      isNonInteractive: false,
     };
 
     services.hooks.register({
@@ -92,7 +95,7 @@ export const plugin: MatbotPluginSpec = {
           result: {
             decision: 'PENDING_HUMAN_REVIEW',
             escalation_id: res?.id ?? 'unknown',
-            message: `${label}: decision escalated to inbox (non-interactive context)`,
+            message: formatConfirmEscalationMessage(label),
           },
         };
       },
