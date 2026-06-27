@@ -199,16 +199,17 @@ export function AgentOrgChartPane(): React.ReactElement {
       vy: 0,
     }));
 
-    const agentNameToIdMap = new Map(agents.map((a) => [a.name, a.id]));
-    const agentIds = new Set(agents.map((a) => a.id));
-    // Warn if agent names are not unique, as the mapping above will only retain the last agent with each name
-    const agentNameCounts = new Map<string, number>();
+    // Build a map of agent names to IDs; track duplicates to avoid silent data loss
+    const agentNameToIds = new Map<string, string[]>();
     for (const a of agents) {
-      agentNameCounts.set(a.name, (agentNameCounts.get(a.name) ?? 0) + 1);
+      const current = agentNameToIds.get(a.name) ?? [];
+      agentNameToIds.set(a.name, [...current, a.id]);
     }
-    const duplicateNames = Array.from(agentNameCounts.entries()).filter(([, count]) => count > 1);
+    const agentIds = new Set(agents.map((a) => a.id));
+    // Check for duplicate names that would make relationships ambiguous
+    const duplicateNames = Array.from(agentNameToIds.entries()).filter(([, ids]) => ids.length > 1);
     if (duplicateNames.length > 0) {
-      console.warn("Agent names are not unique. Some relationships may be dropped:", duplicateNames.map(([name]) => name));
+      console.warn("Agent names are not unique. Relationships for these agents will be skipped:", duplicateNames.map(([name]) => name));
     }
 
     const newEdges: EdgeData[] = [];
@@ -226,12 +227,21 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     if (relationships) {
       for (const rel of relationships) {
-        const fromId = agentNameToIdMap.get(rel.from_agent_name);
-        const toId = agentNameToIdMap.get(rel.to_agent_name);
-        // Only process relationships where both agents exist in the current set
-        if (!fromId || !toId || !agentIds.has(fromId) || !agentIds.has(toId)) {
+        const fromIds = agentNameToIds.get(rel.from_agent_name) ?? [];
+        const toIds = agentNameToIds.get(rel.to_agent_name) ?? [];
+        // Only process relationships where agent names are unambiguous (exactly one agent per name)
+        // and both agents exist in the current set
+        if (fromIds.length !== 1 || toIds.length !== 1) {
+          if (fromIds.length === 0 || toIds.length === 0) {
+            // Agent name doesn't exist; skip silently (agent may have been deleted)
+            continue;
+          }
+          // Multiple agents with the same name; ambiguous relationship
+          console.warn(`Skipping relationship from "${rel.from_agent_name}" to "${rel.to_agent_name}": ambiguous agent names`);
           continue;
         }
+        const fromId = fromIds[0];
+        const toId = toIds[0];
         const key = `${fromId}→${toId}`;
         const existing = edgeMap.get(key) ?? { escalations: 0 };
         edgeMap.set(key, { ...existing, relationship: rel });
