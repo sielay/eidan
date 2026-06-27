@@ -221,8 +221,12 @@ export function AgentOrgChartPane(): React.ReactElement {
       for (const e of escalations) {
         if (e.from_agent && e.to_agent && agentIds.has(e.from_agent) && agentIds.has(e.to_agent)) {
           const key = `${e.from_agent}→${e.to_agent}`;
-          const existing = edgeMap.get(key) ?? { escalations: 0 };
-          edgeMap.set(key, { ...existing, escalations: existing.escalations + 1 });
+          let entry = edgeMap.get(key);
+          if (!entry) {
+            entry = { escalations: 0 };
+            edgeMap.set(key, entry);
+          }
+          entry.escalations += 1;
         }
       }
     }
@@ -250,8 +254,12 @@ export function AgentOrgChartPane(): React.ReactElement {
         const toId = toIds[0];
         if (agentIds.has(fromId) && agentIds.has(toId)) {
           const key = `${fromId}→${toId}`;
-          const existing = edgeMap.get(key) ?? { escalations: 0 };
-          edgeMap.set(key, { ...existing, relationship: rel });
+          let entry = edgeMap.get(key);
+          if (!entry) {
+            entry = { escalations: 0 };
+            edgeMap.set(key, entry);
+          }
+          entry.relationship = rel;
         }
       }
     }
@@ -568,7 +576,11 @@ export function AgentOrgChartPane(): React.ReactElement {
                   ? (RELATIONSHIP_COLORS[edge.relationship.relationship_type] || "#cbd5e1")
                   : "#cbd5e1";
                 const strokeDasharray = isRelationship ? "4,2" : "none";
-                const description = edge.relationship?.description;
+                const relationshipStrength = edge.relationship?.strength ?? 3;
+                const relationshipStrokeWidth = relationshipStrength * 0.15 + 0.75;
+                const tooltipText = edge.relationship
+                  ? (edge.relationship.description || `${edge.relationship.relationship_type} (strength: ${relationshipStrength})`)
+                  : undefined;
 
                 return (
                   <g key={edge.id} opacity={opacity}>
@@ -592,11 +604,11 @@ export function AgentOrgChartPane(): React.ReactElement {
                       x2={to.x}
                       y2={to.y}
                       stroke={strokeColor}
-                      strokeWidth={isRelationship ? (edge.relationship?.strength ?? 3) * 0.5 + 0.5 : 1.5}
+                      strokeWidth={isRelationship ? relationshipStrokeWidth : 1.5}
                       strokeDasharray={strokeDasharray}
                       markerEnd={`url(#arrow-${edge.id})`}
                     >
-                      {description && <title>{description}</title>}
+                      {tooltipText && <title>{tooltipText}</title>}
                     </line>
                     {/* Label background for readability */}
                     {edge.escalations > 0 && (
