@@ -569,7 +569,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                 const description = edge.relationship?.description;
 
                 return (
-                  <g key={edge.id} opacity={opacity}>
+                  <g key={`${edge.from}→${edge.to}-${edge.id}`} opacity={opacity}>
                     {/* Arrow */}
                     <defs>
                       <marker
@@ -590,7 +590,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                       x2={to.x}
                       y2={to.y}
                       stroke={strokeColor}
-                      strokeWidth={isRelationship ? (edge.relationship?.strength ?? 3) / 2 : 1.5}
+                      strokeWidth={isRelationship ? (edge.relationship?.strength ?? 3) * 0.5 + 0.5 : 1.5}
                       strokeDasharray={strokeDasharray}
                       markerEnd={`url(#arrow-${edge.id})`}
                     >

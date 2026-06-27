@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS eidan.agent_relationships (
       'depends_on'::text, 'notifies'::text
     ])
   ),
-  CONSTRAINT agent_relationships_strength_chk CHECK (strength >= 1 AND strength <= 5)
+  CONSTRAINT agent_relationships_strength_chk CHECK (strength >= 1 AND strength <= 5),
+  CONSTRAINT agent_relationships_description_chk CHECK (description IS NULL OR length(description) <= 1000)
 );
 
 -- Unique constraint: one relationship per direction per user
