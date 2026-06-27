@@ -15,6 +15,7 @@ import { MermaidBlock } from "@/components/conversation/MermaidBlock";
 import { ChartBlock } from "@/components/conversation/ChartBlock";
 import { MentionAnchor } from "@/components/conversation/MentionChip";
 import { useTextareaMentions } from "@/components/conversation/useTextareaMentions";
+import { RichMarkdownEditor } from "@/components/conversation/RichMarkdownEditor";
 
 export interface FileScreenEntry { id: string; name: string; mime: string | null; source: string }
 
@@ -127,20 +128,26 @@ export function FileScreen({ entry, onBack, onDeleted }: { entry: FileScreenEntr
       ) : content == null ? (
         <div className="skel" style={{ height: 240 }} />
       ) : editing ? (
-        <div style={{ position: "relative" }}>
-          <textarea
-            ref={taRef}
-            value={draft}
-            onChange={(e) => { setDraft(e.target.value); mentions.recompute(); }}
-            onKeyUp={() => mentions.recompute()}
-            onClick={() => mentions.recompute()}
-            onKeyDown={(e) => { mentions.handleKeyDown(e); }}
-            spellCheck={false}
-            aria-label={`Edit ${entry.name}`}
-            style={{ width: "100%", minHeight: "60vh", fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: "var(--fs-13)", lineHeight: 1.5, resize: "vertical", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", padding: "var(--s3)", background: "var(--bg)", color: "var(--text)" }}
-          />
-          {mentions.popover}
-        </div>
+        md ? (
+          // Markdown files get the rich editor (formatting + @-mention of files/agents/…); raw text/code
+          // keep the monospace textarea so their exact bytes round-trip.
+          <RichMarkdownEditor value={draft} onChange={setDraft} minRows={20} />
+        ) : (
+          <div style={{ position: "relative" }}>
+            <textarea
+              ref={taRef}
+              value={draft}
+              onChange={(e) => { setDraft(e.target.value); mentions.recompute(); }}
+              onKeyUp={() => mentions.recompute()}
+              onClick={() => mentions.recompute()}
+              onKeyDown={(e) => { mentions.handleKeyDown(e); }}
+              spellCheck={false}
+              aria-label={`Edit ${entry.name}`}
+              style={{ width: "100%", minHeight: "60vh", fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: "var(--fs-13)", lineHeight: 1.5, resize: "vertical", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", padding: "var(--s3)", background: "var(--bg)", color: "var(--text)" }}
+            />
+            {mentions.popover}
+          </div>
+        )
       ) : md ? (
         <MarkdownView content={content} />
       ) : (

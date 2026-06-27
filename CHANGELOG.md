@@ -6,6 +6,20 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-06-28
+
+### Added
+
+- **Rich markdown editor with workspace @-mentions** — editing a markdown **file** (`/files/<path>`) and a
+  **board prompt** now uses a real WYSIWYG editor (TipTap): a formatting toolbar (bold, italic, headings,
+  lists) with live markdown round-trip, and type **`@`** to mention any **file, folder, agent, venture, or
+  asset** from your workspace. A mention is inserted as a resolvable token (`[label](eidan:type:id)`) — it
+  renders as a chip everywhere and the engine expands it into real context at turn time (e.g. a file's
+  contents) when used in chat. Reusable `RichMarkdownEditor`; markdown files only (raw text/code keep the
+  monospace editor so their bytes round-trip exactly).
+  (Personas + the system prompt already had a rich editor; extending their @ to these entity types, and
+  expanding mentions inside agent/board contexts, are the next steps.)
+
 ## [0.13.12] — 2026-06-27
 
 ### Fixed

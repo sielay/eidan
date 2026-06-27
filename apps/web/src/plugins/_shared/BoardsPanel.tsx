@@ -13,6 +13,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { authFetch } from "@/lib/auth";
 import { Avatar } from "@/plugins/_shared/Avatar";
+import { RichMarkdownEditor } from "@/components/conversation/RichMarkdownEditor";
 
 interface Board { id: string; name: string; prompt?: string | null; position: number; status: string }
 interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number; metadata?: { labels?: string[] } }
@@ -242,13 +243,7 @@ export function BoardsPanel({ scopeKind = null, scopeId = null, basePath }: { sc
           <div style={{ margin: "var(--s2) 0" }}>
             {promptEditing ? (
               <>
-                <textarea
-                  className="input"
-                  style={{ width: "100%", minHeight: 64, fontSize: "var(--fs-13)", resize: "vertical" }}
-                  placeholder="What is this board for? Standing context given to agents working its cards…"
-                  value={promptInput}
-                  onChange={(e) => setPromptInput(e.target.value)}
-                />
+                <RichMarkdownEditor value={promptInput} onChange={setPromptInput} minRows={4} placeholder="What is this board for? Standing context given to agents working its cards…" />
                 <div style={{ display: "flex", gap: "var(--s1)", marginTop: "var(--s1)" }}>
                   <button className="btn btn--primary" disabled={busy} onClick={() => void saveBoardPrompt()}>Save</button>
                   <button style={S.btn} disabled={busy} onClick={() => setPromptEditing(false)}>Cancel</button>
@@ -256,7 +251,7 @@ export function BoardsPanel({ scopeKind = null, scopeId = null, basePath }: { sc
               </>
             ) : prompt ? (
               <div style={{ display: "flex", gap: "var(--s2)", alignItems: "flex-start" }}>
-                <p className="screen-sub" style={{ margin: 0, whiteSpace: "pre-wrap", flex: 1 }}>{prompt}</p>
+                <p className="screen-sub" style={{ margin: 0, whiteSpace: "pre-wrap", flex: 1 }}>{prompt.replace(/\[([^\]]+)\]\(eidan:[^)]+\)/g, "@$1")}</p>
                 <button style={S.btn} title="Edit board prompt" onClick={() => { setPromptInput(prompt); setPromptEditing(true); }}>✎</button>
               </div>
             ) : (

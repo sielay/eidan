@@ -543,6 +543,22 @@ svg.i-lg { width: 26px; height: 26px; }
 .persona-prose { line-height: 1.5; }
 .persona-prose p { margin: 0.25rem 0; }
 .persona-prose p:first-child { margin-top: 0; }
+
+/* RichMarkdownEditor (files / boards): the entity @-mention chip + the editable surface */
+.eidan-mention {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--accent-soft, rgba(99, 102, 241, 0.14));
+  color: var(--accent-link, #4f46e5);
+  font-weight: 500;
+  font-size: 0.95em;
+  white-space: nowrap;
+  cursor: default;
+}
+.rich-md-editor .ProseMirror { outline: none; min-height: inherit; }
+.rich-md-editor:focus-within { border-color: var(--accent, #6366f1); }
 .persona-prose p:last-child { margin-bottom: 0; }
 .persona-prose h1, .persona-prose h2, .persona-prose h3 { font-weight: 600; margin: 0.5rem 0 0.25rem; }
 .persona-prose h1 { font-size: 1.05em; }
