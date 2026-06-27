@@ -23,7 +23,7 @@ export function UsageOverviewPane(): React.ReactElement {
         const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
         const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
         const lastMonthEnd = monthStart;
-        const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+        const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
 
         const thisMonthData = await getUsageSummary(
           monthStart.toISOString(),
@@ -41,8 +41,8 @@ export function UsageOverviewPane(): React.ReactElement {
         setStats({
           thisMonth: thisMonthData.total_cost_usd,
           lastMonth: lastMonthData.total_cost_usd,
-          topModel: (topGroup?.model as string) || "N/A",
-          topCost: (topGroup?.cost_usd as number) || 0,
+          topModel: topGroup?.model?.toString() || "N/A",
+          topCost: topGroup?.cost_usd || 0,
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load stats");
