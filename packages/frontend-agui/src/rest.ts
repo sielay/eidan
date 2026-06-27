@@ -546,13 +546,10 @@ export async function handleRest(
       if (kind === 'agents') conds.push(`metadata->>'origin' = 'agent'`);
       else if (kind === 'chats') conds.push(`metadata->>'origin' is distinct from 'agent'`);
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
-      if (before && beforeStarredStr != null) {
+      if (before != null) {
         const beforeStarredBool = beforeStarredStr === 'true';
         vals.push(beforeStarredBool, before);
         conds.push(`(starred < $${vals.length - 1}::boolean OR (starred = $${vals.length - 1}::boolean AND coalesce(updated_at, created_at) < $${vals.length}::timestamptz))`);
-      } else if (before != null) {
-        vals.push(before);
-        conds.push(`coalesce(updated_at, created_at) < $${vals.length}::timestamptz`);
       }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>

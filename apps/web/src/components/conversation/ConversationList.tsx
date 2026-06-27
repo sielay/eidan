@@ -118,20 +118,14 @@ export function ConversationList(): React.ReactElement {
       const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore, beforeStarred: nextBeforeStarred });
       setItems((prev) => {
         const combined = [...(prev ?? []), ...page.conversations];
-        return combined.sort((a, b) => {
-          if ((b.starred ?? false) !== (a.starred ?? false)) {
-            return (b.starred ?? false) ? -1 : 1;
-          }
-          const timeDiff = new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-          return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
-        });
+        return combined.sort(sortConversations);
       });
       setNextBefore(page.nextBefore);
       setNextBeforeStarred(page.nextBeforeStarred);
     } catch { /* keep what we have; the next scroll-into-view retries */ } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, nextBefore, nextBeforeStarred, config, filter, debounced]);
+  }, [loadingMore, nextBefore, nextBeforeStarred, config, filter, debounced, sortConversations]);
 
   // Infinite scroll. The observer is created ONCE and calls the latest loadMore via a ref — putting
   // loadMore in the effect deps would re-create the observer on every loadingMore/nextBefore change,
@@ -171,21 +165,28 @@ export function ConversationList(): React.ReactElement {
     [],
   );
 
+  const sortConversations = React.useCallback(
+    (a: ConversationSummary, b: ConversationSummary) => {
+      if ((b.starred ?? false) !== (a.starred ?? false)) {
+        return (b.starred ?? false) ? -1 : 1;
+      }
+      const aTime = new Date(a.updated_at || 0).getTime();
+      const bTime = new Date(b.updated_at || 0).getTime();
+      const timeDiff = bTime - aTime;
+      return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
+    },
+    [],
+  );
+
   const onRowStarChange = React.useCallback(
     (rowId: string, nextStarred: boolean, updatedAt: string) => {
       setItems((prev) => {
         if (prev === null) return prev;
         const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred, updated_at: updatedAt } : row);
-        return updated.sort((a, b) => {
-          if ((b.starred ?? false) !== (a.starred ?? false)) {
-            return (b.starred ?? false) ? -1 : 1;
-          }
-          const timeDiff = new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-          return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
-        });
+        return updated.sort(sortConversations);
       });
     },
-    [],
+    [sortConversations],
   );
 
   if (loading || !user) {
@@ -268,7 +269,7 @@ export function ConversationList(): React.ReactElement {
                 row={row}
                 active={row.id === activeId}
                 onTitleChange={(next) => onRowTitleChange(row.id, next)}
-                onStarChange={(next) => onRowStarChange(row.id, next)}
+                onStarChange={(next, updatedAt) => onRowStarChange(row.id, next, updatedAt)}
               />
             </li>
           ))}
