@@ -315,7 +315,10 @@ switch (cmd) {
       // Install BOTH workspaces: the eidan root, then the vendored matbot runtime (its own pnpm
       // workspace, not an eidan workspace member — so the root install never links its packages).
       // A matbot bump can add packages (e.g. storage-base) the node's old node_modules lack.
-      sh("ssh", [host, `cd ${dir} && pnpm install --prefer-offline && (cd external/matbot && pnpm install --prefer-offline) && sudo systemctl restart ${service}`]);
+      // `--no-optional` keeps ssh nodes (the Pi) lean: heavy optionalDependencies like gdrive's
+      // tesseract.js (a WASM OCR engine) are skipped here but still install on cloud nodes (fly's
+      // Docker build runs a plain `pnpm install`). The features degrade gracefully when absent.
+      sh("ssh", [host, `cd ${dir} && pnpm install --prefer-offline --no-optional && (cd external/matbot && pnpm install --prefer-offline) && sudo systemctl restart ${service}`]);
     } else {
       throw new Error(`unknown target type "${t.type}" for "${targetName}"`);
     }

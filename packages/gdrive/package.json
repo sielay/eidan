@@ -14,7 +14,13 @@
     "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
   "dependencies": {
-    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pdf-parse": "^1.1.1",
+    "mammoth": "^1.8.0",
+    "xlsx": "^0.18.5"
+  },
+  "optionalDependencies": {
+    "tesseract.js": "^5.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
