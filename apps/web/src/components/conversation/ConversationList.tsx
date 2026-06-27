@@ -148,16 +148,13 @@ export function ConversationList(): React.ReactElement {
     setLoadingMore(true);
     try {
       const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore, beforeStarred: nextBeforeStarred });
-      setItems((prev) => {
-        const combined = [...(prev ?? []), ...page.conversations];
-        return combined.sort(sortConversations);
-      });
+      setItems((prev) => [...(prev ?? []), ...page.conversations]);
       setNextBefore(page.nextBefore);
       setNextBeforeStarred(page.nextBeforeStarred);
     } catch { /* keep what we have; the next scroll-into-view retries */ } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, nextBefore, nextBeforeStarred, config, filter, debounced, sortConversations]);
+  }, [loadingMore, nextBefore, nextBeforeStarred, config, filter, debounced]);
 
   // Infinite scroll. The observer is created ONCE and calls the latest loadMore via a ref — putting
   // loadMore in the effect deps would re-create the observer on every loadingMore/nextBefore change,
