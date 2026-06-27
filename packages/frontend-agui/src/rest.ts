@@ -564,7 +564,8 @@ export async function handleRest(
       const rows = r.rows;
       const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred?: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
-      const nextBeforeStarred = rows.length === limit && last && last.starred !== undefined && last.starred !== null ? String(last.starred === true) : null;
+      // starred is NOT NULL in schema, but be defensive: default to false if missing (should never happen)
+      const nextBeforeStarred = rows.length === limit && last ? (last.starred === true) : null;
       json(res, 200, {
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
@@ -603,15 +604,16 @@ export async function handleRest(
 
     if (sub === undefined && method === 'PATCH') {
       let body: { title?: string | null; starred?: boolean } = {};
+      // 64KB limit covers title (typical max ~256 bytes) and starred boolean; sufficient for current schema
       try { body = JSON.parse(await readBody(req, 64 * 1024)) as { title?: string | null; starred?: boolean }; } catch { /* */ }
       const updates: string[] = ['updated_at=now()'];
       const vals: unknown[] = [id, uid];
       if ('title' in body) { vals.push((body.title ?? '').toString().trim() || null); updates.push(`title=$${vals.length}`); }
       if ('starred' in body) { vals.push(body.starred ?? false); updates.push(`starred=$${vals.length}`); }
       if (updates.length > 1) await withPrincipal(principal, (q) => q(`update eidan.conversations set ${updates.join(', ')} where id=$1 and user_id=$2`, vals));
-      const r = await withPrincipal(principal, (q) => q('select title, starred from eidan.conversations where id=$1 and user_id=$2', [id, uid]));
+      const r = await withPrincipal(principal, (q) => q('select title, starred, updated_at from eidan.conversations where id=$1 and user_id=$2', [id, uid]));
       const row = r.rows[0];
-      json(res, 200, { id, title: row?.title ?? null, starred: row?.starred === true }, cors);
+      json(res, 200, { id, title: row?.title ?? null, starred: row?.starred === true, updated_at: iso(row?.updated_at) }, cors);
       return true;
     }
 

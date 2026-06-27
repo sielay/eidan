@@ -163,10 +163,11 @@ export function ConversationList(): React.ReactElement {
   );
 
   const onRowStarChange = React.useCallback(
-    (rowId: string, nextStarred: boolean) => {
+    (rowId: string, nextStarred: boolean, updatedAt?: string) => {
       setItems((prev) => {
         if (prev === null) return prev;
-        const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred } : row);
+        const now = new Date().toISOString();
+        const updated = prev.map((row) => row.id === rowId ? { ...row, starred: nextStarred, updated_at: updatedAt ?? now } : row);
         return updated.sort((a, b) => {
           if ((b.starred ?? false) !== (a.starred ?? false)) {
             return (b.starred ?? false) ? -1 : 1;
@@ -280,7 +281,7 @@ function ConversationRow({
   row: ConversationSummary;
   active: boolean;
   onTitleChange: (next: string | null) => void;
-  onStarChange: (next: boolean) => void;
+  onStarChange: (next: boolean, updatedAt: string) => void;
 }): React.ReactElement {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
@@ -361,7 +362,7 @@ function ConversationRow({
     try {
       const nextStarred = !(row.starred ?? false);
       const body = await toggleConversationStar(row.id, nextStarred);
-      onStarChange(body.starred);
+      onStarChange(body.starred, body.updated_at);
     } catch {
       // Swallow: operator can retry.
     } finally {

@@ -87,15 +87,15 @@ export interface ConversationSummary {
 interface ConversationsResponse {
   conversations: ConversationSummary[];
   next_before: string | null;
-  next_before_starred: string | null;
+  next_before_starred: boolean | null;
 }
 
 export interface ListConversationsOpts {
   limit?: number;
   /** Keyset cursor: the prior page's `nextBefore` (an updated_at iso). */
   before?: string | null;
-  /** Keyset cursor: the prior page's `nextBeforeStarred` (starred boolean as string). */
-  beforeStarred?: string | null;
+  /** Keyset cursor: the prior page's `nextBeforeStarred` (starred boolean). */
+  beforeStarred?: boolean | null;
   /** Case-insensitive title / agent-name search. */
   q?: string;
   /** all | agents | chats (server-side, so it composes with pagination). */
@@ -105,11 +105,11 @@ export interface ListConversationsOpts {
 // One page of conversations + the cursor for the next page (null when the last page was reached).
 export async function listConversations(
   opts: ListConversationsOpts = {},
-): Promise<{ conversations: ConversationSummary[]; nextBefore: string | null; nextBeforeStarred: string | null }> {
+): Promise<{ conversations: ConversationSummary[]; nextBefore: string | null; nextBeforeStarred: boolean | null }> {
   const qs = new URLSearchParams();
   if (opts.limit) qs.set("limit", String(opts.limit));
   if (opts.before) qs.set("before", opts.before);
-  if (opts.beforeStarred) qs.set("before_starred", String(opts.beforeStarred));
+  if (opts.beforeStarred !== null && opts.beforeStarred !== undefined) qs.set("before_starred", String(opts.beforeStarred));
   if (opts.q && opts.q.trim()) qs.set("q", opts.q.trim());
   if (opts.kind && opts.kind !== "all") qs.set("kind", opts.kind);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
@@ -224,6 +224,7 @@ interface StarConversationResponse {
   id: string;
   title: string | null;
   starred: boolean;
+  updated_at: string;
 }
 
 /**
