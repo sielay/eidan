@@ -407,13 +407,39 @@ async function evaluateAndIterate(deps: IterationDeps, row: CursorRow): Promise<
   }
 }
 
+// Compose a readable, actionable escalation for the operator inbox (it renders as markdown there). The
+// inbox is the only place the operator sees sage's blockers, so it must be skimmable and END WITH A
+// CLEAR QUESTION — never a wall of semicolon-joined review notes.
+function formatItemsEscalation(repo: string, pr: number, items: Verdict[]): string {
+  const lines = [
+    `**Sage needs your decision on [${repo}#${pr}](https://github.com/${repo}/pull/${pr})** — ${items.length} review item(s) I couldn't resolve on my own:`,
+    '',
+  ];
+  for (const v of items) {
+    const ref = v.ref ? `\`${v.ref}\` — ` : '';
+    lines.push(`- ${ref}${(v.reason || v.fixHint || '(no detail)').trim()}`);
+  }
+  lines.push('', "**What should I do for each?** Reply per item — *fix it* (with any guidance), *skip it*, or *change the approach* — and I'll resume this PR from your answer.");
+  return lines.join('\n');
+}
+
+function formatStallEscalation(repo: string, pr: number, reason: string): string {
+  return [
+    `**Sage is stuck on [${repo}#${pr}](https://github.com/${repo}/pull/${pr}) and has paused.**`,
+    '',
+    `It ${reason}.`,
+    '',
+    "**How should I proceed?** e.g. give direction on the blockers, tell me to close/abandon the PR, or take it over — I'll resume from your answer.",
+  ].join('\n');
+}
+
 async function stallToWaiting(deps: IterationDeps, row: CursorRow, sig: string, reason: string, threadIds: string[]): Promise<string> {
   const { db, cfg } = deps;
   const host = row.host;
   const ownerRepo = row.repo;
   const pr = row.pr_number;
   await commentSafe(deps, host, ownerRepo, pr, waitingComment(row.iteration, cfg.maxIterations));
-  await escalateSafe(deps, row, `sage ${reason} — paused for input`, threadIds, 'no_progress');
+  await escalateSafe(deps, row, formatStallEscalation(ownerRepo, pr, reason), threadIds, 'no_progress');
   await track.markWaiting(db, { rowId: row.id, lastInputSig: sig, escalationsDelta: 1 });
   return 'waiting';
 }
@@ -512,7 +538,7 @@ async function doIteration(deps: IterationDeps, row: CursorRow, prepared: Prepar
   const nextIter = row.iteration + 1;
   if (escalations.length) {
     await track.advance(db, { rowId: row.id, status: 'escalated', iteration: nextIter, lastCommitSha: commitSha, escalationsDelta: escalations.length });
-    const reason = `${escalations.length} item(s): ${escalations.map((v) => v.reason || v.fixHint || v.ref || '(unknown)').join('; ')}`;
+    const reason = formatItemsEscalation(ownerRepo, pr, escalations);
     await escalateSafe(deps, row, reason, escalations.map((v) => v.ref).filter(Boolean));
     return 'escalated';
   }
