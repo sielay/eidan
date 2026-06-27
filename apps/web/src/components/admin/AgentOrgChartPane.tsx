@@ -25,6 +25,8 @@ interface EdgeData {
   from: string;
   to: string;
   escalations: number;
+  relation?: string; // declared relationship label (delegates_to / reviews / decision_gate / …)
+  declared?: boolean; // a first-class agent_to_agent/decision_gate trigger (vs. inferred escalation traffic)
 }
 
 interface QuadtreeNode {
@@ -203,6 +205,19 @@ export function AgentOrgChartPane(): React.ReactElement {
     for (const [key, count] of edgeMap) {
       const [from, to] = key.split("→");
       newEdges.push({ from, to, escalations: count });
+    }
+
+    // First-class relationships, declared as agent_to_agent / decision_gate triggers — these are the
+    // org chart's real edges (the escalation traffic above is an overlay). config.to_agent is the
+    // target; a decision_gate with no target points at the operator (no agent node, so skipped here).
+    for (const a of agents) {
+      for (const t of a.triggers) {
+        if (t.type !== "agent_to_agent" && t.type !== "decision_gate") continue;
+        const to = typeof t.config?.["to_agent"] === "string" ? (t.config["to_agent"] as string) : null;
+        if (!to || !agentIds.has(to)) continue;
+        const relation = typeof t.config?.["relation"] === "string" ? (t.config["relation"] as string) : t.type;
+        newEdges.push({ from: a.id, to, escalations: 0, relation, declared: true });
+      }
     }
 
     setNodes(newNodes);
@@ -482,12 +497,20 @@ export function AgentOrgChartPane(): React.ReactElement {
                 const isSelected = selectedNode === from.id || selectedNode === to.id;
                 const opacity = !selectedNode || isSelected ? 1 : 0.2;
 
+                // Declared first-class relationships render solid indigo with their relation label;
+                // decision gates dashed. Escalation-traffic edges stay a faint grey with a count.
+                const stroke = edge.declared ? "#6366f1" : "#cbd5e1";
+                const isGate = edge.relation === "decision_gate";
+                const label = edge.declared ? (edge.relation ?? "link").replace(/_/g, " ") : String(edge.escalations);
+                const labelW = Math.max(14, label.length * 5.4);
+                const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+                const markerId = `arrow-${edge.from}-${edge.to}${edge.declared ? "-rel" : ""}`;
+
                 return (
-                  <g key={`${edge.from}→${edge.to}`} opacity={opacity}>
-                    {/* Arrow */}
+                  <g key={`${edge.from}→${edge.to}${edge.declared ? ":rel" : ""}`} opacity={opacity}>
                     <defs>
                       <marker
-                        id={`arrow-${edge.from}-${edge.to}`}
+                        id={markerId}
                         markerWidth="10"
                         markerHeight="10"
                         refX="8"
@@ -495,7 +518,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                         orient="auto"
                         markerUnits="strokeWidth"
                       >
-                        <path d="M0,0 L0,6 L9,3 z" fill="#a0aec0" />
+                        <path d="M0,0 L0,6 L9,3 z" fill={edge.declared ? "#6366f1" : "#a0aec0"} />
                       </marker>
                     </defs>
                     <line
@@ -503,32 +526,33 @@ export function AgentOrgChartPane(): React.ReactElement {
                       y1={from.y}
                       x2={to.x}
                       y2={to.y}
-                      stroke="#cbd5e1"
-                      strokeWidth="1.5"
-                      markerEnd={`url(#arrow-${edge.from}-${edge.to})`}
+                      stroke={stroke}
+                      strokeWidth={edge.declared ? 2 : 1.5}
+                      strokeDasharray={isGate ? "5 3" : undefined}
+                      markerEnd={`url(#${markerId})`}
                     />
                     {/* Label background for readability */}
                     <rect
-                      x={(from.x + to.x) / 2 - 7}
-                      y={(from.y + to.y) / 2 - 10}
-                      width="14"
+                      x={mid.x - labelW / 2}
+                      y={mid.y - 10}
+                      width={labelW}
                       height="12"
                       fill="#fafafa"
                       rx="1.5"
-                      stroke="#e5e7eb"
+                      stroke={edge.declared ? "#c7d2fe" : "#e5e7eb"}
                       strokeWidth="0.5"
                       pointerEvents="none"
                     />
                     {/* Label */}
                     <text
-                      x={(from.x + to.x) / 2}
-                      y={(from.y + to.y) / 2 - 4}
+                      x={mid.x}
+                      y={mid.y - 4}
                       textAnchor="middle"
-                      fontSize="10"
-                      fill="#666"
+                      fontSize="9"
+                      fill={edge.declared ? "#4f46e5" : "#666"}
                       pointerEvents="none"
                     >
-                      {edge.escalations}
+                      {label}
                     </text>
                   </g>
                 );

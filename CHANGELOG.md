@@ -4,7 +4,15 @@ All notable changes to eidan are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases are cut by bumping
 `package.json` and merging `next-release` → `main` (which tags `v<version>` and builds images).
 
-## [Unreleased]
+## [0.12.2] — 2026-06-27
+
+### Added
+
+- **First-class agent relationships** — `agent_to_agent` (one agent **delegates to / reviews /
+  reports to / escalates to** another) and `decision_gate` (an agent **pauses for a decision** before
+  proceeding) are now real `agent_triggers` types, declared with a new **`agent_relate`** tool. The
+  **org chart** (Admin → Activity → Agents) renders them as labelled edges (indigo; gates dashed)
+  instead of leaving relationships as prose in personas.
 
 ### Changed
 

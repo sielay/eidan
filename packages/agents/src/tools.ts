@@ -82,6 +82,25 @@ const TRIGGER_DELETE_SCHEMA: JSONSchema = {
   additionalProperties: false,
 };
 
+const RELATE_SCHEMA: JSONSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'The source agent the relationship belongs to.', minLength: 1 },
+    relation: {
+      type: 'string',
+      enum: ['delegates_to', 'reviews', 'reports_to', 'escalates_to', 'decision_gate'],
+      description:
+        'delegates_to / reviews / reports_to / escalates_to point at another agent (need to_agent); ' +
+        'decision_gate means this agent pauses for a decision before proceeding (to_agent = the agent ' +
+        'it asks, or omit for the operator).',
+    },
+    to_agent: { type: 'string', description: 'Target agent id (required unless relation=decision_gate).', minLength: 1 },
+    note: { type: 'string', description: 'Optional short description of the link (shown on the org-chart edge).', minLength: 1 },
+  },
+  required: ['agent_id', 'relation'],
+};
+
 export function buildAgentTools(store: AgentsStore): Tool[] {
   return [
     {
@@ -171,6 +190,38 @@ export function buildAgentTools(store: AgentsStore): Tool[] {
           if (!isValidSchedule(schedule)) return yield { type: 'error', message: `invalid schedule "${schedule}". ${SCHEDULE_HELP}` };
           try {
             const t = await store.addTrigger(agentId, 'schedule', { schedule });
+            yield { type: 'result', value: triggerView(t) };
+          } catch (e) {
+            yield { type: 'error', message: e instanceof Error ? e.message : String(e) };
+          }
+        },
+      },
+    },
+    {
+      name: 'agent_relate',
+      description:
+        'Declare a first-class relationship between agents — who delegates to / reviews / reports to / ' +
+        'escalates to whom, or a decision gate where an agent pauses for a decision before proceeding. ' +
+        'These render as edges on the org chart (Admin → Activity → Agents) and are the substrate ' +
+        'behaviour builds on; do NOT just describe relationships in personas. Use agent_list for ids; ' +
+        'remove a relationship with agent_trigger_delete.',
+      inputSchema: RELATE_SCHEMA,
+      executor: {
+        async *execute(input) {
+          const args = (input ?? {}) as Record<string, unknown>;
+          const agentId = str(args['agent_id']).trim();
+          const relation = str(args['relation']).trim();
+          const toAgent = str(args['to_agent']).trim();
+          const note = str(args['note']).trim();
+          if (!agentId || !relation) return yield { type: 'error', message: 'agent_id and relation are required' };
+          const isGate = relation === 'decision_gate';
+          if (!isGate && !toAgent) return yield { type: 'error', message: `relation "${relation}" needs a to_agent (the target agent id)` };
+          const type = isGate ? 'decision_gate' : 'agent_to_agent';
+          const config: Record<string, unknown> = { relation };
+          if (toAgent) config['to_agent'] = toAgent;
+          if (note) config['note'] = note;
+          try {
+            const t = await store.addTrigger(agentId, type, config);
             yield { type: 'result', value: triggerView(t) };
           } catch (e) {
             yield { type: 'error', message: e instanceof Error ? e.message : String(e) };
