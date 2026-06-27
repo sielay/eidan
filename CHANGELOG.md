@@ -4,6 +4,83 @@ All notable changes to eidan are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases are cut by bumping
 `package.json` and merging `next-release` → `main` (which tags `v<version>` and builds images).
 
+## [Unreleased]
+
+### Changed
+
+- **sage escalations are formatted** — composed as markdown (a heading linking the PR, the items as
+  bullets with their `file:line` refs) and **always end with a clear question**, instead of an
+  unreadable semicolon-joined wall of review notes.
+
+## [0.12.1] — 2026-06-27
+
+### Fixed
+
+- **Release web container image** build (broken since 0.10.0). `registry.generated.ts` imports the
+  gitignored per-bundle frontend mirrors that `assemble` vendors at deploy time, but the image build
+  never did — so `next build` died with `Module not found: '@/plugins/imap/Accounts'`. The image
+  workflow now vendors the frontends on the runner before the build, and uses `fail-fast: false` so a
+  web-image failure no longer cancels the engine image.
+
+## [0.12.0] — 2026-06-27
+
+### Added
+
+- **Escalations v2** — bidirectional agent↔operator messaging: agents can be addressed, query, and
+  respond; a new **`response` trigger** fires an agent the moment its escalation is answered. The
+  operator **inbox** renders markdown, links reviewable refs, and shows **provenance** — which agent
+  (avatar + name + link to the agent + the originating chat) or **sage** (with a link to the PR).
+- **Agent graceful-restart continuation** — on `SIGTERM` (a deploy) an in-flight agent run is aborted,
+  queued (`eidan.agent_restart_queue`), the user is notified, and it **resumes on next boot** as a
+  continuation turn referencing the interrupted conversation.
+- **Token usage & cost dashboards** — Admin → Activity → **Usage** (per provider / model / node, a
+  time series, and recent calls), over the `llm_calls` ledger.
+- **`db_query` introspection** — list schemas / tables / columns for autonomous schema discovery.
+- **gdrive** PDF / DOCX / Excel / OCR reading (plus CSV/table parsing). OCR (`tesseract.js`) is an
+  **optional, node-gated** dependency — installed on cloud nodes, skipped on the Pi.
+- **Procedures UI** + a `procedures_action` tool; deep Drive/Mail **archaeology** procedures.
+- **ask-user fallback** for non-interactive (agent/cron) contexts.
+- **UI**: chat-list search/filtering, a mobile prompt-bar menu, an **agent org-chart**, a redesigned
+  sidebar (integrations demoted to settings), and collapsible agent cards.
+
+### Changed
+
+- **sage** biases triage to **self-resolve** (fix/reply) rather than escalate code/CI to the operator;
+  reads operator PR comments (not just Copilot threads); ships a pragmatic-default authoring persona.
+- **CI** now typechecks `apps/web` (with frontend vendoring) and rejects backslash-escaped paths; the
+  hard-won failure modes are lifted into `CLAUDE.md` so the same-model agents share that context.
+
+### Removed
+
+- **`packages/routines`** — superseded by agents; it lingered as a footgun (standing agents kept
+  reaching for `routine_create` instead of doing their work).
+
+## [0.11.0] — 2026-06-26
+
+### Added
+
+- **eidan virtual filesystem** (`@eidandev/fs`) — a DB-backed substrate with **local / S3 / Supabase /
+  Google Drive** storage adapters and a **URL-routed file browser**; the agent uses one unified fs.
+- **GitHub** per-user integration — a connection + agent tools, read/write scopes, org/repo allowlist
+  (wildcards).
+- **Glue** marketing adapter plugin (analytics / funnels / lists / campaigns) with a setup panel.
+- **Boards** substrate and **Ventures v2** — recursive ventures, **slug routing + permalinks**,
+  move/reparent (cycle-guarded), cascade delete, new resource kinds, an **`employment`** kind — plus
+  **`charles-domains`** (a domains inventory with registrar import).
+- **Chat attachments** (image/file) and inline chart/image rendering.
+- **db** schema list/select tools; richer **memory** recall (`websearch_to_tsquery`); **telemetry**
+  marks stale node heartbeats offline.
+
+### Changed
+
+- **routines → agents** migration; venture prompts use the WYSIWYG persona editor.
+
+### Fixed / Security
+
+- Glue MCP url resolves from the **vault**, not `process.env`; sage-panel CORS hardened (bearer, no
+  cookies); sanitised interpolated values in plugin link hrefs (XSS-through-DOM); fs web-frontend type
+  errors that broke the assembled build.
+
 ## [0.10.0] — 2026-06-25
 
 ### Added
