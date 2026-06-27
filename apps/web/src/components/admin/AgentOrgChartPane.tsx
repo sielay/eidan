@@ -298,20 +298,46 @@ export function AgentOrgChartPane(): React.ReactElement {
           forces.set(node.id, { fx: 0, fy: 0 });
         }
 
-        // Repulsion between nodes using quadtree
-        // Quadtree must cover the entire bounds where nodes can exist
-        const qx = sim.bounds.minX;
-        const qy = sim.bounds.minY;
-        const qw = sim.bounds.maxX - sim.bounds.minX;
-        const qh = sim.bounds.maxY - sim.bounds.minY;
-        // Round up to next power of 2 with 20% margin for node movement
-        const qsize = Math.pow(2, Math.ceil(Math.log2(Math.max(qw, qh) * 1.2)));
-        const qt = buildQuadtree(sim.nodes, qx, qy, qsize);
-        for (const node of sim.nodes) {
-          const { fx, fy } = repulsionFromQuadtree(node, qt, 10000);
-          const nodeForces = forces.get(node.id)!;
-          nodeForces.fx += fx;
-          nodeForces.fy += fy;
+        // Repulsion between nodes: use quadtree for large N, simple O(N²) for small N
+        // For 5-20 agents (typical in acceptance criteria), O(N²) repulsion is simpler and faster
+        // than rebuilding quadtree O(N log N) on every iteration
+        if (sim.nodes.length <= 25) {
+          // Simple pairwise repulsion for small graphs: O(N²) but no rebuild overhead
+          for (let i = 0; i < sim.nodes.length; i++) {
+            for (let j = i + 1; j < sim.nodes.length; j++) {
+              const n1 = sim.nodes[i];
+              const n2 = sim.nodes[j];
+              const dx = n1.x - n2.x || 0.1;
+              const dy = n1.y - n2.y || 0.1;
+              const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+              const f = 10000 / (dist * dist);
+              const fx = (dx / dist) * f;
+              const fy = (dy / dist) * f;
+
+              const f1 = forces.get(n1.id)!;
+              const f2 = forces.get(n2.id)!;
+              f1.fx += fx;
+              f1.fy += fy;
+              f2.fx -= fx;
+              f2.fy -= fy;
+            }
+          }
+        } else {
+          // Use quadtree for larger graphs: O(N log N) rebuild is worthwhile for N > 25
+          const qx = sim.bounds.minX;
+          const qy = sim.bounds.minY;
+          const qw = sim.bounds.maxX - sim.bounds.minX;
+          const qh = sim.bounds.maxY - sim.bounds.minY;
+          // Quadtree size: round to power of 2 with 20% margin to encompass all node positions
+          // All nodes are bounded to [minX, maxX] × [minY, maxY], so qsize >= max(qw, qh) ensures coverage
+          const qsize = Math.pow(2, Math.ceil(Math.log2(Math.max(qw, qh) * 1.2)));
+          const qt = buildQuadtree(sim.nodes, qx, qy, qsize);
+          for (const node of sim.nodes) {
+            const { fx, fy } = repulsionFromQuadtree(node, qt, 10000);
+            const nodeForces = forces.get(node.id)!;
+            nodeForces.fx += fx;
+            nodeForces.fy += fy;
+          }
         }
 
         // Collision detection for very close nodes to prevent overlap
