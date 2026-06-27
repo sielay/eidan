@@ -26,10 +26,10 @@ declare module '@matatbread/matbot-plugin-api' {
   }
 }
 
-const ESCALATION_MESSAGE_TEMPLATE = 'decision escalated to inbox (non-interactive context)';
-
-const formatConfirmEscalationMessage = (label: string): string =>
-  `${label}: ${ESCALATION_MESSAGE_TEMPLATE}`;
+const formatConfirmEscalationMessage = (label: string): string => {
+  const template = 'decision escalated to inbox (non-interactive context)';
+  return `${label}: ${template}`;
+};
 
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
@@ -43,7 +43,8 @@ export const plugin: MatbotPluginSpec = {
   async setup(services: MatbotServices) {
     const svc = services as { Escalations?: EscalationsService; AskUserFallbackConfig?: AskUserFallbackConfig };
 
-    // Use explicitly configured status, or default to interactive (host/runtime should set config if non-interactive)
+    // Configuration must come from service registry (host/runtime responsibility).
+    // Never access process.env directly; the host sets this via service initialization.
     let config: AskUserFallbackConfig = svc.AskUserFallbackConfig ?? {
       isNonInteractive: false,
     };
