@@ -108,10 +108,10 @@ export function AgentOrgChartPane(): React.ReactElement {
     const nodesWorkingCopy = nodes.map((n) => ({ ...n }));
     const velocityHistory: number[] = [];
     const convergenceWindow = 15;
-    const nodeMap = new Map(nodesWorkingCopy.map(n => [n.id, n]));
     let rafId: number | null = null;
 
     const animate = () => {
+      const nodeMap = new Map(nodesWorkingCopy.map(n => [n.id, n]));
       let maxVelocity = 0;
       const iterationsPerFrame = 2;
 
@@ -207,7 +207,7 @@ export function AgentOrgChartPane(): React.ReactElement {
         cancelAnimationFrame(rafId);
       }
     };
-  }, [edges]);
+  }, [nodes, edges]);
 
   const providerColor = (provider: string | null): string => {
     if (!provider) return COLORS.other;
