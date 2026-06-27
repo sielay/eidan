@@ -181,7 +181,7 @@ export function makeLinkedinTools(store: AccountStore | null, seal?: SealFn): To
   const linkedinListFeedTool: Tool = {
     name: 'linkedin_list_feed',
     description:
-      "List recent posts published BY a connected LinkedIn account (the member's own posts, or the organization's Page posts). NOTE: LinkedIn has no API to read other members' feeds or to search posts — only this account's own posts. Use `account` to pick which connected LinkedIn account.",
+      "List recent posts published BY a connected LinkedIn account (the member's own posts, or the organization's Page posts). NOTE: LinkedIn has no API to read other members' feeds or to search posts — only this account's own posts. IMPORTANT: Engagement metrics (likes, comments) are currently unavailable due to API permission restrictions. The Community Management API requires 'r_member_social_feed' permission (restricted) to fetch reactions. Operator has filed for standard tier access — once approved, engagement data can be enabled. Use `account` to pick which connected LinkedIn account.",
     inputSchema: LIST_FEED_SCHEMA,
     executor: {
       async *execute(input, ctx) {
@@ -203,8 +203,12 @@ export function makeLinkedinTools(store: AccountStore | null, seal?: SealFn): To
                 text: post.text,
                 likes: post.likes,
                 comments: post.comments,
+                engagement_data_available: post.engagement_data_available,
               })),
               count: result.posts?.length ?? 0,
+              notice: !result.posts?.every((p) => p.engagement_data_available)
+                ? 'Engagement metrics (likes, comments) are currently unavailable. Requires LinkedIn Community Management API standard tier + r_member_social_feed permission.'
+                : undefined,
             },
           };
         }

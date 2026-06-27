@@ -419,7 +419,19 @@ export class LinkedInClient {
   // Recent posts published BY this connection (the member's own posts, or the organization's). LinkedIn
   // has no "read another member's feed" API and no public post-search API, so this lists this account's
   // own authored posts via the versioned Community Management /rest/posts?q=author endpoint.
-  async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text: string; likes: number; comments: number }>; error?: string }> {
+  //
+  // LIMITATION: Engagement data (likes, comments) is unavailable due to permission restrictions.
+  // The Community Management API standard tier (currently in development tier) requires the
+  // r_member_social_feed permission (restricted) to read reactions. Once the operator's account
+  // is upgraded to standard tier and r_member_social_feed is granted, engagement data can be
+  // fetched via a separate Reactions API call per post (see upgrade path below).
+  //
+  // UPGRADE PATH (once standard tier + r_member_social_feed is approved):
+  // 1. Fetch post IDs via /posts?q=author (current endpoint)
+  // 2. For each post, call /reactions?q=post with the post URN to get likes/reactions count
+  // 3. Parse reaction types (LIKE, COMMENT_LIKE, etc.) to populate likes/comments fields
+  // 4. See: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/reactions-api
+  async listFeed(limit: number = 20): Promise<{ posts?: Array<{ id: string; text: string; likes: number; comments: number; engagement_data_available: boolean }>; error?: string }> {
     if (!this.author) {
       return { error: 'this connection has no author URN yet — reconnect it (org connections need rw_organization_admin)' };
     }
@@ -433,11 +445,15 @@ export class LinkedInClient {
     if (result.error) {
       return { error: result.error };
     }
+    // Hardcoded engagement_data_available: false indicates the current limitation.
+    // When standard tier + r_member_social_feed is approved, set to true and implement
+    // the upgrade path documented above.
     const posts = (result.data?.elements ?? []).map((p) => ({
       id: p.id ?? '',
       text: p.commentary ?? '',
       likes: 0,
       comments: 0,
+      engagement_data_available: false,
     }));
     return { posts };
   }
