@@ -111,13 +111,14 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   const handleResponses = async (esc: EscalationsLike): Promise<void> => {
     let totalProcessed = 0;
     const maxPerTick = 20; // Limit responses processed per tick to prevent DB thrashing
+    let limitReached = false;
 
     try {
       const agents = await store.responseTriggeredAgents();
 
-      agentLoop: for (const a of agents) {
+      for (const a of agents) {
+        if (limitReached) break;
         if (a.target_node && a.target_node !== nodeId) continue; // pinned to another node
-        if (totalProcessed >= maxPerTick) break; // Stop if we've hit the limit this tick
 
         const responses = await esc.list({
           userId: a.user_id,
@@ -126,7 +127,10 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
           limit: 10,
         });
         for (const resp of responses) {
-          if (totalProcessed >= maxPerTick) break agentLoop; // Stop both loops if limit reached
+          if (totalProcessed >= maxPerTick) {
+            limitReached = true;
+            break;
+          }
           // Skip if already processed by agent system (checked via agent_response_processed_at)
           if (resp.agent_response_processed_at) continue;
           if (!resp.responded_at) continue; // shouldn't happen but safety check
