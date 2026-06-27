@@ -1,6 +1,6 @@
 # @eidandev/social-linkedin
 
-LinkedIn Social integration for Eidan: post to LinkedIn, search posts, get profile information, and read your feed via OAuth2.
+LinkedIn Social integration for Eidan: post to LinkedIn, get profile information, and read your own posts via OAuth2.
 
 ## Requirements
 
@@ -106,9 +106,8 @@ linkedin_list_feed({ limit: 30 })
 
 3. **API**: Uses LinkedIn API v2 (REST)
    - Posts via `/ugcPosts`
-   - Search via `/search/posts`
    - Profile via `/me`
-   - Feed via `/feed`
+   - Feed via `/posts?q=author`
 
 ## Security Considerations
 
@@ -203,7 +202,7 @@ LinkedIn enforces rate limits per token. If you hit limits:
 ## Architecture
 
 - **client.ts**: LinkedIn API v2 client (REST via Bearer token)
-- **tools.ts**: Agent tools (post, search, profile, feed)
+- **tools.ts**: Agent tools (post, profile, feed)
 - **vault.ts**: Secret resolution from matbot vault + env
 - **types.ts**: LinkedIn API TypeScript definitions
 - **index.ts**: Plugin registration
