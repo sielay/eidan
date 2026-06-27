@@ -2,7 +2,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, Cpu, Loader2, Mic, MoreVertical, Paperclip, Send, Square, X } from "lucide-react";
+import { Check, ChevronDown, Cpu, GitFork, Loader2, Mic, MoreVertical, Paperclip, Send, Square, X } from "lucide-react";
 
 import { isTranscribeAvailable, transcribeAudio } from "@/lib/api/transcribe";
 import type { ProviderOption } from "@/lib/models";
@@ -284,6 +284,71 @@ function ModelMenu({
   );
 }
 
+// Fork-and-merge ("⑂ Compare"): pick ≥2 models to race this prompt against in parallel. The current
+// model (the picker above) then judges them and merges the best result into one answer. A small
+// branch button that opens an upward popover of provider checkboxes; the badge shows how many are on.
+function CompareMenu({
+  providers, selected, judge, onToggle, disabled,
+}: {
+  providers: ProviderOption[];
+  selected: string[];
+  judge: string;
+  onToggle: (name: string) => void;
+  disabled?: boolean;
+}): React.ReactElement {
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+  const n = selected.length;
+  const judgeLabel = judge ? (providers.find((p) => p.name === judge)?.name ?? judge) : "Default";
+
+  return (
+    <div className="composer__model-wrap">
+      <button
+        type="button"
+        className={"composer__model-btn" + (n >= 2 ? " is-on" : "")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        title={n >= 2 ? `Compare ${n} models — ${judgeLabel} judges & merges` : "Compare this prompt across models"}
+        onClick={() => setOpen((v) => !v)}
+        style={n >= 2 ? { color: "var(--accent, #6366f1)", borderColor: "var(--accent, #6366f1)" } : undefined}
+      >
+        <GitFork className="i i-sm" aria-hidden />
+        {n >= 2 ? <span className="composer__model-label">{n}</span> : null}
+      </button>
+      {open ? (
+        <>
+          <button type="button" className="composer__model-backdrop" aria-label="Close compare menu" onClick={() => setOpen(false)} />
+          <ul className="composer__model-menu" role="menu" aria-label="Compare across models">
+            <li style={{ padding: "6px 10px", fontSize: 12, color: "var(--faint)", lineHeight: 1.4, borderBottom: "1px solid var(--border)" }}>
+              Pick 2+ models to race in parallel. <strong>{judgeLabel}</strong> judges &amp; merges the best answer.
+            </li>
+            {providers.map((p) => {
+              const on = selected.includes(p.name);
+              return (
+                <li key={p.name}>
+                  <button type="button" role="menuitemcheckbox" aria-checked={on} className="composer__model-opt" onClick={() => onToggle(p.name)}>
+                    <Check className={"i i-sm composer__model-tick" + (on ? " is-on" : "")} aria-hidden />
+                    <span className="composer__model-opt-text">
+                      <span className="composer__model-opt-name">{p.name}</span>
+                      <span className="composer__model-opt-hint">{p.model}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function ModelOpt({
   label, hint, selected, onPick,
 }: { label: string; hint?: string; selected: boolean; onPick: () => void }): React.ReactElement {
@@ -338,7 +403,7 @@ export interface ComposerProps {
    * keeps itself disabled until it settles, mirroring the in-flight
    * lock pinned in `docs/014 §4.5`.
    */
-  onSubmit: (text: string, attachments?: ComposerAttachment[]) => Promise<void>;
+  onSubmit: (text: string, attachments?: ComposerAttachment[], compare?: string[]) => Promise<void>;
   /** Disabled while a turn is in flight (`docs/014 §4.5`). */
   disabled?: boolean;
   /** Selected matbot provider (one model each). When `onProviderChange` is set, a picker shows. */
@@ -364,6 +429,16 @@ export function Composer({
   const [submitting, setSubmitting] = React.useState(false);
   const [attachments, setAttachments] = React.useState<ComposerAttachment[]>([]);
   const [attachErr, setAttachErr] = React.useState<string | null>(null);
+  // Fork-and-merge selection: provider names to race the next prompt against (sticky across sends so
+  // you can compare several prompts). Pruned to names the engine still offers when `providers` change.
+  const [compareModels, setCompareModels] = React.useState<string[]>([]);
+  React.useEffect(() => {
+    if (!providers || !providers.length) return;
+    setCompareModels((prev) => prev.filter((n) => providers.some((p) => p.name === n)));
+  }, [providers]);
+  const toggleCompare = React.useCallback((name: string) => {
+    setCompareModels((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+  }, []);
   const taRef = React.useRef<HTMLTextAreaElement | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -476,7 +551,7 @@ export function Composer({
     if (!text && attachments.length === 0) return; // need text or at least one file
     setSubmitting(true);
     try {
-      await onSubmit(text, attachments.length ? attachments : undefined);
+      await onSubmit(text, attachments.length ? attachments : undefined, compareModels.length >= 2 ? compareModels : undefined);
       setValue("");
       setAttachments([]);
       setAttachErr(null);
@@ -490,7 +565,7 @@ export function Composer({
     } finally {
       setSubmitting(false);
     }
-  }, [value, isDisabled, onSubmit, attachments]);
+  }, [value, isDisabled, onSubmit, attachments, compareModels]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -541,10 +616,19 @@ export function Composer({
         micRecording={mic.recording}
         micBusy={mic.busy}
       />
+      {onProviderChange && providers && providers.length >= 2 ? (
+        <CompareMenu
+          providers={providers}
+          selected={compareModels}
+          judge={provider ?? ""}
+          onToggle={toggleCompare}
+          disabled={isDisabled}
+        />
+      ) : null}
       <textarea
         ref={taRef}
         className="composer__input"
-        placeholder="Ask eidan anything…"
+        placeholder={compareModels.length >= 2 ? `⑂ Compare ${compareModels.length} models — ask anything…` : "Ask eidan anything…"}
         rows={1}
         value={value}
         disabled={isDisabled}

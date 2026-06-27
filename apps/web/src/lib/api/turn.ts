@@ -51,6 +51,8 @@ export interface TurnRequest {
   provider?: string;
   /** Optional files attached to this turn (base64 data + mime + name). */
   attachments?: Array<{ data: string; mime: string; name?: string }>;
+  /** Fork-and-merge: ≥2 provider names to race the prompt against; `provider` judges + merges them. */
+  compare?: string[];
   signal?: AbortSignal;
 }
 
@@ -96,6 +98,7 @@ export async function* streamTurn(
     user_tz: resolveUserTz(),
     ...(req.provider ? { provider: req.provider } : {}),
     ...(req.attachments && req.attachments.length ? { attachments: req.attachments } : {}),
+    ...(req.compare && req.compare.length >= 2 ? { compare: req.compare } : {}),
   });
 
   const res = await authFetch("/api/turn", {

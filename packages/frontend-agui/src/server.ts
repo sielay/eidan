@@ -43,6 +43,26 @@ function buildTurnContent(text: string, attachments?: TurnAttachment[]): Message
   return blocks;
 }
 
+// Fork-and-merge: the ephemeral briefing the judge turn sees (prepended, never persisted). It carries
+// the user's prompt plus each candidate model's answer, and asks the judge to emit the single best
+// merged answer followed by a "## Model comparison" section. Kept out of the persisted user/assistant
+// messages so the conversation reads cleanly: clean prompt in, merged answer out.
+function buildJudgeBriefing(prompt: string, legs: Array<{ model: string; text: string }>): string {
+  const candidates = legs.map((l, i) => `### Candidate ${i + 1} — ${l.model}\n${l.text}`).join('\n\n');
+  return [
+    `${legs.length} different models each answered the user's request below. Your job is to judge them and merge the best result.`,
+    ``,
+    `<request>\n${prompt}\n</request>`,
+    ``,
+    `Candidate answers:`,
+    ``,
+    candidates,
+    ``,
+    `Now write the single best answer to the request: synthesise the strongest parts of each candidate and correct any mistakes. This merged answer is what the user sees, so write it directly — do NOT say "candidate" or "model" in it.`,
+    `After the answer, add a section titled exactly "## Model comparison": one bullet per model (use the model names shown above) summarising its take in a few words, then a final line in bold "**Strongest:** <model> — <one-line why>".`,
+  ].join('\n');
+}
+
 // The per-request identity seam (same key matbot's frontend-web uses): an auth plugin registers a
 // resolver that derives the Principal from the request (e.g. a Bearer JWT). Absent ⇒ boot principal.
 declare module '@matatbread/matbot-plugin-api' {
@@ -161,7 +181,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     const run = services.run;
     if (!sessions || !run) { json(res, 500, { error: 'runner/sessions unavailable' }, cors); return; }
 
-    let body: { conversation_id?: string; text?: string; provider?: string; attachments?: TurnAttachment[] };
+    let body: { conversation_id?: string; text?: string; provider?: string; attachments?: TurnAttachment[]; compare?: string[] };
     try { body = JSON.parse(await readBody(req)) as typeof body; }
     catch { json(res, 400, { error: 'invalid JSON' }, cors); return; }
     const conversationId = body.conversation_id;
@@ -178,12 +198,57 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     }
     const turnProvider = body.provider || provider;
 
+    // Fork-and-merge (the "⑂ Compare" composer mode): `compare` names ≥2 configured providers to race
+    // the prompt against in parallel; THIS turn then runs the judge (turnProvider) to synthesise the
+    // single best merged answer + a comparison. Validate candidates up-front (same rule as the per-turn
+    // provider — each provider is one model) so a stale pick fails before the stream opens.
+    const compareModels = Array.isArray(body.compare)
+      ? Array.from(new Set(body.compare.filter((m): m is string => typeof m === 'string' && m.length > 0)))
+      : [];
+    for (const m of compareModels) {
+      if (!services.providers.get(m)) { json(res, 400, { error: `Unknown compare model "${m}" — not configured on this host. Re-select.` }, cors); return; }
+    }
+    const doFork = compareModels.length >= 2 && typeof services.singleTurn === 'function';
+
     let session = await sessions.get(conversationId);
     if (!session) { session = newSession(conversationId, principal.id); await sessions.set(conversationId, session); }
 
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', ...cors });
     const emitter = new AguiEmitter(conversationId);
     for (const e of emitter.start()) sse(res, e);
+
+    // Run the fork candidates (one-shot completions — no session, no junk conversations) and arm a
+    // one-shot `screen` hook that injects them as EPHEMERAL context for the judge turn below. Ephemeral
+    // = prepended to this turn's model calls, never persisted and elided from history — so the user
+    // message stays the clean prompt and the assistant message is the merge. The hook self-removes on
+    // fire (filtered to this conversation) and expires after 60s if the turn never reaches `screen`.
+    // If <2 candidates resolve, we silently fall back to a plain judge turn (a normal answer).
+    if (doFork && services.singleTurn) {
+      const singleTurn = services.singleTurn.bind(services);
+      const settled = await Promise.allSettled(compareModels.map(async (m) => ({
+        model: services.providers.get(m)?.model ?? m,
+        text: (await singleTurn({ provider: m, prompt: text })).text,
+      })));
+      const legs = settled.flatMap((r) => (r.status === 'fulfilled' && r.value.text.trim() ? [r.value] : []));
+      if (legs.length >= 2) {
+        const briefing = buildJudgeBriefing(text, legs);
+        const armedAt = Date.now();
+        let fired = false;
+        services.hooks.register({
+          on: 'screen',
+          priority: 1,
+          handler(ctx) {
+            if (fired || ctx.session.id !== conversationId) {
+              if (Date.now() - armedAt > 60_000) ctx.removeHook();
+              return;
+            }
+            fired = true;
+            ctx.removeHook();
+            return { ephemeral: [{ type: 'text', text: briefing }] };
+          },
+        });
+      }
+    }
 
     const ac = new AbortController();
     req.on('close', () => ac.abort());

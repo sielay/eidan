@@ -124,7 +124,7 @@ export function ConversationView({
   }, [config, user, reloadHistory, reloadTitle]);
 
   const onSubmit = React.useCallback(
-    async (text: string, attachments?: ComposerAttachment[]) => {
+    async (text: string, attachments?: ComposerAttachment[], compare?: string[]) => {
       if (!config) throw new Error("auth config not ready");
       setPendingUserText(text);
       setStreamingAssistant({ text: "", interrupted: false, toolCalls: [] });
@@ -144,6 +144,7 @@ export function ConversationView({
           text,
           ...(provider ? { provider } : {}),
           ...(attachments && attachments.length ? { attachments } : {}),
+          ...(compare && compare.length >= 2 ? { compare } : {}),
         })) {
           if (event.kind === "text") {
             setStreamingAssistant((prev) => {

@@ -8,6 +8,14 @@ All notable changes to eidan are recorded here. The format follows
 
 ### Added
 
+- **⑂ Compare — run one prompt across models, a third judges & merges (fork-and-merge)** — the flagship.
+  Pick 2+ models in the composer's branch menu; the prompt is raced against all of them in parallel
+  (one-shot completions — no junk conversations), then your selected model **judges** the candidates and
+  writes the single best **merged** answer plus a `## Model comparison` section. The user message stays
+  the clean prompt and the assistant message is the merge — implemented with a one-shot `screen` hook
+  that injects the candidates as ephemeral (never-persisted) context for the judge turn, so it reuses the
+  whole normal streaming/persistence path. Accept by moving on, or reply to iterate. `compare: string[]`
+  on `POST /api/turn`. (Candidate token usage isn't yet in the per-turn cost rollup.)
 - **Files open at their own permalink with a markdown editor** — clicking a local file navigates to its
   `/files/<path>` URL (not a popup); markdown renders with GFM + **mermaid**/chart, and an **Edit** mode
   gives an inline editor with **Save** (`PUT /api/fs/file`) — so you can draft a prompt spec as a file

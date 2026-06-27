@@ -39,5 +39,8 @@ export const TurnInput = z.object({
   provider: z.string().optional(),
   // Optional files attached to this turn.
   attachments: z.array(TurnAttachment).optional(),
+  // Fork-and-merge ("⑂ Compare"): ≥2 provider names to race this prompt against in parallel; the
+  // turn's `provider` then judges + merges them into one answer. Omitted/<2 ⇒ a normal single turn.
+  compare: z.array(z.string()).optional(),
 });
 export type TurnInput = z.infer<typeof TurnInput>;
