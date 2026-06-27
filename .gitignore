@@ -62,6 +62,7 @@ apps/web/src/app/api/*/
 !apps/web/src/app/api/events/
 !apps/web/src/app/api/knowledge/
 !apps/web/src/app/api/me/
+!apps/web/src/app/api/mentions/
 !apps/web/src/app/api/openrouter/
 !apps/web/src/app/api/notes/
 

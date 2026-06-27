@@ -6,6 +6,35 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.2] — 2026-06-27
+
+### Added
+
+- **@-mention files, folders, agents, ventures & assets** — type `@` in the chat composer or a markdown
+  file editor to search and insert a **resolvable** reference (`[label](eidan:type:id)`). At turn time the
+  engine **expands** each token into real context for the model — a file's contents, a folder listing, an
+  agent's persona, a venture/asset descriptor — while the message keeps the readable @chip. New
+  `GET /api/mentions/search`; owner-scoped; the ventures/assets sources degrade gracefully if that bundle
+  isn't installed. (TipTap editors — agent persona — still mention tools only; entity types there are a
+  follow-up.)
+
+- **Memory gets delete + formatting + rich edit** — Notes, Events and Knowledge now render their bodies as
+  **markdown** (GFM + mermaid) in the detail view instead of raw paragraphs, **delete** from the detail bar
+  (notes/knowledge already had the API; **events** get a new `PATCH`/`DELETE /api/events/[id]`), and edit
+  with **@-mention** support. Event **Mark done / Reopen** are wired (were dead stubs).
+
+### Fixed
+
+- **Non-markdown / agent files are now deletable** — agent-produced **artifacts** (often images, JSON,
+  decks — anything not a local fs file) opened a preview with no delete and weren't bulk-selectable. They
+  now have a **Delete** in the preview and join bulk-select; new `DELETE /api/artifacts/[id]` (soft-delete,
+  falling through to the fs archive for fs-node ids).
+
+### Changed
+
+- **System prompt editor is now a rich markdown editor** (the same one agents use for personas) — toolbar
+  formatting + `@`-mention support — instead of a plain monospace textarea.
+
 ## [0.13.1] — 2026-06-27
 
 ### Added

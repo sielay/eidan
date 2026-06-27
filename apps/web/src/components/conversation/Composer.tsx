@@ -7,6 +7,7 @@ import { Check, ChevronDown, Cpu, GitFork, Loader2, Mic, MoreVertical, Paperclip
 import { isTranscribeAvailable, transcribeAudio } from "@/lib/api/transcribe";
 import type { ProviderOption } from "@/lib/models";
 import type { OpenRouterModel } from "@/lib/api/admin";
+import { useTextareaMentions } from "./useTextareaMentions";
 
 // Filter the OpenRouter catalogue by a query against id/name; capped so a 300+ list stays a menu.
 function filterCatalog(catalog: OpenRouterModel[] | undefined, q: string, limit = 40): OpenRouterModel[] {
@@ -656,7 +657,12 @@ export function Composer({
     }
   }, [value, isDisabled, onSubmit, attachments, compareModels]);
 
+  // @-mention autocomplete (files/folders/agents/ventures/assets) — inserts resolvable tokens the
+  // engine expands at turn time.
+  const mentions = useTextareaMentions(taRef, value, setValue);
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (mentions.handleKeyDown(e)) return; // @-mention popover claims arrows / enter / esc while open
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void submit();
@@ -716,19 +722,26 @@ export function Composer({
           disabled={isDisabled}
         />
       ) : null}
-      <textarea
-        ref={taRef}
-        className="composer__input"
-        placeholder={compareModels.length >= 2 ? `⑂ Compare ${compareModels.length} models — ask anything…` : "Ask eidan anything…"}
-        rows={1}
-        value={value}
-        disabled={isDisabled}
-        onChange={(e) => {
-          setValue(e.target.value);
-          autosize();
-        }}
-        onKeyDown={onKeyDown}
-      />
+      <div style={{ position: "relative", flex: 1, display: "flex" }}>
+        <textarea
+          ref={taRef}
+          className="composer__input"
+          placeholder={compareModels.length >= 2 ? `⑂ Compare ${compareModels.length} models — ask anything…` : "Ask eidan anything… (@ to mention a file, agent, …)"}
+          rows={1}
+          value={value}
+          disabled={isDisabled}
+          onChange={(e) => {
+            setValue(e.target.value);
+            autosize();
+            mentions.recompute();
+          }}
+          onKeyUp={() => mentions.recompute()}
+          onClick={() => mentions.recompute()}
+          onKeyDown={onKeyDown}
+          style={{ flex: 1 }}
+        />
+        {mentions.popover}
+      </div>
       <button
         type="submit"
         className="btn btn--primary composer__send"

@@ -53,3 +53,31 @@ export async function GET(req: NextRequest): Promise<Response> {
     },
   });
 }
+
+// Soft-delete an artifact (the Workspace delete affordance for agent-produced / non-fs files). Resolves
+// the same dual store as GET: a legacy artifact id soft-deletes eidan.artifacts; an fs node id falls
+// through to the fs archive so a single delete path works for whatever the chip points at.
+export async function DELETE(req: NextRequest): Promise<Response> {
+  const sess = verifyBearer(req);
+  if (!sess) return new Response("unauthorized", { status: 401 });
+  const id = req.nextUrl.pathname.split("/").filter(Boolean).pop() ?? "";
+  if (!id) return new Response("id required", { status: 400 });
+  try {
+    const n = await withUser(sess.userId, async (c) => {
+      const a = await c.query("update eidan.artifacts set deleted_at = now() where id = $1 and user_id = $2 and deleted_at is null", [id, sess.userId]);
+      if ((a.rowCount ?? 0) > 0) return a.rowCount ?? 0;
+      const f = await c.query(
+        `with recursive t as (
+           select id from plugin_fs.fs_nodes where id = $1 and user_id = $2
+           union all select n.id from plugin_fs.fs_nodes n join t on n.parent_id = t.id)
+         update plugin_fs.fs_nodes set status = 'archived', updated_at = now() where id in (select id from t)`,
+        [id, sess.userId],
+      );
+      return f.rowCount ?? 0;
+    });
+    if (n === 0) return new Response("not found", { status: 404 });
+    return new Response(null, { status: 204 });
+  } catch {
+    return new Response("not found", { status: 404 });
+  }
+}

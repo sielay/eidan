@@ -6,6 +6,8 @@ import * as React from "react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { ConnectionsSection } from "@/components/settings/ConnectionsSection";
 import { IntegrationsSection } from "@/components/settings/IntegrationsSection";
+import { PersonaEditor } from "@/components/agents/PersonaEditor";
+import { useAgentCatalogs } from "@/components/agents/useAgentCatalogs";
 import { Button } from "@/components/ui/button";
 import {
   fetchAgent,
@@ -28,6 +30,7 @@ import {
  */
 export default function SettingsPage(): React.ReactElement {
   const { config, user, loading: authLoading } = useAuth();
+  const { tools } = useAgentCatalogs(); // @-mention catalogue for the rich editor
 
   const [agent, setAgent] = React.useState<AgentRow | null>(null);
   const [draft, setDraft] = React.useState<string>("");
@@ -125,18 +128,14 @@ export default function SettingsPage(): React.ReactElement {
         >
           Custom instructions
         </label>
-        <textarea
-          id="persona-textarea"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          disabled={loading || saving}
-          placeholder="e.g. You are concise and direct. No fluff, no apologies, no preamble."
-          rows={10}
-          className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm font-mono leading-relaxed text-foreground shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-        />
+        {loading ? (
+          <div className="h-40 animate-pulse rounded-md border border-border bg-muted/30" />
+        ) : (
+          <PersonaEditor value={draft} onChange={setDraft} tools={tools} rows={10} />
+        )}
         <p className="text-[11px] text-muted-foreground">
-          Leave blank to clear the override. Whitespace-only input is
-          treated as blank.
+          Markdown is supported (use the toolbar; type <span className="font-mono">@</span> to reference a
+          tool). Leave blank to clear the override — whitespace-only input is treated as blank.
         </p>
       </div>
 

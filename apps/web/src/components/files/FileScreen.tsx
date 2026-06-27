@@ -13,6 +13,7 @@ import { ArrowLeft, Download, Pencil, Save, Trash2 } from "lucide-react";
 import { authFetch } from "@/lib/auth";
 import { MermaidBlock } from "@/components/conversation/MermaidBlock";
 import { ChartBlock } from "@/components/conversation/ChartBlock";
+import { useTextareaMentions } from "@/components/conversation/useTextareaMentions";
 
 export interface FileScreenEntry { id: string; name: string; mime: string | null; source: string }
 
@@ -67,6 +68,8 @@ export function FileScreen({ entry, onBack, onDeleted }: { entry: FileScreenEntr
   const [editing, setEditing] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  const taRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const mentions = useTextareaMentions(taRef, draft, setDraft);
   const rawUrl = `/api/fs/blob?id=${encodeURIComponent(entry.id)}`;
 
   React.useEffect(() => {
@@ -122,13 +125,20 @@ export function FileScreen({ entry, onBack, onDeleted }: { entry: FileScreenEntr
       ) : content == null ? (
         <div className="skel" style={{ height: 240 }} />
       ) : editing ? (
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          spellCheck={false}
-          aria-label={`Edit ${entry.name}`}
-          style={{ width: "100%", minHeight: "60vh", fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: "var(--fs-13)", lineHeight: 1.5, resize: "vertical", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", padding: "var(--s3)", background: "var(--bg)", color: "var(--text)" }}
-        />
+        <div style={{ position: "relative" }}>
+          <textarea
+            ref={taRef}
+            value={draft}
+            onChange={(e) => { setDraft(e.target.value); mentions.recompute(); }}
+            onKeyUp={() => mentions.recompute()}
+            onClick={() => mentions.recompute()}
+            onKeyDown={(e) => { mentions.handleKeyDown(e); }}
+            spellCheck={false}
+            aria-label={`Edit ${entry.name}`}
+            style={{ width: "100%", minHeight: "60vh", fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: "var(--fs-13)", lineHeight: 1.5, resize: "vertical", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", padding: "var(--s3)", background: "var(--bg)", color: "var(--text)" }}
+          />
+          {mentions.popover}
+        </div>
       ) : md ? (
         <MarkdownView content={content} />
       ) : (

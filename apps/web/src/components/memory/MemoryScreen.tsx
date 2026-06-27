@@ -10,6 +10,7 @@ import {
   Pencil,
   Pin,
   Search,
+  Trash2,
 } from "lucide-react";
 
 import ReactMarkdown from "react-markdown";
@@ -19,9 +20,39 @@ import { authFetch } from "@/lib/auth";
 import {
   getKnowledgeRow,
   updateKnowledgeRow,
+  deleteKnowledgeRow,
   KnowledgeConflictError,
   type KnowledgeDetail as KnowledgeRow,
 } from "@/lib/api/knowledge";
+import { deleteEvent, setEventStatus } from "@/lib/api/events";
+import { useTextareaMentions } from "@/components/conversation/useTextareaMentions";
+import { MermaidBlock } from "@/components/conversation/MermaidBlock";
+
+// Shared markdown renderer for the Memory detail bodies (notes / events / knowledge) — GFM + mermaid,
+// so a stored markdown body shows formatted instead of as a raw paragraph blob.
+function fencedLang(node: unknown): { lang?: string; text: string } {
+  const code = (node as { children?: Array<{ tagName?: string; properties?: { className?: unknown }; children?: Array<{ value?: string }> }> })
+    ?.children?.find((c) => c.tagName === "code");
+  const cls = code?.properties?.className;
+  const lang = Array.isArray(cls) ? (cls.find((c) => typeof c === "string" && c.startsWith("language-")) as string | undefined)?.slice(9) : undefined;
+  return { lang, text: code?.children?.map((c) => c.value ?? "").join("") ?? "" };
+}
+function MemMarkdown({ children }: { children: string }): React.ReactElement {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        pre: ({ node, children: c, ...props }) => {
+          const { lang, text } = fencedLang(node);
+          if (lang === "mermaid") return <MermaidBlock code={text} />;
+          return <pre {...props}>{c}</pre>;
+        },
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  );
+}
 
 /**
  * Memory browser (UI_DESIGN_BRIEF §7, Core): Notes · Events · Knowledge,
@@ -269,8 +300,31 @@ function NoteDetail({
   onBack: () => void;
   onEdit: () => void;
 }): React.ReactElement {
-  const { notes } = useMem();
+  const { notes, reload } = useMem();
   const n = notes.find((x) => x.id === id);
+  // The list carries a split/snippet body; fetch the raw content so the detail renders real markdown.
+  const [content, setContent] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    authFetch(`/api/notes/${id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((j: { note: { content: string } }) => { if (!cancelled) setContent(j.note.content ?? ""); })
+      .catch(() => { if (!cancelled) setContent((n?.body ?? []).join("\n\n")); });
+    return () => { cancelled = true; };
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onDelete = async (): Promise<void> => {
+    if (typeof window !== "undefined" && !window.confirm("Delete this note?")) return;
+    setBusy(true);
+    try {
+      const r = await authFetch(`/api/notes/${id}`, { method: "DELETE" });
+      if (!r.ok && r.status !== 204) throw new Error(String(r.status));
+      reload();
+      onBack();
+    } catch { setBusy(false); }
+  };
+
   if (!n) {
     return (
       <div className="content">
@@ -292,6 +346,9 @@ function NoteDetail({
           <button type="button" className="iconbtn" aria-pressed={n.pinned} aria-label="Pin note">
             <Pin className="i-sm" aria-hidden />
           </button>
+          <button type="button" className="iconbtn" onClick={() => void onDelete()} disabled={busy} aria-label="Delete note" style={{ color: "var(--alert)" }}>
+            <Trash2 className="i-sm" aria-hidden />
+          </button>
         </DetailBar>
         <h1 className="mem-detail__title">{n.title}</h1>
         <div className="mem-row__tags" style={{ marginBottom: "var(--s4)" }}>
@@ -299,7 +356,7 @@ function NoteDetail({
           <span className="mem-row__time">· updated {n.updated}</span>
         </div>
         <div className="md">
-          {n.body.map((p, i) => <p key={i}>{p}</p>)}
+          {content == null ? <p className="onb-lede">Loading…</p> : <MemMarkdown>{content}</MemMarkdown>}
         </div>
       </div>
     </div>
@@ -313,6 +370,8 @@ function NoteEdit({ id, onDone }: { id: string; onDone: () => void }): React.Rea
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const taRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const mentions = useTextareaMentions(taRef, content, setContent);
 
   // Load the raw note content (the list only carries a split/snippet form).
   React.useEffect(() => {
@@ -369,15 +428,22 @@ function NoteEdit({ id, onDone }: { id: string; onDone: () => void }): React.Rea
         </div>
         {n ? <h1 className="mem-detail__title">{n.title}</h1> : null}
         <div className="field">
-          <span className="field__label">Note</span>
-          <textarea
-            className="input mem-textarea"
-            style={{ minHeight: 280, width: "100%", fontSize: "var(--fs-15)" }}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            disabled={loading || saving}
-            autoFocus
-          />
+          <span className="field__label">Note <span style={{ color: "var(--faint)", fontWeight: 400 }}>— markdown · @ to mention</span></span>
+          <div style={{ position: "relative" }}>
+            <textarea
+              ref={taRef}
+              className="input mem-textarea"
+              style={{ minHeight: 280, width: "100%", fontSize: "var(--fs-15)" }}
+              value={content}
+              onChange={(e) => { setContent(e.target.value); mentions.recompute(); }}
+              onKeyUp={() => mentions.recompute()}
+              onClick={() => mentions.recompute()}
+              onKeyDown={(e) => { mentions.handleKeyDown(e); }}
+              disabled={loading || saving}
+              autoFocus
+            />
+            {mentions.popover}
+          </div>
         </div>
         {error ? (
           <p className="login-err is-on" role="alert" style={{ marginTop: "var(--s3)" }}>
@@ -450,9 +516,20 @@ function EventsList({
 }
 
 function EventDetail({ id, onBack }: { id: string; onBack: () => void }): React.ReactElement {
-  const { events } = useMem();
+  const { events, reload } = useMem();
   const e = events.find((x) => x.id === id);
+  const [busy, setBusy] = React.useState(false);
   const zLabel: Record<Zone, string> = { alert: "Overdue", warn: "Due soon", info: "Scheduled", good: "Done" };
+
+  const run = async (fn: () => Promise<void>, close: boolean): Promise<void> => {
+    setBusy(true);
+    try { await fn(); reload(); if (close) onBack(); } catch { /* keep the view */ } finally { if (!close) setBusy(false); }
+  };
+  const onDelete = (): void => {
+    if (typeof window !== "undefined" && !window.confirm("Delete this event?")) return;
+    void run(() => deleteEvent(id), true);
+  };
+
   if (!e) {
     return (
       <div className="content">
@@ -467,9 +544,8 @@ function EventDetail({ id, onBack }: { id: string; onBack: () => void }): React.
     <div className="content">
       <div className="mem-detail">
         <DetailBar label="Events" onBack={onBack}>
-          <button type="button" className="iconbtn">
-            <Pencil className="i-sm" aria-hidden />
-            Edit
+          <button type="button" className="iconbtn" onClick={onDelete} disabled={busy} aria-label="Delete event" style={{ color: "var(--alert)" }}>
+            <Trash2 className="i-sm" aria-hidden />
           </button>
         </DetailBar>
         <h1 className="mem-detail__title">{e.title}</h1>
@@ -480,19 +556,16 @@ function EventDetail({ id, onBack }: { id: string; onBack: () => void }): React.
           </span>
           <span className="mem-row__time">{e.when}</span>
         </div>
-        <div className="md">
-          <p>{e.note}</p>
-        </div>
+        <div className="md">{e.note ? <MemMarkdown>{e.note}</MemMarkdown> : <p className="onb-lede">No details.</p>}</div>
         <div className="erow" style={{ marginTop: "var(--s5)" }}>
           {e.status !== "done" ? (
-            <button type="button" className="btn btn--primary">
+            <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void run(() => setEventStatus(id, "done"), false)}>
               <Check className="i-sm" aria-hidden />
               Mark done
             </button>
           ) : (
-            <button type="button" className="btn btn--ghost">Reopen</button>
+            <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => void run(() => setEventStatus(id, "pending"), false)}>Reopen</button>
           )}
-          <button type="button" className="btn btn--ghost">Snooze</button>
         </div>
       </div>
     </div>
@@ -538,6 +611,14 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): Re
   const [draft, setDraft] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const taRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const mentions = useTextareaMentions(taRef, draft, setDraft);
+
+  const onDelete = async (): Promise<void> => {
+    if (!row || (typeof window !== "undefined" && !window.confirm("Delete this knowledge entry?"))) return;
+    setSaving(true);
+    try { await deleteKnowledgeRow(row.id); reload(); onBack(); } catch (e) { setError(e instanceof Error ? e.message : "delete failed"); setSaving(false); }
+  };
 
   React.useEffect(() => {
     let cancelled = false;
@@ -603,10 +684,15 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): Re
           </button>
           {row ? (
             mode === "preview" ? (
-              <button type="button" className="iconbtn" onClick={() => setMode("edit")}>
-                <Pencil className="i-sm" aria-hidden />
-                Edit
-              </button>
+              <div className="erow" style={{ gap: 8 }}>
+                <button type="button" className="iconbtn" onClick={() => setMode("edit")}>
+                  <Pencil className="i-sm" aria-hidden />
+                  Edit
+                </button>
+                <button type="button" className="iconbtn" onClick={() => void onDelete()} disabled={saving} aria-label="Delete entry" style={{ color: "var(--alert)" }}>
+                  <Trash2 className="i-sm" aria-hidden />
+                </button>
+              </div>
             ) : (
               <div className="erow" style={{ gap: 8 }}>
                 <button
@@ -640,16 +726,23 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }): Re
         ) : !row ? (
           <EmptyArea what="knowledge" />
         ) : mode === "edit" ? (
-          <textarea
-            className="input mem-textarea"
-            style={{ minHeight: 300, width: "100%", fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: "var(--fs-14)" }}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            autoFocus
-          />
+          <div style={{ position: "relative" }}>
+            <textarea
+              ref={taRef}
+              className="input mem-textarea"
+              style={{ minHeight: 300, width: "100%", fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: "var(--fs-14)" }}
+              value={draft}
+              onChange={(e) => { setDraft(e.target.value); mentions.recompute(); }}
+              onKeyUp={() => mentions.recompute()}
+              onClick={() => mentions.recompute()}
+              onKeyDown={(e) => { mentions.handleKeyDown(e); }}
+              autoFocus
+            />
+            {mentions.popover}
+          </div>
         ) : (
           <div className="md">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.body}</ReactMarkdown>
+            <MemMarkdown>{row.body}</MemMarkdown>
           </div>
         )}
         {error ? (

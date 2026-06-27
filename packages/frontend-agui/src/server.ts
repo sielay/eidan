@@ -6,6 +6,7 @@ import { AguiEmitter, lastIdByRole, type AguiEvent } from './agui-emitter.js';
 import { handleDevAuth } from './auth-dev.js';
 import { proxyToPanel } from './panel-proxy.js';
 import { handleRest } from './rest.js';
+import { withPrincipal } from './db.js';
 
 // An attachment sent with a turn (base64 payload + mime + filename).
 interface TurnAttachment { data?: string; mime?: string; name?: string }
@@ -78,6 +79,79 @@ function resolveModelToken(services: MatbotServices, token: string | undefined):
   const base = openRouterBase(services);
   if (!base) return undefined;
   return synthProvider(services, base, token);
+}
+
+// ── @-mention resolution ──────────────────────────────────────────────────────────────────────────
+// The composer/markdown editors insert resolvable tokens `[label](eidan:type:id)` for files, folders,
+// agents, ventures and assets. At turn time we expand each into real context (a file's contents, an
+// agent's persona, a venture/asset descriptor) and inject it as EPHEMERAL context for the model — the
+// persisted user message keeps the readable link, the model gets the substance. Owner-scoped via the
+// ambient principal; missing optional tables (ventures bundle) just yield nothing for that mention.
+const MENTION_RE = /\[([^\]]+)\]\(eidan:(file|folder|agent|venture|asset):([^)\s]+)\)/g;
+const MENTION_TEXT_BUDGET = 24_000; // cap total injected chars so a big file can't blow the context
+
+function parseMentions(text: string): Array<{ kind: string; id: string; label: string }> {
+  const out: Array<{ kind: string; id: string; label: string }> = [];
+  const seen = new Set<string>();
+  for (const m of text.matchAll(MENTION_RE)) {
+    const key = `${m[2]}:${m[3]}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label: m[1] ?? '', kind: m[2] ?? '', id: m[3] ?? '' });
+  }
+  return out;
+}
+
+const TEXTISH = /^(text\/|application\/(json|xml|x-yaml|yaml|toml|x-sh|javascript|typescript))/;
+
+async function resolveMentions(principal: Principal, mentions: Array<{ kind: string; id: string; label: string }>): Promise<string | null> {
+  if (!mentions.length) return null;
+  const uid = principal.id;
+  const sections: string[] = [];
+  let budget = MENTION_TEXT_BUDGET;
+  for (const m of mentions) {
+    try {
+      const section = await withPrincipal(principal, async (q): Promise<string | null> => {
+        if (m.kind === 'file') {
+          const r = await q(`select n.name, n.mime, n.storage_kind, b.data from plugin_fs.fs_nodes n left join plugin_fs.fs_blobs b on b.node_id = n.id where n.id = $1 and n.user_id = $2 and n.status = 'active'`, [m.id, uid]);
+          const row = r.rows[0] as { name?: string; mime?: string; storage_kind?: string; data?: Buffer } | undefined;
+          if (!row) return null;
+          if (row.storage_kind === 'local' && row.data && TEXTISH.test(String(row.mime ?? ''))) {
+            const body = Buffer.from(row.data).toString('utf8').slice(0, budget);
+            return `### File: ${row.name ?? m.label}\n\`\`\`\n${body}\n\`\`\``;
+          }
+          return `### File: ${row.name ?? m.label}\n(binary or offloaded file — use fs tools to read it if needed)`;
+        }
+        if (m.kind === 'folder') {
+          const r = await q(`select name, kind from plugin_fs.fs_nodes where parent_id = $1 and user_id = $2 and status = 'active' order by (kind='folder') desc, name limit 100`, [m.id, uid]);
+          const listing = r.rows.map((x) => `- ${(x as { kind?: string }).kind === 'folder' ? '📁' : '📄'} ${(x as { name?: string }).name ?? ''}`).join('\n');
+          return `### Folder: ${m.label}\n${listing || '(empty)'}`;
+        }
+        if (m.kind === 'agent') {
+          const r = await q(`select coalesce(nullif(display_name,''), name) as label, description, persona from eidan.agents where id = $1 and user_id = $2 and deleted_at is null`, [m.id, uid]);
+          const row = r.rows[0] as { label?: string; description?: string; persona?: string } | undefined;
+          if (!row) return null;
+          return `### Agent: ${row.label ?? m.label}\n${row.description ?? ''}\n${row.persona ? `Persona: ${String(row.persona).slice(0, 2000)}` : ''}`.trim();
+        }
+        if (m.kind === 'venture') {
+          const r = await q(`select name, slug, status from plugin_ventures.ventures where id = $1 and user_id = $2`, [m.id, uid]);
+          const row = r.rows[0] as { name?: string; slug?: string; status?: string } | undefined;
+          return row ? `### Venture: ${row.name ?? m.label}\nstatus: ${row.status ?? 'active'}${row.slug ? `, slug: ${row.slug}` : ''}` : null;
+        }
+        if (m.kind === 'asset') {
+          const r = await q(`select coalesce(nullif(label,''), kind) as label, kind from plugin_ventures.venture_resources where id = $1 and user_id = $2`, [m.id, uid]);
+          const row = r.rows[0] as { label?: string; kind?: string } | undefined;
+          return row ? `### Asset: ${row.label ?? m.label}\nkind: ${row.kind ?? ''}` : null;
+        }
+        return null;
+      });
+      if (section) { sections.push(section); budget -= section.length; if (budget <= 0) break; }
+    } catch {
+      /* optional table absent or row gone — skip this mention */
+    }
+  }
+  if (!sections.length) return null;
+  return `The user's message references these items (resolved for you — they appear as @links in the message):\n\n${sections.join('\n\n')}`;
 }
 
 // Fork-and-merge: the ephemeral briefing the judge turn sees (prepended, never persisted). It carries
@@ -292,6 +366,28 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
           },
         });
       }
+    }
+
+    // @-mention resolution: expand any `[label](eidan:type:id)` tokens in the message into ephemeral
+    // context for the model (the persisted user message keeps the readable links). One-shot screen hook,
+    // same mechanism as the fork briefing; self-removes on fire and expires after 60s.
+    const mentionBriefing = await resolveMentions(principal, parseMentions(text));
+    if (mentionBriefing) {
+      const armedAt = Date.now();
+      let fired = false;
+      services.hooks.register({
+        on: 'screen',
+        priority: 1,
+        handler(ctx) {
+          if (fired || ctx.session.id !== conversationId) {
+            if (Date.now() - armedAt > 60_000) ctx.removeHook();
+            return;
+          }
+          fired = true;
+          ctx.removeHook();
+          return { ephemeral: [{ type: 'text', text: mentionBriefing }] };
+        },
+      });
     }
 
     const ac = new AbortController();

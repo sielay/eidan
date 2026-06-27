@@ -91,11 +91,23 @@ function previewKind(mime: string | null, name: string): PreviewKind {
   return "none";
 }
 
-function PreviewModal({ entry, onClose }: { entry: Entry; onClose: () => void }): React.ReactElement {
+function PreviewModal({ entry, onClose, onDeleted }: { entry: Entry; onClose: () => void; onDeleted: () => void }): React.ReactElement {
   const kind = previewKind(entry.mime, entry.name);
   const [text, setText] = React.useState<string | null>(null);
   const [imgUrl, setImgUrl] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  // Drive files live in Google Drive (external) — we don't delete those; artifacts (agent output) do.
+  const canDelete = entry.source === "artifact";
+  const onDelete = async (): Promise<void> => {
+    if (typeof window !== "undefined" && !window.confirm(`Delete "${entry.name}"?`)) return;
+    setBusy(true);
+    try {
+      const r = await authFetch(`/api/artifacts/${encodeURIComponent(entry.id)}`, { method: "DELETE" });
+      if (!r.ok && r.status !== 204) throw new Error(`delete failed (${r.status})`);
+      onDeleted();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); }
+  };
   React.useEffect(() => {
     let revoke: string | null = null;
     let cancelled = false;
@@ -117,6 +129,7 @@ function PreviewModal({ entry, onClose }: { entry: Entry; onClose: () => void })
           <div style={{ display: "flex", gap: "var(--s2)" }}>
             <button className="btn btn--ghost" title="Open in new tab" onClick={() => void openFile(entry.source, entry.id, entry.name, false)}><ExternalLink className="i i-sm" aria-hidden /></button>
             <button className="btn btn--ghost" title="Download" onClick={() => void openFile(entry.source, entry.id, entry.name, true)}><Download className="i i-sm" aria-hidden /></button>
+            {canDelete ? <button className="btn btn--ghost" title="Delete" disabled={busy} onClick={() => void onDelete()} style={{ color: "var(--alert)" }}><Trash2 className="i i-sm" aria-hidden /></button> : null}
             <button className="btn btn--ghost" aria-label="Close" onClick={onClose}><X className="i i-sm" aria-hidden /></button>
           </div>
         </div>
@@ -311,19 +324,25 @@ export function WorkspaceFiles(): React.ReactElement {
   const toggleSelect = React.useCallback((id: string) => {
     setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
-  const selectableIds = React.useMemo(() => (entries ?? []).filter((e) => e.source === "fs").map((e) => e.id), [entries]);
+  // Deletable in bulk: local fs entries AND agent artifacts (each routes to its own delete endpoint).
+  const DELETABLE = React.useMemo(() => new Set<FileSource>(["fs", "artifact"]), []);
+  const selectableIds = React.useMemo(() => (entries ?? []).filter((e) => DELETABLE.has(e.source)).map((e) => e.id), [entries, DELETABLE]);
   const bulkDelete = React.useCallback(async () => {
     if (selected.size === 0 || bulkBusy) return;
     if (typeof window !== "undefined" && !window.confirm(`Delete ${selected.size} item${selected.size === 1 ? "" : "s"}? Folders are removed with all their contents (recoverable from the archive).`)) return;
     setBulkBusy(true);
     const ids = Array.from(selected);
-    const results = await Promise.allSettled(ids.map((id) => authFetch(`/api/fs?id=${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) => { if (!r.ok) throw new Error(String(r.status)); })));
+    const sourceOf = new Map((entries ?? []).map((e) => [e.id, e.source]));
+    const results = await Promise.allSettled(ids.map((id) => {
+      const url = sourceOf.get(id) === "artifact" ? `/api/artifacts/${encodeURIComponent(id)}` : `/api/fs?id=${encodeURIComponent(id)}`;
+      return authFetch(url, { method: "DELETE" }).then((r) => { if (!r.ok && r.status !== 204) throw new Error(String(r.status)); });
+    }));
     const failed = results.filter((r) => r.status === "rejected").length;
     setBulkBusy(false);
     exitSelect();
     if (failed > 0) setError(`${failed} item${failed === 1 ? "" : "s"} couldn't be deleted — try again.`);
     setReload((n) => n + 1);
-  }, [selected, bulkBusy, exitSelect]);
+  }, [selected, bulkBusy, exitSelect, entries]);
 
   return (
     <>
@@ -348,7 +367,7 @@ export function WorkspaceFiles(): React.ReactElement {
               <button className="btn btn--ghost" disabled={creating} title="Create a new file and edit it" onClick={() => void onCreateFile()}><FilePlus className="i i-sm" aria-hidden /> {creating ? "Creating…" : "New file"}</button>
               <button className="btn btn--ghost" disabled={creating} title="Create a new folder" onClick={() => void onCreateFolder()}><FolderPlus className="i i-sm" aria-hidden /> New folder</button>
               <button className="btn btn--ghost" disabled={uploading} onClick={() => uploadRef.current?.click()}><Upload className="i i-sm" aria-hidden /> {uploading ? "Uploading…" : "Upload"}</button>
-              {(entries?.some((e) => e.source === "fs")) ? (
+              {(entries?.some((e) => DELETABLE.has(e.source))) ? (
                 <button className="btn btn--ghost" title="Select multiple to delete in bulk" onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}>
                   <ListChecks className="i i-sm" aria-hidden /> {selectMode ? "Done" : "Select"}
                 </button>
@@ -390,7 +409,7 @@ export function WorkspaceFiles(): React.ReactElement {
             <div className="loglist">
               {entries.map((e) => {
                 const Icon = e.source === "gdrive-mount" ? Cloud : e.kind === "folder" ? Folder : isImage(e.mime, e.name) ? ImageIcon : FileText;
-                const selectable = selectMode && e.source === "fs";
+                const selectable = selectMode && DELETABLE.has(e.source);
                 const checked = selected.has(e.id);
                 return (
                   <div key={`${e.source}:${e.id}`} className="fs-row" style={{ display: "flex", alignItems: "center", gap: "var(--s3)", borderBottom: "1px solid var(--border)", padding: "8px 12px", opacity: selectMode && !selectable ? 0.5 : 1 }}>
@@ -416,7 +435,7 @@ export function WorkspaceFiles(): React.ReactElement {
           </div>
         </>
       )}
-      {preview ? <PreviewModal entry={preview} onClose={() => setPreview(null)} /> : null}
+      {preview ? <PreviewModal entry={preview} onClose={() => setPreview(null)} onDeleted={() => { setPreview(null); setReload((n) => n + 1); }} /> : null}
     </>
   );
 }
