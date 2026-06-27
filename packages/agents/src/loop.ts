@@ -32,9 +32,10 @@ interface EscalationsLike {
     agentId?: string;
   }): Promise<{ id: string } | null>;
   list(args: {
-    userId?: string;
+    userId?: string | null;
     fromAgent?: string;
     toAgent?: string;
+    toAgentIds?: string[];
     status?: string;
     limit?: number;
   }): Promise<EscalationResponse[]>;
@@ -116,62 +117,58 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   const handleResponses = async (esc: EscalationsLike): Promise<void> => {
     let totalProcessed = 0;
     const maxPerTick = 20; // Limit responses processed per tick to prevent DB thrashing
-    const batchSize = 5; // Limit concurrent esc.list queries to avoid DB strain
 
     try {
       const agents = await store.responseTriggeredAgents();
       const filteredAgents = agents.filter(a => !a.target_node || (nodeId && a.target_node === nodeId));
-      const agentResponses: Array<{ agent: typeof agents[0]; responses: EscalationResponse[] }> = [];
 
-      // Batch-fetch responses in groups to limit concurrent queries
-      for (let i = 0; i < filteredAgents.length; i += batchSize) {
-        const batch = filteredAgents.slice(i, i + batchSize);
-        const batchResults = await Promise.all(
-          batch.map(a =>
-            esc.list({
-              userId: a.user_id,
-              toAgent: a.agent_id,
-              status: 'responded',
-              limit: 20,
-            }).then(responses => ({ agent: a, responses }))
-          )
-        );
-        agentResponses.push(...batchResults);
-      }
+      if (filteredAgents.length === 0) return;
 
-      for (const { agent: a, responses } of agentResponses) {
-        for (const resp of responses) {
-          if (totalProcessed >= maxPerTick) break;
-          // Skip if already processed by agent system (checked via agent_response_processed_at)
-          if (resp.agent_response_processed_at) continue;
-          if (!resp.responded_at) continue; // shouldn't happen but safety check
+      // Fetch all responded escalations for all response-triggered agents in a single query
+      const agentIds = filteredAgents.map(a => a.agent_id);
+      const allResponses = await esc.list({
+        toAgentIds: agentIds,
+        status: 'responded',
+        limit: 100,
+      });
 
-          // Blend the trigger prompt into the persona
-          const feedback = resp.response?.feedback ?? '';
-          const triggerPrompt = resp.trigger_prompt;
+      // Create a lookup map for efficient agent matching
+      const agentMap = new Map(filteredAgents.map(a => [a.agent_id, a]));
 
-          // Use trigger_prompt if available (prepared at raise time), else fall back to operator feedback
-          const promptSuffix = triggerPrompt || (feedback ? `[Response feedback] ${feedback}` : '');
-          const blendedPersona = promptSuffix ? `${a.persona}\n\n${promptSuffix}` : a.persona;
-          const fireKey = `response:${resp.id}`;
-
-          const won = await store.claimRun(a.trigger_id, a.agent_id, a.user_id, fireKey);
-          if (!won) continue; // another node is handling this fire
-
-          // Fire the agent and ensure response is only marked processed after fire completes.
-          // Awaiting fire ensures markResponseProcessed is called only after the agent run
-          // (success or failure) is fully recorded, preventing premature marking.
-          await fire(a, fireKey, blendedPersona).catch(() => {
-            /* fire handles its own logging; just continue on error */
-          });
-          totalProcessed++;
-
-          // Mark response as processed after fire completes
-          await esc.markResponseProcessed(resp.id).catch(() => {
-            /* best-effort; don't fail loop for escalation metadata */
-          });
-        }
+      for (const resp of allResponses) {
         if (totalProcessed >= maxPerTick) break;
+        // Skip if already processed by agent system (checked via agent_response_processed_at)
+        if (resp.agent_response_processed_at) continue;
+        if (!resp.responded_at) continue; // shouldn't happen but safety check
+        if (!resp.to_agent) continue; // must have a target agent
+
+        const agent = agentMap.get(resp.to_agent);
+        if (!agent) continue; // agent was filtered out (e.g., wrong node)
+
+        // Blend the trigger prompt into the persona
+        const feedback = resp.response?.feedback ?? '';
+        const triggerPrompt = resp.trigger_prompt;
+
+        // Use trigger_prompt if available (prepared at raise time), else fall back to operator feedback
+        const promptSuffix = triggerPrompt || (feedback ? `[Response feedback] ${feedback}` : '');
+        const blendedPersona = promptSuffix ? `${agent.persona}\n\n${promptSuffix}` : agent.persona;
+        const fireKey = `response:${resp.id}`;
+
+        const won = await store.claimRun(agent.trigger_id, agent.agent_id, agent.user_id, fireKey);
+        if (!won) continue; // another node is handling this fire
+
+        // Fire the agent and ensure response is only marked processed after fire completes.
+        // Awaiting fire ensures markResponseProcessed is called only after the agent run
+        // (success or failure) is fully recorded, preventing premature marking.
+        await fire(agent, fireKey, blendedPersona).catch(() => {
+          /* fire handles its own logging; just continue on error */
+        });
+        totalProcessed++;
+
+        // Mark response as processed after fire completes
+        await esc.markResponseProcessed(resp.id).catch(() => {
+          /* best-effort; don't fail loop for escalation metadata */
+        });
       }
     } catch (e) {
       console.warn('[agents] response scan error:', e instanceof Error ? e.message : e);
