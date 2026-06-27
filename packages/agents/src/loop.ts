@@ -103,11 +103,16 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   };
 
   const handleResponses = async (esc: EscalationsLike): Promise<void> => {
+    let totalProcessed = 0;
+    const maxPerTick = 20; // Limit responses processed per tick to prevent DB thrashing
+
     try {
       const agents = await store.responseTriggeredAgents();
 
-      for (const a of agents) {
+      agentLoop: for (const a of agents) {
         if (a.target_node && a.target_node !== nodeId) continue; // pinned to another node
+        if (totalProcessed >= maxPerTick) break; // Stop if we've hit the limit this tick
+
         const responses = await esc.list({
           userId: a.user_id,
           toAgent: a.agent_id,
@@ -115,6 +120,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
           limit: 10,
         });
         for (const resp of responses) {
+          if (totalProcessed >= maxPerTick) break agentLoop; // Stop both loops if limit reached
           // Skip if already processed by agent system (checked via agent_response_processed_at)
           if (resp.agent_response_processed_at) continue;
           if (!resp.responded_at) continue; // shouldn't happen but safety check
@@ -139,17 +145,14 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
           const won = await store.claimRun(a.trigger_id, a.agent_id, a.user_id, fireKey);
           if (!won) continue; // another node is handling this fire
 
-          // Fire the agent and mark response as processed only on success.
-          // Chaining ensures we don't mark processed if fire fails, allowing retry on next loop.
-          fire(a, fireKey, blendedPersona)
-            .then(() => {
-              esc.markResponseProcessed(resp.id).catch(() => {
-                /* best-effort; don't fail the agent fire for escalation metadata */
-              });
-            })
-            .catch(() => {
-              /* fire handles its own error logging; no action needed here */
-            });
+          // Await fire to ensure sequential processing of responses for this agent
+          await fire(a, fireKey, blendedPersona);
+          totalProcessed++;
+
+          // Mark response as processed after fire (whether succeeded or failed—fire handles both)
+          await esc.markResponseProcessed(resp.id).catch(() => {
+            /* best-effort; don't fail loop for escalation metadata */
+          });
         }
       }
     } catch (e) {
