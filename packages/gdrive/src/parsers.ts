@@ -15,7 +15,7 @@ export type TableRow = StringTableRow | ObjectTableRow;
 
 export interface Section {
   heading: string;
-  content: string;
+  content: string[];
 }
 
 export interface PdfMetadata {
@@ -151,7 +151,7 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
     // For precise heading hierarchy, consider NLP (spaCy, NLTK) or structural PDF libraries (pdfplumber).
     // Current approach is suitable for extracting top-level content sections from most PDFs.
     const sections: Section[] = [];
-    let currentSection: Section = { heading: '', content: '' };
+    let currentSection: Section = { heading: '', content: [] };
 
     for (const line of lines) {
       const trimmed = line.trim();
@@ -161,16 +161,16 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
         const isLikelyHeading = isAllCaps || (isShortCapsLine && /^[A-Z]/.test(trimmed));
 
         if (isLikelyHeading) {
-          if (currentSection.heading && currentSection.content) {
+          if (currentSection.heading && currentSection.content.length > 0) {
             sections.push(currentSection);
           }
-          currentSection = { heading: trimmed, content: '' };
+          currentSection = { heading: trimmed, content: [] };
         } else if (currentSection.heading) {
-          currentSection.content += trimmed + ' ';
+          currentSection.content.push(trimmed);
         }
       }
     }
-    if (currentSection.heading && currentSection.content) {
+    if (currentSection.heading && currentSection.content.length > 0) {
       sections.push(currentSection);
     }
 
@@ -288,7 +288,7 @@ export async function parseDocx(bytes: Uint8Array): Promise<ParsedContent> {
     return {
       text,
       format: 'docx',
-      ...(headings.length > 0 && { sections: headings.map((h) => ({ heading: h, content: '' })) }),
+      ...(headings.length > 0 && { sections: headings.map((h) => ({ heading: h, content: [] })) }),
       metadata: { warnings: messages.length },
     };
   } catch (exc) {
