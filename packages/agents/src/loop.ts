@@ -1,19 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MatbotServices } from '@matatbread/matbot-plugin-api';
-import { AgentsStore, type DueScheduleRow } from './store.js';
+import { AgentsStore, type DueScheduleRow, type FireableRow } from './store.js';
 import { dueWindow } from './schedule.js';
 import { runAgentTurn, effectiveProvider } from './runner.js';
-
-interface FireableRow {
-  trigger_id: string;
-  agent_id: string;
-  user_id: string;
-  name: string;
-  persona: string;
-  provider: string | null;
-  model: string | null;
-  target_node: string | null;
-}
 
 export interface AgentsLoopOpts {
   defaultProvider: string;

@@ -25,7 +25,7 @@ export interface TriggerRow {
 }
 
 // A schedule trigger joined with its (enabled) agent — the unit the dispatch loop fires.
-export interface DueScheduleRow {
+export interface FireableRow {
   trigger_id: string;
   agent_id: string;
   user_id: string;
@@ -34,6 +34,9 @@ export interface DueScheduleRow {
   provider: string | null;
   model: string | null;
   target_node: string | null;
+}
+
+export interface DueScheduleRow extends FireableRow {
   schedule: string;
 }
 
@@ -240,16 +243,7 @@ export class AgentsStore {
   }
 
   // Find agents with response triggers (for dispatch on escalation response)
-  async responseTriggeredAgents(): Promise<Array<{
-    trigger_id: string;
-    agent_id: string;
-    user_id: string;
-    name: string;
-    persona: string;
-    provider: string | null;
-    model: string | null;
-    target_node: string | null;
-  }>> {
+  async responseTriggeredAgents(): Promise<FireableRow[]> {
     const r = await this.db.query(
       `select t.id as trigger_id, a.id as agent_id, a.user_id, a.name, a.persona, a.provider,
               a.model, a.target_node
@@ -258,16 +252,7 @@ export class AgentsStore {
         where t.type = 'response' and t.enabled and t.deleted_at is null
           and a.enabled and a.deleted_at is null`,
     );
-    return r.rows as Array<{
-      trigger_id: string;
-      agent_id: string;
-      user_id: string;
-      name: string;
-      persona: string;
-      provider: string | null;
-      model: string | null;
-      target_node: string | null;
-    }>;
+    return r.rows as FireableRow[];
   }
 
   // Claim a fire. The unique (trigger_id, fire_key) index means exactly one node wins; the others get
