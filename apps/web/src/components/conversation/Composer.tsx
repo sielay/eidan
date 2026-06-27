@@ -20,6 +20,37 @@ function filterCatalog(catalog: OpenRouterModel[] | undefined, q: string, limit 
   return out;
 }
 
+// Parse a parameter size out of the model id/name: 8x7b (MoE), 480b-a35b (total/active), or plain 70b.
+function paramSize(m: OpenRouterModel): string | null {
+  const hay = `${m.name} ${m.id}`.toLowerCase();
+  const moe = hay.match(/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)b/);
+  if (moe) return `${moe[1]}×${moe[2]}B`;
+  const ta = hay.match(/(\d+(?:\.\d+)?)b[-\s]?a(\d+(?:\.\d+)?)b/);
+  if (ta) return `${ta[1]}B-A${ta[2]}B`;
+  const plain = hay.match(/(?:^|[^a-z\d.])(\d{1,4}(?:\.\d+)?)b(?:[^a-z]|$)/);
+  if (plain) return `${plain[1]}B`;
+  return null;
+}
+function fmtCtx(n: number | null | undefined): string | null {
+  if (!n) return null;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}K`;
+  return `${n}`;
+}
+function perM(x: number): string { const v = x * 1_000_000; return v === 0 ? "$0" : v < 0.1 ? `$${v.toFixed(3)}` : `$${v.toFixed(2)}`; }
+function fmtPrice(m: OpenRouterModel): string | null {
+  const p = m.prompt == null ? NaN : Number(m.prompt);
+  const c = m.completion == null ? NaN : Number(m.completion);
+  if (Number.isNaN(p) && Number.isNaN(c)) return null;
+  if (p === 0 && c === 0) return "free";
+  return `${Number.isNaN(p) ? "?" : perM(p)}/${Number.isNaN(c) ? "?" : perM(c)} per M`;
+}
+// One compact meta line: "70B · 128K ctx · $0.50/$1.50 per M".
+function modelMeta(m: OpenRouterModel): string {
+  const ctx = fmtCtx(m.context);
+  return [paramSize(m), ctx ? `${ctx} ctx` : null, fmtPrice(m)].filter(Boolean).join(" · ");
+}
+
 // Mobile menu: collapse attach, record, model picker into a single menu button with popover.
 // Opens above the send button to preserve horizontal width for the input field.
 function ComposerMoreMenu({
@@ -207,10 +238,13 @@ function ComposerMoreModelMenu({
                   aria-checked={m.id === provider}
                   onClick={() => pickModel(m.id)}
                   title={m.id}
+                  style={{ alignItems: "flex-start" }}
                 >
-                  <Check className={"i i-sm composer__more-model-tick" + (m.id === provider ? " is-on" : "")} aria-hidden />
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
-                  <span className="composer__more-model-hint">{m.prompt === "0" ? "free" : m.id.split("/")[0]}</span>
+                  <Check className={"i i-sm composer__more-model-tick" + (m.id === provider ? " is-on" : "")} aria-hidden style={{ marginTop: 2 }} />
+                  <span style={{ display: "flex", flexDirection: "column", minWidth: 0, gap: 1 }}>
+                    <span style={{ whiteSpace: "normal", lineHeight: 1.25 }}>{m.name}</span>
+                    {modelMeta(m) ? <span className="composer__more-model-hint" style={{ fontVariantNumeric: "tabular-nums" }}>{modelMeta(m)}</span> : null}
+                  </span>
                 </button>
               ))}
               {search.trim() && hits.length === 0 ? <div className="composer__more-model-hint" style={{ padding: "4px 12px" }}>No models match “{search.trim()}”.</div> : null}
@@ -418,11 +452,11 @@ function CompareMenu({
             ) : null}
             {hits.map((m) => (
               <li key={m.id}>
-                <button type="button" role="menuitemcheckbox" aria-checked={false} className="composer__model-opt" onClick={() => onToggle(m.id)} title={m.id}>
-                  <Check className="i i-sm composer__model-tick" aria-hidden />
+                <button type="button" role="menuitemcheckbox" aria-checked={false} className="composer__model-opt" onClick={() => onToggle(m.id)} title={m.id} style={{ alignItems: "flex-start" }}>
+                  <Check className="i i-sm composer__model-tick" aria-hidden style={{ marginTop: 2 }} />
                   <span className="composer__model-opt-text">
-                    <span className="composer__model-opt-name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
-                    <span className="composer__model-opt-hint">{m.prompt === "0" ? "free" : (m.id.split("/")[0] ?? "")}</span>
+                    <span className="composer__model-opt-name" style={{ whiteSpace: "normal", lineHeight: 1.25 }}>{m.name}</span>
+                    <span className="composer__model-opt-hint" style={{ fontVariantNumeric: "tabular-nums" }}>{modelMeta(m) || (m.id.split("/")[0] ?? "")}</span>
                   </span>
                 </button>
               </li>

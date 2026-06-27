@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// GET /api/openrouter/models — proxy OpenRouter's public model catalog for the agent model picker,
-// slimmed to { id, name, prompt, completion } and cached. No secret needed (the list is public); the
-// agent runs the chosen model via a per-turn synthesized provider profile (see @eidandev/agents).
+// GET /api/openrouter/models — proxy OpenRouter's public model catalog for the model pickers, slimmed to
+// { id, name, prompt, completion, context } and cached. No secret needed (the list is public); the chosen
+// model runs via a per-turn synthesized provider profile (see @eidandev/agents + frontend-agui).
 import type { NextRequest } from "next/server";
 
 import { verifyBearer } from "@/server/auth";
@@ -12,6 +12,7 @@ export const revalidate = 3600;
 interface OpenRouterModel {
   id: string;
   name?: string;
+  context_length?: number;
   pricing?: { prompt?: string; completion?: string };
 }
 
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       name: m.name ?? m.id,
       prompt: m.pricing?.prompt ?? null,
       completion: m.pricing?.completion ?? null,
+      context: typeof m.context_length === "number" ? m.context_length : null,
     }));
     return Response.json({ models });
   } catch (e) {

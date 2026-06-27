@@ -6,6 +6,21 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.7] — 2026-06-27
+
+### Added
+
+- **Richer model picker** — catalogue rows now show the **full model name** plus a meta line with
+  **parameter size** (parsed from the id, e.g. 70B / 8×7B / 480B-A35B), **context window**, and **pricing**
+  ($/M in + out). The `/api/openrouter/models` proxy now also passes through `context_length`.
+
+### Fixed
+
+- **⑂ Compare legs now appear in the cost trace** — the parallel candidate models run outside the streamed
+  turn (one-shot completions), so their token usage wasn't recorded in `eidan.llm_calls`; they're now
+  logged with `role='compare_leg'`. (The per-conversation LLM-call inspector was otherwise working — its
+  endpoint returns calls correctly; a Compare conversation simply had only the judge turn recorded.)
+
 ## [0.13.6] — 2026-06-27
 
 ### Removed

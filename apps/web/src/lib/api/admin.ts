@@ -305,6 +305,8 @@ export interface OpenRouterModel {
   /** Per-token prompt price as a decimal string (OpenRouter); "0" for free. null if unknown. */
   prompt: string | null;
   completion: string | null;
+  /** Max context window in tokens (OpenRouter `context_length`). null if unknown. */
+  context?: number | null;
 }
 
 export async function listOpenRouterModels(): Promise<OpenRouterModel[]> {

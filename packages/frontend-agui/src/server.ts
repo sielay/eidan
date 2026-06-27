@@ -343,10 +343,17 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     // If <2 candidates resolve, we silently fall back to a plain judge turn (a normal answer).
     if (doFork && services.singleTurn) {
       const singleTurn = services.singleTurn.bind(services);
-      const settled = await Promise.allSettled(compareModels.map(async (m) => ({
-        model: services.providers.get(m)?.model ?? m,
-        text: (await singleTurn({ provider: m, prompt: text })).text,
-      })));
+      const legLedger = services.LlmCalls;
+      const settled = await Promise.allSettled(compareModels.map(async (m) => {
+        const resp = await singleTurn({ provider: m, prompt: text });
+        const legModel = services.providers.get(m)?.model ?? m;
+        // Record each compare leg in the cost ledger (role='compare_leg') so the trace/cost rollup
+        // counts them — they run outside the streamed turn, so they weren't being recorded before.
+        if (legLedger && resp.usage) {
+          void legLedger.record({ userId: principal.id, conversationId, provider: m, model: legModel, role: 'compare_leg', inputTokens: resp.usage.inputTokens, outputTokens: resp.usage.outputTokens });
+        }
+        return { model: legModel, text: resp.text };
+      }));
       const legs = settled.flatMap((r) => (r.status === 'fulfilled' && r.value.text.trim() ? [r.value] : []));
       if (legs.length >= 2) {
         const briefing = buildJudgeBriefing(text, legs);
