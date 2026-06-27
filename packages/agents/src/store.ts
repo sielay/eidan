@@ -119,6 +119,11 @@ export class AgentsStore {
   // (that ledger is keyed by a trigger), so a test never pollutes run history or the notify topic.
   runNow?: (agentId: string, userId: string) => Promise<{ conversationId: string } | null>;
 
+  // Autonomous agent→agent delegation (the agent_to_agent relationship's runtime). Wired in index.ts
+  // (it needs `services` + run opts). Fires the target agent now with the task; returns its new
+  // conversation id, or null if the target is gone or a runaway cap (depth / per-window rate) is hit.
+  delegate?: (toAgentId: string, task: string, userId: string, fromName?: string) => Promise<{ conversationId: string } | null>;
+
   async updateAgent(id: string, patch: UpdateAgentArgs): Promise<AgentRow | null> {
     const userId = uid();
     const sets: string[] = [];

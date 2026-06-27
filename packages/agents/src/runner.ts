@@ -140,3 +140,39 @@ export async function fireAgentNow(
   ).catch((e) => console.warn(`[agents] run-now "${agent.name}" failed:`, e instanceof Error ? e.message : e));
   return { conversationId: await idReady };
 }
+
+// Autonomous agent→agent delegation (the `agent_to_agent` relationship's runtime). Fire the target
+// agent NOW with a delegated task prepended to its persona, under the same owner. Detached like
+// fireAgentNow — returns the new conversation id as soon as it exists. A delegation chain is bounded
+// by `depth` (a hard runaway backstop) + the caller's per-window rate cap; nothing here blocks on a
+// human. Returns null if the target is gone or the depth cap is hit.
+const MAX_DELEGATION_DEPTH = 6;
+export async function fireAgentDelegate(
+  services: MatbotServices,
+  store: AgentsStore,
+  toAgentId: string,
+  task: string,
+  userId: string,
+  opts: { defaultProvider: string; turnTimeoutMs?: number | undefined; fromName?: string | undefined; depth?: number | undefined },
+): Promise<{ conversationId: string } | null> {
+  const depth = opts.depth ?? 1;
+  if (depth > MAX_DELEGATION_DEPTH) {
+    console.warn(`[agents] delegation depth cap (${MAX_DELEGATION_DEPTH}) hit — refusing to fire ${toAgentId}`);
+    return null;
+  }
+  const agent = await store.getAgent(toAgentId, userId);
+  if (!agent) return null;
+  const provider = effectiveProvider(services, agent.provider ?? opts.defaultProvider, agent.model);
+  const from = opts.fromName ? `from agent "${opts.fromName}" ` : '';
+  const content =
+    `## Delegated task ${from}(autonomous agent-to-agent hand-off, depth ${depth}/${MAX_DELEGATION_DEPTH})\n\n` +
+    `${task}\n\n---\n\n${agent.persona}`;
+  let resolveId: (id: string) => void;
+  const idReady = new Promise<string>((r) => { resolveId = r; });
+  void runAgentTurn(
+    services, userId, content, provider,
+    async (cid) => { await store.markAgentConversation(cid, toAgentId, agent.name); resolveId(cid); },
+    opts.turnTimeoutMs,
+  ).catch((e) => console.warn(`[agents] delegate to "${agent.name}" failed:`, e instanceof Error ? e.message : e));
+  return { conversationId: await idReady };
+}

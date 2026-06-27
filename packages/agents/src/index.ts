@@ -5,7 +5,7 @@ import { Db } from './db.js';
 import { AgentsStore } from './store.js';
 import { buildAgentTools } from './tools.js';
 import { startAgentsLoop, resumePendingRestarts } from './loop.js';
-import { fireAgentNow } from './runner.js';
+import { fireAgentNow, fireAgentDelegate } from './runner.js';
 
 // Advertise the agents store so other plugins / surfaces can read or manage agents with type safety:
 // services.Agents?.listAgents().
@@ -49,6 +49,20 @@ export const plugin: MatbotPluginSpec = {
     // Manual "run now" (test). Wired here because it needs `services` + the run opts the data layer
     // doesn't hold; the registered Agents service is the same object, so consumers see it immediately.
     store.runNow = (agentId, userId) => fireAgentNow(services, store, agentId, userId, { defaultProvider, turnTimeoutMs });
+    // Autonomous agent→agent delegation, with a per-window rate cap as the runaway circuit-breaker
+    // (the operator chose autonomous chaining; this keeps a delegation storm from exploding the node).
+    const DELEGATE_MAX_PER_MIN = Number(process.env['EIDAN_AGENT_DELEGATE_MAX_PER_MIN'] ?? '30');
+    let delegateWindow: number[] = [];
+    store.delegate = async (toAgentId, task, userId, fromName) => {
+      const now = Date.now();
+      delegateWindow = delegateWindow.filter((t) => now - t < 60_000);
+      if (delegateWindow.length >= DELEGATE_MAX_PER_MIN) {
+        console.warn(`[agents] delegation rate cap (${DELEGATE_MAX_PER_MIN}/min) hit — refusing hand-off to ${toAgentId}`);
+        return null;
+      }
+      delegateWindow.push(now);
+      return fireAgentDelegate(services, store, toAgentId, task, userId, { defaultProvider, turnTimeoutMs, fromName });
+    };
     const loopOpts = { defaultProvider, pollMs, graceMinutes, turnTimeoutMs };
     stop = startAgentsLoop(services, store, loopOpts);
     console.log(`[agents] loop started (defaultProvider=${defaultProvider}, poll=${pollMs}ms, grace=${graceMinutes}m)`);

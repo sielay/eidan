@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Tool, JSONSchema } from '@matatbread/matbot-plugin-api';
+import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import { AgentsStore, type AgentRow, type TriggerRow } from './store.js';
 import { isValidSchedule } from './schedule.js';
 
@@ -99,6 +100,17 @@ const RELATE_SCHEMA: JSONSchema = {
     note: { type: 'string', description: 'Optional short description of the link (shown on the org-chart edge).', minLength: 1 },
   },
   required: ['agent_id', 'relation'],
+};
+
+const DELEGATE_SCHEMA: JSONSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    to_agent: { type: 'string', description: 'The agent id to hand the task to (typically a declared agent_to_agent target). Use agent_list for ids.', minLength: 1 },
+    task: { type: 'string', description: 'The task/instructions to delegate. The target runs immediately with this prepended to its persona.', minLength: 1 },
+    from_name: { type: 'string', description: 'Optional: your own agent name, for attribution on the delegated task.', minLength: 1 },
+  },
+  required: ['to_agent', 'task'],
 };
 
 export function buildAgentTools(store: AgentsStore): Tool[] {
@@ -222,10 +234,40 @@ export function buildAgentTools(store: AgentsStore): Tool[] {
           if (note) config['note'] = note;
           try {
             const t = await store.addTrigger(agentId, type, config);
+            // A decision_gate agent pauses by raising a decision_gate escalation, then resumes when it's
+            // answered — which needs a `response` trigger. Auto-add one (idempotently) so the gate works.
+            if (isGate) {
+              const existing = await store.listTriggers(agentId);
+              if (!existing.some((x) => x.type === 'response')) await store.addTrigger(agentId, 'response', {});
+            }
             yield { type: 'result', value: triggerView(t) };
           } catch (e) {
             yield { type: 'error', message: e instanceof Error ? e.message : String(e) };
           }
+        },
+      },
+    },
+    {
+      name: 'agent_delegate',
+      description:
+        'Hand a task to another agent NOW — autonomous agent-to-agent delegation. The target fires ' +
+        'immediately with your task prepended to its persona and runs on its own (no human in the ' +
+        'loop). Use for orchestration: a coordinator dispatching work to specialists it has an ' +
+        'agent_to_agent relationship with. Bounded by a depth + per-minute rate cap to prevent runaway.',
+      inputSchema: DELEGATE_SCHEMA,
+      executor: {
+        async *execute(input) {
+          const args = (input ?? {}) as Record<string, unknown>;
+          const toAgent = str(args['to_agent']).trim();
+          const task = str(args['task']).trim();
+          const fromName = str(args['from_name']).trim() || undefined;
+          if (!toAgent || !task) return yield { type: 'error', message: 'to_agent and task are required' };
+          const userId = tryCurrentPrincipal()?.id;
+          if (!userId) return yield { type: 'error', message: 'no user context' };
+          if (!store.delegate) return yield { type: 'error', message: 'delegation is unavailable on this node' };
+          const res = await store.delegate(toAgent, task, userId, fromName);
+          if (!res) return yield { type: 'error', message: 'delegation refused — target missing, or a runaway cap (depth/rate) was hit' };
+          yield { type: 'result', value: { delegated: true, to_agent: toAgent, conversation_id: res.conversationId } };
         },
       },
     },

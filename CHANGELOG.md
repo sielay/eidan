@@ -4,6 +4,16 @@ All notable changes to eidan are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases are cut by bumping
 `package.json` and merging `next-release` → `main` (which tags `v<version>` and builds images).
 
+## [0.12.3] — 2026-06-27
+
+### Added
+
+- **Agent relationships now execute** (the behaviour half). A new **`agent_delegate`** tool fires a
+  target agent **immediately** with a delegated task — autonomous agent-to-agent chaining — bounded by
+  a **depth + per-minute rate cap** as the runaway guard (`EIDAN_AGENT_DELEGATE_MAX_PER_MIN`, default
+  30). Declaring a **`decision_gate`** now auto-wires the agent a `response` trigger, so it pauses on a
+  decision escalation and resumes the moment you answer.
+
 ## [0.12.2] — 2026-06-27
 
 ### Added
