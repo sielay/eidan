@@ -15,7 +15,7 @@ import { authFetch } from "@/lib/auth";
 import { Avatar } from "@/plugins/_shared/Avatar";
 
 interface Board { id: string; name: string; prompt?: string | null; position: number; status: string }
-interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number; metadata?: { labels?: string[] } }
+interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number; due_date?: string | null; metadata?: { labels?: string[] } }
 
 // Deterministic pastel colour per label name (no palette table needed).
 function labelHue(name: string): number {
@@ -296,6 +296,7 @@ export function BoardsPanel({ scopeKind = null, scopeId = null, basePath }: { sc
                       </div>
                     ) : null}
                     <span style={{ fontSize: "var(--fs-14)", lineHeight: 1.3 }}>{c.title}</span>
+                    {c.due_date ? <div style={{ fontSize: "var(--fs-12)", color: "var(--muted)" }}>📅 {new Date(c.due_date).toLocaleDateString()}</div> : null}
                     <div style={S.cardActions}>
                       {c.ref_count ? <span className="screen-sub" style={{ margin: 0, marginRight: "auto", fontSize: "var(--fs-13)" }}>🔗 {c.ref_count}</span> : null}
                       <button style={S.btn} disabled={busy || idx === 0} title="Move left" onClick={(e) => { e.stopPropagation(); void moveCard(c, -1); }}>←</button>
@@ -329,8 +330,9 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
   // Editable title + body (Trello-style).
   const [title, setTitle] = React.useState(card.title);
   const [body, setBody] = React.useState(card.body ?? "");
+  const [dueDate, setDueDate] = React.useState(card.due_date ?? "");
   const [savingCard, setSavingCard] = React.useState(false);
-  const dirty = title.trim() !== card.title || body.trim() !== (card.body ?? "");
+  const dirty = title.trim() !== card.title || body.trim() !== (card.body ?? "") || dueDate !== (card.due_date ?? "");
   const [labels, setLabels] = React.useState<string[]>(card.metadata?.labels ?? []);
   const [newLabel, setNewLabel] = React.useState("");
 
@@ -344,7 +346,7 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
     if (!title.trim() || !dirty) return;
     setSavingCard(true);
     try {
-      await authFetch(`/api/boards/cards`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: card.id, title: title.trim(), body: body.trim() }) });
+      await authFetch(`/api/boards/cards`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: card.id, title: title.trim(), body: body.trim(), due_date: dueDate }) });
       onChanged();
     } finally { setSavingCard(false); }
   }
@@ -391,10 +393,11 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
         <div className="field">
           <input className="input" style={{ fontWeight: 600, fontSize: "var(--fs-16, 1rem)" }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Card title" />
           <textarea className="input" style={{ minHeight: 90, resize: "vertical", marginTop: "var(--s2)" }} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Add a description…" />
+          <input className="input" type="date" style={{ marginTop: "var(--s2)" }} value={dueDate} onChange={(e) => setDueDate(e.target.value)} title="Due date" />
           {dirty ? (
             <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s2)" }}>
               <button className="btn btn--primary" disabled={savingCard || !title.trim()} onClick={() => void saveCard()}>{savingCard ? "Saving…" : "Save"}</button>
-              <button className="btn btn--ghost" disabled={savingCard} onClick={() => { setTitle(card.title); setBody(card.body ?? ""); }}>Reset</button>
+              <button className="btn btn--ghost" disabled={savingCard} onClick={() => { setTitle(card.title); setBody(card.body ?? ""); setDueDate(card.due_date ?? ""); }}>Reset</button>
             </div>
           ) : null}
         </div>
