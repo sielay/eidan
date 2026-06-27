@@ -121,9 +121,7 @@ export function ConversationList(): React.ReactElement {
       const timeDiff = bTime - aTime;
       return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
     },
-    // Pure sort: depends only on input parameters (a, b). Config and user are included defensively
-    // in case future sort logic depends on user preferences or config; currently they are not used.
-    [config, user],
+    [],
   );
 
   const onRowStarChange = React.useCallback(

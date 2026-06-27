@@ -591,14 +591,14 @@ export async function handleRest(
       let title: string | null = null;
       try {
         const b = JSON.parse(await readBody(req, 64 * 1024)) as { title?: string | null };
-        if (!checkJsonDepth(b, 10)) throw new Error('body structure too deeply nested');
+        if (!checkJsonDepth(b, 10)) { json(res, 400, { error: 'request body structure too deeply nested' }, cors); return true; }
         title = b.title ?? null;
       } catch (err) {
         if (err instanceof SyntaxError) {
           json(res, 400, { error: 'invalid JSON in request body' }, cors);
           return true;
         }
-        // For other errors (body structure too nested, etc), allow empty body and proceed
+        // For other errors, allow empty body and proceed
       }
       const id = crypto.randomUUID();
       const sessions = services.sessions;
