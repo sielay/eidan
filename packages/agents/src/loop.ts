@@ -4,14 +4,6 @@ import { AgentsStore, type DueScheduleRow, type FireableRow } from './store.js';
 import { dueWindow } from './schedule.js';
 import { runAgentTurn, effectiveProvider } from './runner.js';
 
-export interface AgentsLoopOpts {
-  defaultProvider: string;
-  pollMs?: number;
-  graceMinutes?: number;
-  /** Hard cap per fire; a turn that exceeds it is aborted and recorded as failed. */
-  turnTimeoutMs?: number;
-}
-
 // @eidandev/notify augments MatbotServices with `Notify`; agents does not depend on it — we narrow to
 // the one method we call. Missing service / unrouted topic ⇒ the call is a no-op.
 interface NotifyLike {
@@ -46,6 +38,21 @@ interface EscalationsLike {
   markResponseProcessed(id: string): Promise<void>;
 }
 
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    Notify?: NotifyLike;
+    Escalations?: EscalationsLike;
+  }
+}
+
+export interface AgentsLoopOpts {
+  defaultProvider: string;
+  pollMs?: number;
+  graceMinutes?: number;
+  /** Hard cap per fire; a turn that exceeds it is aborted and recorded as failed. */
+  turnTimeoutMs?: number;
+}
+
 // Escalate an agent to the operator's Inbox after this many consecutive failed fires (deduped per
 // agent by the Escalations service, so it raises once per failure streak, not every tick).
 const FAIL_STREAK_TO_ESCALATE = 3;
@@ -74,8 +81,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
         opts.turnTimeoutMs,
       );
       const body = text.trim() ? text.trim() : '(agent produced no text)';
-      const notify = (services as { Notify?: NotifyLike }).Notify;
-      await notify?.emit('agent', `🤖 ${row.name}\n\n${body}`, 'info');
+      await services.Notify?.emit('agent', `🤖 ${row.name}\n\n${body}`, 'info');
       await store.finishRun(row.trigger_id, fireKey, 'delivered', body, conversationId);
       console.log(`[agents] fired "${row.name}" (agent ${row.agent_id}, provider=${provider}) for ${fireKey}`);
     } catch (e) {
@@ -87,8 +93,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       try {
         const streak = await store.recentFailureStreak(row.agent_id);
         if (streak >= FAIL_STREAK_TO_ESCALATE) {
-          const esc = (services as { Escalations?: EscalationsLike }).Escalations;
-          await esc?.raise({
+          await services.Escalations?.raise({
             userId: row.user_id,
             severity: 'medium',
             reasonClass: 'external_failure',
@@ -131,15 +136,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
           const triggerPrompt = resp.trigger_prompt;
 
           // Use trigger_prompt if available (prepared at raise time), else fall back to operator feedback
-          let promptSuffix: string;
-          if (triggerPrompt) {
-            promptSuffix = triggerPrompt; // Already contextual from raise time
-          } else if (feedback) {
-            promptSuffix = `[Response feedback] ${feedback}`; // Clarify this is operator-provided feedback
-          } else {
-            promptSuffix = ''; // No context; don't add extra noise
-          }
-
+          const promptSuffix = triggerPrompt || (feedback ? `[Response feedback] ${feedback}` : '');
           const blendedPersona = promptSuffix ? `${a.persona}\n\n${promptSuffix}` : a.persona;
           const fireKey = `response:${resp.id}`;
 
@@ -182,9 +179,8 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   const responseLoop = async (): Promise<void> => {
     while (!stopped) {
       try {
-        const esc = (services as { Escalations?: EscalationsLike }).Escalations;
-        if (esc) {
-          await handleResponses(esc);
+        if (services.Escalations) {
+          await handleResponses(services.Escalations);
         }
       } catch (e) {
         console.warn('[agents] response handler error:', e instanceof Error ? e.message : e);
