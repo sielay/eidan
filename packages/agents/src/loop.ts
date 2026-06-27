@@ -132,22 +132,35 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
 
           // Blend the trigger prompt into the persona
           const feedback = resp.response?.feedback ?? '';
-          const prompt = resp.trigger_prompt ?? feedback;
-          const promptSuffix = prompt ? `[Escalation response] ${prompt}` : '[Escalation response] No specific prompt or feedback provided.';
-          const blendedPersona = `${a.persona}\n\n${promptSuffix}`;
+          const triggerPrompt = resp.trigger_prompt;
+
+          // Use trigger_prompt if available (prepared at raise time), else fall back to operator feedback
+          let promptSuffix: string;
+          if (triggerPrompt) {
+            promptSuffix = triggerPrompt; // Already contextual from raise time
+          } else if (feedback) {
+            promptSuffix = `[Response feedback] ${feedback}`; // Clarify this is operator-provided feedback
+          } else {
+            promptSuffix = ''; // No context; don't add extra noise
+          }
+
+          const blendedPersona = promptSuffix ? `${a.persona}\n\n${promptSuffix}` : a.persona;
           const fireKey = `response:${resp.id}`;
 
           const won = await store.claimRun(a.trigger_id, a.agent_id, a.user_id, fireKey);
           if (!won) continue; // another node is handling this fire
 
-          try {
-            // Mark as processed before firing (ensures we don't reprocess even if fire fails)
-            await esc.markResponseProcessed(resp.id);
-            // Detached: fire lifecycle is owned independently, with its own error handling
-            void fire(a, fireKey, blendedPersona);
-          } catch (e) {
-            console.warn(`[agents] failed to mark response ${resp.id} as processed:`, e instanceof Error ? e.message : e);
-          }
+          // Fire the agent and mark response as processed only on success.
+          // Chaining ensures we don't mark processed if fire fails, allowing retry on next loop.
+          fire(a, fireKey, blendedPersona)
+            .then(() => {
+              esc.markResponseProcessed(resp.id).catch(() => {
+                /* best-effort; don't fail the agent fire for escalation metadata */
+              });
+            })
+            .catch(() => {
+              /* fire handles its own error logging; no action needed here */
+            });
         }
       }
     } catch (e) {
