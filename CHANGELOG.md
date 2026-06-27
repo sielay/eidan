@@ -6,6 +6,8 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-06-27
+
 ### Added
 
 - **⑂ Compare — run one prompt across models, a third judges & merges (fork-and-merge)** — the flagship.
