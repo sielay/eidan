@@ -2,67 +2,219 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, Cpu, Loader2, Mic, Paperclip, Send, Square, X } from "lucide-react";
+import { Check, ChevronDown, Cpu, Loader2, Mic, MoreVertical, Paperclip, Send, Square, X } from "lucide-react";
 
 import { isTranscribeAvailable, transcribeAudio } from "@/lib/api/transcribe";
 import type { ProviderOption } from "@/lib/models";
 
+// Mobile menu: collapse attach, record, model picker into a single menu button with popover.
+// Opens above the send button to preserve horizontal width for the input field.
+function ComposerMoreMenu({
+  onAttachClick,
+  onMicStart,
+  onMicStop,
+  provider,
+  providers,
+  onProviderChange,
+  disabled,
+  micRecording,
+  micBusy,
+}: {
+  onAttachClick: () => void;
+  onMicStart: () => Promise<void>;
+  onMicStop: () => void;
+  provider: string;
+  providers?: ProviderOption[];
+  onProviderChange?: (p: string) => void;
+  disabled?: boolean;
+  micRecording: boolean;
+  micBusy: boolean;
+}): React.ReactElement {
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const canRecord = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+  const [recordAvailable, setRecordAvailable] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!canRecord) return;
+    void isTranscribeAvailable().then(setRecordAvailable).catch(() => setRecordAvailable(false));
+  }, [canRecord]);
+
+  return (
+    <div className="composer__more-wrap">
+      <button
+        type="button"
+        className="iconbtn composer__more-btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        title="More options"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <MoreVertical className="i" aria-hidden />
+      </button>
+      {open ? (
+        <>
+          <button type="button" className="composer__more-backdrop" aria-label="Close menu" onClick={() => setOpen(false)} />
+          <div className="composer__more-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="composer__more-item"
+              aria-label="Attach files"
+              title="Attach images or text files"
+              disabled={disabled}
+              onClick={() => {
+                onAttachClick();
+                setOpen(false);
+              }}
+            >
+              <Paperclip className="i" aria-hidden />
+              <span>Attach</span>
+            </button>
+            {canRecord && recordAvailable ? (
+              <button
+                type="button"
+                role="menuitem"
+                className={"composer__more-item" + (micRecording ? " is-recording" : "")}
+                aria-label={micRecording ? "Stop recording" : "Voice input"}
+                title={micBusy ? "Transcribing…" : micRecording ? "Stop & transcribe" : "Voice input"}
+                disabled={disabled || micBusy}
+                onClick={async () => {
+                  if (micRecording) {
+                    onMicStop();
+                  } else {
+                    await onMicStart();
+                  }
+                }}
+              >
+                {micBusy ? <Loader2 className="i composer__more-item-spin" aria-hidden /> : micRecording ? <Square className="i" aria-hidden /> : <Mic className="i" aria-hidden />}
+                <span>{micRecording ? "Stop" : "Record"}</span>
+              </button>
+            ) : null}
+            {onProviderChange && providers && providers.length > 0 ? (
+              <ComposerMoreModelMenu provider={provider} providers={providers} onChange={onProviderChange} onClose={() => setOpen(false)} />
+            ) : null}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// Model picker within the more menu.
+function ComposerMoreModelMenu({
+  provider,
+  providers,
+  onChange,
+  onClose,
+}: {
+  provider: string;
+  providers: ProviderOption[];
+  onChange: (p: string) => void;
+  onClose: () => void;
+}): React.ReactElement {
+  const [modelOpen, setModelOpen] = React.useState(false);
+  const current = providers.find((p) => p.name === provider);
+  const label = provider ? (current?.name ?? provider) : "Default";
+
+  if (modelOpen) {
+    return (
+      <div className="composer__more-submenu">
+        <button
+          type="button"
+          role="menuitem"
+          className="composer__more-item composer__more-back"
+          onClick={() => setModelOpen(false)}
+        >
+          <ChevronDown className="i" style={{ transform: "rotate(90deg)" }} aria-hidden />
+          <span>Back</span>
+        </button>
+        <div className="composer__more-models">
+          <button
+            type="button"
+            role="menuitemradio"
+            className="composer__more-model-opt"
+            aria-checked={provider === ""}
+            onClick={() => {
+              onChange("");
+              setModelOpen(false);
+              onClose();
+            }}
+          >
+            <Check className={"i i-sm composer__more-model-tick" + (provider === "" ? " is-on" : "")} aria-hidden />
+            <span>Default</span>
+            <span className="composer__more-model-hint">host default</span>
+          </button>
+          {providers.map((p) => (
+            <button
+              key={p.name}
+              type="button"
+              role="menuitemradio"
+              className="composer__more-model-opt"
+              aria-checked={p.name === provider}
+              onClick={() => {
+                onChange(p.name);
+                setModelOpen(false);
+                onClose();
+              }}
+            >
+              <Check className={"i i-sm composer__more-model-tick" + (p.name === provider ? " is-on" : "")} aria-hidden />
+              <span>{p.name}</span>
+              <span className="composer__more-model-hint">{p.model}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className="composer__more-item"
+      title={current?.model ? `Model: ${current.name} — ${current.model}` : "Model for this conversation"}
+      onClick={() => setModelOpen(true)}
+    >
+      <Cpu className="i" aria-hidden />
+      <span>{label}</span>
+    </button>
+  );
+}
+
 // Voice input: records via MediaRecorder, sends the clip to the engine's /api/transcribe, and hands
 // the transcript back to the composer (which fills the prompt — the user reviews before sending).
 // Hidden entirely when the engine has no STT configured or the browser can't record.
-function MicButton({ onText, disabled }: { onText: (t: string) => void; disabled?: boolean }): React.ReactElement | null {
-  const [available, setAvailable] = React.useState(false);
-  const [recording, setRecording] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-  const recRef = React.useRef<MediaRecorder | null>(null);
-  const chunksRef = React.useRef<Blob[]>([]);
-  const streamRef = React.useRef<MediaStream | null>(null);
-
+function MicButton({
+  onText,
+  disabled,
+  recording,
+  busy,
+  onStart,
+  onStop,
+}: {
+  onText: (t: string) => void;
+  disabled?: boolean;
+  recording: boolean;
+  busy: boolean;
+  onStart: () => Promise<void>;
+  onStop: () => void;
+}): React.ReactElement | null {
   const canRecord = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+  const [available, setAvailable] = React.useState(false);
 
   React.useEffect(() => {
     if (!canRecord) return;
     void isTranscribeAvailable().then(setAvailable).catch(() => setAvailable(false));
   }, [canRecord]);
-
-  const stopTracks = React.useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-  }, []);
-
-  React.useEffect(() => () => { recRef.current?.stop(); stopTracks(); }, [stopTracks]);
-
-  const start = React.useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
-        : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      rec.onstop = () => {
-        stopTracks();
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
-        chunksRef.current = [];
-        if (blob.size === 0) return;
-        setBusy(true);
-        void transcribeAudio(blob).then(onText).catch(() => { /* no text on failure */ }).finally(() => setBusy(false));
-      };
-      rec.start();
-      recRef.current = rec;
-      setRecording(true);
-    } catch {
-      stopTracks();
-      setRecording(false);
-    }
-  }, [onText, stopTracks]);
-
-  const stop = React.useCallback(() => {
-    recRef.current?.stop();
-    recRef.current = null;
-    setRecording(false);
-  }, []);
 
   if (!canRecord || !available) return null;
   return (
@@ -72,7 +224,7 @@ function MicButton({ onText, disabled }: { onText: (t: string) => void; disabled
       aria-label={recording ? "Stop recording" : "Voice input"}
       title={busy ? "Transcribing…" : recording ? "Stop & transcribe" : "Voice input"}
       disabled={disabled || busy}
-      onClick={() => { if (recording) stop(); else void start(); }}
+      onClick={() => { if (recording) onStop(); else void onStart(); }}
     >
       {busy ? <Loader2 className="i composer__mic-spin" aria-hidden /> : recording ? <Square className="i" aria-hidden /> : <Mic className="i" aria-hidden />}
     </button>
@@ -217,6 +369,82 @@ export function Composer({
 
   const isDisabled = disabled === true || submitting;
 
+  // Grow the textarea with its content up to the CSS max-height.
+  const autosize = React.useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, []);
+
+  // Append transcribed text into the prompt (created early so mic hook can use it).
+  const appendText = React.useCallback((text: string) => {
+    if (!text) return;
+    setValue((v) => (v.trim() ? `${v.trim()} ${text}` : text));
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (ta) {
+        autosize();
+        ta.focus();
+      }
+    });
+  }, [autosize]);
+
+  const [micAvailable, setMicAvailable] = React.useState(false);
+  const [recording, setRecording] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const recRef = React.useRef<MediaRecorder | null>(null);
+  const chunksRef = React.useRef<Blob[]>([]);
+  const streamRef = React.useRef<MediaStream | null>(null);
+
+  const canRecord = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+
+  React.useEffect(() => {
+    if (!canRecord) return;
+    void isTranscribeAvailable().then(setMicAvailable).catch(() => setMicAvailable(false));
+  }, [canRecord]);
+
+  const stopTracks = React.useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  React.useEffect(() => () => { recRef.current?.stop(); stopTracks(); }, [stopTracks]);
+
+  const micStart = React.useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+        : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      rec.onstop = () => {
+        stopTracks();
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+        chunksRef.current = [];
+        if (blob.size === 0) return;
+        setBusy(true);
+        void transcribeAudio(blob).then(appendText).catch(() => { /* no text on failure */ }).finally(() => setBusy(false));
+      };
+      rec.start();
+      recRef.current = rec;
+      setRecording(true);
+    } catch {
+      stopTracks();
+      setRecording(false);
+    }
+  }, [appendText, stopTracks]);
+
+  const micStop = React.useCallback(() => {
+    recRef.current?.stop();
+    recRef.current = null;
+    setRecording(false);
+  }, []);
+
+  const mic = { available: micAvailable, recording, busy, start: micStart, stop: micStop };
+
   const onPickFiles = React.useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setAttachErr(null);
@@ -241,22 +469,6 @@ export function Composer({
   const removeAttachment = React.useCallback((idx: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
   }, []);
-
-  // Grow the textarea with its content up to the CSS max-height.
-  const autosize = React.useCallback(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${ta.scrollHeight}px`;
-  }, []);
-
-  // Append transcribed text into the prompt (the user reviews/edits before sending — voice fills the
-  // field, it doesn't auto-send).
-  const appendText = React.useCallback((text: string) => {
-    if (!text) return;
-    setValue((v) => (v.trim() ? `${v.trim()} ${text}` : text));
-    requestAnimationFrame(() => { autosize(); taRef.current?.focus(); });
-  }, [autosize]);
 
   const submit = React.useCallback(async () => {
     const text = value.trim();
@@ -318,20 +530,17 @@ export function Composer({
         accept="image/*,text/*,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.xml,.log,.txt,.html,.css,.js,.ts,.py,.sql,.sh"
         onChange={(e) => { void onPickFiles(e.target.files); e.target.value = ""; }}
       />
-      <button
-        type="button"
-        className="iconbtn composer__attach"
-        aria-label="Attach files"
-        title="Attach images or text files"
+      <ComposerMoreMenu
+        onAttachClick={() => fileRef.current?.click()}
+        onMicStart={mic.start}
+        onMicStop={mic.stop}
+        provider={provider ?? ""}
+        providers={providers}
+        onProviderChange={onProviderChange}
         disabled={isDisabled}
-        onClick={() => fileRef.current?.click()}
-      >
-        <Paperclip className="i" aria-hidden />
-      </button>
-      <MicButton onText={appendText} disabled={isDisabled} />
-      {onProviderChange && providers && providers.length > 0 ? (
-        <ModelMenu provider={provider ?? ""} providers={providers} onChange={onProviderChange} disabled={isDisabled} />
-      ) : null}
+        micRecording={mic.recording}
+        micBusy={mic.busy}
+      />
       <textarea
         ref={taRef}
         className="composer__input"
