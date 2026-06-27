@@ -106,74 +106,74 @@ export function AgentOrgChartPane(): React.ReactElement {
     let iterations = 0;
     const maxIterations = 1000;
     const nodesWorkingCopy = nodes.map((n) => ({ ...n }));
-    let renderCount = 0;
 
     const animate = () => {
       let maxVelocity = 0;
+      const iterationsPerFrame = 10;
 
-      // Apply forces
-      for (let i = 0; i < nodesWorkingCopy.length; i++) {
-        const node = nodesWorkingCopy[i];
-        let fx = 0,
-          fy = 0;
+      for (let iter = 0; iter < iterationsPerFrame && iterations < maxIterations && animating; iter++) {
+        // Apply forces
+        for (let i = 0; i < nodesWorkingCopy.length; i++) {
+          const node = nodesWorkingCopy[i];
+          let fx = 0,
+            fy = 0;
 
-        // Repulsion between nodes
-        for (let j = 0; j < nodesWorkingCopy.length; j++) {
-          if (i === j) continue;
-          const other = nodesWorkingCopy[j];
-          const dx = node.x - other.x || 0.1;
-          const dy = node.y - other.y || 0.1;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-          const force = 10000 / (dist * dist);
-          fx += (dx / dist) * force;
-          fy += (dy / dist) * force;
-        }
+          // Repulsion between nodes
+          for (let j = 0; j < nodesWorkingCopy.length; j++) {
+            if (i === j) continue;
+            const other = nodesWorkingCopy[j];
+            const dx = node.x - other.x || 0.1;
+            const dy = node.y - other.y || 0.1;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+            const force = 10000 / (dist * dist);
+            fx += (dx / dist) * force;
+            fy += (dy / dist) * force;
+          }
 
-        // Attraction along edges
-        for (const edge of edges) {
-          if (edge.from === node.id) {
-            const target = nodesWorkingCopy.find((n) => n.id === edge.to);
-            if (target) {
-              const dx = target.x - node.x;
-              const dy = target.y - node.y;
-              const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-              const force = dist * 0.3;
-              fx += (dx / dist) * force;
-              fy += (dy / dist) * force;
-            }
-          } else if (edge.to === node.id) {
-            const source = nodesWorkingCopy.find((n) => n.id === edge.from);
-            if (source) {
-              const dx = source.x - node.x;
-              const dy = source.y - node.y;
-              const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-              const force = dist * 0.1;
-              fx += (dx / dist) * force;
-              fy += (dy / dist) * force;
+          // Attraction along edges
+          for (const edge of edges) {
+            if (edge.from === node.id) {
+              const target = nodesWorkingCopy.find((n) => n.id === edge.to);
+              if (target) {
+                const dx = target.x - node.x;
+                const dy = target.y - node.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+                const force = dist * 0.3;
+                fx += (dx / dist) * force;
+                fy += (dy / dist) * force;
+              }
+            } else if (edge.to === node.id) {
+              const source = nodesWorkingCopy.find((n) => n.id === edge.from);
+              if (source) {
+                const dx = source.x - node.x;
+                const dy = source.y - node.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+                const force = dist * 0.1;
+                fx += (dx / dist) * force;
+                fy += (dy / dist) * force;
+              }
             }
           }
+
+          // Damping + update velocity
+          node.vx = (node.vx + fx * 0.01) * 0.95;
+          node.vy = (node.vy + fy * 0.01) * 0.95;
+          node.x += node.vx;
+          node.y += node.vy;
+
+          // Bounce off edges
+          if (node.x < 30) { node.x = 30; node.vx = Math.abs(node.vx); }
+          if (node.x > 770) { node.x = 770; node.vx = -Math.abs(node.vx); }
+          if (node.y < 30) { node.y = 30; node.vy = Math.abs(node.vy); }
+          if (node.y > 470) { node.y = 470; node.vy = -Math.abs(node.vy); }
+
+          maxVelocity = Math.max(maxVelocity, Math.abs(node.vx) + Math.abs(node.vy));
         }
-
-        // Damping + update velocity
-        node.vx = (node.vx + fx * 0.01) * 0.95;
-        node.vy = (node.vy + fy * 0.01) * 0.95;
-        node.x += node.vx;
-        node.y += node.vy;
-
-        // Bounce off edges
-        if (node.x < 30) { node.x = 30; node.vx = Math.abs(node.vx); }
-        if (node.x > 770) { node.x = 770; node.vx = -Math.abs(node.vx); }
-        if (node.y < 30) { node.y = 30; node.vy = Math.abs(node.vy); }
-        if (node.y > 470) { node.y = 470; node.vy = -Math.abs(node.vy); }
-
-        maxVelocity = Math.max(maxVelocity, Math.abs(node.vx) + Math.abs(node.vy));
+        iterations++;
       }
 
-      // ponytail: batch React renders every 3 frames to reduce render pressure on large graphs
-      if (renderCount++ % 3 === 0) {
-        setNodes([...nodesWorkingCopy]);
-      }
-      iterations++;
+      // Deep copy nodes to ensure immutability for React state
+      setNodes(nodesWorkingCopy.map((n) => ({ ...n })));
 
       // Stop if converged or max iterations reached
       if (animating && maxVelocity > 0.1 && iterations < maxIterations) {
