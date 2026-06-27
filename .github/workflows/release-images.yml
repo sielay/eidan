@@ -23,6 +23,7 @@ jobs:
   images:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false # one image failing must not cancel the other (they're independent artifacts)
       matrix:
         include:
           - name: engine
@@ -35,6 +36,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive # the engine image needs external/matbot
+
+      # The web image's build context is apps/web, but registry.generated.ts imports the per-bundle
+      # frontend mirrors under apps/web/src/plugins/<name>/ which are gitignored (assemble vendors them
+      # at deploy time, from packages/). Replay that web-vendoring on the runner — which HAS packages/ —
+      # so the mirrors are present in the build context. Without this, `next build` fails with
+      # "Module not found: '@/plugins/imap/Accounts'" (and the release ships a broken web image).
+      - uses: actions/setup-node@v4
+        if: matrix.name == 'web'
+        with:
+          node-version: "24"
+      - name: Vendor plugin frontends into apps/web
+        if: matrix.name == 'web'
+        run: node scripts/vendor-web-frontends.mjs
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
