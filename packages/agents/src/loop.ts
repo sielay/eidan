@@ -103,7 +103,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
     }
   };
 
-  const handleResponses = async (): Promise<void> => {
+  const handleResponses = async (esc: EscalationsLike): Promise<void> => {
     try {
       // Prune old tracked responses to prevent memory leak
       const now = Date.now();
@@ -114,8 +114,6 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       }
 
       const agents = await store.responseTriggeredAgents();
-      const esc = (services as { Escalations?: EscalationsLike }).Escalations;
-      if (!esc) return; // escalations service not available
 
       for (const a of agents) {
         if (a.target_node && a.target_node !== nodeId) continue; // pinned to another node
@@ -160,8 +158,11 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       // owns its full lifecycle (finish/escalate in its own try/catch); the per-fire timeout bounds it.
       void fire(r, fireKey);
     }
-    // Response-triggered fires: scan and handle with proper error handling
-    await handleResponses();
+    // Response-triggered fires (only if Escalations service is available)
+    const esc = (services as { Escalations?: EscalationsLike }).Escalations;
+    if (esc) {
+      await handleResponses(esc);
+    }
   };
 
   const loop = async (): Promise<void> => {
