@@ -551,6 +551,9 @@ export async function handleRest(
         vals.push(beforeStarredBool, before);
         const beforeStarredIdx = vals.length - 1;
         const beforeTimestampIdx = vals.length;
+        // Keyset pagination: fetch rows after the cursor by (starred, updated_at).
+        // When transitioning from starred=true to starred=false, fetch all unstarred rows.
+        // When staying within the same starred group, fetch rows with older timestamps.
         conds.push(`((starred = false AND $${beforeStarredIdx}::boolean = true) OR (starred = $${beforeStarredIdx}::boolean AND coalesce(updated_at, created_at) < $${beforeTimestampIdx}::timestamptz))`);
       }
       vals.push(limit);
@@ -590,7 +593,13 @@ export async function handleRest(
         const b = JSON.parse(await readBody(req, 64 * 1024)) as { title?: string | null };
         if (!checkJsonDepth(b, 10)) throw new Error('body structure too deeply nested');
         title = b.title ?? null;
-      } catch { /* empty body ok */ }
+      } catch (err) {
+        if (err instanceof SyntaxError) {
+          json(res, 400, { error: 'invalid JSON in request body' }, cors);
+          return true;
+        }
+        // For other errors (body structure too nested, etc), allow empty body and proceed
+      }
       const id = crypto.randomUUID();
       const sessions = services.sessions;
       if (!sessions) { json(res, 500, { error: 'sessions unavailable' }, cors); return true; }
@@ -621,7 +630,13 @@ export async function handleRest(
         const parsed = JSON.parse(await readBody(req, 64 * 1024)) as unknown;
         if (!checkJsonDepth(parsed, 10)) { json(res, 400, { error: 'request body structure too deeply nested' }, cors); return true; }
         body = parsed as { title?: string | null; starred?: boolean };
-      } catch { /* */ }
+      } catch (err) {
+        if (err instanceof SyntaxError) {
+          json(res, 400, { error: 'invalid JSON in request body' }, cors);
+          return true;
+        }
+        // For other errors, empty body is acceptable (no updates)
+      }
       const updates: string[] = ['updated_at=now()'];
       const vals: unknown[] = [id, uid];
       if ('title' in body) { vals.push((body.title ?? '').toString().trim() || null); updates.push(`title=$${vals.length}`); }
