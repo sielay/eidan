@@ -40,20 +40,20 @@ function buildQuadtree(nodes: NodeData[], x: number, y: number, size: number): Q
   const maxPerNode = 4;
   const minSize = 20;
 
-  for (const node of nodes) {
-    if (node.x >= x && node.x < x + size && node.y >= y && node.y < y + size) {
-      qt.nodes.push(node);
-    }
-  }
+  const nodesInCell = nodes.filter(
+    n => n.x >= x && n.x < x + size && n.y >= y && n.y < y + size
+  );
 
-  if (qt.nodes.length > maxPerNode && size > minSize) {
+  if (nodesInCell.length > maxPerNode && size > minSize) {
     const half = size / 2;
     qt.children = [
-      buildQuadtree(qt.nodes, x, y, half),
-      buildQuadtree(qt.nodes, x + half, y, half),
-      buildQuadtree(qt.nodes, x, y + half, half),
-      buildQuadtree(qt.nodes, x + half, y + half, half),
+      buildQuadtree(nodesInCell, x, y, half),
+      buildQuadtree(nodesInCell, x + half, y, half),
+      buildQuadtree(nodesInCell, x, y + half, half),
+      buildQuadtree(nodesInCell, x + half, y + half, half),
     ];
+  } else {
+    qt.nodes = nodesInCell;
   }
 
   return qt;
@@ -243,12 +243,35 @@ export function AgentOrgChartPane(): React.ReactElement {
         }
 
         // Repulsion between nodes using quadtree
-        const qt = buildQuadtree(sim.nodes, 0, 0, 800);
+        // ponytail: quadtree size could be dynamic based on node bounds, but 1024 safely covers viewport
+        const qt = buildQuadtree(sim.nodes, 0, 0, 1024);
         for (const node of sim.nodes) {
           const { fx, fy } = repulsionFromQuadtree(node, qt, 10000);
           const nodeForces = forces.get(node.id)!;
           nodeForces.fx += fx;
           nodeForces.fy += fy;
+        }
+
+        // Collision detection for very close nodes to prevent overlap
+        for (let i = 0; i < sim.nodes.length; i++) {
+          for (let j = i + 1; j < sim.nodes.length; j++) {
+            const n1 = sim.nodes[i];
+            const n2 = sim.nodes[j];
+            const dx = n2.x - n1.x;
+            const dy = n2.y - n1.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+            const minCollisionDist = 40; // 2x node radius
+            if (dist < minCollisionDist) {
+              const overlap = minCollisionDist - dist;
+              const f = overlap * 5;
+              const nodeForces1 = forces.get(n1.id)!;
+              const nodeForces2 = forces.get(n2.id)!;
+              nodeForces1.fx -= (dx / dist) * f;
+              nodeForces1.fy -= (dy / dist) * f;
+              nodeForces2.fx += (dx / dist) * f;
+              nodeForces2.fy += (dy / dist) * f;
+            }
+          }
         }
 
         // Attraction along edges (read from ref, not state, to avoid stale closure)
@@ -413,6 +436,18 @@ export function AgentOrgChartPane(): React.ReactElement {
                       strokeWidth="1.5"
                       markerEnd={`url(#arrow-${edge.from}-${edge.to})`}
                     />
+                    {/* Label background for readability */}
+                    <rect
+                      x={(from.x + to.x) / 2 - 7}
+                      y={(from.y + to.y) / 2 - 10}
+                      width="14"
+                      height="12"
+                      fill="#fafafa"
+                      rx="1.5"
+                      stroke="#e5e7eb"
+                      strokeWidth="0.5"
+                      pointerEvents="none"
+                    />
                     {/* Label */}
                     <text
                       x={(from.x + to.x) / 2}
@@ -512,11 +547,21 @@ export function AgentOrgChartPane(): React.ReactElement {
               {selected.triggers > 0 && (
                 <div>
                   <p className="text-muted-foreground">Triggers</p>
-                  {selectedAgentData.triggers.map((t) => (
-                    <div key={t.id} className="rounded bg-indigo-100 px-1.5 py-0.5 font-mono text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200">
-                      {t.type === "schedule" ? String(t.config["schedule"] ?? "schedule") : t.type}
-                    </div>
-                  ))}
+                  {selectedAgentData.triggers.map((t) => {
+                    let label = t.type;
+                    if (t.type === "schedule") {
+                      label = String(t.config["schedule"] ?? "schedule");
+                    } else if (t.type === "sensor") {
+                      label = `Sensor: ${String(t.config["sensor_id"] ?? "sensor")}`;
+                    } else if (t.type === "webhook") {
+                      label = `Webhook: ${String(t.config["path"] ?? "webhook")}`;
+                    }
+                    return (
+                      <div key={t.id} className="rounded bg-indigo-100 px-1.5 py-0.5 font-mono text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200">
+                        {label}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
