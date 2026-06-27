@@ -90,6 +90,12 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/ask-user-fallback:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+
   packages/auth:
     dependencies:
       '@matatbread/matbot-plugin-api':

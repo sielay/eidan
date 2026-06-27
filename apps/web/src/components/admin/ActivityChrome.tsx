@@ -13,13 +13,12 @@ const ACTIVE_JOB_STATUSES = new Set(["queued", "claimed", "running"]);
 
 /**
  * Tab + counter chrome around the /admin/activity panes
- * (conversations / nodes / triggers / jobs / live).
+ * (dashboard / nodes / usage / live).
  *
  * Owns the live polling that drives the banner counts ("X nodes
- * online · Y conversations · Z triggers · N jobs active") so the
- * numbers stay accurate regardless of which tab is in front — a
- * pattern lifted from sibling job-dashboard surfaces where per-pane
- * polling leaves stale counts behind when the user clicks a sibling
+ * online · N jobs active") so the numbers stay accurate regardless of which
+ * tab is in front — a pattern lifted from sibling job-dashboard surfaces where
+ * per-pane polling leaves stale counts behind when the user clicks a sibling
  * tab. Each count pulls its pane's full list (the over-fetch is cheap
  * at Phase-1 scale); a rolled-up summary endpoint is a future
  * optimisation across all counts, not just jobs.
@@ -29,7 +28,7 @@ const ACTIVE_JOB_STATUSES = new Set(["queued", "claimed", "running"]);
  * while staying cheap on a deployment with a hand-counted plugin
  * count.
  */
-const ACTIVITY_TABS = ["dashboard", "nodes", "live"] as const;
+const ACTIVITY_TABS = ["dashboard", "nodes", "usage", "live"] as const;
 
 // Tabs that want the full content width (the wide live log table) rather than the reading-width column.
 const WIDE_TABS = new Set<string>(["live"]);

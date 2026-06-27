@@ -30,3 +30,31 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run unit tests
         run: node --import ./external/matbot/apps/cli/register.js --test "packages/*/src/*.test.ts"
+      - name: Reject backslashes in tracked file paths
+        # An agent file-writer that shell-escapes route-group/[dynamic] segments lands files at literal
+        # paths like `\(main\)/.../\[tab\]/page.tsx`, which Next.js can't route and which look fine in a
+        # diff. Cheap guard: no tracked path may contain a backslash.
+        run: |
+          if git -c core.quotepath=false ls-files | grep -F '\' ; then
+            echo "::error::tracked file paths contain a backslash (likely an escaped route group / [dynamic] segment)"; exit 1
+          fi
+
+  # apps/web is intentionally NOT a pnpm workspace member (it manages its own install), so the `test`
+  # job above never typechecks it — that gap let real Type errors merge green and only break at
+  # `vercel deploy`. This closes it: a fast, env-free `tsc --noEmit` over the web app.
+  web-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: Install apps/web
+        run: pnpm install --frozen-lockfile
+        working-directory: apps/web
+      - name: Typecheck apps/web
+        run: pnpm run typecheck
+        working-directory: apps/web

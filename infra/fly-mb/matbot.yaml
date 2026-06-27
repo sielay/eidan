@@ -18,6 +18,7 @@ plugins:
   - ./packages/secrets-api
   - ./packages/procedures
   - ./packages/escalations
+  - ./packages/ask-user-fallback
   - ./packages/agents
   - ./packages/imap
   - ./packages/ical

@@ -5,7 +5,7 @@
 // in the dispatch maps below — nothing in the registry/tool layer changes. Postgres and MongoDB
 // ship first (the operator's brief); MySQL/SQLite/etc. slot in the same way.
 import type { ConnectionRow, Driver } from '../registry.js';
-import { pgInspect, pgPing, pgRunSql } from './postgres.js';
+import { pgInspect, pgPing, pgRunSql, pgIntrospect } from './postgres.js';
 import { mongoInspect, mongoPing, mongoRunCommand } from './mongodb.js';
 
 // What `db_inspect` returns, normalised across engines: the list of schemas (Postgres namespaces;
@@ -41,4 +41,4 @@ export function pinger(driver: Driver): Pinger {
   return PINGERS[driver];
 }
 
-export { pgRunSql, mongoRunCommand };
+export { pgRunSql, pgIntrospect, mongoRunCommand };
