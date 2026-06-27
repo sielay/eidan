@@ -286,6 +286,18 @@ export class EscalationsStore {
       throw new Error(`Invalid relationship type: ${rel.type}. Must be one of: ${Array.from(VALID_RELATIONSHIP_TYPES).join(', ')}`);
     }
     const strength = Math.min(Math.max(rel.strength ?? 3, 1), 5);
+
+    // Validate and sanitize description field
+    let description = rel.description ?? null;
+    if (description) {
+      if (typeof description !== 'string') {
+        throw new Error('Description must be a string');
+      }
+      if (description.length > 1000) {
+        throw new Error('Description must be 1000 characters or less');
+      }
+    }
+
     const r = await this.db.query(
       `insert into eidan.agent_relationships
          (user_id, from_agent_name, to_agent_name, relationship_type, strength, description)
@@ -293,7 +305,7 @@ export class EscalationsStore {
        on conflict (user_id, from_agent_name, to_agent_name) do update set
          relationship_type = $4, strength = $5, description = $6, updated_at = now()
        returning id, user_id, from_agent_name, to_agent_name, relationship_type, strength, description, created_at, updated_at`,
-      [userId, rel.fromAgent, rel.toAgent, rel.type, strength, rel.description ?? null],
+      [userId, rel.fromAgent, rel.toAgent, rel.type, strength, description],
     );
     return r.rows[0] as AgentRelationship;
   }

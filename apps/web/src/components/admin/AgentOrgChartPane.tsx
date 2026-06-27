@@ -120,6 +120,7 @@ export function AgentOrgChartPane(): React.ReactElement {
   const [escalations, setEscalations] = React.useState<EscalationSummary[] | null>(null);
   const [relationships, setRelationships] = React.useState<AgentRelationship[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [skippedRelationships, setSkippedRelationships] = React.useState<{ fromAgent: string; toAgent: string; reason: string }[]>([]);
   const [selectedNode, setSelectedNode] = React.useState<string | null>(null);
   const [nodes, setNodes] = React.useState<NodeData[]>([]);
   const [edges, setEdges] = React.useState<EdgeData[]>([]);
@@ -214,6 +215,7 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     const newEdges: EdgeData[] = [];
     const edgeMap = new Map<string, { escalations: number; relationship?: AgentRelationship }>();
+    const skipped: { fromAgent: string; toAgent: string; reason: string }[] = [];
 
     if (escalations) {
       for (const e of escalations) {
@@ -237,7 +239,11 @@ export function AgentOrgChartPane(): React.ReactElement {
             continue;
           }
           // Multiple agents with the same name; ambiguous relationship
-          console.warn(`Skipping relationship from "${rel.from_agent_name}" to "${rel.to_agent_name}": ambiguous agent names`);
+          skipped.push({
+            fromAgent: rel.from_agent_name,
+            toAgent: rel.to_agent_name,
+            reason: "Ambiguous agent names (multiple agents with the same name exist)",
+          });
           continue;
         }
         const fromId = fromIds[0];
@@ -247,6 +253,8 @@ export function AgentOrgChartPane(): React.ReactElement {
         edgeMap.set(key, { ...existing, relationship: rel });
       }
     }
+
+    setSkippedRelationships(skipped);
 
     for (const [key, data] of edgeMap) {
       const [from, to] = key.split("→");
@@ -515,6 +523,19 @@ export function AgentOrgChartPane(): React.ReactElement {
         <p className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </p>
+      )}
+
+      {skippedRelationships.length > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          <p className="font-semibold mb-1">Skipped relationships ({skippedRelationships.length}):</p>
+          <ul className="list-inside list-disc space-y-0.5">
+            {skippedRelationships.map((rel, idx) => (
+              <li key={idx}>
+                {rel.fromAgent} → {rel.toAgent}: {rel.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div className="flex gap-4" style={{ height: "600px" }}>
