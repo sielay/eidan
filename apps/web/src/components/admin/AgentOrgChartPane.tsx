@@ -299,8 +299,14 @@ export function AgentOrgChartPane(): React.ReactElement {
         }
 
         // Repulsion between nodes using quadtree
-        // ponytail: quadtree size could be dynamic based on node bounds, but 1024 safely covers viewport
-        const qt = buildQuadtree(sim.nodes, 0, 0, 1024);
+        // Quadtree must cover the entire bounds where nodes can exist
+        const qx = sim.bounds.minX;
+        const qy = sim.bounds.minY;
+        const qw = sim.bounds.maxX - sim.bounds.minX;
+        const qh = sim.bounds.maxY - sim.bounds.minY;
+        // Round up to next power of 2 with 20% margin for node movement
+        const qsize = Math.pow(2, Math.ceil(Math.log2(Math.max(qw, qh) * 1.2)));
+        const qt = buildQuadtree(sim.nodes, qx, qy, qsize);
         for (const node of sim.nodes) {
           const { fx, fy } = repulsionFromQuadtree(node, qt, 10000);
           const nodeForces = forces.get(node.id)!;
