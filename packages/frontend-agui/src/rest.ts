@@ -540,7 +540,7 @@ export async function handleRest(
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
       if (before) {
         vals.push(beforeStarredBool, before);
-        conds.push(`(starred, coalesce(updated_at, created_at)) < ($${vals.length - 1}::boolean, $${vals.length}::timestamptz)`);
+        conds.push(`(starred < $${vals.length - 1}::boolean OR (starred = $${vals.length - 1}::boolean AND coalesce(updated_at, created_at) < $${vals.length}::timestamptz))`);
       }
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
