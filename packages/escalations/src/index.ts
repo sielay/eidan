@@ -71,6 +71,7 @@ export const plugin: MatbotPluginSpec = {
             const payload = JSON.stringify({
               escalation_id: escalation.id,
               agent_id: escalation.to_agent,
+              user_id: escalation.user_id,
               response_text: responseText,
               trigger_prompt: triggerPrompt,
             });
