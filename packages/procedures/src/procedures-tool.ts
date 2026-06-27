@@ -13,9 +13,13 @@ const DESCRIPTION = [
   '',
   'Actions (TypeScript union):',
   "  { action: 'run'; source: string }                     // run JS now (ephemeral)",
-  "  { action: 'promote'; name: string; source: string }   // save a proven procedure to the knowledge graph (asks the user to approve)",
-  "  { action: 'run_saved'; name: string }                 // run a previously promoted procedure by name",
-  "  { action: 'list' }                                     // list promoted procedures",
+  "  { action: 'promote'; name: string; source: string }   // save a proven procedure to your procedure library (asks the user to approve)",
+  "  { action: 'run_saved'; name: string }                 // run a previously saved procedure by name",
+  "  { action: 'list' }                                     // list saved procedures",
+  '',
+  'Procedures are first-class objects in their own store (eidan.procedures). They are NOT knowledge',
+  'entries and NOT SQL/psql — do not use recall, the db/psql plugin, or a database query to find or run',
+  'one. Use this tool (list / run_saved) exclusively.',
 ].join('\n');
 
 export function proceduresTool(services: MatbotServices, store: ProcedureStore, allow: (name: string) => boolean): Tool {
@@ -57,7 +61,7 @@ export function proceduresTool(services: MatbotServices, store: ProcedureStore, 
             if (!a.name || !a.source) { yield { type: 'error', message: 'promote requires `name` and `source`' }; return; }
             // Human-approval gate. (A bicameral-critic pre-review is the documented follow-on; it
             // would run before this prompt and surface its verdict to the approver.)
-            const ans = await ctx.prompt(`Approve promoting procedure "${a.name}" to the knowledge graph? Type "yes" to confirm.`, 'no');
+            const ans = await ctx.prompt(`Approve saving procedure "${a.name}" to your procedure library? Type "yes" to confirm.`, 'no');
             if (ans.trim().toLowerCase() !== 'yes') { yield { type: 'result', value: { promoted: false, reason: 'not approved' } }; return; }
             const id = await store.save(a.name, a.source);
             yield { type: 'result', value: { promoted: true, id, name: a.name } };

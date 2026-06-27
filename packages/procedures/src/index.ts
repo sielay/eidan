@@ -15,7 +15,7 @@ export { driveDeepScan, mailThreadArchaeology, ideaExtractionPipeline } from './
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
-    description: 'Sandboxed agent-authored procedures: run JS that composes an allowlisted subset of eidan tools in an isolated-vm, ephemeral or promoted to the knowledge graph.',
+    description: 'Sandboxed agent-authored procedures: run JS that composes an allowlisted subset of eidan tools in an isolated-vm, ephemeral or saved as a first-class procedure (its own eidan.procedures store — NOT knowledge, NOT SQL).',
   },
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];

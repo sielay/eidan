@@ -2,8 +2,6 @@
 import { currentPrincipal } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 
-const SKILL = 'procedure';
-
 export interface ProcedureSummary {
   name: string;
   preview: string;
@@ -37,12 +35,12 @@ export class ProcedureStore {
   async save(name: string, source: string): Promise<string> {
     return this.db.withPrincipalTx(async (q) => {
       const r = await q(
-        `insert into eidan.knowledge (user_id,skill,title,body)
-         values ($1,$2,$3,$4)
-         on conflict (user_id,skill,title) where deleted_at is null
-           do update set body=excluded.body, updated_at=now()
+        `insert into eidan.procedures (user_id,name,source)
+         values ($1,$2,$3)
+         on conflict (user_id,name) where deleted_at is null
+           do update set source=excluded.source, updated_at=now()
          returning id`,
-        [currentPrincipal().id, SKILL, name, source],
+        [currentPrincipal().id, name, source],
       );
       return (r.rows[0] as { id: string }).id;
     });
@@ -51,26 +49,26 @@ export class ProcedureStore {
   async get(name: string): Promise<string | null> {
     return this.db.withPrincipalTx(async (q) => {
       const r = await q(
-        `select body from eidan.knowledge
-          where user_id=$1 and skill=$2 and title=$3 and deleted_at is null
+        `select source from eidan.procedures
+          where user_id=$1 and name=$2 and deleted_at is null
           limit 1`,
-        [currentPrincipal().id, SKILL, name],
+        [currentPrincipal().id, name],
       );
-      const row = r.rows[0] as { body: string } | undefined;
-      return row ? row.body : null;
+      const row = r.rows[0] as { source: string } | undefined;
+      return row ? row.source : null;
     });
   }
 
   async getDetail(name: string): Promise<ProcedureDetail | null> {
     return this.db.withPrincipalTx(async (q) => {
       const r = await q(
-        `select id, title, body, created_at, updated_at
-          from eidan.knowledge
-          where user_id=$1 and skill=$2 and title=$3 and deleted_at is null
+        `select id, name, source, created_at, updated_at
+          from eidan.procedures
+          where user_id=$1 and name=$2 and deleted_at is null
           limit 1`,
-        [currentPrincipal().id, SKILL, name],
+        [currentPrincipal().id, name],
       );
-      const row = r.rows[0] as { id: string; title: string; body: string; created_at: string; updated_at: string } | undefined;
+      const row = r.rows[0] as { id: string; name: string; source: string; created_at: string; updated_at: string } | undefined;
       if (!row) return null;
 
       const execR = await q(
@@ -83,8 +81,8 @@ export class ProcedureStore {
 
       return {
         id: row.id,
-        name: row.title,
-        source: row.body,
+        name: row.name,
+        source: row.source,
         created_at: row.created_at,
         updated_at: row.updated_at,
         last_run_at: lastExec?.started_at ?? null,
@@ -95,31 +93,31 @@ export class ProcedureStore {
   async list(): Promise<ProcedureSummary[]> {
     return this.db.withPrincipalTx(async (q) => {
       const r = await q(
-        `select title, left(body, 160) as preview from eidan.knowledge
-          where user_id=$1 and skill=$2 and deleted_at is null
+        `select name, left(source, 160) as preview from eidan.procedures
+          where user_id=$1 and deleted_at is null
           order by updated_at desc limit 100`,
-        [currentPrincipal().id, SKILL],
+        [currentPrincipal().id],
       );
-      return (r.rows as Array<{ title: string; preview: string }>).map((row) => ({ name: row.title, preview: row.preview }));
+      return (r.rows as Array<{ name: string; preview: string }>).map((row) => ({ name: row.name, preview: row.preview }));
     });
   }
 
   async delete(name: string): Promise<boolean> {
     return this.db.withPrincipalTx(async (q) => {
       const r = await q(
-        `update eidan.knowledge set deleted_at=now()
-          where user_id=$1 and skill=$2 and title=$3 and deleted_at is null`,
-        [currentPrincipal().id, SKILL, name],
+        `update eidan.procedures set deleted_at=now()
+          where user_id=$1 and name=$2 and deleted_at is null`,
+        [currentPrincipal().id, name],
       );
-      return r.rowCount > 0;
+      return (r.rowCount ?? 0) > 0;
     });
   }
 
   async recordExecution(procedureName: string, status: 'queued' | 'running' | 'completed' | 'failed', result?: unknown, error?: string, durationMs?: number): Promise<string> {
     return this.db.withPrincipalTx(async (q) => {
       const procR = await q(
-        `select id from eidan.knowledge where user_id=$1 and skill=$2 and title=$3 and deleted_at is null`,
-        [currentPrincipal().id, SKILL, procedureName],
+        `select id from eidan.procedures where user_id=$1 and name=$2 and deleted_at is null`,
+        [currentPrincipal().id, procedureName],
       );
       const procId = (procR.rows[0] as { id: string } | undefined)?.id;
 

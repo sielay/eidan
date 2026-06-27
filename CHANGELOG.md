@@ -6,6 +6,16 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.13.5] — 2026-06-27
+
+### Changed
+
+- **Procedures are now first-class** — they previously piggybacked on `eidan.knowledge` (skill=`procedure`),
+  which made `recall` surface their JS source as "knowledge" and led agents to conflate them with the
+  db/psql plugin. New `eidan.procedures` table (migration `0015`, migrates existing rows + retires the
+  knowledge copies + repoints the executions FK); the procedure store + tool descriptions now point at the
+  dedicated store and explicitly tell agents these are **not** knowledge and **not** SQL.
+
 ## [0.13.4] — 2026-06-27
 
 ### Added
