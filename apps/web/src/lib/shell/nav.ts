@@ -108,18 +108,7 @@ export function resolveSections(
   });
   if (duplicates.length > 0) {
     const msg = `[nav] Duplicate section IDs detected (core/earlier plugins take precedence): ${duplicates.join(", ")}. Check plugin configurations for ID collisions.`;
-    if (process.env.NODE_ENV === "development") {
-      console.error(msg);
-      throw new Error(msg);
-    } else {
-      // Log with structured context for production monitoring systems
-      const logContext = {
-        timestamp: new Date().toISOString(),
-        duplicates,
-        severity: "warning",
-      };
-      console.warn(msg, logContext);
-    }
+    throw new Error(msg);
   }
   return result;
 }

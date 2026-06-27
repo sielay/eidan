@@ -80,9 +80,15 @@ export function NavIcon({
   name: string;
   className?: string;
 }): React.ReactElement {
-  const Cmp = MAP[name as NavIconKey] || AlertCircle;
   if (!MAP[name as NavIconKey]) {
-    console.error(`[NavIcon] Missing icon mapping for key: "${name}"`);
+    const msg = `[NavIcon] Missing icon mapping for key: "${name}". Check NavIcon.MAP in NavIcon.tsx.`;
+    if (process.env.NODE_ENV === "development") {
+      throw new Error(msg);
+    } else {
+      console.error(msg);
+      return <AlertCircle className={className} aria-hidden />;
+    }
   }
+  const Cmp = MAP[name as NavIconKey];
   return <Cmp className={className} aria-hidden />;
 }
