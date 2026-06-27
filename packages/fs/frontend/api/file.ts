@@ -125,3 +125,39 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: msg }, { status: 400 });
   }
 }
+
+// Update an existing local file's content (the editor's Save). Only local (pg-bytea) files are
+// editable here; offloaded / Drive files aren't.
+export async function PUT(req: NextRequest): Promise<Response> {
+  const sess = verifyBearer(req);
+  if (!sess) return new Response("unauthorized", { status: 401 });
+  let body: Record<string, unknown>;
+  try { body = (await req.json()) as Record<string, unknown>; } catch { return Response.json({ error: "invalid JSON body" }, { status: 400 }); }
+  const id = typeof body["id"] === "string" ? body["id"].trim() : "";
+  const content = typeof body["content"] === "string" ? body["content"] : "";
+  if (!id) return Response.json({ error: "id is required" }, { status: 400 });
+
+  const bytes = new TextEncoder().encode(content);
+  try {
+    const result = await withUser(sess.userId, async (c): Promise<{ ok: true } | { error: string; status: number }> => {
+      const n = await c.query(
+        `select storage_kind from plugin_fs.fs_nodes where id=$1 and user_id=$2 and kind='file' and status='active'`,
+        [id, sess.userId],
+      );
+      const node = n.rows[0] as { storage_kind?: string } | undefined;
+      if (!node) return { error: "no such file", status: 404 };
+      if (node.storage_kind !== "local") return { error: `cannot edit a ${node.storage_kind} file here`, status: 400 };
+      await c.query(
+        `insert into plugin_fs.fs_blobs (node_id, user_id, data) values ($1,$2,$3)
+           on conflict (node_id) do update set data = excluded.data`,
+        [id, sess.userId, bytes],
+      );
+      await c.query(`update plugin_fs.fs_nodes set size_bytes=$3, updated_at=now() where id=$1 and user_id=$2`, [id, sess.userId, bytes.length]);
+      return { ok: true };
+    });
+    if ("error" in result) return Response.json({ error: result.error }, { status: result.status });
+    return Response.json({ ok: true });
+  } catch (err) {
+    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+  }
+}

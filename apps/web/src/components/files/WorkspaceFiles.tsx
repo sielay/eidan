@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { authFetch } from "@/lib/auth";
+import { FileScreen } from "@/components/files/FileScreen";
 
 // A folder-navigable explorer over the unified virtual filesystem (plugin_fs, DB-backed) PLUS a live
 // "Google Drive" mount. The current folder lives in the URL PATH (/files/<folder>/<sub>, no query
@@ -147,6 +148,7 @@ export function WorkspaceFiles(): React.ReactElement {
   const [error, setError] = React.useState<string | null>(null);
   const [reload, setReload] = React.useState(0);
   const [preview, setPreview] = React.useState<Entry | null>(null);
+  const [fileEntry, setFileEntry] = React.useState<Entry | null>(null); // terminal path segment is a file → file screen
   const [uploading, setUploading] = React.useState(false);
   const uploadRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -158,6 +160,7 @@ export function WorkspaceFiles(): React.ReactElement {
     let cancelled = false;
     setEntries(null);
     setError(null);
+    setFileEntry(null);
     void (async () => {
       try {
         const crumbList: Crumb[] = [{ name: "Files", segs: [] }];
@@ -178,12 +181,27 @@ export function WorkspaceFiles(): React.ReactElement {
           setInDrive(true); setFolderId(null);
         } else {
           let pid: string | null = null;
+          let terminalFile: Entry | null = null;
           for (let i = 0; i < segments.length; i++) {
             const children = await fsList(pid);
             const child = children.find((n) => n.kind === "folder" && n.name === segments[i]);
-            if (!child) throw new Error(`no such folder: ${segments[i]}`);
+            if (!child) {
+              // Not a folder — if it's the LAST segment and a file, open the file screen.
+              const f = i === segments.length - 1 ? children.find((n) => n.kind === "file" && n.name === segments[i]) : undefined;
+              if (f) {
+                terminalFile = { id: f.id, source: "fs", kind: "file", name: f.name, mime: f.mime, size: f.size_bytes };
+                crumbList.push({ name: segments[i] as string, segs: segments.slice(0, i + 1) });
+                break;
+              }
+              throw new Error(`no such folder: ${segments[i]}`);
+            }
             pid = child.id;
             crumbList.push({ name: segments[i] as string, segs: segments.slice(0, i + 1) });
+          }
+          if (terminalFile) {
+            if (cancelled) return;
+            setCrumbs(crumbList); setInDrive(false); setFileEntry(terminalFile); setEntries([]);
+            return;
           }
           const nodes = await fsList(pid);
           result = nodes.map((n) => ({ id: n.id, source: "fs" as const, kind: n.kind, name: n.name, mime: n.mime, size: n.size_bytes }));
@@ -210,9 +228,15 @@ export function WorkspaceFiles(): React.ReactElement {
   }, [pathname, reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const enter = (e: Entry): void => {
-    if (e.kind !== "folder") { setPreview(e); return; }
-    if (e.source === "gdrive-mount") navigate([DRIVE_SEG]);
-    else navigate([...segments, e.name]);
+    if (e.kind === "folder") {
+      if (e.source === "gdrive-mount") navigate([DRIVE_SEG]);
+      else navigate([...segments, e.name]);
+      return;
+    }
+    // A local file gets its own URL/screen (view + edit markdown + delete); Drive/artifact files
+    // keep the quick popup preview.
+    if (e.source === "fs") { navigate([...segments, e.name]); return; }
+    setPreview(e);
   };
 
   const onUpload = React.useCallback(async (fileList: FileList | null) => {
@@ -257,7 +281,9 @@ export function WorkspaceFiles(): React.ReactElement {
         </div>
       </div>
 
-      {error && (!entries || entries.length === 0) ? (
+      {fileEntry ? (
+        <FileScreen entry={fileEntry} onBack={() => navigate(segments.slice(0, -1))} onDeleted={() => navigate(segments.slice(0, -1))} />
+      ) : error && (!entries || entries.length === 0) ? (
         <div className="card" style={{ borderColor: "var(--alert)" }}>
           <div className="card__title">{inDrive ? "Google Drive" : "Couldn’t load files"}</div>
           <p className="screen-sub">{error}</p>

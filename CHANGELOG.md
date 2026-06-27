@@ -8,6 +8,10 @@ All notable changes to eidan are recorded here. The format follows
 
 ### Added
 
+- **Files open at their own permalink with a markdown editor** — clicking a local file navigates to its
+  `/files/<path>` URL (not a popup); markdown renders with GFM + **mermaid**/chart, and an **Edit** mode
+  gives an inline editor with **Save** (`PUT /api/fs/file`) — so you can draft a prompt spec as a file
+  and tweak it before pasting it into a chat. **Delete** + download from the same screen.
 - **Mermaid diagrams in chat** — ` ```mermaid ` fenced blocks render as diagrams (lazy-loaded;
   malformed diagrams fall back to source). Reused by the upcoming file markdown viewer.
 - **Delete a conversation** — from the row's kebab menu (soft-delete; messages kept for audit, the
