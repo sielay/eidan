@@ -108,9 +108,11 @@ export function resolveSections(
   });
   if (duplicates.length > 0) {
     const msg = `[nav] Duplicate section IDs detected (core/earlier plugins take precedence): ${duplicates.join(", ")}. This indicates a plugin configuration error.`;
-    console.error(msg);
     if (process.env.NODE_ENV === "development") {
+      console.error(msg);
       throw new Error(msg);
+    } else {
+      console.warn(msg);
     }
   }
   return result;
