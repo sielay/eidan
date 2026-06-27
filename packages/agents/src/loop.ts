@@ -60,7 +60,9 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   // must run on the node that has ollama). Unpinned agents may be fired by any node.
   const nodeId = process.env['EIDAN_NODE_ID'] ?? null;
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-  const trackedResponses = new Set<string>(); // escalation ids already processed
+  // escalation ids and their seen timestamps (for pruning); prune entries >1h old
+  const trackedResponses = new Map<string, number>();
+  const maxAgeMs = 60 * 60 * 1000; // 1 hour
 
   const fire = async (row: DueScheduleRow, fireKey: string, overridePersona?: string): Promise<void> => {
     const provider = effectiveProvider(services, row.provider ?? opts.defaultProvider, row.model);
@@ -103,6 +105,14 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
 
   const handleResponses = async (): Promise<void> => {
     try {
+      // Prune old tracked responses to prevent memory leak
+      const now = Date.now();
+      for (const [id, ts] of trackedResponses.entries()) {
+        if (now - ts > maxAgeMs) {
+          trackedResponses.delete(id);
+        }
+      }
+
       const agents = await store.responseTriggeredAgents();
       const esc = (services as { Escalations?: EscalationsLike }).Escalations;
       if (!esc) return; // escalations service not available
@@ -118,7 +128,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
         for (const resp of responses) {
           if (trackedResponses.has(resp.id)) continue; // already handled
           if (!resp.responded_at) continue; // shouldn't happen but safety check
-          trackedResponses.add(resp.id);
+          trackedResponses.set(resp.id, Date.now());
 
           // Blend the trigger prompt into the persona
           const feedback = resp.response?.feedback ?? '';
@@ -150,8 +160,8 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
       // owns its full lifecycle (finish/escalate in its own try/catch); the per-fire timeout bounds it.
       void fire(r, fireKey);
     }
-    // Response-triggered fires: scan and handle in parallel with schedule triggers
-    void handleResponses();
+    // Response-triggered fires: scan and handle with proper error handling
+    await handleResponses();
   };
 
   const loop = async (): Promise<void> => {
