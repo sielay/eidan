@@ -27,6 +27,64 @@ interface EdgeData {
   escalations: number;
 }
 
+interface QuadtreeNode {
+  x: number;
+  y: number;
+  size: number;
+  nodes: NodeData[];
+  children: QuadtreeNode[] | null;
+}
+
+function buildQuadtree(nodes: NodeData[], x: number, y: number, size: number): QuadtreeNode {
+  const qt: QuadtreeNode = { x, y, size, nodes: [], children: null };
+  const maxPerNode = 4;
+  const minSize = 20;
+
+  for (const node of nodes) {
+    if (node.x >= x && node.x < x + size && node.y >= y && node.y < y + size) {
+      qt.nodes.push(node);
+    }
+  }
+
+  if (qt.nodes.length > maxPerNode && size > minSize) {
+    const half = size / 2;
+    qt.children = [
+      buildQuadtree(qt.nodes, x, y, half),
+      buildQuadtree(qt.nodes, x + half, y, half),
+      buildQuadtree(qt.nodes, x, y + half, half),
+      buildQuadtree(qt.nodes, x + half, y + half, half),
+    ];
+  }
+
+  return qt;
+}
+
+function repulsionFromQuadtree(node: NodeData, qt: QuadtreeNode, force: number): { fx: number; fy: number } {
+  let fx = 0;
+  let fy = 0;
+  const minDist = 0.1;
+
+  if (qt.children) {
+    for (const child of qt.children) {
+      const { fx: cfx, fy: cfy } = repulsionFromQuadtree(node, child, force);
+      fx += cfx;
+      fy += cfy;
+    }
+  } else {
+    for (const other of qt.nodes) {
+      if (other.id === node.id) continue;
+      const dx = node.x - other.x || minDist;
+      const dy = node.y - other.y || minDist;
+      const dist = Math.sqrt(dx * dx + dy * dy) || minDist;
+      const f = force / (dist * dist);
+      fx += (dx / dist) * f;
+      fy += (dy / dist) * f;
+    }
+  }
+
+  return { fx, fy };
+}
+
 const COLORS = {
   enabled: "#10b981",
   disabled: "#6b7280",
@@ -44,6 +102,13 @@ export function AgentOrgChartPane(): React.ReactElement {
   const [nodes, setNodes] = React.useState<NodeData[]>([]);
   const [edges, setEdges] = React.useState<EdgeData[]>([]);
   const svgRef = React.useRef<SVGSVGElement>(null);
+  const simulationRef = React.useRef<{
+    nodes: NodeData[];
+    animating: boolean;
+    iterations: number;
+    velocityHistory: number[];
+    rafId: number | null;
+  } | null>(null);
 
   // Load agents and escalations
   React.useEffect(() => {
@@ -102,44 +167,49 @@ export function AgentOrgChartPane(): React.ReactElement {
   React.useEffect(() => {
     if (nodes.length === 0) return;
 
-    let animating = true;
-    let iterations = 0;
+    if (!simulationRef.current) {
+      simulationRef.current = {
+        nodes: nodes.map((n) => ({ ...n })),
+        animating: true,
+        iterations: 0,
+        velocityHistory: [],
+        rafId: null,
+      };
+    } else {
+      // Update working nodes from React state (syncs after external changes)
+      simulationRef.current.nodes = nodes.map((n) => ({ ...n }));
+      simulationRef.current.animating = true;
+      simulationRef.current.iterations = 0;
+      simulationRef.current.velocityHistory = [];
+    }
+
+    const sim = simulationRef.current;
     const maxIterations = 1000;
-    const nodesWorkingCopy = nodes.map((n) => ({ ...n }));
-    const velocityHistory: number[] = [];
     const convergenceWindow = 15;
-    let rafId: number | null = null;
 
     const animate = () => {
-      const nodeMap = new Map(nodesWorkingCopy.map(n => [n.id, n]));
       let maxVelocity = 0;
       const iterationsPerFrame = 2;
 
-      for (let iter = 0; iter < iterationsPerFrame && iterations < maxIterations && animating; iter++) {
+      for (let iter = 0; iter < iterationsPerFrame && sim.iterations < maxIterations && sim.animating; iter++) {
         const forces = new Map<string, { fx: number; fy: number }>();
 
         // Initialize forces for all nodes
-        for (const node of nodesWorkingCopy) {
+        for (const node of sim.nodes) {
           forces.set(node.id, { fx: 0, fy: 0 });
         }
 
-        // Repulsion between nodes
-        for (let i = 0; i < nodesWorkingCopy.length; i++) {
-          const node = nodesWorkingCopy[i];
+        // Repulsion between nodes using quadtree (O(N log N) instead of O(N²))
+        const qt = buildQuadtree(sim.nodes, 0, 0, 800);
+        for (const node of sim.nodes) {
+          const { fx, fy } = repulsionFromQuadtree(node, qt, 10000);
           const nodeForces = forces.get(node.id)!;
-          for (let j = 0; j < nodesWorkingCopy.length; j++) {
-            if (i === j) continue;
-            const other = nodesWorkingCopy[j];
-            const dx = node.x - other.x || 0.1;
-            const dy = node.y - other.y || 0.1;
-            const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-            const force = 10000 / (dist * dist);
-            nodeForces.fx += (dx / dist) * force;
-            nodeForces.fy += (dy / dist) * force;
-          }
+          nodeForces.fx += fx;
+          nodeForces.fy += fy;
         }
 
-        // Attraction along edges - iterate once for O(E) complexity
+        // Attraction along edges
+        const nodeMap = new Map(sim.nodes.map(n => [n.id, n]));
         for (const edge of edges) {
           const from = nodeMap.get(edge.from);
           const to = nodeMap.get(edge.to);
@@ -161,7 +231,7 @@ export function AgentOrgChartPane(): React.ReactElement {
         }
 
         // Apply velocity and position updates
-        for (const node of nodesWorkingCopy) {
+        for (const node of sim.nodes) {
           const nodeForces = forces.get(node.id)!;
           node.vx = (node.vx + nodeForces.fx * 0.01) * 0.95;
           node.vy = (node.vy + nodeForces.fy * 0.01) * 0.95;
@@ -176,35 +246,34 @@ export function AgentOrgChartPane(): React.ReactElement {
 
           maxVelocity = Math.max(maxVelocity, Math.abs(node.vx) + Math.abs(node.vy));
         }
-        iterations++;
+        sim.iterations++;
       }
 
-      // Deep copy nodes to ensure immutability for React state
-      setNodes(nodesWorkingCopy.map((n) => ({ ...n })));
+      // Deep copy to React state
+      setNodes(sim.nodes.map((n) => ({ ...n })));
 
-      // Check convergence: stop if velocity has stabilized
-      velocityHistory.push(maxVelocity);
-      if (velocityHistory.length > convergenceWindow) {
-        velocityHistory.shift();
-        const recentVelocities = velocityHistory.slice(-convergenceWindow);
+      // Check convergence
+      sim.velocityHistory.push(maxVelocity);
+      if (sim.velocityHistory.length > convergenceWindow) {
+        sim.velocityHistory.shift();
+        const recentVelocities = sim.velocityHistory.slice(-convergenceWindow);
         const velocityChange = Math.max(...recentVelocities) - Math.min(...recentVelocities);
         if (velocityChange < 0.01) {
-          animating = false;
+          sim.animating = false;
         }
       }
 
-      // Stop if converged, max iterations reached, or velocity below threshold
-      if (animating && maxVelocity > 0.1 && iterations < maxIterations) {
-        rafId = requestAnimationFrame(animate);
+      if (sim.animating && maxVelocity > 0.1 && sim.iterations < maxIterations) {
+        sim.rafId = requestAnimationFrame(animate);
       }
     };
 
-    rafId = requestAnimationFrame(animate);
+    sim.rafId = requestAnimationFrame(animate);
 
     return () => {
-      animating = false;
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
+      sim.animating = false;
+      if (sim.rafId !== null) {
+        cancelAnimationFrame(sim.rafId);
       }
     };
   }, [nodes, edges]);
