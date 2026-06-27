@@ -113,26 +113,27 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   const handleResponses = async (esc: EscalationsLike): Promise<void> => {
     let totalProcessed = 0;
     const maxPerTick = 20; // Limit responses processed per tick to prevent DB thrashing
-    let limitReached = false;
 
     try {
       const agents = await store.responseTriggeredAgents();
 
-      for (const a of agents) {
-        if (limitReached) break;
-        if (a.target_node && a.target_node !== nodeId) continue; // pinned to another node
+      // Batch-fetch all responses for all agents in parallel to reduce DB queries
+      const agentResponses = await Promise.all(
+        agents
+          .filter(a => !a.target_node || a.target_node === nodeId)
+          .map(a =>
+            esc.list({
+              userId: a.user_id,
+              toAgent: a.agent_id,
+              status: 'responded',
+              limit: 10,
+            }).then(responses => ({ agent: a, responses }))
+          )
+      );
 
-        const responses = await esc.list({
-          userId: a.user_id,
-          toAgent: a.agent_id,
-          status: 'responded',
-          limit: 10,
-        });
+      for (const { agent: a, responses } of agentResponses) {
         for (const resp of responses) {
-          if (totalProcessed >= maxPerTick) {
-            limitReached = true;
-            break;
-          }
+          if (totalProcessed >= maxPerTick) break;
           // Skip if already processed by agent system (checked via agent_response_processed_at)
           if (resp.agent_response_processed_at) continue;
           if (!resp.responded_at) continue; // shouldn't happen but safety check
@@ -149,8 +150,10 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
           const won = await store.claimRun(a.trigger_id, a.agent_id, a.user_id, fireKey);
           if (!won) continue; // another node is handling this fire
 
-          // Await fire to ensure sequential processing of responses for this agent
-          await fire(a, fireKey, blendedPersona);
+          // Non-blocking fire: allows concurrent processing of responses across agents while
+          // claimRun ensures only one node processes each response. Responses are marked
+          // processed after fire completes (fire handles both success and failure).
+          void fire(a, fireKey, blendedPersona);
           totalProcessed++;
 
           // Mark response as processed after fire (whether succeeded or failed—fire handles both)
@@ -158,6 +161,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
             /* best-effort; don't fail loop for escalation metadata */
           });
         }
+        if (totalProcessed >= maxPerTick) break;
       }
     } catch (e) {
       console.warn('[agents] response scan error:', e instanceof Error ? e.message : e);
