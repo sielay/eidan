@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Multi-format file parsers for PDF, images (OCR), DOCX, and Excel files.
 
-export interface TableRow {
-  rows: string[] | Record<string, unknown>[];
+export interface StringTableRow {
+  rows: string[];
   sheet?: string;
 }
+
+export interface ObjectTableRow {
+  rows: Record<string, unknown>[];
+  sheet?: string;
+}
+
+export type TableRow = StringTableRow | ObjectTableRow;
 
 export interface Section {
   heading: string;
@@ -38,13 +45,18 @@ export interface ParsedContent {
 
 export class ParseError extends Error {}
 
+// Helper to resolve module exports that use default or named export pattern.
+function resolveModule(mod: Record<string, any>): any {
+  return mod.default || mod;
+}
+
 // Tesseract.js worker singleton for reuse across multiple OCR calls.
 let tesseractWorker: any = null;
 
 async function getTesseractWorker() {
   if (!tesseractWorker) {
     const tesseract = await getTesseract();
-    const Tesseract = tesseract.default || tesseract;
+    const Tesseract = resolveModule(tesseract);
     tesseractWorker = await Tesseract.createWorker();
   }
   return tesseractWorker;
@@ -62,6 +74,11 @@ async function cleanupTesseractWorker() {
   }
 }
 
+// Export cleanup function for explicit termination (e.g., when plugin is unloaded).
+export async function cleanupOcrResources() {
+  await cleanupTesseractWorker();
+}
+
 if (typeof process !== 'undefined') {
   process.on('exit', cleanupTesseractWorker);
   process.on('SIGINT', async () => {
@@ -77,8 +94,9 @@ if (typeof process !== 'undefined') {
 // Dynamically load pdf-parse with error handling for missing dependency.
 async function getPdfParse(): Promise<(buffer: Uint8Array) => Promise<{ text: string; numpages: number; version?: string }>> {
   try {
-    const mod = await import('pdf-parse/lib/pdf-parse.js') as any;
-    return mod.default || mod;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('pdf-parse/lib/pdf-parse.js') as Record<string, any>;
+    return resolveModule(mod);
   } catch {
     throw new ParseError(
       'PDF parsing requires the pdf-parse library. Install with: pnpm add -w pdf-parse',
@@ -174,9 +192,10 @@ export async function parsePdf(bytes: Uint8Array): Promise<ParsedContent> {
 }
 
 // Dynamically load Tesseract.js for OCR with error handling.
-async function getTesseract(): Promise<any> {
+async function getTesseract(): Promise<Record<string, any>> {
   try {
-    return await import('tesseract.js') as any;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('tesseract.js') as Record<string, any>;
   } catch {
     throw new ParseError(
       'OCR is not available on this node. tesseract.js is an optional dependency (a heavy WASM ' +
@@ -215,9 +234,10 @@ export async function parseImageOcr(bytes: Uint8Array): Promise<ParsedContent> {
 }
 
 // Dynamically load mammoth for DOCX parsing.
-async function getMammoth(): Promise<any> {
+async function getMammoth(): Promise<Record<string, any>> {
   try {
-    return await import('mammoth') as any;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('mammoth') as Record<string, any>;
   } catch {
     throw new ParseError(
       'DOCX parsing requires the mammoth library. Install with: pnpm add -w mammoth',
@@ -279,9 +299,10 @@ export async function parseDocx(bytes: Uint8Array): Promise<ParsedContent> {
 }
 
 // Dynamically load xlsx for Excel parsing.
-async function getXlsx(): Promise<any> {
+async function getXlsx(): Promise<Record<string, any>> {
   try {
-    return await import('xlsx') as any;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('xlsx') as Record<string, any>;
   } catch {
     throw new ParseError(
       'Excel parsing requires the xlsx library. Install with: pnpm add -w xlsx',
