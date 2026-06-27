@@ -695,7 +695,7 @@ export async function handleRest(
         return true;
       }
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
-      json(res, 200, { id: row.id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at ?? row.created_at) }, cors);
+      json(res, 200, { id: row.id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at ?? row.created_at ?? '') }, cors);
       return true;
     }
 
