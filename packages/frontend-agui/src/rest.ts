@@ -603,7 +603,7 @@ export async function handleRest(
 
     if (sub === undefined && method === 'PATCH') {
       let body: { title?: string | null; starred?: boolean } = {};
-      try { body = JSON.parse(await readBody(req)) as { title?: string | null; starred?: boolean }; } catch { /* */ }
+      try { body = JSON.parse(await readBody(req, 16384)) as { title?: string | null; starred?: boolean }; } catch { /* */ }
       const updates: string[] = ['updated_at=now()'];
       const vals: unknown[] = [id, uid];
       if ('title' in body) { vals.push((body.title ?? '').toString().trim() || null); updates.push(`title=$${vals.length}`); }
