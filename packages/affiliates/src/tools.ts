@@ -375,11 +375,15 @@ async function generateLink(
       const apiEndpoint = program.api_endpoint ? String(program.api_endpoint).trim() : '';
       const baseUrl = signupUrl || apiEndpoint;
 
-      if (!baseUrl) {
-        throw new Error('Signup URL or API endpoint required for URL format');
+      if (!baseUrl || typeof baseUrl !== 'string') {
+        throw new Error('Valid signup URL or API endpoint required for URL format');
       }
 
       const affiliateIdValue = await getCredentialValue(affiliateIdCred);
+      if (!affiliateIdValue) {
+        throw new Error('Credential value is empty or invalid');
+      }
+
       const separator = baseUrl.includes('?') ? '&' : '?';
 
       if (program.provider === 'amazon' || program.provider === 'kdp') {
@@ -393,8 +397,8 @@ async function generateLink(
 
     case 'api': {
       const apiEndpoint = program.api_endpoint ? String(program.api_endpoint).trim() : '';
-      if (!apiEndpoint) {
-        throw new Error('API endpoint required for API format');
+      if (!apiEndpoint || typeof apiEndpoint !== 'string') {
+        throw new Error('Valid API endpoint required for API format');
       }
 
       const apiKeyCred = credentials.find((c) => c.credential_type === 'api_key');
@@ -402,16 +406,20 @@ async function generateLink(
         throw new Error('API key credential required for API format');
       }
 
-      // Security: API keys must NOT be embedded in URLs (exposure risk in logs, browser history, referrer headers).
-      // Callers must transmit the API key server-side via POST request body if the API supports it,
-      // or ensure this endpoint is only used in server-side requests, never client-side.
+      // Security: CRITICAL - API keys must NEVER be embedded in URLs or query parameters.
+      // URLs are logged in browser history, server logs, and transmitted in Referer headers.
+      // Instead, callers MUST:
+      // 1. Use the API key in the Authorization header (POST/GET with Bearer token), or
+      // 2. Send the API key in the request body (POST only), or
+      // 3. Call this endpoint only from server-side code with the key in memory.
+      // Never expose this endpoint in client-side code with the credential.
       return apiEndpoint;
     }
 
     case 'pixel': {
       const pixelEndpoint = program.api_endpoint ? String(program.api_endpoint).trim() : '';
-      if (!pixelEndpoint) {
-        throw new Error('API endpoint (pixel src) required for pixel format');
+      if (!pixelEndpoint || typeof pixelEndpoint !== 'string') {
+        throw new Error('Valid API endpoint (pixel src) required for pixel format');
       }
 
       const trackingCodeCred = credentials.find((c) => c.credential_type === 'tracking_code');
@@ -420,10 +428,15 @@ async function generateLink(
       const trackingCodeValue = await getCredentialValue(trackingCodeCred);
       const separator = pixelEndpoint.includes('?') ? '&' : '?';
 
-      // Security: Tracking code and content ID are exposed in the pixel URL (data exposure concern).
-      // Consider implementing this as a server-side call if tracking sensitive data.
-      // For client-side pixels, ensure only non-sensitive tracking codes are used.
-      return `<img src="${pixelEndpoint}${separator}code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}" width="1" height="1" />`;
+      // Security WARNING: Tracking code and content ID are exposed in the pixel URL.
+      // NEVER include PII, API keys, or sensitive user data in tracking parameters.
+      // Risks: URL visible in browser history, server logs, and Referer headers.
+      // For sensitive tracking data, implement this on the server-side instead:
+      // 1. Generate the pixel URL on your backend with the tracking code
+      // 2. Call the pixel endpoint from your backend, never expose it to clients
+      // 3. Return a placeholder or 1x1 transparent GIF to the client
+      const pixelUrl = `${pixelEndpoint}${separator}code=${encodeURIComponent(trackingCodeValue)}&content=${encodeURIComponent(contentId || '')}`;
+      return `<img src="${pixelUrl}" width="1" height="1" alt="" />`;
     }
 
     default:
