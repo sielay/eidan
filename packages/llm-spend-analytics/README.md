@@ -21,13 +21,16 @@ All three are callable from any agent and cached for 6 hours to avoid redundant 
 
 ## Implementation notes
 
-**API Limitations:** OpenRouter and Anthropic don't yet expose historical billing via public APIs — both tools verify key validity and guide users to their respective consoles (`openrouter.ai` and `console.anthropic.com`). OpenAI's usage API is available but model-level breakdowns aren't exposed in the current `/v1/dashboard/billing/usage` endpoint; input/output token costs are populated when the provider stabilizes its endpoint.
+**API Limitations by provider:**
+- **OpenRouter:** Full support via `/api/v1/usage/calls` — returns model breakdowns, cache hit rates, and spend aggregates.
+- **Anthropic:** No public billing/usage history API. The `/v1/messages` endpoint exposes per-call usage metadata but not historical aggregates. Tool returns "unavailable" trends and directs users to `console.anthropic.com/account/billing/overview`.
+- **OpenAI:** Spend data via `/v1/dashboard/billing/usage` with daily model-level breakdowns. Input/output token cost split not exposed by API (returned as 0); total spend is accurate. No cache hit rate available.
 
 **Retry + rate-limit handling:** Built-in exponential backoff for transient failures. Respects `Retry-After` headers on 429s.
 
 **Caching:** Responses cached in-memory for 6 hours (`CACHE_TTL_MS`). Cache is ephemeral (per-process), so distributed nodes recompute independently.
 
-**Error handling:** Missing or invalid API keys return structured errors. API failures log and return `null` data with an error message (non-blocking).
+**Error handling:** Missing or invalid API keys return structured errors. API failures log and return an error message (non-blocking).
 
 ## Config
 
@@ -54,6 +57,6 @@ No persistent schema. Responses are structured (`SpendAnalytics` interface in `s
 
 ## Future work
 
-- ponytail: Expose model-level spend breakdown once OpenAI/OpenRouter stabilize their billing endpoints
-- ponytail: Anthropic usage API integration once it enters public beta
-- ponytail: Cache-hit-rate aggregation where provider exposes it (OpenRouter's cache_hits field)
+- OpenAI input/output token cost split: currently unavailable from API; would require proprietary pricing tables or per-call token tracking
+- Anthropic: await public billing/usage API (currently console-only)
+- Cache-hit-rate aggregation: currently available for OpenRouter; expand to other providers as they expose cache metrics

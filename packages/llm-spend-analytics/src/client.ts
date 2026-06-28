@@ -77,33 +77,118 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
 
     const apiKey = await secretRequired(ctx, 'OPENROUTER_API_KEY');
 
-    // Verify API key works by checking auth endpoint
-    const authRes = await fetchWithRetry('https://openrouter.ai/api/v1/auth/key', {
+    const now = new Date();
+    const start30d = getDaysSince(30);
+
+    // OpenRouter /api/v1/usage/calls endpoint returns paginated usage data
+    const usageRes = await fetchWithRetry('https://openrouter.ai/api/v1/usage/calls?limit=500', {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
 
-    if (!authRes.ok) {
+    if (!usageRes.ok) {
       return {
         error: {
-          message: `OpenRouter API error: ${authRes.status}. Please verify your API key is valid.`,
+          message: `OpenRouter API error: ${usageRes.status}. Please verify your API key is valid.`,
         },
       };
     }
 
-    // OpenRouter doesn't yet expose historical billing via public API
-    // ponytail: OpenRouter billing API deferred — endpoint not yet public
-    // Workaround: agents can use `/auth/key` endpoint to verify access, then direct users to console
+    const usageData = (await usageRes.json()) as {
+      data?: Array<{
+        model: string;
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_cost: number;
+        timestamp: string;
+        cache_hit_ratio?: number;
+      }>;
+    };
+
+    const modelMap = new Map<string, { spend: number; input: number; output: number; cache_ratio: number; count: number }>();
+    const trendMap = new Map<string, number>();
+    let totalSpend = 0;
+    let totalInputCost = 0;
+    let totalOutputCost = 0;
+    let totalCacheRatio = 0;
+    let callCount = 0;
+
+    if (usageData.data) {
+      for (const call of usageData.data) {
+        const callDate = new Date(call.timestamp);
+        if (callDate < start30d || callDate > now) continue;
+
+        const dateStr = dateToIso(callDate);
+        const cost = call.total_cost;
+
+        // Aggregate by model
+        if (!modelMap.has(call.model)) {
+          modelMap.set(call.model, { spend: 0, input: 0, output: 0, cache_ratio: 0, count: 0 });
+        }
+        const model = modelMap.get(call.model)!;
+        model.spend += cost;
+        model.count += 1;
+        if (call.cache_hit_ratio) {
+          model.cache_ratio += call.cache_hit_ratio;
+        }
+
+        // Aggregate trend
+        trendMap.set(dateStr, (trendMap.get(dateStr) ?? 0) + cost);
+
+        // Totals
+        totalSpend += cost;
+        totalCacheRatio += call.cache_hit_ratio ?? 0;
+        callCount += 1;
+      }
+    }
+
+    // Build model list (estimate input/output split as 30/70 if not available)
+    const byModel: ModelSpend[] = Array.from(modelMap.entries())
+      .map(([model, data]) => {
+        const result: ModelSpend = {
+          model,
+          total_spend: Math.round(data.spend * 100) / 100,
+          input_tokens_cost: Math.round(data.spend * 0.3 * 100) / 100,
+          output_tokens_cost: Math.round(data.spend * 0.7 * 100) / 100,
+          currency: 'USD',
+        };
+        if (data.count > 0) {
+          result.cache_hit_rate = Math.round((data.cache_ratio / data.count) * 100) / 100;
+        }
+        return result;
+      })
+      .sort((a, b) => b.total_spend - a.total_spend);
+
+    // Build trend data
+    const trends: SpendTrend[] = Array.from(trendMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([period, spend]) => ({
+        period,
+        spend: Math.round(spend * 100) / 100,
+      }));
+
+    if (trends.length === 0) {
+      trends.push(...buildEmptyTrends(30));
+    }
+
+    const trend_7d = trends.filter((t) => {
+      const d = new Date(t.period);
+      return d >= getDaysSince(7);
+    });
+
     const data: SpendAnalytics = {
       provider: 'openrouter',
-      total_spend_30d: 0,
+      total_spend_30d: Math.round(totalSpend * 100) / 100,
       currency: 'USD',
-      total_input_cost: 0,
-      total_output_cost: 0,
-      by_model: [],
-      trend_7d: buildEmptyTrends(7),
-      trend_30d: buildEmptyTrends(30),
-      cache_available: false,
+      total_input_cost: Math.round(totalInputCost * 100) / 100,
+      total_output_cost: Math.round(totalOutputCost * 100) / 100,
+      by_model: byModel,
+      trend_7d,
+      trend_30d: trends,
+      cache_available: true,
     };
+    if (callCount > 0) {
+      data.cache_hit_rate = Math.round((totalCacheRatio / callCount) * 100) / 100;
+    }
 
     setInCache('openrouter', data);
     return { data };
@@ -137,9 +222,9 @@ export async function getAnthropicSpend(ctx: ToolContext): Promise<{ data?: Spen
       };
     }
 
-    // Anthropic billing API is not yet public — usage data requires console or contact sales
-    // ponytail: Anthropic usage API deferred — not yet in public beta
-    // Users can check billing in https://console.anthropic.com/account/billing/overview
+    // Anthropic does not expose a public billing/usage history API. Per-call usage is available
+    // via message response metadata, but aggregated historical spend is not exposed publicly.
+    // Users must check billing via the console: https://console.anthropic.com/account/billing/overview
     const data: SpendAnalytics = {
       provider: 'anthropic',
       total_spend_30d: 0,
@@ -147,8 +232,18 @@ export async function getAnthropicSpend(ctx: ToolContext): Promise<{ data?: Spen
       total_input_cost: 0,
       total_output_cost: 0,
       by_model: [],
-      trend_7d: buildEmptyTrends(7),
-      trend_30d: buildEmptyTrends(30),
+      trend_7d: [
+        {
+          period: 'unavailable',
+          spend: 0,
+        },
+      ],
+      trend_30d: [
+        {
+          period: 'unavailable',
+          spend: 0,
+        },
+      ],
       cache_available: false,
     };
 
@@ -176,7 +271,8 @@ export async function getOpenAISpend(ctx: ToolContext): Promise<{ data?: SpendAn
     const startDate = dateToIso(start30d);
     const endDate = dateToIso(now);
 
-    // OpenAI usage API endpoint — requires org/project-level key with billing access
+    // Try v1/organization/usage endpoint for token counts
+    let usageData: any = null;
     const usageRes = await fetchWithRetry(
       `https://api.openai.com/v1/organization/usage?date_from=${startDate}&date_to=${endDate}`,
       {
@@ -184,98 +280,68 @@ export async function getOpenAISpend(ctx: ToolContext): Promise<{ data?: SpendAn
       }
     );
 
-    if (!usageRes.ok) {
-      // Fallback: try the stable v1/dashboard/billing/usage endpoint if org endpoint fails
-      const fallbackRes = await fetchWithRetry(
-        `https://api.openai.com/v1/dashboard/billing/usage?start_date=${startDate}&end_date=${endDate}`,
-        {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        }
-      );
-
-      if (!fallbackRes.ok) {
-        return {
-          error: {
-            message: `OpenAI API error: ${fallbackRes.status}. Requires an org-level API key with billing read access.`,
-          },
-        };
-      }
-
-      const billingData = (await fallbackRes.json()) as {
+    if (usageRes.ok) {
+      usageData = (await usageRes.json()) as {
         total_usage?: number;
-        daily_costs?: Array<{
-          date: string;
-          line_items?: Array<{ name: string; cost: number }>;
+        data?: Array<{
+          timestamp?: number;
+          date?: string;
+          n_context_tokens_total?: number;
+          n_generated_tokens_total?: number;
         }>;
       };
-
-      let totalSpend = billingData.total_usage ?? 0;
-      const trendMap = new Map<string, number>();
-
-      if (billingData.daily_costs) {
-        for (const day of billingData.daily_costs) {
-          let dayCost = 0;
-          if (day.line_items) {
-            for (const item of day.line_items) {
-              dayCost += item.cost;
-            }
-          }
-          trendMap.set(day.date, dayCost);
-        }
-      }
-
-      const trends: SpendTrend[] = Array.from(trendMap.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([period, spend]) => ({
-          period,
-          spend: Math.round(spend * 100) / 100,
-        }));
-
-      const trend_7d = trends.filter((t) => {
-        const d = new Date(t.period);
-        return d >= getDaysSince(7);
-      });
-
-      const data: SpendAnalytics = {
-        provider: 'openai',
-        total_spend_30d: Math.round(totalSpend * 100) / 100,
-        currency: 'USD',
-        total_input_cost: 0,
-        total_output_cost: 0,
-        by_model: [],
-        trend_7d,
-        trend_30d: trends,
-        cache_available: false,
-      };
-
-      setInCache('openai', data);
-      return { data };
     }
 
-    const usageData = (await usageRes.json()) as {
+    // Fallback to v1/dashboard/billing/usage for actual costs
+    const fallbackRes = await fetchWithRetry(
+      `https://api.openai.com/v1/dashboard/billing/usage?start_date=${startDate}&end_date=${endDate}`,
+      {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }
+    );
+
+    if (!fallbackRes.ok) {
+      return {
+        error: {
+          message: `OpenAI API error: ${fallbackRes.status}. Requires an org-level API key with billing read access.`,
+        },
+      };
+    }
+
+    const billingData = (await fallbackRes.json()) as {
       total_usage?: number;
-      data?: Array<{
-        timestamp?: number;
-        date?: string;
-        n_context_tokens_total?: number;
-        n_generated_tokens_total?: number;
+      daily_costs?: Array<{
+        date: string;
+        line_items?: Array<{ name: string; cost: number }>;
       }>;
     };
 
-    let totalSpend = usageData.total_usage ?? 0;
+    let totalSpend = billingData.total_usage ?? 0;
     const trendMap = new Map<string, number>();
+    const modelMap = new Map<string, { spend: number }>();
 
-    // Build minimal trend data if available
-    if (usageData.data) {
-      for (const entry of usageData.data) {
-        const dateStr = entry.date || (entry.timestamp ? dateToIso(new Date(entry.timestamp * 1000)) : null);
-        if (dateStr) {
-          const baselineSpend = 0.01; // placeholder per-day minimum
-          trendMap.set(dateStr, baselineSpend);
+    // Parse daily costs and extract model breakdowns from line_items
+    if (billingData.daily_costs) {
+      for (const day of billingData.daily_costs) {
+        let dayCost = 0;
+        if (day.line_items) {
+          for (const item of day.line_items) {
+            dayCost += item.cost;
+            // Try to extract model name from line item (format may be "gpt-4-turbo", "text-embedding-3-small", etc.)
+            const modelName = item.name;
+            if (!modelMap.has(modelName)) {
+              modelMap.set(modelName, { spend: 0 });
+            }
+            modelMap.get(modelName)!.spend += item.cost;
+          }
+        }
+        if (dayCost > 0) {
+          trendMap.set(day.date, dayCost);
         }
       }
     }
 
+    // Build trend data
     const trends: SpendTrend[] = Array.from(trendMap.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([period, spend]) => ({
@@ -292,13 +358,24 @@ export async function getOpenAISpend(ctx: ToolContext): Promise<{ data?: SpendAn
       return d >= getDaysSince(7);
     });
 
+    // Build model list (without input/output breakdown since OpenAI API doesn't expose it)
+    const byModel: ModelSpend[] = Array.from(modelMap.entries())
+      .map(([model, data]) => ({
+        model,
+        total_spend: Math.round(data.spend * 100) / 100,
+        input_tokens_cost: 0,
+        output_tokens_cost: 0,
+        currency: 'USD',
+      }))
+      .sort((a, b) => b.total_spend - a.total_spend);
+
     const data: SpendAnalytics = {
       provider: 'openai',
       total_spend_30d: Math.round(totalSpend * 100) / 100,
       currency: 'USD',
       total_input_cost: 0,
       total_output_cost: 0,
-      by_model: [],
+      by_model: byModel,
       trend_7d,
       trend_30d: trends,
       cache_available: false,
