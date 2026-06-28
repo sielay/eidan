@@ -94,20 +94,23 @@ export function makeTurnHandler(provider: string): JobHandler {
         }
         pendingUsage.length = 0;
       };
-      for await (const ev of view.events) {
-        if (ev.type === 'done') { final = ev.session; break; }
-        if (ev.type === 'error') throw new Error(ev.error);
-        if (ev.type === 'aborted') throw new Error(`aborted: ${ev.reason}`);
-        if (ev.type === 'usage') {
-          pendingUsage.push({
-            inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
-            ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
-            ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
-            ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
-          });
+      try {
+        for await (const ev of view.events) {
+          if (ev.type === 'done') { final = ev.session; break; }
+          if (ev.type === 'error') throw new Error(ev.error);
+          if (ev.type === 'aborted') throw new Error(`aborted: ${ev.reason}`);
+          if (ev.type === 'usage') {
+            pendingUsage.push({
+              inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
+              ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
+              ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
+              ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
+            });
+          }
         }
+      } finally {
+        flushUsage();
       }
-      flushUsage();
       return { result: { sessionId: session.id, text: final ? lastAssistantText(final) : '' } };
     });
   };

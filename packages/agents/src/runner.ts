@@ -140,20 +140,23 @@ export async function runAgentTurn(
         }
         pendingUsage.length = 0;
       };
-      for await (const ev of view.events) {
-        if (ev.type === 'done') { final = ev.session; break; }
-        if (ev.type === 'error') throw new Error(ev.error);
-        if (ev.type === 'aborted') throw new Error(`aborted: ${ev.reason ?? 'timeout'}`);
-        if (ev.type === 'usage') {
-          pendingUsage.push({
-            inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
-            ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
-            ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
-            ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
-          });
+      try {
+        for await (const ev of view.events) {
+          if (ev.type === 'done') { final = ev.session; break; }
+          if (ev.type === 'error') throw new Error(ev.error);
+          if (ev.type === 'aborted') throw new Error(`aborted: ${ev.reason ?? 'timeout'}`);
+          if (ev.type === 'usage') {
+            pendingUsage.push({
+              inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
+              ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
+              ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
+              ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
+            });
+          }
         }
+      } finally {
+        flushUsage();
       }
-      flushUsage();
       return { text: final ? lastAssistantText(final) : '', conversationId: session.id };
     } finally {
       if (timer !== undefined) clearTimeout(timer);

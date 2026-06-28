@@ -127,20 +127,23 @@ async function messageSend(res: ServerResponse, services: MatbotServices, opts: 
       }
       pendingUsage.length = 0;
     };
-    for await (const ev of view.events) {
-      if (ev.type === 'done') { final = ev.session; break; }
-      if (ev.type === 'error') { errored = ev.error; break; }
-      if (ev.type === 'aborted') { errored = ev.reason; break; }
-      if (ev.type === 'usage') {
-        pendingUsage.push({
-          inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
-          ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
-          ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
-          ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
-        });
+    try {
+      for await (const ev of view.events) {
+        if (ev.type === 'done') { final = ev.session; break; }
+        if (ev.type === 'error') { errored = ev.error; break; }
+        if (ev.type === 'aborted') { errored = ev.reason; break; }
+        if (ev.type === 'usage') {
+          pendingUsage.push({
+            inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
+            ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
+            ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
+            ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
+          });
+        }
       }
+    } finally {
+      flushUsage();
     }
-    flushUsage();
     if (errored !== undefined) { json(res, 200, { jsonrpc: '2.0', id, error: { code: -32603, message: errored } }); return; }
     const answer = final ? lastAssistantText(final) : '';
     const task = {
