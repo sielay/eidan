@@ -13,7 +13,7 @@ Public API:
 - `parseConfigMarkdown(markdown)` — Separate static from dynamic sections
 - `extractCacheSection(markdown, name)` — Extract a single cache section
 - `extractAllCacheSections(markdown)` — Extract all cache sections
-- `annotateForCaching(provider, sections)` — Generate provider-specific cache metadata
+- `annotateForCaching(provider, sections, markdown)` — Generate provider-specific cache metadata
 - `computeFileHash(content)` — Hash for cache invalidation
 - `loadConfigWithCache(path, content, provider)` — Load with built-in caching
 - `stripCacheMarkers(markdown)` — Remove markers (backward compat)
@@ -83,7 +83,7 @@ Supported providers: Claude, DeepSeek, OpenAI
 2. Parse: parseConfigMarkdown(fileContent)
    → { staticSections, dynamicContent }
 3. Use dynamicContent fresh in agent logic
-4. Annotate static: annotateForCaching('claude', staticSections)
+4. Annotate static: annotateForCaching('claude', staticSections, fileContent)
    → { text, cacheMetadata }
 5. Pass cacheMetadata to LLM provider
    → Provider adds cache_control headers

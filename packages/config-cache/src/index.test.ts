@@ -99,26 +99,31 @@ Dynamic here
 });
 
 test('annotateForCaching adds provider-specific metadata', () => {
+  const markdown = `
+<!-- CACHE_STATIC_ROUTING_START -->
+table
+<!-- CACHE_STATIC_ROUTING_END -->
+`;
   const sections: CacheSection[] = [
-    { name: 'routing', content: 'table', startLine: 10, endLine: 20, startMarker: '<!--', endMarker: '-->' },
+    { name: 'routing', content: 'table', startLine: 10, endLine: 20, startMarker: '<!-- CACHE_STATIC_ROUTING_START -->', endMarker: '<!-- CACHE_STATIC_ROUTING_END -->' },
   ];
 
-  const result = annotateForCaching('claude', sections);
+  const result = annotateForCaching('claude', sections, markdown);
   assert(result.cacheMetadata, 'should have cacheMetadata');
   const meta = result.cacheMetadata as Record<string, unknown>;
   assert.equal(meta.provider, 'claude');
   assert.equal(meta.cacheStrategy, 'claude-custom-cache-control');
 
-  const deepseekResult = annotateForCaching('deepseek', sections);
+  const deepseekResult = annotateForCaching('deepseek', sections, markdown);
   const deepMeta = deepseekResult.cacheMetadata as Record<string, unknown>;
   assert.equal(deepMeta.cacheStrategy, 'deepseek-ephemeral');
 
-  const openaiResult = annotateForCaching('openai', sections);
+  const openaiResult = annotateForCaching('openai', sections, markdown);
   const openMeta = openaiResult.cacheMetadata as Record<string, unknown>;
   assert.equal(openMeta.cacheStrategy, 'openai-prompt-cache');
 });
 
 test('annotateForCaching with empty sections returns empty metadata', () => {
-  const result = annotateForCaching('claude', []);
+  const result = annotateForCaching('claude', [], '');
   assert.deepEqual(result.cacheMetadata, {});
 });

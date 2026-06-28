@@ -160,10 +160,10 @@ You route events to ventures based on keywords.
 
 | Provider | Cache Type | Status | Notes |
 |----------|-----------|--------|-------|
-| Claude 3.5 Sonnet | X-Custom-Cache-Control | ✓ Supported | Use `annotateForCaching('claude', sections)` |
+| Claude 3.5 Sonnet | X-Custom-Cache-Control | ✓ Supported | Use `annotateForCaching('claude', sections, markdown)` |
 | Claude 3 Opus | X-Custom-Cache-Control | ✓ Supported | Same as Sonnet |
-| DeepSeek | Ephemeral cache | ✓ Supported | Use `annotateForCaching('deepseek', sections)` |
-| OpenAI GPT-4 | Prompt cache control | ✓ Supported | Use `annotateForCaching('openai', sections)` |
+| DeepSeek | Ephemeral cache | ✓ Supported | Use `annotateForCaching('deepseek', sections, markdown)` |
+| OpenAI GPT-4 | Prompt cache control | ✓ Supported | Use `annotateForCaching('openai', sections, markdown)` |
 | Other | None | ✗ Falls back | No caching; files read fresh |
 
 ## Testing

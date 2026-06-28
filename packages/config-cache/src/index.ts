@@ -147,9 +147,11 @@ export function addCacheControlOpenAI(
 }
 
 // Provider-agnostic wrapper: given a provider name, apply the appropriate cache control.
+// Accepts original markdown to extract sections with preserved formatting.
 export function annotateForCaching(
   provider: Provider,
   sections: CacheSection[],
+  markdown: string,
 ): { text: string; cacheMetadata: Record<string, unknown> } {
   if (sections.length === 0) {
     return { text: '', cacheMetadata: {} };
@@ -167,8 +169,28 @@ export function annotateForCaching(
     metadata.cacheStrategy = 'openai-prompt-cache';
   }
 
-  // Reconstruct the static sections content with cache markers
-  const text = sections.map((s) => `${s.startMarker}\n${s.content}\n${s.endMarker}`).join('\n\n');
+  // Extract sections directly from original markdown to preserve exact formatting
+  const positions: Array<{ start: number; end: number }> = [];
+  for (const section of sections) {
+    const startIdx = markdown.indexOf(section.startMarker);
+    const endIdx = markdown.indexOf(section.endMarker, startIdx);
+    if (startIdx !== -1 && endIdx !== -1) {
+      positions.push({ start: startIdx, end: endIdx + section.endMarker.length });
+    }
+  }
+
+  // Build text preserving original spacing between sections
+  let text = '';
+  for (let i = 0; i < positions.length; i++) {
+    if (i === 0) {
+      text = markdown.substring(positions[i].start, positions[i].end);
+    } else {
+      const prevEnd = positions[i - 1].end;
+      const currStart = positions[i].start;
+      const spacing = markdown.substring(prevEnd, currStart);
+      text += spacing + markdown.substring(currStart, positions[i].end);
+    }
+  }
 
   return { text, cacheMetadata: metadata };
 }

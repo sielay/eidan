@@ -50,7 +50,7 @@ const { staticSections, dynamicContent } = parseConfigMarkdown(file.content);
 // Example: parse venture keywords from dynamicContent
 
 // Annotate static sections for caching
-const { text, cacheMetadata } = annotateForCaching('claude', staticSections);
+const { text, cacheMetadata } = annotateForCaching('claude', staticSections, file.content);
 // cacheMetadata tells the provider to cache these sections
 ```
 
@@ -200,7 +200,7 @@ const { staticSections, dynamicContent } = parseConfigMarkdown(markdown);
 ```typescript
 import { annotateForCaching } from '@eidandev/config-cache';
 
-const { text, cacheMetadata } = annotateForCaching('claude', staticSections);
+const { text, cacheMetadata } = annotateForCaching('claude', staticSections, markdown);
 // cacheMetadata: { provider, sections, cacheStrategy, ... }
 // Pass metadata to provider adapter
 ```

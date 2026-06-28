@@ -24,7 +24,7 @@ const { staticSections, dynamicContent } = parseConfigMarkdown(markdown);
 
 // 4. Annotate static sections for the LLM's caching layer
 const provider = 'claude'; // or 'deepseek', 'openai'
-const { text: staticText, cacheMetadata } = annotateForCaching(provider, staticSections);
+const { text: staticText, cacheMetadata } = annotateForCaching(provider, staticSections, markdown);
 
 // 5. Pass cacheMetadata to the provider (framework integration point)
 // This tells Claude/DeepSeek/OpenAI to cache the static sections

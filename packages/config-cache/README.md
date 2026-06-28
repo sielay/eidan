@@ -28,7 +28,7 @@ Mark immutable sections with cache markers; the framework separates them and ann
 import { parseConfigMarkdown, annotateForCaching } from '@eidandev/config-cache';
 
 const { staticSections, dynamicContent } = parseConfigMarkdown(markdown);
-const { text, cacheMetadata } = annotateForCaching('claude', staticSections);
+const { text, cacheMetadata } = annotateForCaching('claude', staticSections, markdown);
 // Pass cacheMetadata to provider; use dynamicContent fresh in your logic
 ```
 
@@ -50,7 +50,7 @@ extractAllCacheSections(markdown: string): CacheSection[]
 ### Annotate
 
 ```typescript
-annotateForCaching(provider: Provider, sections: CacheSection[]): { text: string; cacheMetadata }
+annotateForCaching(provider: Provider, sections: CacheSection[], markdown: string): { text: string; cacheMetadata }
 // Generate provider-specific cache annotations (Claude, DeepSeek, OpenAI)
 
 addCacheControlClaude(text: string, sections: CacheSection[]): { text, cacheHints }
@@ -141,7 +141,7 @@ const { staticSections, dynamicContent } = parseConfigMarkdown(fileResult.conten
 
 // Annotate static sections for caching
 const provider = 'claude'; // or 'deepseek', 'openai'
-const { text, cacheMetadata } = annotateForCaching(provider, staticSections);
+const { text, cacheMetadata } = annotateForCaching(provider, staticSections, fileResult.content);
 
 // Pass cacheMetadata to LLM provider (framework integration point)
 // This tells Claude/DeepSeek/OpenAI to cache the static sections
