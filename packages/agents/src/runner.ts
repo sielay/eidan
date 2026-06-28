@@ -123,7 +123,7 @@ const AGENT_FRAMING = [
   '',
   '— Your role and task —',
   '',
-].join('\n');
+];
 
 // Run an agent's persona as a single turn under the owner's identity (so the conversation + memory
 // writes persist as that user), using the agent's own provider. Returns the final assistant text and
@@ -164,7 +164,7 @@ export async function runAgentTurn(
     try {
       const tz = timezone ?? 'UTC';
       const contextBlock = generateContextBlock(new Date(), tz);
-      const framing = [contextBlock, AGENT_FRAMING, persona].filter(Boolean).join('\n\n');
+      const framing = [contextBlock, ...AGENT_FRAMING, persona].filter(Boolean).join('\n\n');
       const view = await run.open({
         sessionId: session.id, signal: ac.signal,
         content: [{ type: 'text', text: framing }], provider, principal,
