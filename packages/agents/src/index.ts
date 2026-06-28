@@ -75,3 +75,7 @@ export const plugin: MatbotPluginSpec = {
     if (db) await db.close();
   },
 };
+
+// Re-export config caching utilities for agent authors
+export { AGENT_CONFIG_LOADER_TEMPLATE, CACHE_SECTION_CONVENTIONS } from './config-loader.js';
+export type { } from '@eidandev/config-cache';
