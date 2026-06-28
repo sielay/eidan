@@ -159,6 +159,8 @@ export async function runAgentTurn(
     // timeout also bounds resource use per fire.
     const timer = timeoutMs && timeoutMs > 0 ? setTimeout(() => ac.abort(), timeoutMs) : undefined;
     try {
+      // timezone comes from store.userTimeZone() which always returns a valid string (defaults to 'UTC').
+      // The fallback here handles edge cases where timezone might be undefined.
       const tz = timezone ?? 'UTC';
       const contextBlock = generateContextBlock(new Date(), tz);
       const framing = [contextBlock, AGENT_FRAMING, persona].filter(Boolean).join('\n\n');
