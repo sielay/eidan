@@ -5,9 +5,11 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { createAgent, updateAgent, type OpenRouterModel, type ToolCatalogEntry } from "@/lib/api/admin";
 import { Avatar, AVATAR_STYLES } from "@/plugins/_shared/Avatar";
-import { VendorModelPicker, NodeSelect } from "./ModelPicker";
+import { NodeSelect } from "./ModelPicker";
+import { ModelPickerModal } from "./ModelPickerModal";
 import { PersonaEditor } from "./PersonaEditor";
 import { ScheduleBuilder } from "./ScheduleBuilder";
+import { mergeModels } from "@/lib/model-registry";
 
 export interface AgentFormInitial {
   name: string;
@@ -46,6 +48,9 @@ export function AgentForm({
   const [avatarStyle, setAvatarStyle] = React.useState<string>(initial?.avatar?.style || "bottts");
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  const [showModelModal, setShowModelModal] = React.useState(false);
+
+  const enrichedModels = React.useMemo(() => mergeModels(models), [models]);
 
   async function submit(): Promise<void> {
     if (!name.trim() || !persona.trim()) {
@@ -126,7 +131,25 @@ export function AgentForm({
       <div className="flex flex-col gap-1">
         <span className="text-[11px] font-medium text-muted-foreground">Model &amp; node</span>
         <div className="flex flex-wrap gap-2">
-          <VendorModelPicker models={models} provider={provider} model={model} onChange={(p, m) => { setProvider(p); setModel(m); }} />
+          <button
+            type="button"
+            onClick={() => setShowModelModal(true)}
+            className="rounded border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted"
+          >
+            {model ? `📊 Change model` : "📊 Choose model"}
+          </button>
+          {model && (
+            <div className="flex items-center gap-2 rounded border border-border bg-muted/30 px-3 py-1.5 text-sm">
+              <code className="font-mono text-xs">{model}</code>
+              <button
+                type="button"
+                onClick={() => { setModel(""); setProvider(""); }}
+                className="ml-1 text-muted-foreground hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <NodeSelect value={target} onChange={setTarget} nodes={nodes} />
         </div>
       </div>
@@ -156,6 +179,18 @@ export function AgentForm({
         </button>
         {err ? <span className="text-xs text-red-600">{err}</span> : null}
       </div>
+
+      {showModelModal && (
+        <ModelPickerModal
+          models={enrichedModels}
+          currentModel={model}
+          onSelect={(modelId, selectedProvider) => {
+            setModel(modelId);
+            setProvider(selectedProvider);
+          }}
+          onClose={() => setShowModelModal(false)}
+        />
+      )}
     </form>
   );
 }
