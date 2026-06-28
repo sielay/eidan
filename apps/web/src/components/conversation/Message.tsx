@@ -53,7 +53,7 @@ export interface MessageBlockProps {
   /** ISO timestamp shown subtly under the bubble (omitted for optimistic/streaming rows). */
   time?: string;
   /** ⑂ Compare: the candidate models' raw answers, shown in a disclosure below the merged answer. */
-  fork?: { legs: Array<{ model: string; text: string }> };
+  fork?: { legs: Array<{ model: string; text: string; truncated?: boolean; inputTokens?: number; outputTokens?: number }> };
 }
 
 /**
@@ -133,9 +133,11 @@ export function MessageBlock({
 
 // ⑂ Compare: a collapsible showing each candidate model's raw answer (the merged answer is the bubble
 // above). Persisted on the assistant message's metadata.fork by the engine when a Compare turn runs.
-function ForkDisclosure({ legs }: { legs: Array<{ model: string; text: string }> }): React.ReactElement {
+// Shows token usage and truncation status per model.
+function ForkDisclosure({ legs }: { legs: Array<{ model: string; text: string; truncated?: boolean; inputTokens?: number; outputTokens?: number }> }): React.ReactElement {
   const [open, setOpen] = React.useState(false);
   const [shown, setShown] = React.useState<number>(0);
+  const shownLeg = shown >= 0 && shown < legs.length ? legs[shown] : undefined;
   return (
     <div className="mt-1.5 rounded-md border border-border bg-background/50 text-xs">
       <button
@@ -163,12 +165,24 @@ function ForkDisclosure({ legs }: { legs: Array<{ model: string; text: string }>
                 )}
               >
                 {l.model}
+                {l.truncated ? <span className="ml-1 text-[9px] opacity-70">⚠ truncated</span> : null}
               </button>
             ))}
           </div>
-          <div className="max-h-80 overflow-y-auto border-t border-border px-2.5 py-2">
-            <MarkdownBody content={legs[shown]?.text ?? ""} />
-          </div>
+          {shownLeg && (
+            <div className="border-t border-border px-2.5 py-2">
+              {(shownLeg.inputTokens !== undefined || shownLeg.outputTokens !== undefined) && (
+                <div className="mb-2 text-[10px] text-muted-foreground">
+                  {shownLeg.inputTokens !== undefined && <span>in: {shownLeg.inputTokens} </span>}
+                  {shownLeg.outputTokens !== undefined && <span>out: {shownLeg.outputTokens}</span>}
+                  {shownLeg.truncated && <span className="ml-1 text-alert">⚠ response truncated</span>}
+                </div>
+              )}
+              <div className="max-h-80 overflow-y-auto">
+                <MarkdownBody content={shownLeg.text ?? ""} />
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
     </div>
