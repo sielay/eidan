@@ -3,6 +3,18 @@ import type { MatbotServices, Session, MessageContent, Principal } from '@matatb
 import { runAs } from '@matatbread/matbot-plugin-api';
 import type { AgentsStore } from './store.js';
 
+interface LlmCall {
+  userId: string; conversationId?: string; messageId?: string; provider: string; model: string;
+  inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number;
+  costUsd?: number; requestId?: string; role?: string;
+}
+interface LlmCalls { record(call: LlmCall): Promise<void> }
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    LlmCalls?: LlmCalls;
+  }
+}
+
 interface ProviderCfg {
   name: string;
   module: string;
@@ -109,11 +121,32 @@ export async function runAgentTurn(
         content: [{ type: 'text', text: AGENT_FRAMING + persona }], provider, principal,
       });
       let final: Session | undefined;
+      const ledger = services.LlmCalls;
+      const model = services.providers.get(provider)?.model ?? '';
+      const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
+      const flushUsage = (): void => {
+        if (!ledger) { pendingUsage.length = 0; return; }
+        for (const u of pendingUsage) {
+          void ledger.record({
+            userId, conversationId: session.id, provider, model, ...u,
+          });
+        }
+        pendingUsage.length = 0;
+      };
       for await (const ev of view.events) {
         if (ev.type === 'done') { final = ev.session; break; }
         if (ev.type === 'error') throw new Error(ev.error);
         if (ev.type === 'aborted') throw new Error(`aborted: ${ev.reason ?? 'timeout'}`);
+        if (ev.type === 'usage') {
+          pendingUsage.push({
+            inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
+            ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
+            ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
+            ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
+          });
+        }
       }
+      flushUsage();
       return { text: final ? lastAssistantText(final) : '', conversationId: session.id };
     } finally {
       if (timer !== undefined) clearTimeout(timer);
