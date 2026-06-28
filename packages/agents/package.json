@@ -16,7 +16,6 @@
     "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
   "dependencies": {
-    "@eidandev/config-cache": "workspace:*",
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
     "pg": "^8.13.1"
   },

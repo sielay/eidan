@@ -76,6 +76,5 @@ export const plugin: MatbotPluginSpec = {
   },
 };
 
-// Re-export config caching utilities for agent authors
-export { AGENT_CONFIG_LOADER_TEMPLATE, CACHE_SECTION_CONVENTIONS } from './config-loader.js';
-export type { } from '@eidandev/config-cache';
+// Re-export config file conventions for agent authors
+export { AGENT_CONFIG_CONVENTIONS, CACHE_SECTION_CONVENTIONS } from './config-loader.js';

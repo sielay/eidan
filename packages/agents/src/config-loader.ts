@@ -1,75 +1,75 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Config loader documentation and conventions for agent config file caching.
+// Config file conventions for two-tier static/dynamic sections.
+// Operators can mark immutable sections of markdown config files to distinguish them from dynamic content.
+// Caching integration happens at the provider adapter layer (e.g., Anthropic adapter sets cache_control
+// on tool_result turns per #487), not in the agent config loading path.
 
-// Agent persona helper: a template that agents can extend.
-// This shows the recommended pattern for using cached config files.
-export const AGENT_CONFIG_LOADER_TEMPLATE = `
-# Loading config files with caching (agent pattern)
+export const AGENT_CONFIG_CONVENTIONS = `
+# Config file structure conventions
 
-If your agent reads markdown config files (calendars.md, routines.md, etc.), use this pattern to enable prompt caching:
+## Static vs dynamic sections
 
-\`\`\`typescript
-import { parseConfigMarkdown, annotateForCaching } from '@eidandev/config-cache';
+Agent config files (calendars.md, routines.md) may contain both:
+- **Static sections** (routing tables, category definitions, templates) — immutable, may be cached by provider adapters
+- **Dynamic sections** (current tasks, keywords) — change frequently, always read fresh from the file
 
-// 1. Load the file (agents call fs_read tool)
-const fileResult = await tools.fs_read({ path: 'calendars.md' });
-const markdown = fileResult.content;
+## Marking sections in markdown
 
-// 2. Parse into static (cached) and dynamic (fresh) sections
-const { staticSections, dynamicContent } = parseConfigMarkdown(markdown);
+Mark static sections with HTML comment boundaries:
 
-// 3. Use dynamicContent in your logic (always fresh, respects operator intent)
-// Example: parse venture routing from dynamicContent
-
-// 4. Annotate static sections for the LLM's caching layer
-const provider = 'claude'; // or 'deepseek', 'openai'
-const { text: staticText, cacheMetadata } = annotateForCaching(provider, staticSections, markdown);
-
-// 5. Pass cacheMetadata to the provider (framework integration point)
-// This tells Claude/DeepSeek/OpenAI to cache the static sections
-// (actual cache_control headers added at provider adapter level)
-\`\`\`
-
-## Cache markers in markdown
-
-Mark static sections with:
 \`\`\`markdown
 <!-- CACHE_STATIC_<NAME>_START -->
-... immutable content ...
+## Section Title
+
+Content here (routing table, categories, rules, etc.)
 <!-- CACHE_STATIC_<NAME>_END -->
+
+## Dynamic Section
+
+This section has no markers, always read fresh.
 \`\`\`
 
-Multiple cache sections per file are OK (e.g., ROUTING, CATEGORIES, ESCALATION).
+Multiple static sections per file are supported (ROUTING, CATEGORIES, RULES, etc.).
+
+## Agent loading pattern
+
+When an agent reads a config file:
+1. Load the file via fs_read() (or equivalent)
+2. Parse it manually or with provider-specific utilities
+3. Use dynamic sections (no markers) immediately for runtime logic
+4. Use static sections for reference or template data
+
+The provider adapter (Claude, DeepSeek, OpenAI) may use the markers to apply caching,
+but agents do not need to be aware of caching — it's transparent at the adapter layer.
 
 ## Example: calendars.md
 
-See docs/config/calendars.md for a real example:
-- CACHE_STATIC_ROUTING_START/END: category routing table (never changes)
-- CACHE_STATIC_EFFORT_MODELS_START/END: effort classifications (frozen)
-- CACHE_STATIC_ESCALATION_START/END: escalation rules (stable)
-- §5 (VENTURE ROUTING): dynamic, no cache markers, always fetches fresh
+\`\`\`markdown
+# calendars.md
 
-Agents reference cached rules like: "Use the cached routing table from calendars.md §1..."
+<!-- CACHE_STATIC_ROUTING_START -->
+## 1. CATEGORISE (Routing rules)
 
-## Implementation notes
+| IF calendar / keyword matches | THEN category |
+|------|---------|
+| Calendar = "Work" | work |
+| ... |
+<!-- CACHE_STATIC_ROUTING_END -->
 
-- File hash tracking: if the file changes, the cache is invalidated (safe, conservative)
-- Dynamic content: always read fresh (respects operator's ability to tweak behavior immediately)
-- No operator action needed: structure is in the markdown, caching is automatic
-- Multi-instance deployments: cache metadata can be stored in Postgres for shared invalidation
+## 5. VENTURE ROUTING (Dynamic)
+
+| Keyword(s) | Venture | Board ID |
+|---------|---------|----------|
+| eidan, matbot | eidan | b5c... |
+\`\`\`
+
+Static section (CACHE_STATIC_ROUTING) rarely changes and may be cached.
+Dynamic section (VENTURE ROUTING) has no markers and is always fresh.
 `;
 
-// Convenience: document the cache section naming conventions
+// Naming conventions for common agent config files
 export const CACHE_SECTION_CONVENTIONS = {
-  calendars_md: {
-    routing: 'CACHE_STATIC_ROUTING',
-    efforts: 'CACHE_STATIC_EFFORT_MODELS',
-    escalation: 'CACHE_STATIC_ESCALATION',
-  },
-  routines_md: {
-    categories: 'CACHE_STATIC_CATEGORIES',
-    rules: 'CACHE_STATIC_EXECUTION_RULES',
-    prompts: 'CACHE_STATIC_PROMPT_TEMPLATE',
-  },
+  calendars_md: ['ROUTING', 'EFFORT_MODELS', 'ESCALATION'],
+  routines_md: ['CATEGORIES', 'EXECUTION_RULES', 'PROMPT_TEMPLATE'],
 } as const;

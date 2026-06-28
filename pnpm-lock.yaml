@@ -73,9 +73,6 @@ importers:
 
   packages/agents:
     dependencies:
-      '@eidandev/config-cache':
-        specifier: workspace:*
-        version: link:../config-cache
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
@@ -178,15 +175,6 @@ importers:
       '@types/pg':
         specifier: ^8.11.10
         version: 8.20.0
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-
-  packages/config-cache:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.20.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
