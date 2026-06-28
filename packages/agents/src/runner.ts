@@ -59,22 +59,11 @@ function getDayOfWeek(now: Date, tz: string): string {
   return fmt.format(now);
 }
 
-// Get timezone name for the current time in the given timezone (e.g., "British Summer Time")
-function getTimeZoneName(now: Date, tz: string): string {
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    timeZoneName: 'long',
-  });
-  const parts: Record<string, string> = {};
-  for (const part of fmt.formatToParts(now)) {
-    parts[part.type] = part.value;
-  }
-  return parts['timeZoneName'] || tz;
-}
-
-// Format current time in the user's local timezone (YYYY-MM-DD HH:MM:SS TZ)
+// Format current time in the user's local timezone (YYYY-MM-DD HH:MM:SS TZ).
+// Uses en-US locale with explicit component formatting to ensure consistent cross-platform output.
 function formatLocalDateTime(now: Date, tz: string): string {
-  const fmt = new Intl.DateTimeFormat('en-CA', {
+  // Extract date/time components; en-US locale provides reliable parts extraction regardless of runtime locale.
+  const dtFmt = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
     year: 'numeric',
     month: '2-digit',
@@ -85,14 +74,25 @@ function formatLocalDateTime(now: Date, tz: string): string {
     hour12: false,
   });
   const parts: Record<string, string> = {};
-  for (const part of fmt.formatToParts(now)) {
+  for (const part of dtFmt.formatToParts(now)) {
     parts[part.type] = part.value;
   }
-  const tzName = getTimeZoneName(now, tz);
-  return `${parts['year']}-${parts['month']}-${parts['day']} ${parts['hour']}:${parts['minute']}:${parts['second']} ${tzName}`;
+
+  // Extract timezone abbreviation (e.g., "BST", "EST"). Falls back to tz ID if extraction fails.
+  let tzAbbr = tz;
+  const tzFmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' });
+  for (const part of tzFmt.formatToParts(now)) {
+    if (part.type === 'timeZoneName') {
+      tzAbbr = part.value;
+      break;
+    }
+  }
+
+  return `${parts['year']}-${parts['month']}-${parts['day']} ${parts['hour']}:${parts['minute']}:${parts['second']} ${tzAbbr}`;
 }
 
-// Generate agent system context block with current timestamp and timezone
+// Generate agent system context block with current timestamp and timezone.
+// Always returns a non-empty string containing structured time context.
 function generateContextBlock(now: Date, tz: string): string {
   const isoTime = now.toISOString();
   const localTime = formatLocalDateTime(now, tz);
