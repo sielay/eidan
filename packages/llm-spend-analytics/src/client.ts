@@ -118,14 +118,6 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
 
       if (usageData.data) {
         allCalls.push(...usageData.data);
-        // Stop fetching if all new calls are older than 30-day window
-        if (usageData.data.length > 0) {
-          const oldestCallDate = new Date(usageData.data[usageData.data.length - 1]!.timestamp);
-          if (oldestCallDate < start30d) {
-            nextUrl = null;
-            continue;
-          }
-        }
       }
 
       nextUrl = usageData.next_url ?? null;
