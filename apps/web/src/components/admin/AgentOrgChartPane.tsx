@@ -24,8 +24,8 @@ interface NodeData {
 
 interface EdgeData {
   id: string;
-  from: string;
-  to: string;
+  from_agent_id: string;
+  to_agent_id: string;
   escalations: number;
   relationship?: AgentRelationship;
 }
@@ -186,7 +186,6 @@ export function AgentOrgChartPane(): React.ReactElement {
     }));
 
     const agentIds = new Set(agents.map((a) => a.id));
-    const nameToId = new Map(agents.map((a) => [a.name, a.id]));
     const newEdges: EdgeData[] = [];
     const edgeMap = new Map<string, { escalations: number; relationship?: AgentRelationship }>();
 
@@ -206,9 +205,9 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     if (relationships) {
       for (const rel of relationships) {
-        const fromId = nameToId.get(rel.from_agent_name);
-        const toId = nameToId.get(rel.to_agent_name);
-        if (fromId && toId) {
+        const fromId = rel.from_agent_id;
+        const toId = rel.to_agent_id;
+        if (agentIds.has(fromId) && agentIds.has(toId)) {
           const key = `${fromId}→${toId}`;
           let entry = edgeMap.get(key);
           if (!entry) {
@@ -221,13 +220,13 @@ export function AgentOrgChartPane(): React.ReactElement {
     }
 
     for (const [key, data] of edgeMap) {
-      const [from, to] = key.split("→");
+      const [from_agent_id, to_agent_id] = key.split("→");
       // Create separate edges for escalations and relationships so both can coexist and be styled independently
       if (data.escalations > 0) {
-        newEdges.push({ id: `${from}|${to}|esc`, from, to, escalations: data.escalations });
+        newEdges.push({ id: `${from_agent_id}|${to_agent_id}|esc`, from_agent_id, to_agent_id, escalations: data.escalations });
       }
       if (data.relationship) {
-        newEdges.push({ id: `${from}|${to}|rel-${data.relationship.id}`, from, to, escalations: 0, relationship: data.relationship });
+        newEdges.push({ id: `${from_agent_id}|${to_agent_id}|rel-${data.relationship.id}`, from_agent_id, to_agent_id, escalations: 0, relationship: data.relationship });
       }
     }
 
@@ -359,8 +358,8 @@ export function AgentOrgChartPane(): React.ReactElement {
         // Attraction along edges
         const nodeMap = new Map(sim.nodes.map(n => [n.id, n]));
         for (const edge of edges) {
-          const from = nodeMap.get(edge.from);
-          const to = nodeMap.get(edge.to);
+          const from = nodeMap.get(edge.from_agent_id);
+          const to = nodeMap.get(edge.to_agent_id);
           if (!from || !to) continue;
 
           const fromForces = forces.get(from.id)!;
@@ -506,8 +505,8 @@ export function AgentOrgChartPane(): React.ReactElement {
             {/* Edges */}
             <g>
               {edges.map((edge) => {
-                const from = nodes.find((n) => n.id === edge.from);
-                const to = nodes.find((n) => n.id === edge.to);
+                const from = nodes.find((n) => n.id === edge.from_agent_id);
+                const to = nodes.find((n) => n.id === edge.to_agent_id);
                 if (!from || !to) return null;
 
                 const isSelected = selectedNode === from.id || selectedNode === to.id;
@@ -692,16 +691,16 @@ export function AgentOrgChartPane(): React.ReactElement {
               <div>
                 <p className="text-muted-foreground">Outgoing Escalations</p>
                 {edges
-                  .filter((e) => e.from === selected.id && e.escalations > 0)
+                  .filter((e) => e.from_agent_id === selected.id && e.escalations > 0)
                   .map((e) => {
-                    const target = nodes.find((n) => n.id === e.to);
+                    const target = nodes.find((n) => n.id === e.to_agent_id);
                     return (
-                      <p key={e.to} className="font-mono">
+                      <p key={e.to_agent_id} className="font-mono">
                         → {target?.name} ({e.escalations})
                       </p>
                     );
                   })}
-                {edges.filter((e) => e.from === selected.id && e.escalations > 0).length === 0 && (
+                {edges.filter((e) => e.from_agent_id === selected.id && e.escalations > 0).length === 0 && (
                   <p className="text-muted-foreground">none</p>
                 )}
               </div>
@@ -709,16 +708,16 @@ export function AgentOrgChartPane(): React.ReactElement {
               <div>
                 <p className="text-muted-foreground">Incoming Escalations</p>
                 {edges
-                  .filter((e) => e.to === selected.id && e.escalations > 0)
+                  .filter((e) => e.to_agent_id === selected.id && e.escalations > 0)
                   .map((e) => {
-                    const source = nodes.find((n) => n.id === e.from);
+                    const source = nodes.find((n) => n.id === e.from_agent_id);
                     return (
-                      <p key={e.from} className="font-mono">
+                      <p key={e.from_agent_id} className="font-mono">
                         ← {source?.name} ({e.escalations})
                       </p>
                     );
                   })}
-                {edges.filter((e) => e.to === selected.id && e.escalations > 0).length === 0 && (
+                {edges.filter((e) => e.to_agent_id === selected.id && e.escalations > 0).length === 0 && (
                   <p className="text-muted-foreground">none</p>
                 )}
               </div>
@@ -726,9 +725,9 @@ export function AgentOrgChartPane(): React.ReactElement {
               <div>
                 <p className="text-muted-foreground">Outgoing Relationships</p>
                 {edges
-                  .filter((e) => e.from === selected.id && e.relationship)
+                  .filter((e) => e.from_agent_id === selected.id && e.relationship)
                   .map((e) => {
-                    const target = nodes.find((n) => n.id === e.to);
+                    const target = nodes.find((n) => n.id === e.to_agent_id);
                     return (
                       <div key={e.id} className="text-xs">
                         <p className="font-mono">
@@ -740,7 +739,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                       </div>
                     );
                   })}
-                {edges.filter((e) => e.from === selected.id && e.relationship).length === 0 && (
+                {edges.filter((e) => e.from_agent_id === selected.id && e.relationship).length === 0 && (
                   <p className="text-muted-foreground">none</p>
                 )}
               </div>
@@ -748,9 +747,9 @@ export function AgentOrgChartPane(): React.ReactElement {
               <div>
                 <p className="text-muted-foreground">Incoming Relationships</p>
                 {edges
-                  .filter((e) => e.to === selected.id && e.relationship)
+                  .filter((e) => e.to_agent_id === selected.id && e.relationship)
                   .map((e) => {
-                    const source = nodes.find((n) => n.id === e.from);
+                    const source = nodes.find((n) => n.id === e.from_agent_id);
                     return (
                       <div key={e.id} className="text-xs">
                         <p className="font-mono">
@@ -762,7 +761,7 @@ export function AgentOrgChartPane(): React.ReactElement {
                       </div>
                     );
                   })}
-                {edges.filter((e) => e.to === selected.id && e.relationship).length === 0 && (
+                {edges.filter((e) => e.to_agent_id === selected.id && e.relationship).length === 0 && (
                   <p className="text-muted-foreground">none</p>
                 )}
               </div>
