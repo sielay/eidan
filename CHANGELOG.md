@@ -6,6 +6,14 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.14.2] — 2026-06-28
+
+### Changed
+
+- **Prompts render as markdown too** — your message bubbles now render markdown (formatting + @-mention
+  chips) the same way assistant replies do, instead of plain pre-wrapped text. Added docs/MENTIONS.md
+  documenting the `[label](eidan:type:id)` reference syntax for authoring agents/prompts.
+
 ## [0.14.1] — 2026-06-28
 
 ### Added

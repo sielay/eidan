@@ -84,7 +84,9 @@ export function MessageBlock({
   if (role === "user") {
     return (
       <div className="bubble bubble--user" data-role="user">
-        <span className="whitespace-pre-wrap">{content}</span>
+        {/* Render the prompt as markdown too (same as assistant replies), so formatting and @-mention
+            chips show in both bubble types. Empty content can't happen for a user row, but guard anyway. */}
+        {hasBody ? <MarkdownBody content={content ?? ""} /> : <span className="whitespace-pre-wrap">{content}</span>}
         <MsgTime iso={time} />
       </div>
     );
