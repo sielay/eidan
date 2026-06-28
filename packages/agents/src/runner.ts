@@ -125,10 +125,17 @@ export async function runAgentTurn(
       const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
       const flushUsage = (): void => {
         if (!ledger) return;
-        const model = services.providers.get(provider)?.model ?? provider;
+        const looked = services.providers.get(provider)?.model;
+        let logProvider = provider;
+        let logModel = looked ?? provider;
+        // Handle OpenRouter providers (e.g., 'openrouter/deepseek/deepseek-chat')
+        if (!looked && provider.startsWith('openrouter/')) {
+          logProvider = 'openrouter';
+          logModel = provider.substring('openrouter/'.length);
+        }
         for (const u of pendingUsage) {
           void ledger.record({
-            userId, conversationId: session.id, provider, model, ...u,
+            userId, conversationId: session.id, provider: logProvider, model: logModel, ...u,
           });
         }
         pendingUsage.length = 0;

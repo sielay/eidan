@@ -79,10 +79,17 @@ export function makeTurnHandler(provider: string): JobHandler {
       const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
       const flushUsage = (): void => {
         if (!ledger) return;
-        const model = services.providers.get(turnProvider)?.model ?? job.model ?? turnProvider;
+        const looked = services.providers.get(turnProvider)?.model;
+        let logProvider = turnProvider;
+        let logModel = looked ?? job.model ?? turnProvider;
+        // Handle OpenRouter providers (e.g., 'openrouter/deepseek/deepseek-chat')
+        if (!looked && turnProvider.startsWith('openrouter/')) {
+          logProvider = 'openrouter';
+          logModel = job.model ?? turnProvider.substring('openrouter/'.length);
+        }
         for (const u of pendingUsage) {
           void ledger.record({
-            userId: principal.id, conversationId: session.id, provider: turnProvider, model, ...u,
+            userId: principal.id, conversationId: session.id, provider: logProvider, model: logModel, ...u,
           });
         }
         pendingUsage.length = 0;

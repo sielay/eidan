@@ -112,10 +112,17 @@ async function messageSend(res: ServerResponse, services: MatbotServices, opts: 
     const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
     const flushUsage = (): void => {
       if (!ledger) return;
-      const model = services.providers.get(opts.provider)?.model ?? opts.provider;
+      const looked = services.providers.get(opts.provider)?.model;
+      let logProvider = opts.provider;
+      let logModel = looked ?? opts.provider;
+      // Handle OpenRouter providers (e.g., 'openrouter/deepseek/deepseek-chat')
+      if (!looked && opts.provider.startsWith('openrouter/')) {
+        logProvider = 'openrouter';
+        logModel = opts.provider.substring('openrouter/'.length);
+      }
       for (const u of pendingUsage) {
         void ledger.record({
-          userId: principal.id, conversationId: taskId, provider: opts.provider, model, ...u,
+          userId: principal.id, conversationId: taskId, provider: logProvider, model: logModel, ...u,
         });
       }
       pendingUsage.length = 0;
