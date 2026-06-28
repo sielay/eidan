@@ -79,8 +79,8 @@ export function expandSkillReferences(persona: string): string {
       expanded = expanded.replace(match[0], skill.content);
       expandedSkills.add(normalized);
     } else if (skill && expandedSkills.has(normalized)) {
-      // Duplicate: remove the reference entirely (don't include content again)
-      expanded = expanded.replace(match[0], '');
+      // Duplicate: replace with newline to maintain prompt structure (not empty string, which can cause formatting issues)
+      expanded = expanded.replace(match[0], '\n');
     }
   }
 

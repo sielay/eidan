@@ -90,11 +90,14 @@ export async function runAgentTurn(
     // This ensures deduplication works correctly across both prepended and original skill references.
     // If persona doesn't reference [skill: Agent Foundation], prepend it for backward compatibility.
     // AGENT_FOUNDATION now contains the role separator ("— Your role and task —") and must always
-    // be at the start of the expanded prompt.
+    // be at the start of the expanded prompt. Strip any existing separator from the persona to avoid duplication.
     const referencedSkills = detectSkillReferences(persona);
-    const finalPersona = !referencedSkills.includes('agent-foundation')
-      ? '[skill: Agent Foundation]\n\n' + persona
-      : persona;
+    let finalPersona = persona;
+    if (!referencedSkills.includes('agent-foundation')) {
+      // Remove any existing "— Your role and task —" section to avoid duplication with AGENT_FOUNDATION's separator
+      finalPersona = persona.replace(/^[\s\S]*?## — Your role and task —\s*/m, '');
+      finalPersona = '[skill: Agent Foundation]\n\n' + finalPersona;
+    }
     const expandedPersona = expandSkillReferences(finalPersona);
 
     const ac = new AbortController();
