@@ -141,14 +141,14 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
       }
     }
 
-    // Build model list (estimate input/output split as 30/70 if not available)
+    // Build model list (OpenRouter API does not expose input/output token cost breakdown)
     const byModel: ModelSpend[] = Array.from(modelMap.entries())
       .map(([model, data]) => {
         const result: ModelSpend = {
           model,
           total_spend: Math.round(data.spend * 100) / 100,
-          input_tokens_cost: Math.round(data.spend * 0.3 * 100) / 100,
-          output_tokens_cost: Math.round(data.spend * 0.7 * 100) / 100,
+          input_tokens_cost: 0,
+          output_tokens_cost: 0,
           currency: 'USD',
         };
         if (data.count > 0) {
@@ -179,8 +179,8 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
       provider: 'openrouter',
       total_spend_30d: Math.round(totalSpend * 100) / 100,
       currency: 'USD',
-      total_input_cost: Math.round(totalInputCost * 100) / 100,
-      total_output_cost: Math.round(totalOutputCost * 100) / 100,
+      total_input_cost: 0,
+      total_output_cost: 0,
       by_model: byModel,
       trend_7d,
       trend_30d: trends,
@@ -207,20 +207,7 @@ export async function getAnthropicSpend(ctx: ToolContext): Promise<{ data?: Spen
     const cached = getFromCache('anthropic');
     if (cached) return { data: cached };
 
-    const apiKey = await secretRequired(ctx, 'ANTHROPIC_API_KEY');
-
-    // Verify API key works by listing models
-    const modelsRes = await fetchWithRetry('https://api.anthropic.com/v1/models', {
-      headers: { 'x-api-key': apiKey },
-    });
-
-    if (!modelsRes.ok) {
-      return {
-        error: {
-          message: `Anthropic API error: ${modelsRes.status}. Please verify your API key is valid.`,
-        },
-      };
-    }
+    await secretRequired(ctx, 'ANTHROPIC_API_KEY');
 
     // Anthropic does not expose a public billing/usage history API. Per-call usage is available
     // via message response metadata, but aggregated historical spend is not exposed publicly.
@@ -232,18 +219,8 @@ export async function getAnthropicSpend(ctx: ToolContext): Promise<{ data?: Spen
       total_input_cost: 0,
       total_output_cost: 0,
       by_model: [],
-      trend_7d: [
-        {
-          period: 'unavailable',
-          spend: 0,
-        },
-      ],
-      trend_30d: [
-        {
-          period: 'unavailable',
-          spend: 0,
-        },
-      ],
+      trend_7d: [],
+      trend_30d: [],
       cache_available: false,
     };
 
@@ -271,44 +248,23 @@ export async function getOpenAISpend(ctx: ToolContext): Promise<{ data?: SpendAn
     const startDate = dateToIso(start30d);
     const endDate = dateToIso(now);
 
-    // Try v1/organization/usage endpoint for token counts
-    let usageData: any = null;
-    const usageRes = await fetchWithRetry(
-      `https://api.openai.com/v1/organization/usage?date_from=${startDate}&date_to=${endDate}`,
-      {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      }
-    );
-
-    if (usageRes.ok) {
-      usageData = (await usageRes.json()) as {
-        total_usage?: number;
-        data?: Array<{
-          timestamp?: number;
-          date?: string;
-          n_context_tokens_total?: number;
-          n_generated_tokens_total?: number;
-        }>;
-      };
-    }
-
-    // Fallback to v1/dashboard/billing/usage for actual costs
-    const fallbackRes = await fetchWithRetry(
+    // Query v1/dashboard/billing/usage for actual costs (requires org/project-level API key with billing read access)
+    const billingRes = await fetchWithRetry(
       `https://api.openai.com/v1/dashboard/billing/usage?start_date=${startDate}&end_date=${endDate}`,
       {
         headers: { Authorization: `Bearer ${apiKey}` },
       }
     );
 
-    if (!fallbackRes.ok) {
+    if (!billingRes.ok) {
       return {
         error: {
-          message: `OpenAI API error: ${fallbackRes.status}. Requires an org-level API key with billing read access.`,
+          message: `OpenAI API error: ${billingRes.status}. Requires an org-level API key with billing read access.`,
         },
       };
     }
 
-    const billingData = (await fallbackRes.json()) as {
+    const billingData = (await billingRes.json()) as {
       total_usage?: number;
       daily_costs?: Array<{
         date: string;

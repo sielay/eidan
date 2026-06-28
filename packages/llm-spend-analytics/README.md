@@ -22,8 +22,8 @@ All three are callable from any agent and cached for 6 hours to avoid redundant 
 ## Implementation notes
 
 **API Limitations by provider:**
-- **OpenRouter:** Full support via `/api/v1/usage/calls` — returns model breakdowns, cache hit rates, and spend aggregates.
-- **Anthropic:** No public billing/usage history API. The `/v1/messages` endpoint exposes per-call usage metadata but not historical aggregates. Tool returns "unavailable" trends and directs users to `console.anthropic.com/account/billing/overview`.
+- **OpenRouter:** Spend data via `/api/v1/usage/calls` — returns model breakdowns, cache hit rates, and total cost per call. Input/output token costs not separated by API (returned as 0); total spend and cache rates are accurate.
+- **Anthropic:** No public billing/usage history API. The `/v1/messages` endpoint exposes per-call usage metadata but not historical aggregates. Tool validates the API key (via successful tool invocation) but returns no spend data; users must check billing via `console.anthropic.com/account/billing/overview`.
 - **OpenAI:** Spend data via `/v1/dashboard/billing/usage` with daily model-level breakdowns. Input/output token cost split not exposed by API (returned as 0); total spend is accurate. No cache hit rate available.
 
 **Retry + rate-limit handling:** Built-in exponential backoff for transient failures. Respects `Retry-After` headers on 429s.
@@ -57,6 +57,6 @@ No persistent schema. Responses are structured (`SpendAnalytics` interface in `s
 
 ## Future work
 
-- OpenAI input/output token cost split: currently unavailable from API; would require proprietary pricing tables or per-call token tracking
+- Input/output token cost split: currently unavailable from OpenRouter and OpenAI APIs; would require proprietary pricing tables or per-call token tracking
 - Anthropic: await public billing/usage API (currently console-only)
 - Cache-hit-rate aggregation: currently available for OpenRouter; expand to other providers as they expose cache metrics
