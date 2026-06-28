@@ -164,10 +164,10 @@ export async function runAgentTurn(
     try {
       const tz = timezone ?? 'UTC';
       const contextBlock = generateContextBlock(new Date(), tz);
-      const framing = contextBlock + '\n\n' + AGENT_FRAMING;
+      const framing = [contextBlock, AGENT_FRAMING, persona].filter(Boolean).join('\n\n');
       const view = await run.open({
         sessionId: session.id, signal: ac.signal,
-        content: [{ type: 'text', text: framing + persona }], provider, principal,
+        content: [{ type: 'text', text: framing }], provider, principal,
       });
       let final: Session | undefined;
       for await (const ev of view.events) {
