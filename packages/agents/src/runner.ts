@@ -62,6 +62,45 @@ function lastAssistantText(s: Session): string {
   return '';
 }
 
+// Validate an IANA zone, falling back to UTC if a stored preference is malformed (Intl throws on a
+// bad zone). Normalising once lets the formatters below assume a valid zone.
+function safeZone(tz: string): string {
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz; }
+  catch { return 'UTC'; }
+}
+
+function getDayOfWeek(now: Date, tz: string): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(now);
+}
+
+// Format `now` in zone `tz` as "YYYY-MM-DD HH:MM:SS TZ" (en-US parts → locale-independent output).
+function formatLocalDateTime(now: Date, tz: string): string {
+  const parts: Record<string, string> = {};
+  for (const p of new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(now)) parts[p.type] = p.value;
+  let tzAbbr = tz;
+  for (const p of new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(now)) {
+    if (p.type === 'timeZoneName') { tzAbbr = p.value; break; }
+  }
+  return `${parts['year']}-${parts['month']}-${parts['day']} ${parts['hour']}:${parts['minute']}:${parts['second']} ${tzAbbr}`;
+}
+
+// A small, stable time-context block prepended to the agent framing so a fired agent knows "now" in the
+// owner's timezone (otherwise it has no clock). Computed once per fire and fixed for the session, so it
+// stays inside the cached prefix and does not bust prompt caching across the turn's loop iterations.
+function generateContextBlock(now: Date, tz: string): string {
+  const zone = safeZone(tz);
+  const context = {
+    currentTime: now.toISOString(),
+    currentTimeLocal: formatLocalDateTime(now, zone),
+    timezone: zone,
+    dayOfWeek: getDayOfWeek(now, zone),
+  };
+  return `[AGENT CONTEXT]\n${JSON.stringify(context, null, 2)}\n[END AGENT CONTEXT]`;
+}
+
 // Framing prepended to every agent turn's persona. Agents run under the same Eidan identity + full
 // toolset as the chat surface, so a capable model reads its persona as a request to "Eidan the OS" and
 // reaches for the orchestration tools (agent_create / agent_schedule / agent_delegate / jobs /
@@ -78,7 +117,6 @@ const AGENT_FRAMING = [
   '- Stay inside your role below. Don\'t reinterpret yourself as a larger system.',
   '',
   '— Your role and task —',
-  '',
 ].join('\n');
 
 // Run an agent's persona as a single turn under the owner's identity (so the conversation + memory
@@ -95,6 +133,8 @@ export async function runAgentTurn(
   // External abort (graceful shutdown). Composed with the per-turn timeout below: whichever fires
   // first aborts the turn. matbot's runner persists the partial session before yielding `aborted`.
   extSignal?: AbortSignal,
+  // Owner's IANA timezone for the injected time-context block; defaults to UTC if omitted/malformed.
+  timezone?: string,
 ): Promise<{ text: string; conversationId: string }> {
   const run = services.run;
   const sessions = services.sessions;
@@ -116,9 +156,11 @@ export async function runAgentTurn(
     // timeout also bounds resource use per fire.
     const timer = timeoutMs && timeoutMs > 0 ? setTimeout(() => ac.abort(), timeoutMs) : undefined;
     try {
+      const framing = [generateContextBlock(new Date(), timezone ?? 'UTC'), AGENT_FRAMING, persona]
+        .filter((s) => s.length > 0).join('\n\n');
       const view = await run.open({
         sessionId: session.id, signal: ac.signal,
-        content: [{ type: 'text', text: AGENT_FRAMING + persona }], provider, principal,
+        content: [{ type: 'text', text: framing }], provider, principal,
       });
       let final: Session | undefined;
       const ledger = services.LlmCalls;
@@ -190,12 +232,13 @@ export async function fireAgentNow(
   const agent = await store.getAgent(agentId, userId);
   if (!agent) return null;
   const provider = effectiveProvider(services, agent.provider ?? opts.defaultProvider, agent.model);
+  const timezone = await store.userTimeZone(userId);
   let resolveId: (id: string) => void;
   const idReady = new Promise<string>((r) => { resolveId = r; });
   void runAgentTurn(
     services, userId, agent.persona, provider,
     async (cid) => { await store.markAgentConversation(cid, agentId, agent.name); resolveId(cid); },
-    opts.turnTimeoutMs,
+    opts.turnTimeoutMs, undefined, timezone,
   ).catch((e) => console.warn(`[agents] run-now "${agent.name}" failed:`, e instanceof Error ? e.message : e));
   return { conversationId: await idReady };
 }
@@ -222,6 +265,7 @@ export async function fireAgentDelegate(
   const agent = await store.getAgent(toAgentId, userId);
   if (!agent) return null;
   const provider = effectiveProvider(services, agent.provider ?? opts.defaultProvider, agent.model);
+  const timezone = await store.userTimeZone(userId);
   const from = opts.fromName ? `from agent "${opts.fromName}" ` : '';
   const content =
     `## Delegated task ${from}(autonomous agent-to-agent hand-off, depth ${depth}/${MAX_DELEGATION_DEPTH})\n\n` +
@@ -231,7 +275,7 @@ export async function fireAgentDelegate(
   void runAgentTurn(
     services, userId, content, provider,
     async (cid) => { await store.markAgentConversation(cid, toAgentId, agent.name); resolveId(cid); },
-    opts.turnTimeoutMs,
+    opts.turnTimeoutMs, undefined, timezone,
   ).catch((e) => console.warn(`[agents] delegate to "${agent.name}" failed:`, e instanceof Error ? e.message : e));
   return { conversationId: await idReady };
 }
