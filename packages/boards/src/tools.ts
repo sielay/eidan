@@ -95,7 +95,7 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
     },
     {
       name: 'card_list',
-      description: 'List the live cards on a board (excludes archived).',
+      description: 'List the live cards on a board (excludes archived). Cards are sorted by due_date ascending (earliest first, then nulls last).',
       inputSchema: obj({ board_id: { type: 'string' } }, ['board_id']),
       executor: {
         async *execute(input) {
@@ -109,14 +109,15 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
     {
       name: 'card_add',
       description: 'Add a card to a board.',
-      inputSchema: obj({ board_id: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' } }, ['board_id', 'title']),
+      inputSchema: obj({ board_id: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, due_date: { type: 'string' } }, ['board_id', 'title']),
       executor: {
         async *execute(input) {
           if (!tryCurrentPrincipal()) return yield noUser();
           const a = (input ?? {}) as Record<string, unknown>;
           const title = str(a['title']).trim();
           if (!title) return yield { type: 'error', message: 'title is required' };
-          const card = await db.createCard(str(a['board_id']).trim(), title, str(a['body']).trim() || null);
+          const dueDate = str(a['due_date']).trim() || null;
+          const card = await db.createCard(str(a['board_id']).trim(), title, str(a['body']).trim() || null, dueDate);
           if (!card) return yield { type: 'error', message: 'no such board' };
           yield { type: 'result', value: card };
         },
@@ -124,13 +125,13 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
     },
     {
       name: 'card_update',
-      description: "Update a card — title, body, or status (open / doing / done / 'archived' to remove). Only the fields you pass change.",
-      inputSchema: obj({ card_id: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, status: { type: 'string', enum: CARD_STATUSES } }, ['card_id']),
+      description: "Update a card — title, body, status (open / doing / done / 'archived' to remove), or due_date (ISO 8601 date). Only the fields you pass change.",
+      inputSchema: obj({ card_id: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, status: { type: 'string', enum: CARD_STATUSES }, due_date: { type: 'string' } }, ['card_id']),
       executor: {
         async *execute(input) {
           if (!tryCurrentPrincipal()) return yield noUser();
           const a = (input ?? {}) as Record<string, unknown>;
-          const patch: { title?: string; body?: string; status?: string } = {};
+          const patch: { title?: string; body?: string; status?: string; due_date?: string | null } = {};
           if (a['title'] !== undefined) patch.title = str(a['title']).trim();
           if (a['body'] !== undefined) patch.body = str(a['body']).trim();
           if (a['status'] !== undefined) {
@@ -138,6 +139,7 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
             if (!CARD_STATUSES.includes(s)) return yield { type: 'error', message: `status must be one of ${CARD_STATUSES.join(', ')}` };
             patch.status = s;
           }
+          if (a['due_date'] !== undefined) patch.due_date = str(a['due_date']).trim() || null;
           const card = await db.updateCard(str(a['card_id']).trim(), patch);
           if (!card) return yield { type: 'error', message: 'no such card (or nothing to update)' };
           yield { type: 'result', value: card };

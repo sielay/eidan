@@ -9,7 +9,7 @@ import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 type Q = (text: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount: number | null }>;
 
 export interface Board { id: string; user_id: string; name: string; prompt: string | null; scope_kind: string | null; scope_id: string | null; position: number; status: string; created_at: Date; updated_at: Date }
-export interface Card { id: string; board_id: string; user_id: string; title: string; body: string | null; status: string; position: number; metadata: Record<string, unknown>; created_at: Date; updated_at: Date }
+export interface Card { id: string; board_id: string; user_id: string; title: string; body: string | null; status: string; position: number; metadata: Record<string, unknown>; due_date: string | null; created_at: Date; updated_at: Date }
 export interface CardRef { id: string; card_id: string; user_id: string; ref_kind: string; ref_id: string | null; ref_label: string | null; metadata: Record<string, unknown>; created_at: Date }
 export interface CardEvent { id: string; card_id: string; user_id: string; kind: string; body: string | null; author_kind: string; author_id: string | null; author_label: string | null; metadata: Record<string, unknown>; created_at: Date }
 
@@ -51,10 +51,12 @@ export class BoardsDb {
            status text not null default 'open' check (status in ('open','doing','done','archived')),
            position int not null default 0,
            metadata jsonb not null default '{}'::jsonb,
+           due_date date,
            created_at timestamptz not null default now(),
            updated_at timestamptz not null default now()
          )`,
       );
+      await c.query(`alter table ${this.schema}.cards add column if not exists due_date date default null`);
       await c.query(
         `create table if not exists ${this.schema}.card_refs (
            id uuid primary key default gen_random_uuid(),
@@ -218,30 +220,30 @@ export class BoardsDb {
       const r = await q(
         `select * from ${this.schema}.cards
           where user_id = $1 and board_id = $2 and status <> 'archived'
-          order by position, created_at desc`,
+          order by due_date is null, due_date asc, position, created_at desc`,
         [uid, boardId],
       );
       return r.rows as Card[];
     });
   }
 
-  async createCard(boardId: string, title: string, body: string | null): Promise<Card | null> {
+  async createCard(boardId: string, title: string, body: string | null, dueDate: string | null = null): Promise<Card | null> {
     const uid = this.uid();
     if (!uid) return null;
     return this.tx(async (q) => {
       // INSERT…SELECT guards board ownership in one statement.
       const r = await q(
-        `insert into ${this.schema}.cards (board_id, user_id, title, body)
-         select b.id, $1, $3, $4 from ${this.schema}.boards b
+        `insert into ${this.schema}.cards (board_id, user_id, title, body, due_date)
+         select b.id, $1, $3, $4, $5 from ${this.schema}.boards b
           where b.id = $2 and b.user_id = $1 and b.status = 'active'
          returning *`,
-        [uid, boardId, title, body],
+        [uid, boardId, title, body, dueDate],
       );
       return (r.rows[0] as Card | undefined) ?? null;
     });
   }
 
-  async updateCard(id: string, patch: { title?: string; body?: string | null; status?: string }): Promise<Card | null> {
+  async updateCard(id: string, patch: { title?: string; body?: string | null; status?: string; due_date?: string | null }): Promise<Card | null> {
     const uid = this.uid();
     if (!uid) return null;
     const sets: string[] = [];
@@ -249,6 +251,7 @@ export class BoardsDb {
     if (patch.title !== undefined) { vals.push(patch.title); sets.push(`title = $${vals.length}`); }
     if (patch.body !== undefined) { vals.push(patch.body); sets.push(`body = $${vals.length}`); }
     if (patch.status !== undefined) { vals.push(patch.status); sets.push(`status = $${vals.length}`); }
+    if (patch.due_date !== undefined) { vals.push(patch.due_date); sets.push(`due_date = $${vals.length}`); }
     if (!sets.length) return null;
     return this.tx(async (q) => {
       const r = await q(

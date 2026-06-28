@@ -9,9 +9,9 @@ import type { NextRequest } from "next/server";
 import { verifyBearer } from "@/server/auth";
 import { withUser } from "@/server/db";
 
-interface CardRow { id: string; board_id: string; title: string; body: string | null; status: string; position: number; metadata?: Record<string, unknown>; ref_count?: number }
+interface CardRow { id: string; board_id: string; title: string; body: string | null; status: string; position: number; metadata?: Record<string, unknown>; due_date?: string | null; ref_count?: number }
 const STATUSES = ["open", "doing", "done", "archived"];
-const COLS = "id, board_id, title, body, status, position, metadata";
+const COLS = "id, board_id, title, body, status, position, metadata, due_date";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,11 +24,11 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const cards = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `select ${COLS.split(", ").map((x) => "k." + x).join(", ")},
+      `select k.id, k.board_id, k.title, k.body, k.status, k.position, k.metadata, k.due_date,
               (select count(*)::int from plugin_boards.card_refs r where r.card_id = k.id) as ref_count
          from plugin_boards.cards k
         where k.user_id = $1 and k.board_id = $2 and k.status <> 'archived'
-        order by k.position, k.created_at desc`,
+        order by k.due_date is null, k.due_date asc, k.position, k.created_at desc`,
       [sess.userId, boardId],
     );
     return r.rows as CardRow[];
@@ -44,16 +44,17 @@ export async function POST(req: NextRequest): Promise<Response> {
   const boardId = typeof body["board_id"] === "string" ? body["board_id"].trim() : "";
   const title = typeof body["title"] === "string" ? body["title"].trim() : "";
   const cardBody = typeof body["body"] === "string" && body["body"].trim() ? body["body"].trim() : null;
+  const dueDate = typeof body["due_date"] === "string" && body["due_date"].trim() ? body["due_date"].trim() : null;
   if (!boardId) return Response.json({ error: "board_id is required" }, { status: 400 });
   if (!title) return Response.json({ error: "title is required" }, { status: 400 });
 
   const card = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `insert into plugin_boards.cards (board_id, user_id, title, body)
-       select b.id, $1, $3, $4 from plugin_boards.boards b
+      `insert into plugin_boards.cards (board_id, user_id, title, body, due_date)
+       select b.id, $1, $3, $4, $5 from plugin_boards.boards b
         where b.id = $2 and b.user_id = $1 and b.status = 'active'
        returning ${COLS}`,
-      [sess.userId, boardId, title, cardBody],
+      [sess.userId, boardId, title, cardBody, dueDate],
     );
     return r.rows[0] as CardRow | undefined;
   });
@@ -79,6 +80,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
   }
   if (typeof body["title"] === "string" && body["title"].trim()) { vals.push(body["title"].trim()); sets.push(`title = $${vals.length}`); }
   if (typeof body["body"] === "string") { vals.push(body["body"].trim() || null); sets.push(`body = $${vals.length}`); }
+  if (typeof body["due_date"] === "string") { vals.push(body["due_date"].trim() || null); sets.push(`due_date = $${vals.length}`); }
   if (Array.isArray(body["labels"])) {
     // Store labels under metadata.labels (deduped, trimmed strings).
     const labels = [...new Set((body["labels"] as unknown[]).map((l) => String(l).trim()).filter(Boolean))];
