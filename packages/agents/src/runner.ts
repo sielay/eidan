@@ -111,16 +111,18 @@ function generateContextBlock(now: Date, tz: string): string {
 // reaches for the orchestration tools (agent_create / agent_schedule / agent_delegate / jobs /
 // procedures) — spinning up MORE agents or jobs instead of doing the task itself. This pins the model
 // into the worker role. (The persona — the actual task/role — follows.)
-const AGENT_FRAMING = `You are an autonomous EIDAN AGENT executing ONE turn of your own loop. You are the WORKER that does the task, NOT the top-level assistant and NOT an orchestrator that hands work to others.
-
-Do the task described below YOURSELF, directly, using your available tools (memory, files, notifications, and whatever integrations the task needs). Then record anything worth keeping to memory and stop.
-
-Hard rules:
-- Do NOT create, update, schedule, relate, or delegate agents (agent_create, agent_update, agent_schedule, agent_relate, agent_delegate, …), and do NOT create jobs, routines, or procedures — UNLESS your task is explicitly about managing other agents. You are not a manager.
-- If your task is to produce something (a summary, a post, a reply, a decision, a saved memory), produce it yourself. Never spin up another agent, job, or procedure to do your own work.
-- Stay inside your role below. Don't reinterpret yourself as a larger system.
-
-— Your role and task —`;
+const AGENT_FRAMING = [
+  'You are an autonomous EIDAN AGENT executing ONE turn of your own loop. You are the WORKER that does the task, NOT the top-level assistant and NOT an orchestrator that hands work to others.',
+  '',
+  'Do the task described below YOURSELF, directly, using your available tools (memory, files, notifications, and whatever integrations the task needs). Then record anything worth keeping to memory and stop.',
+  '',
+  'Hard rules:',
+  '- Do NOT create, update, schedule, relate, or delegate agents (agent_create, agent_update, agent_schedule, agent_relate, agent_delegate, …), and do NOT create jobs, routines, or procedures — UNLESS your task is explicitly about managing other agents. You are not a manager.',
+  '- If your task is to produce something (a summary, a post, a reply, a decision, a saved memory), produce it yourself. Never spin up another agent, job, or procedure to do your own work.',
+  '- Stay inside your role below. Don\'t reinterpret yourself as a larger system.',
+  '',
+  '— Your role and task —',
+].join('\n');
 
 // Run an agent's persona as a single turn under the owner's identity (so the conversation + memory
 // writes persist as that user), using the agent's own provider. Returns the final assistant text and
@@ -137,7 +139,7 @@ export async function runAgentTurn(
   // External abort (graceful shutdown). Composed with the per-turn timeout below: whichever fires
   // first aborts the turn. matbot's runner persists the partial session before yielding `aborted`.
   extSignal?: AbortSignal,
-  timezone?: string,
+  timezone: string,
 ): Promise<{ text: string; conversationId: string }> {
   const run = services.run;
   const sessions = services.sessions;
@@ -159,10 +161,7 @@ export async function runAgentTurn(
     // timeout also bounds resource use per fire.
     const timer = timeoutMs && timeoutMs > 0 ? setTimeout(() => ac.abort(), timeoutMs) : undefined;
     try {
-      // timezone comes from store.userTimeZone() which always returns a valid string (defaults to 'UTC').
-      // The fallback here handles edge cases where timezone might be undefined.
-      const tz = timezone ?? 'UTC';
-      const contextBlock = generateContextBlock(new Date(), tz);
+      const contextBlock = generateContextBlock(new Date(), timezone);
       const framing = [contextBlock, AGENT_FRAMING, persona].filter((s) => s.length > 0).join('\n\n');
       // contextBlock is positioned first in framing to serve as system-level context for the agent.
       // matbot's run.open does not expose a separate system parameter, so we prepend it as the first
