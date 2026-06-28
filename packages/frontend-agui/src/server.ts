@@ -362,12 +362,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
       const settled = await Promise.allSettled(compareModels.map(async (m) => {
         const resp = await singleTurn({ provider: m, prompt: text, maxTokens });
         const legModel = services.providers.get(m)?.model ?? m;
-        // Detect truncation: responses ending with "[truncated]", "...", or if stop_reason is 'length'.
-        // ponytail: these heuristics catch common model truncation patterns; a more robust approach would
-        // require the singleTurn signature to return explicit truncation status from the provider.
+        // Detect truncation via stop_reason from the provider (most reliable signal).
+        // Avoid string heuristics ('[truncated]', '...') which can produce false positives.
         const respText = typeof resp?.text === 'string' ? resp.text : '';
         const stopReason = typeof resp?.stopReason === 'string' ? resp.stopReason : undefined;
-        const truncated = respText.includes('[truncated]') || respText.trim().endsWith('...') || stopReason === 'length';
+        const truncated = stopReason === 'length';
         // Pass the raw response text; buildJudgeBriefing appends the truncation marker based on the flag
         const text_ = respText;
         // Record each compare leg in the cost ledger (role='compare_leg') so the trace/cost rollup
@@ -378,7 +377,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
             inputTokens: resp.usage.inputTokens ?? 0, outputTokens: resp.usage.outputTokens ?? 0,
           });
         }
-        return { model: legModel, text: text_, truncated, inputTokens: resp?.usage ? resp.usage.inputTokens ?? 0 : 0, outputTokens: resp?.usage ? resp.usage.outputTokens ?? 0 : 0 };
+        return { model: legModel, text: text_, truncated, inputTokens: resp?.usage?.inputTokens, outputTokens: resp?.usage?.outputTokens };
       }));
       const legs = settled.flatMap((r) => (r.status === 'fulfilled' && r.value.text.trim() ? [r.value] : []));
       if (legs.length >= 2) {
