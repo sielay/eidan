@@ -190,6 +190,7 @@ export const plugin: MatbotPluginSpec = {
                 ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
                 ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
               });
+              flushUsage();
             }
           }
         } finally {

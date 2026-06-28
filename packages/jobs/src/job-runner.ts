@@ -106,6 +106,7 @@ export function makeTurnHandler(provider: string): JobHandler {
               ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
               ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
             });
+            flushUsage();
           }
         }
       } finally {
