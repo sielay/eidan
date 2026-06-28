@@ -137,7 +137,7 @@ export function MessageBlock({
 function ForkDisclosure({ legs }: { legs: Array<{ model: string; text: string; truncated?: boolean; inputTokens?: number; outputTokens?: number }> }): React.ReactElement {
   const [open, setOpen] = React.useState(false);
   const [shown, setShown] = React.useState<number>(0);
-  const shownLeg = legs[shown];
+  const shownLeg = shown >= 0 && shown < legs.length ? legs[shown] : undefined;
   return (
     <div className="mt-1.5 rounded-md border border-border bg-background/50 text-xs">
       <button

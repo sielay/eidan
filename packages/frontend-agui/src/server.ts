@@ -154,6 +154,9 @@ async function resolveMentions(principal: Principal, mentions: Array<{ kind: str
   return `The user's message references these items (resolved for you — they appear as @links in the message):\n\n${sections.join('\n\n')}`;
 }
 
+// Truncation marker appended to responses that reached token limit.
+const TRUNCATION_MARKER = '_[Response was truncated at token limit]_';
+
 // Fork-and-merge: the ephemeral briefing the judge turn sees (prepended, never persisted). It carries
 // the user's prompt plus each candidate model's answer, and asks the judge to emit the single best
 // merged answer followed by a "## Model comparison" section. Kept out of the persisted user/assistant
@@ -161,7 +164,7 @@ async function resolveMentions(principal: Principal, mentions: Array<{ kind: str
 // Includes truncation markers if any responses were cut off.
 function buildJudgeBriefing(prompt: string, legs: Array<{ model: string; text: string; truncated?: boolean }>): string {
   const candidates = legs.map((l, i) => {
-    const truncMarker = l.truncated ? '\n\n_[This response was truncated — the model reached its token limit]_' : '';
+    const truncMarker = l.truncated ? `\n\n${TRUNCATION_MARKER}` : '';
     return `### Candidate ${i + 1} — ${l.model}\n${l.text}${truncMarker}`;
   }).join('\n\n');
   return [
@@ -365,8 +368,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
         const respText = typeof resp?.text === 'string' ? resp.text : '';
         const stopReason = typeof resp?.stopReason === 'string' ? resp.stopReason : undefined;
         const truncated = respText.includes('[truncated]') || respText.trim().endsWith('...') || stopReason === 'length';
-        // Append truncation marker if detected and not already present
-        const text_ = truncated && !respText.includes('[Response truncated at token limit]') ? `${respText.trim()}\n\n_[Response truncated at token limit]_` : respText;
+        // Append truncation marker if detected (rely on the truncated flag, not response text parsing)
+        const text_ = truncated ? `${respText.trim()}\n\n${TRUNCATION_MARKER}` : respText;
         // Record each compare leg in the cost ledger (role='compare_leg') so the trace/cost rollup
         // counts them — they run outside the streamed turn, so they weren't being recorded before.
         if (legLedger && resp?.usage) {
