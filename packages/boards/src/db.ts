@@ -56,7 +56,7 @@ export class BoardsDb {
            updated_at timestamptz not null default now()
          )`,
       );
-      await c.query(`alter table ${this.schema}.cards add column if not exists due_date date`);
+      await c.query(`alter table ${this.schema}.cards add column if not exists due_date date default null`);
       await c.query(
         `create table if not exists ${this.schema}.card_refs (
            id uuid primary key default gen_random_uuid(),

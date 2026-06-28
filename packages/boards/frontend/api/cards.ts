@@ -24,7 +24,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const cards = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `select ${COLS.split(", ").map((x) => "k." + x).join(", ")},
+      `select k.id, k.board_id, k.title, k.body, k.status, k.position, k.metadata, k.due_date,
               (select count(*)::int from plugin_boards.card_refs r where r.card_id = k.id) as ref_count
          from plugin_boards.cards k
         where k.user_id = $1 and k.board_id = $2 and k.status <> 'archived'

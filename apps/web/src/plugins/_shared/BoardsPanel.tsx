@@ -332,7 +332,7 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
   const [body, setBody] = React.useState(card.body ?? "");
   const [dueDate, setDueDate] = React.useState(card.due_date ?? "");
   const [savingCard, setSavingCard] = React.useState(false);
-  const dirty = title.trim() !== card.title || body.trim() !== (card.body ?? "") || dueDate !== (card.due_date ?? "");
+  const dirty = title.trim() !== card.title || body.trim() !== (card.body ?? "") || (dueDate || null) !== card.due_date;
   const [labels, setLabels] = React.useState<string[]>(card.metadata?.labels ?? []);
   const [newLabel, setNewLabel] = React.useState("");
 
@@ -346,7 +346,7 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
     if (!title.trim() || !dirty) return;
     setSavingCard(true);
     try {
-      await authFetch(`/api/boards/cards`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: card.id, title: title.trim(), body: body.trim(), due_date: dueDate }) });
+      await authFetch(`/api/boards/cards`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: card.id, title: title.trim(), body: body.trim(), due_date: dueDate || null }) });
       onChanged();
     } finally { setSavingCard(false); }
   }
