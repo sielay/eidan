@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Agent Foundation Skill: cached system rules for all agents.
+ * Agent Foundation Skill: core system rules for all agents.
  *
  * This skill contains the foundational rules, function call formatting, and behavioral
- * constraints that apply to ALL agents. By centralizing this, we:
- * 1. Reduce token bloat (same text repeated across every agent turn)
- * 2. Improve maintainability (change the rules once, affects all agents)
- * 3. Enable prompt caching (providers cache this foundation; only the thin persona is new per agent)
+ * constraints that apply to ALL agents. By centralizing this, we improve maintainability
+ * (change the rules once, affects all agents).
  *
  * Agents reference this skill in their persona via: "[skill: Agent Foundation]"
- * The runner will expand this at execution time, or operators can include it directly.
+ * The runner will expand this at execution time.
  */
 
 export const AGENT_FOUNDATION = `# EIDAN Agent Foundation
@@ -77,7 +75,6 @@ Do the task described below YOURSELF, directly, using your available tools (memo
 ## Provider-Specific Notes
 
 ### Claude / Anthropic
-- Supports prompt caching (\`cache_control\` header on system prompts).
 - Respects instruction emphasis (ALL CAPS works).
 - Function definitions use \`application/json\` content type.
 
@@ -94,7 +91,6 @@ Do the task described below YOURSELF, directly, using your available tools (memo
 
 **Version:** 1.0
 **Last Updated:** 2025-06-28
-**Cached:** Yes (use for prompt caching on Claude/DeepSeek/OpenAI with system-prompt markers)
 `;
 
 export const AGENT_FOUNDATION_ID = 'agent-foundation';

@@ -118,7 +118,6 @@ When a function call fails:
 
 **Version:** 1.0
 **Last Updated:** 2025-06-28
-**Cached:** Yes (use for DeepSeek and multi-provider agents)
 `;
 
 export const FUNCTION_CALL_HARDENING_ID = 'function-call-hardening';

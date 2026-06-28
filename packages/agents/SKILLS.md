@@ -1,55 +1,23 @@
-# Agent Prompt Architecture Refactoring — Skills System
+# Agent Skills System
 
-This documents the refactored agent prompt architecture (v1.0), which splits agent instructions into **cached foundation rules** (Tier 1) and **thin task-specific personas** (Tier 2).
-
-## Why This Matters
-
-### The Problem
-- Every agent turn prepended a ~2500-token framing with hard rules + function call guidance
-- Identical text repeated in every turn, every day, for every agent
-- Maintenance burden: changing one rule requires updating every agent persona
-- Function call failures in DeepSeek due to scattered, redundant guidance
-
-### The Solution
-Centralize reusable prompt content as **skills** — static documents referenced in personas via `[skill: NAME]` syntax:
-- Cached Foundation: Core worker rules, tool categories, state management (foundational once per provider session)
-- Function Call Hardening: Provider-specific formatting tips and recovery patterns (learned from production failures)
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│  Agent Persona (thin, task-specific)    │
-│  ─────────────────────────────────────  │
-│  "[skill: Agent Foundation]             │
-│   [skill: Function Call Hardening]      │
-│   Your task: review emails and ...      │  ← 400–500 tokens
-│                                         │
-└─────────────────────────────────────────┘
-           ↓ Runner expands skills ↓
-┌─────────────────────────────────────────┐
-│  Expanded Prompt (sent to provider)      │
-│  ─────────────────────────────────────  │
-│  # EIDAN Agent Foundation                │
-│  [~800 tokens of core rules]             │
-│                                         │  ← ~1200 total tokens
-│  # Function Call Hardening               │
-│  [~400 tokens of provider tips]          │
-│                                         │
-│  — Your role and task —                  │
-│  Your task: review emails and ...        │
-└─────────────────────────────────────────┘
-           ↓ Provider caches foundation ↓
-┌─────────────────────────────────────────┐
-│  Next Fire (same day/window)             │
-│  ─────────────────────────────────────  │
-│  [foundation: cached, 0 tokens]          │  ← Only thin persona sent
-│  Your task: review emails and ...        │     (~400 tokens, 80% savings)
-│                                         │
-└─────────────────────────────────────────┘
-```
+This documents the agent skills system (v1.0), which lets agents reference reusable prompt content via `[skill: NAME]` syntax in their personas.
 
 ## Available Skills
+
+Agents can reference built-in skills to include well-tested guidance on core rules and function call reliability:
+
+## How It Works
+
+Agents reference skills in their persona text:
+
+```
+[skill: Agent Foundation]
+[skill: Function Call Hardening]
+
+Your task: review emails and summarize daily changes.
+```
+
+When the agent fires, the runner expands these references to their full content before sending to the provider.
 
 ### `agent-foundation` (v1.0)
 Core behavioral rules and tool discipline for all agents.
@@ -61,7 +29,7 @@ Core behavioral rules and tool discipline for all agents.
 - State Management: Conversations write-once, memory append-only, escalations notify humans
 - Provider Notes: Tips for Claude, DeepSeek, OpenAI
 
-**When to use:** Always include in new agents; backward-compat auto-prepends for legacy agents
+**When to use:** Include in agents that need core behavioral rules and tool discipline.
 
 **Example reference:**
 ```
@@ -71,16 +39,15 @@ Your task: review emails and summarize daily changes.
 ```
 
 ### `function-call-hardening` (v1.0)
-Provider-specific tips for reliable function calls, discovered from production failures.
+Provider-specific tips for reliable function calls.
 
 **Contents:**
 - JSON Validation: required fields, type checking, escaping, nested objects
 - DeepSeek-Specific: stricter validation, one tool per response, explicit "you MUST call"
 - Parameter Naming: case-sensitivity, enum validation, array handling
 - Recovery Patterns: what to do on failure, retry strategy, when to escalate
-- Provider Success Rates: Claude 99%+, DeepSeek 95%+, comparison table
 
-**When to use:** Include for multi-provider deployments or DeepSeek agents
+**When to use:** Include for agents that call tools frequently or run on multiple providers.
 
 **Example reference:**
 ```
@@ -114,29 +81,7 @@ Be concise; group promotions together.`,
 
 **Result:**
 - Persona stored as-is (skill references preserved in DB)
-- On each fire, runner expands `[skill: X]` → full content
-- Provider caches expanded foundation on first fire
-- Next fires reuse cache (80%+ token savings)
-
-### Backward Compatibility
-
-Existing agents (without skill references) continue to work unchanged:
-
-```
-// Old agent (created before skills were available)
-agent_create({
-  name: "Vercel Monitor",
-  persona: "Check Vercel logs for errors and alert me."
-})
-```
-
-**Runner behavior:**
-1. Detects no `[skill: Agent Foundation]` reference
-2. Auto-prepends Agent Foundation for consistency
-3. Appends thin persona
-4. Sends to provider (works exactly as before)
-
-**No migration needed.** Operators can gradually adopt skills as agents are updated.
+- On each fire, runner expands `[skill: X]` → full content before sending to provider
 
 ## Implementation Details
 
@@ -181,20 +126,6 @@ The runner calls `expandSkillReferences()` before sending to the provider.
    [skill: My Skill]
    ```
 
-### Caching Strategy
-
-See `CACHING.md` for detailed info. TL;DR:
-
-| Provider | Support | Duration | Cost |
-|----------|---------|----------|------|
-| Claude | ✅ | 5 min (enterprise: longer) | 10% of input tokens |
-| DeepSeek | ✅ | Multi-request | Reduced input cost |
-| OpenAI | ✅ | 5 min | 10% of input tokens |
-| Ollama | ❌ | N/A | N/A |
-
-**Benefit:** First fire: 1200 tokens. Subsequent fires (within 5 min): ~400 tokens saved (~33% per fire).
-
-**Real-world impact:** Daily agents benefit from maintainability + clarity, not cost (1 fire/day, cache expires). Monitoring agents (5-min fires) see real token savings.
 
 ## Proof of Concept: Refactored Agents
 
@@ -242,62 +173,19 @@ assert(result.conversationId); // ✓ Agent ran
 // Inspect conversation to verify foundation rules were included
 ```
 
-### Performance Tests (Phase 2)
-
-```typescript
-// Compare tokens with/without caching
-const withCache = {
-  firstFire: 1200, // foundation + persona
-  nextFires: [400, 400, 400], // persona only (cached)
-  total: 1200 + 400 + 400 + 400 = 2400,
-};
-
-const withoutCache = {
-  allFires: [1200, 1200, 1200, 1200],
-  total: 4800,
-};
-
-const savings = (4800 - 2400) / 4800 = 50%;
-```
-
 ## Documentation
 
 - **EXAMPLES.md** — Reference agents using the new skill system (daily digest, email summarizer, monitoring)
-- **CACHING.md** — Detailed caching strategy, provider comparison, debugging, benchmarking
 - **src/skills/agent-foundation.ts** — Core worker rules
 - **src/skills/function-call-hardening.ts** — Provider-specific function call guidance
 
-## Future Enhancements (Phase 2+)
+## Future Enhancements
 
 1. **Operator-owned skills:** Allow operators to define custom skills in deploy config
 2. **Skill versioning:** `[skill: Agent Foundation v1.1]` with explicit version pinning
-3. **Cache tag standardization:** Formalize how each provider marks cached sections in logs/metrics
-4. **Multi-skill composition:** `[skills: foundation, hardening, custom-monitoring]` in one reference
-5. **Metrics dashboard:** Real-time cache hit rates, token savings, cost impact per agent
-6. **Skill validation:** Lint new skills before deployment (e.g., no hardcoded names, no secrets)
-7. **Skill tagging:** Categorize skills (rules, examples, debugging, provider-specific) for discovery
-
-## Migration Path
-
-**Phase 1 (Now):**
-- ✅ Ship skills system with two built-in skills
-- ✅ Auto-prepend Agent Foundation for backward compatibility
-- ✅ Expand skill references at runtime
-- ✅ Document with examples and caching strategy
-- ✅ Prove concept with 3 refactored agents
-
-**Phase 2 (Next quarter):**
-- Define operator-owned skills in `agent-cache-config.json`
-- Add explicit cache tag markers in logs/metrics
-- Implement skill versioning for breaking changes
-- Build metrics dashboard for cache hit rates and token savings
-- Lint/validate skills on creation
-
-**Phase 3 (Future):**
-- Multi-skill composition (more granular reuse)
-- Dynamic cache TTL per agent
-- Skill dependency management (e.g., "Custom Monitoring requires Agent Foundation v1+")
-- Public skill marketplace (operators share skills across deployments)
+3. **Multi-skill composition:** `[skills: foundation, hardening, custom-monitoring]` in one reference
+4. **Skill validation:** Lint new skills before deployment (e.g., no hardcoded names, no secrets)
+5. **Skill tagging:** Categorize skills (rules, examples, debugging, provider-specific) for discovery
 
 ## Questions & Decisions
 
@@ -313,15 +201,7 @@ matbot's `KnowledgeIndex` is for long-term learned knowledge (notes, facts, deci
 
 ### Does this work with local Ollama?
 
-Yes, but without caching benefit:
-- Skills still expand and work
-- Ollama doesn't support prompt caching, so no token savings
-- Clarity and maintainability benefits remain
-- Skill references make persona more readable
-
-### What if I want to disable caching for an agent?
-
-Remove skill references and write rules inline. The agent still works, just takes more tokens. Future: operators can set `cache_enabled: false` per agent or provider.
+Yes. Skills still expand and work normally with any provider.
 
 ### Can I reference the same skill twice?
 
@@ -338,7 +218,6 @@ The skill reference pattern `[skill: NAME]` is simple string-matching. NAME is v
 
 ## Support & Issues
 
-- **Questions about skills?** See EXAMPLES.md and CACHING.md.
+- **Questions about skills?** See EXAMPLES.md.
 - **Want to add a skill?** Update `src/skills/index.ts` and test `expandSkillReferences()`.
-- **Performance concerns?** Check caching strategy in CACHING.md; benchmark per agent.
 - **Bugs in expansion logic?** File an issue with the persona text and expected result.

@@ -32,7 +32,7 @@ function str(v: unknown): string {
 const PERSONA_HELP =
   'The agent\'s standing role / instruction — what it should do each time it runs ' +
   '(e.g. "Review my unread mail from Vercel and summarise any errors or anomalies"). ' +
-  'Optionally reference cached skills to reduce token bloat: [skill: Agent Foundation] for core rules, ' +
+  'Optionally reference skills to include well-tested guidance: [skill: Agent Foundation] for core rules, ' +
   '[skill: Function Call Hardening] for provider-specific function call tips. Skills are expanded at runtime.';
 
 const CREATE_SCHEMA: JSONSchema = {

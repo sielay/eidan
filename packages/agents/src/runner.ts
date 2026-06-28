@@ -2,8 +2,7 @@
 import type { MatbotServices, Session, MessageContent, Principal } from '@matatbread/matbot-plugin-api';
 import { runAs } from '@matatbread/matbot-plugin-api';
 import type { AgentsStore } from './store.js';
-import { expandSkillReferences, detectSkillReferences } from './skills/index.js';
-import { AGENT_FOUNDATION } from './skills/agent-foundation.js';
+import { expandSkillReferences } from './skills/index.js';
 
 interface ProviderCfg {
   name: string;
@@ -52,19 +51,12 @@ function lastAssistantText(s: Session): string {
   return '';
 }
 
-// Note: Core agent framing and role definitions are now part of AGENT_FOUNDATION skill (see
-// packages/agents/src/skills/agent-foundation.ts). The foundation is either explicitly referenced
-// via "[skill: Agent Foundation]" in the persona, or automatically prepended for backward
-// compatibility with existing agents. The separator "— Your role and task —" is part of AGENT_FOUNDATION
-// and appears consistently before the task-specific persona content.
-
 // Run an agent's persona as a single turn under the owner's identity (so the conversation + memory
 // writes persist as that user), using the agent's own provider. Returns the final assistant text and
 // the conversation id (= the session id) so the caller can link the fire to its turn (agent_runs).
 // Mirrors @eidandev/routines' runner, plus per-agent provider + conversation_id capture.
 //
 // Skill expansion: if persona references [skill: NAME], those expand before execution.
-// If persona doesn't reference [skill: Agent Foundation], we prepend it for backward compatibility.
 export async function runAgentTurn(
   services: MatbotServices,
   userId: string,
@@ -86,19 +78,7 @@ export async function runAgentTurn(
     // Tag the conversation as agent-origin before the turn runs (keeps it out of the human sidebar).
     if (onConversation) await onConversation(session.id);
 
-    // Build final persona first (with auto-prepended foundation reference if needed), then expand.
-    // This ensures deduplication works correctly across both prepended and original skill references.
-    // If persona doesn't reference [skill: Agent Foundation], prepend it for backward compatibility.
-    // AGENT_FOUNDATION now contains the role separator ("— Your role and task —") and must always
-    // be at the start of the expanded prompt. Strip any existing separator from the persona to avoid duplication.
-    const referencedSkills = detectSkillReferences(persona);
-    let finalPersona = persona;
-    if (!referencedSkills.includes('agent-foundation')) {
-      // Remove any existing "— Your role and task —" section to avoid duplication with AGENT_FOUNDATION's separator
-      finalPersona = persona.replace(/^[\s\S]*?## — Your role and task —\s*/m, '');
-      finalPersona = '[skill: Agent Foundation]\n\n' + finalPersona;
-    }
-    const expandedPersona = expandSkillReferences(finalPersona);
+    const expandedPersona = expandSkillReferences(persona);
 
     const ac = new AbortController();
     const onExt = (): void => ac.abort(extSignal?.reason ?? 'shutdown');

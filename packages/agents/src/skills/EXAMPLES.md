@@ -1,10 +1,10 @@
-# Agent Personas with Cached Skills — Examples
+# Agent Personas with Skills — Examples
 
-This document shows proof-of-concept agents refactored to use the new two-tier prompt architecture:
-- **Tier 1:** Cached Skills (Agent Foundation, Function Call Hardening)
-- **Tier 2:** Thin Persona (task-specific instructions only)
+This document shows example agents that reference the built-in skills system:
+- **Agent Foundation:** Core worker rules and tool discipline
+- **Function Call Hardening:** Provider-specific function call guidance
 
-Benefits: 50%+ token savings when the same agent fires repeatedly (provider cache), easier maintenance, clearer separation of concerns.
+Skills make personas clearer and easier to maintain by centralizing reusable guidance.
 
 ---
 
@@ -43,11 +43,9 @@ Do not modify calendar entries, only read and summarize. Stop after sending the 
 
 ### How It Works
 
-1. Runner calls `runAgentTurn(…, expandedPersona, …)`
+1. Runner calls `runAgentTurn(…, persona, …)`
 2. `expandSkillReferences()` replaces `[skill: Agent Foundation]` and `[skill: Function Call Hardening]` with their full content
-3. Expanded persona is sent to Claude with all the foundation rules baked in
-4. On next fire, provider caches the expanded skills (via cache_control headers)
-5. Only the thin persona (step 4-6 above) is re-sent, saving ~1500 tokens per fire
+3. Expanded persona is sent to Claude
 
 ---
 
@@ -167,70 +165,8 @@ Where NAME is one of:
 
 ---
 
-## Token Savings Example
-
-### Before (all rules inline in persona)
-
-```
-Persona text: ~2500 tokens
-Each fire: full persona expanded = 2500 tokens
-Weekly fires (168 hours) = 168 × 2500 = 420,000 tokens
-```
-
-### After (rules in cached skills)
-
-```
-Skill Foundation: ~800 tokens → cached
-Thin persona: ~400 tokens
-Skill Foundation (cached): 0 tokens (cache hit)
-Thin persona: ~400 tokens
-Weekly fires: first fire = 1200 tokens, next 167 fires = 167 × 400 = 66,800 tokens
-Total: 1200 + 66,800 = 68,000 tokens (84% savings!)
-```
-
----
-
-## Backward Compatibility
-
-Existing agents (without `[skill: …]` references) continue to work unchanged:
-- Runner automatically prepends `[skill: Agent Foundation]` for compatibility
-- No migration needed
-- Operators can gradually move agents to explicit skill references
-
----
-
-## Version & Cache Control
-
-Each skill has a version (1.0, 2.0, etc.):
-- **Version 1.0** is stable and cached
-- If we update rules (e.g., new hard rules), we bump to **1.1** or **2.0**
-- Operators can explicitly reference a version: `[skill: Agent Foundation v1.0]` (future)
-
-For now, all skills are v1.0 and auto-cached on providers that support it (Claude, DeepSeek, OpenAI).
-
----
-
-## Monitoring & Debugging
-
-When an agent fires, the runner logs:
-- Detected skill references (if any)
-- Whether Agent Foundation was auto-prepended (legacy agents)
-- Estimated cache hit rate (if provider supports it)
-
-Example log:
-```
-[agents] agent_id=abc123 name="Daily Calendar Digest" 
-  skills=["agent-foundation","function-call-hardening"]
-  provider="claude" cache_enabled=true
-  persona_tokens=450 cached_foundation_tokens=~800
-```
-
----
-
 ## Future Enhancements
 
 1. **Operator-owned skills:** Allow operators to define custom skills in their deploy config
-2. **Cache tag standardization:** Define how each provider marks cached sections
-3. **Skill versioning:** `[skill: Agent Foundation v1.1]` with fallback to v1.0
-4. **Performance dashboard:** Track cache hit rates, token savings per agent per week
-5. **Skill composition:** Agents reference multiple skills that get merged (e.g., `[skills: foundation, hardening, custom]`)
+2. **Skill versioning:** `[skill: Agent Foundation v1.1]` with fallback to v1.0
+3. **Skill composition:** Agents reference multiple skills that get merged (e.g., `[skills: foundation, hardening, custom]`)
