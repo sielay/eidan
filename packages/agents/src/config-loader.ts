@@ -1,41 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { ToolContext } from '@matatbread/matbot-plugin-api';
-import { readAndParseConfig, extractAllCacheSections, annotateForCaching, computeFileHash, loadConfigWithCache, type ParsedConfig, type CacheSection, type Provider } from '@eidandev/config-cache';
-
-// Integration layer: agents can call loadAgentConfig() to get parsed config files
-// with cache sections already separated and annotated for the LLM's provider.
-
-// Load a config file (via fs_read or similar) and parse it for caching.
-// Usage in agent persona:
-//   const config = await loadAgentConfig(toolContext, 'calendars.md', 'claude');
-//   const { staticSections, dynamicContent } = config.parsed;
-//   // Pass dynamicContent to LLM fresh
-//   // Pass staticSections with cache annotations for caching layer
-export async function loadAgentConfig(
-  ctx: ToolContext,
-  configPath: string,
-  provider: Provider,
-): Promise<{
-  parsed: ParsedConfig;
-  cached: boolean;
-  staticAnnotated: { text: string; metadata: Record<string, unknown> };
-}> {
-  // Note: fs_read() is a tool that agents call within their turn.
-  // This helper assumes the file content is already loaded (passed in or fetched via fs_read).
-  // In practice, agents embed this pattern:
-  //
-  // const fileResult = await tools.fs_read({ path: 'calendars.md' });
-  // const config = parseConfigMarkdown(fileResult.content);
-  // const { staticSections, dynamicContent } = config;
-  // const annotated = annotateForCaching(provider, staticSections);
-  //
-  // This function is a convenience wrapper for that pattern.
-
-  // Placeholder: would call fs_read tool in a real agent.
-  // For now, this is the integration point documentation.
-  throw new Error('loadAgentConfig: implement via fs_read tool in your agent persona');
-}
+// Config loader documentation and conventions for agent config file caching.
 
 // Agent persona helper: a template that agents can extend.
 // This shows the recommended pattern for using cached config files.
