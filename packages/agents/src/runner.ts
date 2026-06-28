@@ -3,6 +3,7 @@ import type { MatbotServices, Session, MessageContent, Principal } from '@matatb
 import { runAs } from '@matatbread/matbot-plugin-api';
 import type { AgentsStore } from './store.js';
 import { expandSkillReferences, detectSkillReferences } from './skills/index.js';
+import { AGENT_FOUNDATION } from './skills/agent-foundation.js';
 
 interface ProviderCfg {
   name: string;
@@ -92,7 +93,6 @@ export async function runAgentTurn(
     const referencedSkills = detectSkillReferences(persona);
     if (!referencedSkills.includes('agent-foundation')) {
       // Legacy agent without explicit skill reference: prepend Agent Foundation for compatibility
-      const { AGENT_FOUNDATION } = await import('./skills/agent-foundation.js');
       expandedPersona = AGENT_FOUNDATION + '\n\n' + expandedPersona;
     }
 
