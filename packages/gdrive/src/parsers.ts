@@ -148,31 +148,15 @@ async function getTesseract() {
   }
 }
 
-// Parse images with OCR: extract visible text.
-export async function parseImageOcr(bytes: Uint8Array): Promise<ParsedContent> {
-  try {
-    // Reuse Tesseract worker across multiple calls instead of creating/terminating per call
-    const worker = await getTesseractWorker();
-
-    // Convert Uint8Array to Buffer then to Blob for broader Tesseract.js compatibility
-    // (handles both Node.js and browser environments properly)
-    const buffer = Buffer.from(bytes);
-    const blob = new Blob([buffer], { type: 'application/octet-stream' });
-    const result = await worker.recognize(blob);
-
-    const text = result.data?.text ?? '';
-    const confidence = result.data?.confidence ?? 0;
-
-    return {
-      text,
-      format: 'ocr',
-      metadata: { confidence, language: 'eng' },
-    };
-  } catch (exc) {
-    throw new ParseError(
-      `OCR processing failed: ${exc instanceof Error ? exc.message : String(exc)}`,
-    );
-  }
+// Image "OCR" — DISABLED. Tesseract.js loaded a WASM core + downloaded ~15MB of language data + spawned
+// workers at runtime, which OOM-crashed the engine *uncatchably* (it took the whole process down
+// mid-turn, not as a throwable error). Modern models read images directly via VISION — more reliable and
+// higher quality than OCR — so we route images there instead. This throws a ParseError (the gdrive tool
+// catches it into a clean tool error) without ever loading Tesseract, so it can no longer crash the node.
+export async function parseImageOcr(_bytes: Uint8Array): Promise<ParsedContent> {
+  throw new ParseError(
+    "Image OCR isn't available in the engine (it was unstable and crashed the runtime). To analyse an image, attach it directly to the chat so a vision-capable model can read it — vision handles text and layout better than OCR. (For a Drive image, download it and attach it here.)",
+  );
 }
 
 // Dynamically load mammoth for DOCX parsing.

@@ -334,6 +334,9 @@ importers:
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
         version: link:../../external/matbot/packages/core/plugin-api
+      pdf-parse:
+        specifier: ^1.1.1
+        version: 1.1.4
       pg:
         specifier: ^8.13.1
         version: 8.22.0

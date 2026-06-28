@@ -731,7 +731,7 @@ export function Composer({
         type="file"
         multiple
         hidden
-        accept="image/*,text/*,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.xml,.log,.txt,.html,.css,.js,.ts,.py,.sql,.sh"
+        accept="image/*,application/pdf,.pdf,text/*,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.xml,.log,.txt,.html,.css,.js,.ts,.py,.sql,.sh"
         onChange={(e) => { void onPickFiles(e.target.files); e.target.value = ""; }}
       />
       <ComposerMoreMenu

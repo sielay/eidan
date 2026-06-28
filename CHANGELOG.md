@@ -6,6 +6,18 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.14.3] — 2026-06-28
+
+### Fixed
+
+- **OCR no longer crashes the engine** — Google Drive image OCR ran Tesseract.js, which loads a WASM core
+  + downloads ~15MB of language data + spawns workers at runtime and OOM-crashed the node *uncatchably*
+  (it took the whole process down mid-turn). Image OCR is now disabled with a clear message pointing to
+  vision (attach the image to chat) — more reliable + higher quality than OCR anyway.
+- **PDF upload to chat now works** — the composer accepts PDFs, and the engine extracts their text
+  (pdf-parse) and inlines it, since the provider adapter can only send a raw PDF as a name-only
+  placeholder. (Scanned/image-only PDFs yield no text — attach as an image for vision instead.)
+
 ## [0.14.2] — 2026-06-28
 
 ### Changed

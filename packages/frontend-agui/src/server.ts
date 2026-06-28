@@ -23,7 +23,22 @@ function isTextAttachment(mime: string, name: string): boolean {
 // the prompt so their content is actually read; anything else falls back to a document block (which
 // the adapter currently surfaces as a name-only placeholder). The prompt text always comes last so it
 // frames the attachments above it.
-function buildTurnContent(text: string, attachments?: TurnAttachment[]): MessageContent[] {
+// Extract text from a base64 PDF using pdf-parse (lazily — the dep may be absent on a lean node; we
+// degrade to a note rather than crash). The provider adapters can't send a raw PDF to the model (the
+// matbot `document` block renders as a name-only placeholder), so inlining the extracted text is how a
+// PDF attachment actually reaches the model. Scanned/image-only PDFs yield no text (would need OCR).
+async function extractPdfText(base64: string): Promise<string | null> {
+  try {
+    const mod = await import('pdf-parse/lib/pdf-parse.js') as unknown as { default?: (b: Buffer) => Promise<{ text?: string }> };
+    const pdf = (mod.default ?? (mod as unknown as (b: Buffer) => Promise<{ text?: string }>));
+    const out = await pdf(Buffer.from(base64, 'base64'));
+    return typeof out.text === 'string' ? out.text : null;
+  } catch {
+    return null;
+  }
+}
+
+async function buildTurnContent(text: string, attachments?: TurnAttachment[]): Promise<MessageContent[]> {
   const blocks: MessageContent[] = [];
   for (const a of attachments ?? []) {
     const data = typeof a?.data === 'string' ? a.data : '';
@@ -32,6 +47,13 @@ function buildTurnContent(text: string, attachments?: TurnAttachment[]): Message
     const name = typeof a?.name === 'string' && a.name ? a.name : 'file';
     if (mime.startsWith('image/')) {
       blocks.push({ type: 'image', data, mimeType: mime } as MessageContent);
+    } else if (mime === 'application/pdf' || /\.pdf$/i.test(name)) {
+      const pdfText = await extractPdfText(data);
+      if (pdfText && pdfText.trim()) {
+        blocks.push({ type: 'text', text: `Attached PDF "${name}" (extracted text):\n\n\`\`\`\n${pdfText.slice(0, 200_000)}\n\`\`\`` });
+      } else {
+        blocks.push({ type: 'text', text: `Attached PDF "${name}" — its text could not be extracted (likely a scanned/image-only PDF).` });
+      }
     } else if (isTextAttachment(mime, name)) {
       let body = '';
       try { body = Buffer.from(data, 'base64').toString('utf8'); } catch { body = ''; }
@@ -421,7 +443,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     const ac = new AbortController();
     req.on('close', () => ac.abort());
     try {
-      const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: buildTurnContent(text, body.attachments), provider: turnProvider, principal });
+      const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: await buildTurnContent(text, body.attachments), provider: turnProvider, principal });
       const ledger = services.LlmCalls;
       const model = services.providers.get(turnProvider)?.model ?? '';
       // The turn's user-message id isn't known until the turn commits (its `done`/`aborted` event

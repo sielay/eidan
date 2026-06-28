@@ -14,6 +14,7 @@
   "dependencies": {
     "@matatbread/matbot-core": "link:../../external/matbot/packages/core/runner",
     "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pdf-parse": "^1.1.1",
     "pg": "^8.13.1"
   },
   "devDependencies": {
