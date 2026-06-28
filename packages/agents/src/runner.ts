@@ -86,15 +86,16 @@ export async function runAgentTurn(
     // Tag the conversation as agent-origin before the turn runs (keeps it out of the human sidebar).
     if (onConversation) await onConversation(session.id);
 
-    // Expand skill references in the persona. If persona doesn't reference [skill: Agent Foundation],
-    // prepend it for backward compatibility. AGENT_FOUNDATION now contains the role separator
-    // ("— Your role and task —") and must always be at the start of the expanded prompt.
-    let expandedPersona = expandSkillReferences(persona);
+    // Build final persona first (with auto-prepended foundation reference if needed), then expand.
+    // This ensures deduplication works correctly across both prepended and original skill references.
+    // If persona doesn't reference [skill: Agent Foundation], prepend it for backward compatibility.
+    // AGENT_FOUNDATION now contains the role separator ("— Your role and task —") and must always
+    // be at the start of the expanded prompt.
     const referencedSkills = detectSkillReferences(persona);
-    if (!referencedSkills.includes('agent-foundation')) {
-      // Legacy agent without explicit skill reference: prepend Agent Foundation for compatibility
-      expandedPersona = AGENT_FOUNDATION + '\n\n' + expandedPersona;
-    }
+    const finalPersona = !referencedSkills.includes('agent-foundation')
+      ? '[skill: Agent Foundation]\n\n' + persona
+      : persona;
+    const expandedPersona = expandSkillReferences(finalPersona);
 
     const ac = new AbortController();
     const onExt = (): void => ac.abort(extSignal?.reason ?? 'shutdown');
