@@ -183,14 +183,16 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
         spend: Math.round(spend * 100) / 100,
       }));
 
+    let trend_7d: SpendTrend[];
     if (trends.length === 0) {
       trends.push(...buildEmptyTrends(30));
+      trend_7d = buildEmptyTrends(7);
+    } else {
+      trend_7d = trends.filter((t) => {
+        const d = new Date(t.period);
+        return d > getDaysSince(7);
+      });
     }
-
-    const trend_7d = trends.filter((t) => {
-      const d = new Date(t.period);
-      return d > getDaysSince(7);
-    });
 
     const data: SpendAnalytics = {
       provider: 'openrouter',
