@@ -5,7 +5,7 @@ import * as React from "react";
 import { useEditor, EditorContent, ReactRenderer } from "@tiptap/react";
 import type { Editor } from "@tiptap/react";
 import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
-import { Bold, Bot, Box, Briefcase, FileText, Folder, Heading2, Heading3, Italic, List, ListOrdered } from "lucide-react";
+import { Bold, Bot, Box, Briefcase, Columns3, FileText, Folder, Heading2, Heading3, Italic, List, ListOrdered, Rows3, Table as TableIcon, Trash2 } from "lucide-react";
 
 import { searchMentions, type MentionHit } from "@/lib/api/mentions";
 import { placeAnchored } from "@/components/agents/anchor";
@@ -105,6 +105,16 @@ function Toolbar({ editor }: { editor: Editor | null }): React.ReactElement | nu
       {btn(editor.isActive("heading", { level: 3 }), () => editor.chain().focus().toggleHeading({ level: 3 }).run(), "Subheading", Heading3)}
       {btn(editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), "Bullet list", List)}
       {btn(editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), "Numbered list", ListOrdered)}
+      {/* Tables: one button inserts a starter table; when the caret is inside a table, the add-column /
+          add-row / delete-table controls appear so a table the agent produced is editable, not just shown. */}
+      {btn(editor.isActive("table"), () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(), "Insert table", TableIcon)}
+      {editor.isActive("table") ? (
+        <>
+          {btn(false, () => editor.chain().focus().addColumnAfter().run(), "Add column", Columns3)}
+          {btn(false, () => editor.chain().focus().addRowAfter().run(), "Add row", Rows3)}
+          {btn(false, () => editor.chain().focus().deleteTable().run(), "Delete table", Trash2)}
+        </>
+      ) : null}
       <span style={{ flex: 1 }} />
       <span style={{ fontSize: 10, color: "var(--faint)", alignSelf: "center", paddingRight: 4 }}>@ to mention</span>
     </div>

@@ -195,29 +195,35 @@ function MarkdownBody({ content }: { content: string }): React.ReactElement {
   return (
     <div
       className={cn(
+        // Generous reading rhythm: more vertical air between paragraphs, list items and around
+        // headings so dense agent answers stay scannable. Tables get roomy cells, a quiet header
+        // band and zebra rows (the scroll wrapper is the `table` component override below).
         "max-w-none leading-relaxed",
         "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        "[&_p]:my-3",
-        "[&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold",
-        "[&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold",
-        "[&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:text-sm [&_h3]:font-semibold",
-        "[&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5",
-        "[&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5",
-        "[&_li]:my-1",
-        "[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs",
+        "[&_p]:my-4",
+        "[&_h1]:mt-6 [&_h1]:mb-3 [&_h1]:text-base [&_h1]:font-semibold",
+        "[&_h2]:mt-6 [&_h2]:mb-2.5 [&_h2]:text-sm [&_h2]:font-semibold",
+        "[&_h3]:mt-5 [&_h3]:mb-2 [&_h3]:text-sm [&_h3]:font-semibold",
+        "[&_ul]:my-4 [&_ul]:list-disc [&_ul]:pl-5",
+        "[&_ol]:my-4 [&_ol]:list-decimal [&_ol]:pl-5",
+        "[&_li]:my-1.5",
+        "[&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs",
         "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[0.9em]",
         "[&_a]:underline [&_a]:underline-offset-2",
-        "[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:italic",
-        "[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse",
-        "[&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium",
-        "[&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1",
-        "[&_hr]:my-4 [&_hr]:border-border",
+        "[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:italic",
+        "[&_table]:w-full [&_table]:border-collapse [&_table]:text-[0.95em]",
+        "[&_th]:border [&_th]:border-border [&_th]:bg-muted/40 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
+        "[&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:align-top",
+        "[&_tbody_tr:nth-child(even)]:bg-muted/20",
+        "[&_hr]:my-5 [&_hr]:border-border",
       )}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           a: ({ node, ...props }) => { void node; return <MentionAnchor {...props} />; },
+          // Wrap tables so a wide one scrolls horizontally inside the bubble instead of stretching it.
+          table: ({ node, ...props }) => { void node; return <div className="my-4 overflow-x-auto"><table {...props} /></div>; },
           img: ({ node, src, alt }) => {
             void node;
             return <ImageBlock src={src} alt={typeof alt === "string" ? alt : undefined} />;

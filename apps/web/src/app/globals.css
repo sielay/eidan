@@ -420,6 +420,16 @@
 .md ul, .md-body ul, .md-preview ul { list-style: disc; }
 .md ol, .md-body ol, .md-preview ol { list-style: decimal; }
 .md li + li, .md-body li + li, .md-preview li + li { margin-top: 4px; }
+/* tables — GFM tables in any markdown surface (chat detail, knowledge, file viewer, editor). Roomy
+   cells, a quiet header band, and zebra rows for readability, with their own vertical breathing room
+   (more specific than the element-reset above, so it wins). The read-only surfaces scroll a wide
+   table horizontally rather than letting it break the layout; the editor keeps a real, resizable
+   table (see .rich-md-editor below). */
+.md table, .md-body table, .md-preview table { width: 100%; border-collapse: collapse; font-size: var(--fs-14); margin-block: var(--s4); }
+.md :is(th, td), .md-body :is(th, td), .md-preview :is(th, td) { border: 1px solid var(--border); padding: var(--s2) var(--s3); text-align: left; vertical-align: top; }
+.md thead th, .md-body thead th, .md-preview thead th { background: var(--surface-2); font-weight: 600; }
+.md tbody tr:nth-child(even), .md-body tbody tr:nth-child(even), .md-preview tbody tr:nth-child(even) { background: var(--surface); }
+.md table, .md-body table, .md-preview table { display: block; overflow-x: auto; }
 .md-code { display: inline-block; font-family: var(--font-num); font-size: var(--fs-13); background: var(--surface-2); padding: 3px 8px; border-radius: var(--r-sm); color: var(--muted); }
 .res-ic { width: 36px; height: 36px; border-radius: var(--r-md); background: var(--surface-2); color: var(--muted); display: grid; place-items: center; flex: none; }
 
@@ -559,6 +569,14 @@ svg.i-lg { width: 26px; height: 26px; }
 }
 .rich-md-editor .ProseMirror { outline: none; min-height: inherit; }
 .rich-md-editor:focus-within { border-color: var(--accent, #6366f1); }
+/* Editable tables: keep a real table layout (the read-only .md-body rule above sets display:block for
+   scroll — restore table semantics here) plus prosemirror-tables affordances: per-cell selection
+   highlight and the drag-to-resize column handle. */
+.rich-md-editor .ProseMirror table { display: table; width: 100%; table-layout: fixed; margin: var(--s3) 0; overflow: hidden; }
+.rich-md-editor .ProseMirror :is(td, th) { min-width: 2em; position: relative; }
+.rich-md-editor .ProseMirror .selectedCell::after { content: ""; position: absolute; inset: 0; background: var(--accent-soft, rgba(99, 102, 241, 0.12)); pointer-events: none; }
+.rich-md-editor .ProseMirror .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: var(--accent, #6366f1); pointer-events: none; }
+.rich-md-editor .ProseMirror.resize-cursor { cursor: col-resize; }
 .persona-prose p:last-child { margin-bottom: 0; }
 .persona-prose h1, .persona-prose h2, .persona-prose h3 { font-weight: 600; margin: 0.5rem 0 0.25rem; }
 .persona-prose h1 { font-size: 1.05em; }

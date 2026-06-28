@@ -7,6 +7,10 @@ import type { Editor, Extensions } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import Mention from "@tiptap/extension-mention";
+import Table from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableHeader from "@tiptap/extension-table-header";
+import TableCell from "@tiptap/extension-table-cell";
 import { Markdown } from "tiptap-markdown";
 import type { SuggestionOptions } from "@tiptap/suggestion";
 
@@ -76,6 +80,13 @@ export function linkifyEntityMentions(editor: Editor): void {
 export function buildRichExtensions(suggestion?: Omit<SuggestionOptions<MentionHit>, "editor">): Extensions {
   return [
     StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+    // GFM tables: the schema nodes the agent's markdown tables deserialise into (tiptap-markdown
+    // round-trips `table`/`tableRow`/`tableHeader`/`tableCell` to pipe-table markdown). Without these
+    // nodes a pasted/loaded table silently collapses to plain text. `resizable` gives drag handles.
+    Table.configure({ resizable: true }),
+    TableRow,
+    TableHeader,
+    TableCell,
     Markdown.configure({ html: false, breaks: true, transformPastedText: true, transformCopiedText: true }),
     EntityMention.configure({
       HTMLAttributes: { class: "eidan-mention" },
