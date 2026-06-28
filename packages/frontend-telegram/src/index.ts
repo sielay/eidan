@@ -161,7 +161,7 @@ export const plugin: MatbotPluginSpec = {
         const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
         const flushUsage = (): void => {
           if (!ledger) return;
-          const model = services.providers.get(provider!)?.model ?? '';
+          const model = services.providers.get(provider!)?.model ?? provider!;
           for (const u of pendingUsage) {
             void ledger.record({
               userId: principal.id, conversationId: session.id, provider: provider!, model, ...u,
