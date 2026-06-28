@@ -4,6 +4,18 @@ import { runAs } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { lastAssistantText } from './session-text.js';
 
+interface LlmCall {
+  userId: string; conversationId?: string; messageId?: string; provider: string; model: string;
+  inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number;
+  costUsd?: number; requestId?: string; role?: string;
+}
+interface LlmCalls { record(call: LlmCall): Promise<void> }
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    LlmCalls?: LlmCalls;
+  }
+}
+
 export interface Job {
   id: string;
   kind: string;
@@ -57,16 +69,45 @@ export function makeTurnHandler(provider: string): JobHandler {
       const session = newSession(principal.id);
       await sessions.set(session.id, session);
       const ac = new AbortController();
+      const turnProvider = job.provider ?? provider;
       const view = await run.open({
         sessionId: session.id, signal: ac.signal,
-        content: [{ type: 'text', text: job.goal }], provider, principal,
+        content: [{ type: 'text', text: job.goal }], provider: turnProvider, principal,
       });
       let final: Session | undefined;
+      const ledger = services.LlmCalls;
+      const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
+      const flushUsage = (): void => {
+        if (!ledger) return;
+        const looked = services.providers.get(turnProvider)?.model;
+        let logProvider = turnProvider;
+        let logModel = looked ?? job.model ?? turnProvider;
+        // Handle OpenRouter providers (e.g., 'openrouter/deepseek/deepseek-chat')
+        if (!looked && turnProvider.startsWith('openrouter/')) {
+          logProvider = 'openrouter';
+          logModel = job.model ?? turnProvider.substring('openrouter/'.length);
+        }
+        for (const u of pendingUsage) {
+          void ledger.record({
+            userId: principal.id, conversationId: session.id, provider: logProvider, model: logModel, ...u,
+          });
+        }
+        pendingUsage.length = 0;
+      };
       for await (const ev of view.events) {
         if (ev.type === 'done') { final = ev.session; break; }
         if (ev.type === 'error') throw new Error(ev.error);
         if (ev.type === 'aborted') throw new Error(`aborted: ${ev.reason}`);
+        if (ev.type === 'usage') {
+          pendingUsage.push({
+            inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
+            ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
+            ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
+            ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
+          });
+        }
       }
+      flushUsage();
       return { result: { sessionId: session.id, text: final ? lastAssistantText(final) : '' } };
     });
   };

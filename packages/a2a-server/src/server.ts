@@ -7,9 +7,16 @@ import type { MatbotServices, Principal, Session, MessageContent } from '@matatb
 import { runAs, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import { agentCard } from './a2a-card.js';
 
+interface LlmCall {
+  userId: string; conversationId?: string; messageId?: string; provider: string; model: string;
+  inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number;
+  costUsd?: number; requestId?: string; role?: string;
+}
+interface LlmCalls { record(call: LlmCall): Promise<void> }
 declare module '@matatbread/matbot-plugin-api' {
   interface MatbotServices {
     WebPrincipalResolver?: (req: IncomingMessage) => Principal | Promise<Principal>;
+    LlmCalls?: LlmCalls;
   }
 }
 
@@ -101,11 +108,39 @@ async function messageSend(res: ServerResponse, services: MatbotServices, opts: 
     const view = await run.open({ sessionId: taskId, signal: ac.signal, content: [{ type: 'text', text }], provider: opts.provider, principal });
     let final: Session | undefined;
     let errored: string | undefined;
+    const ledger = services.LlmCalls;
+    const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
+    const flushUsage = (): void => {
+      if (!ledger) return;
+      const looked = services.providers.get(opts.provider)?.model;
+      let logProvider = opts.provider;
+      let logModel = looked ?? opts.provider;
+      // Handle OpenRouter providers (e.g., 'openrouter/deepseek/deepseek-chat')
+      if (!looked && opts.provider.startsWith('openrouter/')) {
+        logProvider = 'openrouter';
+        logModel = opts.provider.substring('openrouter/'.length);
+      }
+      for (const u of pendingUsage) {
+        void ledger.record({
+          userId: principal.id, conversationId: taskId, provider: logProvider, model: logModel, ...u,
+        });
+      }
+      pendingUsage.length = 0;
+    };
     for await (const ev of view.events) {
       if (ev.type === 'done') { final = ev.session; break; }
       if (ev.type === 'error') { errored = ev.error; break; }
       if (ev.type === 'aborted') { errored = ev.reason; break; }
+      if (ev.type === 'usage') {
+        pendingUsage.push({
+          inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, requestId: ev.traceId,
+          ...(ev.cacheReadTokens !== undefined ? { cacheReadTokens: ev.cacheReadTokens } : {}),
+          ...(ev.cacheCreationTokens !== undefined ? { cacheCreationTokens: ev.cacheCreationTokens } : {}),
+          ...(ev.costUsd !== undefined ? { costUsd: ev.costUsd } : {}),
+        });
+      }
     }
+    flushUsage();
     if (errored !== undefined) { json(res, 200, { jsonrpc: '2.0', id, error: { code: -32603, message: errored } }); return; }
     const answer = final ? lastAssistantText(final) : '';
     const task = {
