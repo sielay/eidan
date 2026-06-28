@@ -2,6 +2,7 @@
 import type { MatbotServices, Session, MessageContent, Principal } from '@matatbread/matbot-plugin-api';
 import { runAs } from '@matatbread/matbot-plugin-api';
 import type { AgentsStore } from './store.js';
+import { expandSkillReferences, detectSkillReferences } from './skills/index.js';
 
 interface ProviderCfg {
   name: string;
@@ -54,25 +55,19 @@ function lastAssistantText(s: Session): string {
 // toolset as the chat surface, so a capable model reads its persona as a request to "Eidan the OS" and
 // reaches for the orchestration tools (agent_create / agent_schedule / agent_delegate / jobs /
 // procedures) — spinning up MORE agents or jobs instead of doing the task itself. This pins the model
-// into the worker role. (The persona — the actual task/role — follows.)
-const AGENT_FRAMING = [
-  'You are an autonomous EIDAN AGENT executing ONE turn of your own loop. You are the WORKER that does the task, NOT the top-level assistant and NOT an orchestrator that hands work to others.',
-  '',
-  'Do the task described below YOURSELF, directly, using your available tools (memory, files, notifications, and whatever integrations the task needs). Then record anything worth keeping to memory and stop.',
-  '',
-  'Hard rules:',
-  '- Do NOT create, update, schedule, relate, or delegate agents (agent_create, agent_update, agent_schedule, agent_relate, agent_delegate, …), and do NOT create jobs, routines, or procedures — UNLESS your task is explicitly about managing other agents. You are not a manager.',
-  '- If your task is to produce something (a summary, a post, a reply, a decision, a saved memory), produce it yourself. Never spin up another agent, job, or procedure to do your own work.',
-  '- Stay inside your role below. Don\'t reinterpret yourself as a larger system.',
-  '',
-  '— Your role and task —',
-  '',
-].join('\n');
+// into the worker role.
+//
+// If a persona explicitly includes "[skill: Agent Foundation]", that expands to this content.
+// Otherwise, we prepend it to maintain backward compatibility with existing agents.
+const AGENT_FRAMING = '— Your role and task —';
 
 // Run an agent's persona as a single turn under the owner's identity (so the conversation + memory
 // writes persist as that user), using the agent's own provider. Returns the final assistant text and
 // the conversation id (= the session id) so the caller can link the fire to its turn (agent_runs).
 // Mirrors @eidandev/routines' runner, plus per-agent provider + conversation_id capture.
+//
+// Skill expansion: if persona references [skill: NAME], those expand before execution.
+// If persona doesn't reference [skill: Agent Foundation], we prepend it for backward compatibility.
 export async function runAgentTurn(
   services: MatbotServices,
   userId: string,
@@ -93,6 +88,19 @@ export async function runAgentTurn(
     await sessions.set(session.id, session);
     // Tag the conversation as agent-origin before the turn runs (keeps it out of the human sidebar).
     if (onConversation) await onConversation(session.id);
+
+    // Expand skill references in the persona. If persona doesn't reference [skill: Agent Foundation],
+    // prepend it for backward compatibility.
+    let expandedPersona = expandSkillReferences(persona);
+    const referencedSkills = detectSkillReferences(persona);
+    if (!referencedSkills.includes('agent-foundation')) {
+      // Legacy agent without explicit skill reference: prepend Agent Foundation for compatibility
+      const { AGENT_FOUNDATION } = await import('./skills/agent-foundation.js');
+      expandedPersona = AGENT_FOUNDATION + '\n' + AGENT_FRAMING + '\n\n' + expandedPersona;
+    } else {
+      expandedPersona = expandedPersona + '\n\n' + AGENT_FRAMING;
+    }
+
     const ac = new AbortController();
     const onExt = (): void => ac.abort(extSignal?.reason ?? 'shutdown');
     if (extSignal) {
@@ -106,7 +114,7 @@ export async function runAgentTurn(
     try {
       const view = await run.open({
         sessionId: session.id, signal: ac.signal,
-        content: [{ type: 'text', text: AGENT_FRAMING + persona }], provider, principal,
+        content: [{ type: 'text', text: expandedPersona }], provider, principal,
       });
       let final: Session | undefined;
       for await (const ev of view.events) {

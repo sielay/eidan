@@ -29,11 +29,17 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v : v == null ? '' : String(v);
 }
 
+const PERSONA_HELP =
+  'The agent\'s standing role / instruction — what it should do each time it runs ' +
+  '(e.g. "Review my unread mail from Vercel and summarise any errors or anomalies"). ' +
+  'Optionally reference cached skills to reduce token bloat: [skill: Agent Foundation] for core rules, ' +
+  '[skill: Function Call Hardening] for provider-specific function call tips. Skills are expanded at runtime.';
+
 const CREATE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
     name: { type: 'string', description: 'Short label for the agent (e.g. "Vercel log analyst").', minLength: 1 },
-    persona: { type: 'string', description: 'The agent\'s standing role / instruction — what it should do each time it runs (e.g. "Review my unread mail from Vercel and summarise any errors or anomalies").', minLength: 1 },
+    persona: { type: 'string', description: PERSONA_HELP, minLength: 1 },
     provider: { type: 'string', description: PROVIDER_HELP, minLength: 1 },
     model: { type: 'string', description: 'Optional explicit model override; omit for the provider default.', minLength: 1 },
     target_node: { type: 'string', description: TARGET_HELP, minLength: 1 },
@@ -49,7 +55,7 @@ const UPDATE_SCHEMA: JSONSchema = {
   properties: {
     id: { type: 'string', description: 'The agent to change.', minLength: 1 },
     name: { type: 'string', description: 'New label; omit to leave unchanged.', minLength: 1 },
-    persona: { type: 'string', description: 'New role/instruction; omit to leave unchanged.', minLength: 1 },
+    persona: { type: 'string', description: `New role/instruction; omit to leave unchanged. ${PERSONA_HELP}`, minLength: 1 },
     provider: { type: 'string', description: `New provider; omit to leave unchanged. ${PROVIDER_HELP}`, minLength: 1 },
     model: { type: 'string', description: 'New model override; omit to leave unchanged.', minLength: 1 },
     target_node: { type: 'string', description: `New target node; omit to leave unchanged. ${TARGET_HELP}`, minLength: 1 },
