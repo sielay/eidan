@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // POST   /api/admin/agents/:id/triggers          — add a schedule trigger to an agent.
-// DELETE /api/admin/agents/:id/triggers?trigger_id — remove a trigger (agent stays).
-// Slice 1 (#346) ships the schedule trigger type; sensor/webhook follow.
+// DELETE /api/admin/agents/:id/triggers?trigger_id — remove a trigger (any type).
+// This route is specifically for schedule triggers. decision_gate and other trigger
+// types would require separate endpoints or a refactored generic trigger creation flow.
 import type { NextRequest } from "next/server";
 
 import { verifyBearer } from "@/server/auth";
@@ -31,7 +32,6 @@ export async function POST(
   }
 
   const model = typeof body.model === "string" ? body.model.trim() : "";
-  const triggerType = body.trigger_type === "decision_gate" ? "decision_gate" : "schedule";
 
   const ok = await withUser(sess.userId, async (c) => {
     const a = await c.query(
@@ -44,7 +44,7 @@ export async function POST(
     await c.query(
       `insert into eidan.agent_triggers (agent_id, user_id, type, config)
        values ($1, $2, $3, $4::jsonb)`,
-      [id, sess.userId, triggerType, JSON.stringify(config)],
+      [id, sess.userId, "schedule", JSON.stringify(config)],
     );
     return true;
   });
