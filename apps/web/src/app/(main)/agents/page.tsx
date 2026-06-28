@@ -100,6 +100,7 @@ function AgentCard({
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [scheduleInput, setScheduleInput] = React.useState("");
+  const [modelInput, setModelInput] = React.useState("");
   // Collapsed by default: only the header row + the persona's first paragraph show; everything else
   // (full persona, triggers, schedule, runs) is revealed on expand.
   const [expanded, setExpanded] = React.useState(false);
@@ -191,9 +192,15 @@ function AgentCard({
               placeholder={`add schedule — ${SCHEDULE_PLACEHOLDER}`}
               className="w-72 rounded border border-border bg-background px-2 py-0.5 font-mono text-[11px]"
             />
+            <input
+              value={modelInput} onChange={(e) => setModelInput(e.target.value)}
+              placeholder="model (optional)"
+              className="w-40 rounded border border-border bg-background px-2 py-0.5 font-mono text-[11px]"
+              title="Optional model override for this trigger (e.g., 'haiku', 'deepseek'); omit to use agent default"
+            />
             <button
               disabled={busy || !scheduleInput.trim()}
-              onClick={() => void act(async () => { await addAgentSchedule(agent.id, scheduleInput.trim()); setScheduleInput(""); })}
+              onClick={() => void act(async () => { await addAgentSchedule(agent.id, scheduleInput.trim(), modelInput.trim() || undefined); setScheduleInput(""); setModelInput(""); })}
               className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
             >
               + schedule
@@ -216,9 +223,11 @@ function TriggerChip({
   agentId, trigger, onChange,
 }: { agentId: string; trigger: AgentTrigger; onChange: () => void }): React.ReactElement {
   const label = trigger.type === "schedule" ? String(trigger.config["schedule"] ?? "schedule") : trigger.type;
+  const model = trigger.config["model"] ? String(trigger.config["model"]) : null;
   return (
     <span className="inline-flex items-center gap-1 rounded bg-indigo-100 px-1.5 py-0.5 font-mono text-[10px] text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200">
       {label}
+      {model ? <span className="ml-1 rounded bg-indigo-700/20 px-1">🤖 {model}</span> : null}
       <button
         onClick={() => void removeAgentTrigger(agentId, trigger.id).then(onChange).catch(() => undefined)}
         className="text-indigo-500 hover:text-red-600 dark:text-indigo-300 dark:hover:text-red-400"

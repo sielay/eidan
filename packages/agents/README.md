@@ -13,13 +13,15 @@ cross-node unique guard (`eidan.agent_runs`, unique on `(trigger_id, fire_key)`)
 so exactly one node fires each window. It runs the agent's persona as a turn
 under the owner's identity, using the agent's **own** provider — a per-turn
 synthetic provider profile is registered when a `model` override is set, so an
-agent can run any model (e.g. any OpenRouter slug) without a restart. The
-produced conversation is tagged `origin=agent` (kept out of the human chat
-sidebar) and the output is delivered on the `agent` notify topic. An agent pinned
-to a `target_node` is only fired by that node (e.g. a local-ollama agent on the
-Pi). A per-fire hard timeout aborts stuck turns; after a streak of consecutive
-failures the loop raises an escalation via @eidandev/escalations (best-effort,
-deduped per agent).
+agent can run any model (e.g. any OpenRouter slug) without a restart. **Model
+selection is hierarchical**: trigger override > agent override > node default.
+This lets a single agent use different models per trigger (e.g. Haiku for a
+weekly synthesis but DeepSeek for daily coordination). The produced conversation
+is tagged `origin=agent` (kept out of the human chat sidebar) and the output is
+delivered on the `agent` notify topic. An agent pinned to a `target_node` is only
+fired by that node (e.g. a local-ollama agent on the Pi). A per-fire hard timeout
+aborts stuck turns; after a streak of consecutive failures the loop raises an
+escalation via @eidandev/escalations (best-effort, deduped per agent).
 
 ## Tools
 
@@ -29,7 +31,8 @@ deduped per agent).
 | `agent_list`   | List the operator's agents, each with its triggers. |
 | `agent_update` | Rename / edit persona / switch provider-model / pin node / pause-resume (`enabled`); only passed fields change. |
 | `agent_delete` | Delete an agent (and its triggers). |
-| `agent_schedule` | Attach a recurring **schedule** trigger to an agent. |
+| `agent_schedule` | Attach a recurring **schedule** trigger to an agent. Optional `model` overrides the agent's model for this trigger. |
+| `agent_relate` | Declare agent relationships (delegates_to / reviews / reports_to / escalates_to / decision_gate). Optional `model` (decision_gate only) overrides the agent's model. |
 | `agent_trigger_delete` | Remove a trigger (the agent stays). |
 
 ## Example

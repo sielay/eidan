@@ -30,16 +30,21 @@ export async function POST(
     return Response.json({ detail: `invalid schedule "${schedule}"` }, { status: 400 });
   }
 
+  const model = typeof body.model === "string" ? body.model.trim() : "";
+  const triggerType = body.trigger_type === "decision_gate" ? "decision_gate" : "schedule";
+
   const ok = await withUser(sess.userId, async (c) => {
     const a = await c.query(
       `select id from eidan.agents where id = $1 and user_id = $2 and deleted_at is null`,
       [id, sess.userId],
     );
     if ((a.rowCount ?? 0) === 0) return false;
+    const config: Record<string, unknown> = { schedule };
+    if (model) config.model = model;
     await c.query(
       `insert into eidan.agent_triggers (agent_id, user_id, type, config)
-       values ($1, $2, 'schedule', $3::jsonb)`,
-      [id, sess.userId, JSON.stringify({ schedule })],
+       values ($1, $2, $3, $4::jsonb)`,
+      [id, sess.userId, triggerType, JSON.stringify(config)],
     );
     return true;
   });
