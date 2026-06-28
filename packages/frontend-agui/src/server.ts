@@ -368,8 +368,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
         const respText = typeof resp?.text === 'string' ? resp.text : '';
         const stopReason = typeof resp?.stopReason === 'string' ? resp.stopReason : undefined;
         const truncated = respText.includes('[truncated]') || respText.trim().endsWith('...') || stopReason === 'length';
-        // Append truncation marker if detected (rely on the truncated flag, not response text parsing)
-        const text_ = truncated ? `${respText.trim()}\n\n${TRUNCATION_MARKER}` : respText;
+        // Pass the raw response text; buildJudgeBriefing appends the truncation marker based on the flag
+        const text_ = respText;
         // Record each compare leg in the cost ledger (role='compare_leg') so the trace/cost rollup
         // counts them — they run outside the streamed turn, so they weren't being recorded before.
         if (legLedger && resp?.usage) {
@@ -378,7 +378,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
             inputTokens: resp.usage.inputTokens ?? 0, outputTokens: resp.usage.outputTokens ?? 0,
           });
         }
-        return { model: legModel, text: text_, truncated: truncated || false, inputTokens: resp?.usage?.inputTokens ?? 0, outputTokens: resp?.usage?.outputTokens ?? 0 };
+        return { model: legModel, text: text_, truncated, inputTokens: resp?.usage?.inputTokens ?? 0, outputTokens: resp?.usage?.outputTokens ?? 0 };
       }));
       const legs = settled.flatMap((r) => (r.status === 'fulfilled' && r.value.text.trim() ? [r.value] : []));
       if (legs.length >= 2) {
