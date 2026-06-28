@@ -118,6 +118,14 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
 
       if (usageData.data) {
         allCalls.push(...usageData.data);
+        // Stop fetching if all new calls are older than 30-day window
+        if (usageData.data.length > 0) {
+          const oldestCallDate = new Date(usageData.data[usageData.data.length - 1]!.timestamp);
+          if (oldestCallDate < start30d) {
+            nextUrl = null;
+            continue;
+          }
+        }
       }
 
       nextUrl = usageData.next_url ?? null;
@@ -192,17 +200,15 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
       })
       .sort((a, b) => b.total_spend - a.total_spend);
 
-    // Build trend data
-    let trends: SpendTrend[] = Array.from(trendMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([period, spend]) => ({
-        period,
-        spend: Math.round(spend * 100) / 100,
-      }));
-
-    if (trends.length === 0) {
-      trends = buildEmptyTrends(30);
+    // Build trend data: fill all 30 days to ensure consistent slicing
+    const allDayTrends = buildEmptyTrends(30);
+    for (const entry of trendMap.entries()) {
+      const dayIndex = allDayTrends.findIndex((t) => t.period === entry[0]);
+      if (dayIndex >= 0) {
+        allDayTrends[dayIndex]!.spend = Math.round(entry[1] * 100) / 100;
+      }
     }
+    const trends = allDayTrends;
 
     const trend_7d = trends.slice(-7);
 
