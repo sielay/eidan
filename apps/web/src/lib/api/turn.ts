@@ -40,9 +40,29 @@ export type TurnEvent =
   | { kind: "tool_call_start"; tool_call_id: string; tool_name: string }
   | { kind: "tool_call_args"; tool_call_id: string; args_delta: string }
   | { kind: "tool_call_result"; tool_call_id: string; content: string }
+  | { kind: "ask_user"; prompt_id: string; field: AskField }
   | { kind: "complete"; user_message_id: string; assistant_message_id: string }
   | { kind: "error"; message: string }
   | { kind: "unknown"; type: string };
+
+/**
+ * A single ``ask_user`` form field (mirror of matbot's ``FormField``).
+ * The agent emits one when it pauses mid-turn to ask the user something;
+ * the turn is blocked server-side until {@link answerPrompt} resolves it.
+ */
+export interface AskField {
+  name: string;
+  label: string;
+  type: "text" | "password" | "select" | "confirm";
+  /** Required when ``type === "select"`` — the mutually-exclusive choices. */
+  options?: string[];
+  /** select-only: also offer a free-text "Other…" answer. */
+  allowOther?: boolean;
+  default?: string;
+  required?: boolean;
+  /** Default true; when false the user must answer and cannot cancel. */
+  cancelable?: boolean;
+}
 
 export interface TurnRequest {
   conversationId: string;
@@ -201,7 +221,54 @@ function decodeAguiEvent(e: Record<string, unknown>): TurnEvent {
     }
     case EventType.RUN_ERROR:
       return { kind: "error", message: String(e.message ?? "run failed") };
+    // Not an @ag-ui/core event — an eidan extension (server.ts) carrying a mid-turn ``ask_user``
+    // question down the open turn stream. The turn is blocked until we POST an answer back.
+    case "ASK_USER": {
+      const f = (e.field ?? {}) as Partial<AskField>;
+      const field: AskField = {
+        name: typeof f.name === "string" ? f.name : "answer",
+        label: typeof f.label === "string" ? f.label : "",
+        type:
+          f.type === "password" || f.type === "select" || f.type === "confirm"
+            ? f.type
+            : "text",
+        ...(Array.isArray(f.options)
+          ? { options: f.options.filter((o): o is string => typeof o === "string") }
+          : {}),
+        ...(typeof f.allowOther === "boolean" ? { allowOther: f.allowOther } : {}),
+        ...(typeof f.default === "string" ? { default: f.default } : {}),
+        ...(typeof f.required === "boolean" ? { required: f.required } : {}),
+        ...(typeof f.cancelable === "boolean" ? { cancelable: f.cancelable } : {}),
+      };
+      return { kind: "ask_user", prompt_id: String(e.promptId ?? ""), field };
+    }
     default:
       return { kind: "unknown", type: String(type ?? "unknown") };
+  }
+}
+
+/**
+ * Answer (or cancel) a parked ``ask_user`` prompt. The turn's SSE stream
+ * is still open and blocked inside the tool; this settles it server-side
+ * and the turn streams on over that same connection. ``cancel: true`` is
+ * the "give up" path — the tool reports it as an error and the turn ends.
+ */
+export async function answerPrompt(args: {
+  conversationId: string;
+  promptId: string;
+  answer?: string;
+  cancel?: boolean;
+}): Promise<void> {
+  const res = await authFetch("/api/turn/answer", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      conversation_id: args.conversationId,
+      prompt_id: args.promptId,
+      ...(args.cancel ? { cancel: true } : { answer: args.answer ?? "" }),
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`POST /api/turn/answer returned ${res.status}`);
   }
 }

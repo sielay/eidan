@@ -102,16 +102,20 @@ export function buildThread({
           }
           j++;
         }
-        const pairs: PairedToolCall[] = row.tool_calls.map((call) => {
-          const matched = results.get(call.id);
-          return {
-            id: call.id,
-            name: call.name,
-            input: call.input,
-            result: matched?.content ?? null,
-            is_error: matched?.is_error ?? false,
-          };
-        });
+        const pairs: PairedToolCall[] = row.tool_calls
+          // ask_user is surfaced as an interactive form (AskUserForm), not a folded tool-call audit
+          // row — hide the raw call/result so the Q&A doesn't also appear as opaque JSON.
+          .filter((call) => call.name !== "ask_user")
+          .map((call) => {
+            const matched = results.get(call.id);
+            return {
+              id: call.id,
+              name: call.name,
+              input: call.input,
+              result: matched?.content ?? null,
+              is_error: matched?.is_error ?? false,
+            };
+          });
         out.push({
           id: row.id,
           role: "assistant",
@@ -150,15 +154,15 @@ export function buildThread({
     });
   }
   if (streamingAssistant !== null) {
-    const livePairs: PairedToolCall[] = streamingAssistant.toolCalls.map(
-      (tc) => ({
+    const livePairs: PairedToolCall[] = streamingAssistant.toolCalls
+      .filter((tc) => tc.tool_name !== "ask_user") // rendered as the interactive form, not a tool row
+      .map((tc) => ({
         id: tc.tool_call_id,
         name: tc.tool_name,
         input: parseToolArgs(tc.args_text),
         result: tc.result,
         is_error: false,
-      }),
-    );
+      }));
     out.push({
       id: PENDING_ASSISTANT_ID,
       role: "assistant",

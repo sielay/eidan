@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { MatbotServices, Session, Principal, MessageContent, ProviderConfig } from '@matatbread/matbot-plugin-api';
-import { runAs, tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
+import type { MatbotServices, Session, Principal, MessageContent, ProviderConfig, FormField, PromptFn } from '@matatbread/matbot-plugin-api';
+import { runAs, tryCurrentPrincipal, PromptCancelledError } from '@matatbread/matbot-plugin-api';
 import { AguiEmitter, lastIdByRole, type AguiEvent } from './agui-emitter.js';
 import { handleDevAuth } from './auth-dev.js';
 import { proxyToPanel } from './panel-proxy.js';
@@ -260,6 +260,39 @@ function sse(res: ServerResponse, ev: AguiEvent): void {
   res.write(`data: ${JSON.stringify(ev)}\n\n`);
 }
 
+// ── ask_user (human-in-the-loop) ────────────────────────────────────────────────────────────────────
+// matbot's `ask_user` tool calls `ctx.prompt(field)` and BLOCKS the turn until the host resolves it. In
+// the CLI that's readline; on the web it's this SSE round-trip: when a tool prompts mid-turn we write an
+// `ASK_USER` frame down the already-open turn stream and park the promise, keyed by conversation. The
+// client renders a control and POSTs the answer to `/api/turn/answer`, which settles the parked promise —
+// the tool then continues and the turn streams on over the same connection. Without a prompt impl the
+// call rejects ("non-interactive context") and `ask-user-fallback` escalates it to the inbox instead of
+// asking. Keyed by conversationId because a turn is serial — only one prompt is open at a time.
+interface PendingPrompt { promptId: string; ownerId: string; resolve: (answer: string) => void; cancel: () => void }
+const pendingPrompts = new Map<string, PendingPrompt>();
+
+// A `PromptFn` bound to one turn's SSE response. Emits the question, parks the settlers, and returns the
+// promise the answer route resolves. An empty answer falls back to the field/text default.
+function makePromptFn(conversationId: string, ownerId: string, res: ServerResponse): PromptFn {
+  return ((p: string | FormField, defaultValue?: string): Promise<string> => {
+    const field: FormField = typeof p === 'string'
+      ? { name: 'answer', label: p, type: 'text', ...(defaultValue !== undefined ? { default: defaultValue } : {}) }
+      : p;
+    const def = (typeof p === 'string' ? defaultValue : p.default) ?? '';
+    const promptId = crypto.randomUUID();
+    return new Promise<string>((resolve, reject) => {
+      pendingPrompts.get(conversationId)?.cancel(); // supersede any stale prompt on this conversation
+      pendingPrompts.set(conversationId, {
+        promptId,
+        ownerId,
+        resolve: (answer) => { pendingPrompts.delete(conversationId); resolve(answer || def); },
+        cancel:  ()       => { pendingPrompts.delete(conversationId); reject(new PromptCancelledError()); },
+      });
+      sse(res, { type: 'ASK_USER', threadId: conversationId, promptId, field });
+    });
+  }) as PromptFn;
+}
+
 // Starts the AG-UI + REST HTTP server. Public routes (health, /api/auth/*) bypass auth; everything
 // else resolves a Principal (boot if no resolver) and runs under it.
 export function startAguiServer(services: MatbotServices, port: number, provider: string, boot: Principal): () => void {
@@ -441,9 +474,9 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     }
 
     const ac = new AbortController();
-    req.on('close', () => ac.abort());
+    req.on('close', () => { ac.abort(); pendingPrompts.get(conversationId)?.cancel(); });
     try {
-      const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: await buildTurnContent(text, body.attachments), provider: turnProvider, principal });
+      const view = await run.open({ sessionId: conversationId, signal: ac.signal, content: await buildTurnContent(text, body.attachments), provider: turnProvider, principal, prompt: makePromptFn(conversationId, principal.id, res) });
       const ledger = services.LlmCalls;
       const model = services.providers.get(turnProvider)?.model ?? '';
       // The turn's user-message id isn't known until the turn commits (its `done`/`aborted` event
@@ -494,11 +527,32 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
         // error/cancelled (and any stream break) carry no committed session — still record the
         // usage so session/day rollups stay accurate; only the per-turn attribution is dropped.
         flushUsage();
+        // Drop any prompt still parked at turn end (it can never be answered now).
+        pendingPrompts.get(conversationId)?.cancel();
       }
     } catch (e) {
       for (const a of emitter.error(e instanceof Error ? e.message : String(e))) sse(res, a);
     }
     res.end();
+    return;
+  }
+
+  // POST /api/turn/answer — settle a parked ask_user prompt (resolve with the answer, or cancel). The
+  // matching turn's SSE stream is still open and blocked inside the tool; settling unblocks it and the
+  // turn streams on. Scoped to the prompt owner so one user can't answer another's question.
+  if (method === 'POST' && pathname === '/api/turn/answer') {
+    let body: { conversation_id?: string; prompt_id?: string; answer?: string; cancel?: boolean };
+    try { body = JSON.parse(await readBody(req)) as typeof body; }
+    catch { json(res, 400, { error: 'invalid JSON' }, cors); return; }
+    const cid = body.conversation_id;
+    if (!cid) { json(res, 400, { error: 'conversation_id required' }, cors); return; }
+    const pending = pendingPrompts.get(cid);
+    if (!pending) { json(res, 404, { error: 'no prompt awaiting an answer' }, cors); return; }
+    if (pending.ownerId !== principal.id) { json(res, 403, { error: 'not your prompt' }, cors); return; }
+    if (body.prompt_id && body.prompt_id !== pending.promptId) { json(res, 409, { error: 'stale prompt — a newer question is pending' }, cors); return; }
+    if (body.cancel) pending.cancel();
+    else pending.resolve(typeof body.answer === 'string' ? body.answer : '');
+    json(res, 200, { ok: true }, cors);
     return;
   }
 

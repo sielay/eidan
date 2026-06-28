@@ -10,10 +10,11 @@ import {
   markConversationRead,
   type MessageRow,
 } from "@/lib/api/conversations";
-import { streamTurn } from "@/lib/api/turn";
+import { streamTurn, answerPrompt, type AskField } from "@/lib/api/turn";
 import { loadProvider, saveProvider, listProviders, type ProviderOption } from "@/lib/models";
 import { listOpenRouterModels, type OpenRouterModel } from "@/lib/api/admin";
 
+import { AskUserForm } from "./AskUserForm";
 import { buildThread, type StreamingAssistant } from "./buildThread";
 import { Composer, type ComposerAttachment } from "./Composer";
 import { ConversationTitle } from "./ConversationTitle";
@@ -60,6 +61,9 @@ export function ConversationView({
   );
   const [streamingAssistant, setStreamingAssistant] =
     React.useState<StreamingAssistant | null>(null);
+  // A mid-turn ``ask_user`` question the agent is blocked on. While set, the composer stays disabled
+  // and the AskUserForm is the input; answering (or cancelling) POSTs back and the turn streams on.
+  const [pendingPrompt, setPendingPrompt] = React.useState<{ promptId: string; field: AskField } | null>(null);
   const [inFlight, setInFlight] = React.useState(false);
   const [lastUserMessageId, setLastUserMessageId] = React.useState<
     string | null
@@ -68,6 +72,7 @@ export function ConversationView({
   const [provider, setProvider] = React.useState("");
   React.useEffect(() => {
     setProvider(loadProvider(conversationId));
+    setPendingPrompt(null); // a parked question never carries across conversations
   }, [conversationId]);
   // The picker menu is built from the engine's live provider registry, so it can never offer a name
   // the engine doesn't have. We also reconcile the remembered pick against this list: a name saved
@@ -142,6 +147,7 @@ export function ConversationView({
       if (!config) throw new Error("auth config not ready");
       setPendingUserText(text);
       setStreamingAssistant({ text: "", interrupted: false, toolCalls: [] });
+      setPendingPrompt(null);
       setInFlight(true);
 
       // Reduce the AG-UI event stream (#263) into the optimistic
@@ -205,6 +211,10 @@ export function ConversationView({
                 ),
               };
             });
+          } else if (event.kind === "ask_user") {
+            // The agent paused to ask the user something; render the form and wait. The stream stays
+            // open (blocked server-side in the tool) — answering POSTs back and these events resume.
+            setPendingPrompt({ promptId: event.prompt_id, field: event.field });
           } else if (event.kind === "complete") {
             completed = true;
             setLastUserMessageId(event.user_message_id);
@@ -219,6 +229,7 @@ export function ConversationView({
         // below so the partial assistant content stays visible.
       }
 
+      setPendingPrompt(null); // the turn ended (or broke) — no question is awaiting an answer now
       if (completed) {
         setPendingUserText(null);
         setStreamingAssistant(null);
@@ -242,6 +253,26 @@ export function ConversationView({
       }
     },
     [config, conversationId, provider, reloadHistory, reloadTitle],
+  );
+
+  // Settle a parked ask_user prompt. Clear it optimistically (the form vanishes immediately); the
+  // turn's open SSE stream delivers whatever the agent does next once the engine unblocks the tool.
+  const respondToPrompt = React.useCallback(
+    async (answer: string, cancel?: boolean) => {
+      setPendingPrompt((p) => {
+        if (p) {
+          void answerPrompt({
+            conversationId,
+            promptId: p.promptId,
+            ...(cancel ? { cancel: true } : { answer }),
+          }).catch(() => {
+            // The turn stream surfaces a real failure; nothing to recover here.
+          });
+        }
+        return null;
+      });
+    },
+    [conversationId],
   );
 
   if (loading) {
@@ -314,6 +345,13 @@ export function ConversationView({
         ) : (
           <Thread messages={messages} />
         )}
+        {pendingPrompt ? (
+          <AskUserForm
+            field={pendingPrompt.field}
+            onAnswer={(a) => void respondToPrompt(a)}
+            onCancel={() => void respondToPrompt("", true)}
+          />
+        ) : null}
         {traceOpen ? (
           <div style={{ marginTop: "var(--s5)", borderTop: "1px solid var(--border)", paddingTop: "var(--s4)" }}>
             <LlmCallTrace
