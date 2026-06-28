@@ -80,9 +80,22 @@ export interface ConversationSummary {
   origin: string | null;
   agent_name: string | null;
   tags?: string[];
+  /** When the viewer last opened this conversation (metadata.last_read_at); null = never. */
+  last_read_at?: string | null;
   created_at: string;
   updated_at: string;
   starred: boolean;
+}
+
+// A conversation is unread if it changed since you last opened it (an agent posting re-marks it).
+export function isUnread(c: { updated_at: string; last_read_at?: string | null }): boolean {
+  if (!c.last_read_at) return true;
+  return new Date(c.updated_at).getTime() > new Date(c.last_read_at).getTime() + 1000;
+}
+
+// Stamp the conversation read (clears its unread dot). Best-effort.
+export async function markConversationRead(conversationId: string): Promise<void> {
+  await authFetch(`/api/conversations/${conversationId}/read`, { method: "POST" }).catch(() => {});
 }
 
 interface ConversationsResponse {

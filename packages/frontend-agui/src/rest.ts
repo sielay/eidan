@@ -597,6 +597,7 @@ export async function handleRest(
                        else title end as title,
                   metadata->>'origin' as origin, metadata->>'agent_name' as agent_name,
                   coalesce(metadata->'tags', '[]'::jsonb) as tags,
+                  metadata->>'last_read_at' as last_read_at,
                   created_at, updated_at, starred
              from eidan.conversations
             where ${conds.join(' and ')}
@@ -613,6 +614,7 @@ export async function handleRest(
         conversations: rows.map((row) => ({
           id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
           tags: Array.isArray((row as { tags?: unknown }).tags) ? ((row as { tags: unknown[] }).tags).map(String) : [],
+          last_read_at: (row as { last_read_at?: unknown }).last_read_at ? iso((row as { last_read_at: unknown }).last_read_at) : null,
           created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
         })),
         next_before: nextBefore,
@@ -735,6 +737,18 @@ export async function handleRest(
       }
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
       json(res, 200, { id: row.id, title: row.title ?? null, starred: row.starred === true, updated_at: iso(row.updated_at) }, cors);
+      return true;
+    }
+
+    // Mark a conversation read (clears its unread dot): stamp metadata.last_read_at = now. The list
+    // compares last_read_at vs updated_at — a later message (e.g. an agent posting) re-marks it unread.
+    if (sub === 'read' && method === 'POST') {
+      const r = await withPrincipal(principal, (q) => q(
+        `update eidan.conversations set metadata = jsonb_set(coalesce(metadata,'{}'::jsonb), '{last_read_at}', to_jsonb(now()::text), true) where id=$1 and user_id=$2 and deleted_at is null`,
+        [id, uid],
+      ));
+      if (!(r.rowCount ?? 0)) { json(res, 404, { error: 'not found' }, cors); return true; }
+      json(res, 200, { ok: true }, cors);
       return true;
     }
 

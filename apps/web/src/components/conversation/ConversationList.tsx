@@ -22,6 +22,7 @@ import {
   updateConversationTitle,
   toggleConversationStar,
   tagConversations,
+  isUnread,
   type ConversationSummary,
 } from "@/lib/api/conversations";
 import { cn } from "@/lib/utils";
@@ -552,16 +553,16 @@ function ConversationRow({
         aria-checked={isSelected}
         onClick={onToggleSelect}
         className={cn(
-          "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+          "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
           isSelected ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/60",
         )}
       >
         {isSelected ? <CheckSquare className="h-3.5 w-3.5 shrink-0 text-accent-foreground" /> : <Square className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
         {agentName !== null ? (
-          <span className="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0 font-mono text-[9px] uppercase tracking-wider text-blue-700 dark:text-blue-300">{agentName}</span>
+          <span className="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-blue-700 dark:text-blue-300">{agentName}</span>
         ) : null}
         <span className={cn("min-w-0 flex-1 truncate", row.title === null && "italic")}>{label}</span>
-        <time dateTime={row.updated_at} className="shrink-0 font-mono text-[9px] tabular-nums text-muted-foreground/60">{formatRelative(row.updated_at)}</time>
+        <time dateTime={row.updated_at} className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{formatRelative(row.updated_at)}</time>
       </button>
     );
   }
@@ -572,17 +573,20 @@ function ConversationRow({
         href={`/c/${row.id}`}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex flex-1 min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-foreground transition-colors",
+          "flex flex-1 min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-foreground transition-colors",
           active
             ? "bg-accent text-accent-foreground"
             : "hover:bg-accent/60 hover:text-accent-foreground text-muted-foreground",
           row.title === null && "italic",
         )}
       >
+        {!active && isUnread(row) ? (
+          <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" title="Unread — new messages since you last opened it" aria-label="Unread" />
+        ) : null}
         {agentName !== null ? (
           <span
             title={`Agent-spawned thread (${agentName})`}
-            className="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0 font-mono text-[9px] uppercase tracking-wider text-blue-700 dark:text-blue-300"
+            className="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-blue-700 dark:text-blue-300"
           >
             {agentName}
           </span>
@@ -607,7 +611,7 @@ function ConversationRow({
         <time
           dateTime={row.updated_at}
           title={formatAbsolute(row.updated_at)}
-          className="shrink-0 font-mono text-[9px] tabular-nums text-muted-foreground/60"
+          className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground"
         >
           {formatRelative(row.updated_at)}
         </time>

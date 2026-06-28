@@ -679,6 +679,29 @@ export function AgentOrgChartPane(): React.ReactElement {
                 <p className="whitespace-pre-wrap text-xs">{selected.persona.slice(0, 200)}</p>
               </div>
 
+              {selectedAgentData.recent_runs && selectedAgentData.recent_runs.length > 0 ? (
+                <div>
+                  <p className="text-muted-foreground">Recent conversations</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {selectedAgentData.recent_runs.slice(0, 15).map((r, i) => (
+                      <li key={`${r.fire_key}-${i}`}>
+                        {r.conversation_id ? (
+                          <a href={`/c/${r.conversation_id}`} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-accent" title={r.detail ?? undefined}>
+                            <span className="truncate">{new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                            <span className={cn("shrink-0 font-mono text-[10px]", r.status === "delivered" ? "text-emerald-600 dark:text-emerald-400" : r.status === "failed" ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>{r.status}</span>
+                          </a>
+                        ) : (
+                          <span className="flex items-center justify-between gap-2 px-1.5 py-1 text-muted-foreground" title={r.detail ?? undefined}>
+                            <span>{new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                            <span className="text-[10px]">{r.status}</span>
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <div>
                 <p className="text-muted-foreground">Outgoing Escalations</p>
                 {edges

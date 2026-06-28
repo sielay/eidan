@@ -7,6 +7,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import {
   fetchConversation,
   fetchConversationMessages,
+  markConversationRead,
   type MessageRow,
 } from "@/lib/api/conversations";
 import { streamTurn } from "@/lib/api/turn";
@@ -129,7 +130,9 @@ export function ConversationView({
     if (!config || !user) return;
     void reloadHistory();
     void reloadTitle();
-  }, [config, user, reloadHistory, reloadTitle]);
+    // Opening a conversation marks it read (clears its unread dot in the sidebar).
+    void markConversationRead(conversationId);
+  }, [config, user, conversationId, reloadHistory, reloadTitle]);
 
   const onSubmit = React.useCallback(
     async (text: string, attachments?: ComposerAttachment[], compare?: string[]) => {
@@ -218,6 +221,7 @@ export function ConversationView({
         setStreamingAssistant(null);
         setInFlight(false);
         await reloadHistory();
+        void markConversationRead(conversationId); // the turn just advanced updated_at; you saw it
         // Auto-title runs as a fire-and-forget task on the backend
         // (issue #48). Re-fetch a couple of times so the header
         // updates without the operator having to refresh.
