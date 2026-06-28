@@ -374,7 +374,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
         if (legLedger && resp?.usage) {
           void legLedger.record({
             userId: principal.id, conversationId, provider: m, model: legModel, role: 'compare_leg',
-            inputTokens: resp.usage.inputTokens ?? 0, outputTokens: resp.usage.outputTokens ?? 0,
+            inputTokens: resp.usage.inputTokens, outputTokens: resp.usage.outputTokens,
           });
         }
         return { model: legModel, text: text_, truncated, inputTokens: resp?.usage?.inputTokens, outputTokens: resp?.usage?.outputTokens };
