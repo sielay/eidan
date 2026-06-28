@@ -120,7 +120,7 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
         allCalls.push(...usageData.data);
       }
 
-      nextUrl = usageData.next_url ?? null;
+      nextUrl = usageData.next_url || null;
     }
 
     const modelMap = new Map<string, { spend: number; input: number; output: number; cache_ratio: number; count: number; promptTokens: number; completionTokens: number }>();
