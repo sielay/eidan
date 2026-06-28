@@ -39,6 +39,7 @@ packages/
   a2a-server/           # inbound A2A agent (expose eidan as an agent to other agents)
   notify/               # topic-routed outbound notifications (slack / telegram)
   llm-calls/            # per-call cost/token ledger -> eidan.llm_calls
+  llm-spend-analytics/  # trailing-30-day spend breakdown per provider (openrouter/anthropic/openai) for buy-decision gates
 apps/web/               # reference Next.js UI: chat over AG-UI + dashboards over Postgres
 migrations/             # the eidan.* Postgres schema (SQL baseline + a Node migrate runner)
 infra/fly-mb/           # the deployable host image (Fly / Pi / any container)
