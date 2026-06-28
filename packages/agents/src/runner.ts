@@ -125,7 +125,7 @@ export async function runAgentTurn(
       const model = services.providers.get(provider)?.model ?? '';
       const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
       const flushUsage = (): void => {
-        if (!ledger) { pendingUsage.length = 0; return; }
+        if (!ledger) return;
         for (const u of pendingUsage) {
           void ledger.record({
             userId, conversationId: session.id, provider, model, ...u,

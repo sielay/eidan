@@ -112,7 +112,7 @@ async function messageSend(res: ServerResponse, services: MatbotServices, opts: 
     const model = services.providers.get(opts.provider)?.model ?? '';
     const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
     const flushUsage = (): void => {
-      if (!ledger) { pendingUsage.length = 0; return; }
+      if (!ledger) return;
       for (const u of pendingUsage) {
         void ledger.record({
           userId: principal.id, conversationId: taskId, provider: opts.provider, model, ...u,
