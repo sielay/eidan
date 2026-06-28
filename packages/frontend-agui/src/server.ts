@@ -378,7 +378,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
             inputTokens: resp.usage.inputTokens ?? 0, outputTokens: resp.usage.outputTokens ?? 0,
           });
         }
-        return { model: legModel, text: text_, truncated, inputTokens: resp?.usage?.inputTokens ?? 0, outputTokens: resp?.usage?.outputTokens ?? 0 };
+        return { model: legModel, text: text_, truncated, inputTokens: resp?.usage ? resp.usage.inputTokens ?? 0 : 0, outputTokens: resp?.usage ? resp.usage.outputTokens ?? 0 : 0 };
       }));
       const legs = settled.flatMap((r) => (r.status === 'fulfilled' && r.value.text.trim() ? [r.value] : []));
       if (legs.length >= 2) {
