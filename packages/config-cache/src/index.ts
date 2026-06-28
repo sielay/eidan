@@ -82,14 +82,30 @@ export function stripCacheMarkers(markdown: string): string {
 export function parseConfigMarkdown(markdown: string): ParsedConfig {
   const staticSections = extractAllCacheSections(markdown);
 
-  // Build dynamic content by removing all cache blocks
-  let dynamic = markdown;
+  // Collect byte ranges for all static sections
+  const staticRanges: Array<{ start: number; end: number }> = [];
   for (const section of staticSections) {
-    const blockStart = dynamic.indexOf(section.startMarker);
-    const blockEnd = dynamic.indexOf(section.endMarker);
-    if (blockStart !== -1 && blockEnd !== -1) {
-      dynamic = dynamic.substring(0, blockStart) + dynamic.substring(blockEnd + section.endMarker.length);
+    const startIdx = markdown.indexOf(section.startMarker);
+    const endIdx = markdown.indexOf(section.endMarker, startIdx);
+    if (startIdx !== -1 && endIdx !== -1) {
+      staticRanges.push({ start: startIdx, end: endIdx + section.endMarker.length });
     }
+  }
+
+  // Sort ranges by start position to handle overlaps predictably
+  staticRanges.sort((a, b) => a.start - b.start);
+
+  // Build dynamic content by iterating through markdown once, excluding static ranges
+  let dynamic = '';
+  let pos = 0;
+  for (const range of staticRanges) {
+    if (range.start > pos) {
+      dynamic += markdown.substring(pos, range.start);
+    }
+    pos = range.end;
+  }
+  if (pos < markdown.length) {
+    dynamic += markdown.substring(pos);
   }
 
   return {
@@ -147,14 +163,15 @@ export function addCacheControlOpenAI(
 }
 
 // Provider-agnostic wrapper: given a provider name, apply the appropriate cache control.
-// Accepts original markdown to extract sections with preserved formatting.
+// Returns the full markdown text with cache metadata; provider adapters use the metadata
+// to identify and annotate cached sections at request time.
 export function annotateForCaching(
   provider: Provider,
   sections: CacheSection[],
   markdown: string,
 ): { text: string; cacheMetadata: Record<string, unknown> } {
   if (sections.length === 0) {
-    return { text: '', cacheMetadata: {} };
+    return { text: markdown, cacheMetadata: {} };
   }
 
   const metadata: Record<string, unknown> = { provider, sections: sections.map((s) => ({ name: s.name, lines: `${s.startLine}-${s.endLine}` })) };
@@ -169,30 +186,8 @@ export function annotateForCaching(
     metadata.cacheStrategy = 'openai-prompt-cache';
   }
 
-  // Extract sections directly from original markdown to preserve exact formatting
-  const positions: Array<{ start: number; end: number }> = [];
-  for (const section of sections) {
-    const startIdx = markdown.indexOf(section.startMarker);
-    const endIdx = markdown.indexOf(section.endMarker, startIdx);
-    if (startIdx !== -1 && endIdx !== -1) {
-      positions.push({ start: startIdx, end: endIdx + section.endMarker.length });
-    }
-  }
-
-  // Build text preserving original spacing between sections
-  let text = '';
-  for (let i = 0; i < positions.length; i++) {
-    if (i === 0) {
-      text = markdown.substring(positions[i].start, positions[i].end);
-    } else {
-      const prevEnd = positions[i - 1].end;
-      const currStart = positions[i].start;
-      const spacing = markdown.substring(prevEnd, currStart);
-      text += spacing + markdown.substring(currStart, positions[i].end);
-    }
-  }
-
-  return { text, cacheMetadata: metadata };
+  // Return full markdown; provider adapters will identify cached sections via metadata
+  return { text: markdown, cacheMetadata: metadata };
 }
 
 // Load and parse a config file, extracting static sections for caching.
