@@ -163,7 +163,10 @@ export async function runAgentTurn(
       // The fallback here handles edge cases where timezone might be undefined.
       const tz = timezone ?? 'UTC';
       const contextBlock = generateContextBlock(new Date(), tz);
-      const framing = [contextBlock, AGENT_FRAMING, persona].filter(Boolean).join('\n\n');
+      const framing = [contextBlock, AGENT_FRAMING, persona].filter((s) => s.length > 0).join('\n\n');
+      // contextBlock is positioned first in framing to serve as system-level context for the agent.
+      // matbot's run.open does not expose a separate system parameter, so we prepend it as the first
+      // text block (clearly marked with [AGENT CONTEXT] delimiters) to ensure it's foundational.
       const view = await run.open({
         sessionId: session.id, signal: ac.signal,
         content: [{ type: 'text', text: framing }], provider, principal,
