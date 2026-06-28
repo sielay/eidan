@@ -80,7 +80,9 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
   const inFlight = new Map<string, InFlight>();
 
   const fire = async (row: FireableRow, fireKey: string, overridePersona?: string): Promise<void> => {
-    const provider = effectiveProvider(services, row.provider ?? opts.defaultProvider, row.model);
+    // Use trigger-specific model if available, otherwise fall back to agent model, then node default.
+    const modelToUse = row.trigger_model ?? row.model;
+    const provider = effectiveProvider(services, row.provider ?? opts.defaultProvider, modelToUse);
     // Override persona if provided (e.g. blended with escalation-response context), else the base persona.
     const personaToUse = overridePersona ?? row.persona;
     const entry: InFlight = { row, fireKey, ac: new AbortController(), conversationId: null };
@@ -246,7 +248,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
         await store.enqueueRestart({
           agentId: e.row.agent_id, triggerId: e.row.trigger_id, userId: e.row.user_id,
           conversationId: e.conversationId, fireKey: e.fireKey, nodeId, reason,
-          state: { persona: e.row.persona, provider: e.row.provider, model: e.row.model, name: e.row.name },
+          state: { persona: e.row.persona, provider: e.row.provider, model: e.row.trigger_model ?? e.row.model, name: e.row.name },
         });
         await store.finishRun(e.row.trigger_id, e.fireKey, 'interrupted', reason, e.conversationId);
         await notify?.emit(
