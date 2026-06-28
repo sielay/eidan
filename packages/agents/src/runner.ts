@@ -122,10 +122,10 @@ export async function runAgentTurn(
       });
       let final: Session | undefined;
       const ledger = services.LlmCalls;
-      const model = services.providers.get(provider)?.model ?? '';
       const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
       const flushUsage = (): void => {
         if (!ledger) return;
+        const model = services.providers.get(provider)?.model ?? '';
         for (const u of pendingUsage) {
           void ledger.record({
             userId, conversationId: session.id, provider, model, ...u,

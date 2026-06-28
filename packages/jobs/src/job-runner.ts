@@ -76,10 +76,10 @@ export function makeTurnHandler(provider: string): JobHandler {
       });
       let final: Session | undefined;
       const ledger = services.LlmCalls;
-      const model = services.providers.get(turnProvider)?.model ?? job.model ?? '';
       const pendingUsage: Array<Omit<LlmCall, 'userId' | 'conversationId' | 'provider' | 'model'>> = [];
       const flushUsage = (): void => {
         if (!ledger) return;
+        const model = services.providers.get(turnProvider)?.model ?? job.model ?? '';
         for (const u of pendingUsage) {
           void ledger.record({
             userId: principal.id, conversationId: session.id, provider: turnProvider, model, ...u,
