@@ -83,6 +83,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
     const provider = effectiveProvider(services, row.provider ?? opts.defaultProvider, row.model);
     // Override persona if provided (e.g. blended with escalation-response context), else the base persona.
     const personaToUse = overridePersona ?? row.persona;
+    const timezone = await store.userTimeZone(row.user_id);
     const entry: InFlight = { row, fireKey, ac: new AbortController(), conversationId: null };
     inFlight.set(fireKey, entry);
     try {
@@ -91,6 +92,7 @@ export function startAgentsLoop(services: MatbotServices, store: AgentsStore, op
         async (cid) => { entry.conversationId = cid; await store.markAgentConversation(cid, row.agent_id, row.name); },
         opts.turnTimeoutMs,
         entry.ac.signal,
+        timezone,
       );
       const body = text.trim() ? text.trim() : '(agent produced no text)';
       await services.Notify?.emit('agent', `🤖 ${row.name}\n\n${body}`, 'info');
@@ -288,11 +290,14 @@ export async function resumePendingRestarts(services: MatbotServices, store: Age
     if (!persona) continue; // nothing to re-fire (malformed/legacy row)
     const name = row.state.name ?? 'agent';
     const provider = effectiveProvider(services, row.state.provider ?? opts.defaultProvider, row.state.model ?? null);
+    const timezone = await store.userTimeZone(row.user_id);
     const content = continuationPreamble(row.conversation_id) + persona;
     void runAgentTurn(
       services, row.user_id, content, provider,
       (cid) => store.markAgentConversation(cid, row.agent_id, name),
       opts.turnTimeoutMs,
+      undefined,
+      timezone,
     )
       .then(async ({ text }) => {
         const body = text.trim() || '(agent produced no text)';
