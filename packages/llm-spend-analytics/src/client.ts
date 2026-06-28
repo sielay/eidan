@@ -189,7 +189,7 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
 
     const trend_7d = trends.filter((t) => {
       const d = new Date(t.period);
-      return d >= getDaysSince(7);
+      return d > getDaysSince(7);
     });
 
     const data: SpendAnalytics = {
@@ -266,7 +266,7 @@ export async function getOpenAISpend(ctx: ToolContext): Promise<{ data?: SpendAn
     if (!billingRes.ok) {
       return {
         error: {
-          message: `OpenAI API error: ${billingRes.status}. Requires an org-level API key with billing read access.`,
+          message: 'OpenAI API error: Authentication failed or insufficient permissions. Please check your API key.',
         },
       };
     }
