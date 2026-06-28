@@ -82,7 +82,7 @@ export function ModelPickerModal({
   const formatPrice = (price: number | undefined): string => {
     if (!price) return "—";
     if (price === 0) return "free";
-    return `$${price < 1 ? price.toFixed(3) : price.toFixed(1)}/M`;
+    return `$${price.toFixed(2)}/M`;
   };
 
   return (
@@ -276,20 +276,7 @@ function ModelTableRow({
   formatPrice: (price: number | undefined) => string;
 }): React.ReactElement {
   const handleClick = () => {
-    // Determine provider for the model
-    const providerMap: Record<string, string> = {
-      "Anthropic": "anthropic",
-      "OpenAI": "openrouter",
-      "DeepSeek": "openrouter",
-      "Meta": "openrouter",
-      "Mistral": "openrouter",
-      "Alibaba": "openrouter",
-      "Google": "openrouter",
-      "Cohere": "openrouter",
-      "Perplexity": "openrouter",
-    };
-    const provider = providerMap[model.provider] ?? "openrouter";
-    onSelect(model.id, provider);
+    onSelect(model.id, model.provider.toLowerCase());
     onClose();
   };
 
