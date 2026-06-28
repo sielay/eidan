@@ -104,13 +104,15 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
       }>;
     };
 
-    const modelMap = new Map<string, { spend: number; input: number; output: number; cache_ratio: number; count: number }>();
+    const modelMap = new Map<string, { spend: number; input: number; output: number; cache_ratio: number; count: number; promptTokens: number; completionTokens: number }>();
     const trendMap = new Map<string, number>();
     let totalSpend = 0;
     let totalInputCost = 0;
     let totalOutputCost = 0;
     let totalCacheRatio = 0;
     let callCount = 0;
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
 
     if (usageData.data) {
       for (const call of usageData.data) {
@@ -122,10 +124,12 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
 
         // Aggregate by model
         if (!modelMap.has(call.model)) {
-          modelMap.set(call.model, { spend: 0, input: 0, output: 0, cache_ratio: 0, count: 0 });
+          modelMap.set(call.model, { spend: 0, input: 0, output: 0, cache_ratio: 0, count: 0, promptTokens: 0, completionTokens: 0 });
         }
         const model = modelMap.get(call.model)!;
         model.spend += cost;
+        model.promptTokens += call.prompt_tokens;
+        model.completionTokens += call.completion_tokens;
         model.count += 1;
         if (call.cache_hit_ratio) {
           model.cache_ratio += call.cache_hit_ratio;
@@ -136,19 +140,32 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
 
         // Totals
         totalSpend += cost;
+        totalPromptTokens += call.prompt_tokens;
+        totalCompletionTokens += call.completion_tokens;
         totalCacheRatio += call.cache_hit_ratio ?? 0;
         callCount += 1;
       }
     }
 
-    // Build model list (OpenRouter API does not expose input/output token cost breakdown)
+    // Estimate input/output cost split based on token ratio (OpenRouter API does not expose per-token-type pricing)
+    const totalTokens = totalPromptTokens + totalCompletionTokens;
+    if (totalTokens > 0) {
+      totalInputCost = Math.round((totalSpend * (totalPromptTokens / totalTokens)) * 100) / 100;
+      totalOutputCost = Math.round((totalSpend * (totalCompletionTokens / totalTokens)) * 100) / 100;
+    }
+
+    // Build model list with estimated input/output split
     const byModel: ModelSpend[] = Array.from(modelMap.entries())
       .map(([model, data]) => {
+        const modelTokens = data.promptTokens + data.completionTokens;
+        const modelInputCost = modelTokens > 0 ? Math.round((data.spend * (data.promptTokens / modelTokens)) * 100) / 100 : 0;
+        const modelOutputCost = modelTokens > 0 ? Math.round((data.spend * (data.completionTokens / modelTokens)) * 100) / 100 : 0;
+
         const result: ModelSpend = {
           model,
           total_spend: Math.round(data.spend * 100) / 100,
-          input_tokens_cost: 0,
-          output_tokens_cost: 0,
+          input_tokens_cost: modelInputCost,
+          output_tokens_cost: modelOutputCost,
           currency: 'USD',
         };
         if (data.count > 0) {
@@ -179,8 +196,8 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
       provider: 'openrouter',
       total_spend_30d: Math.round(totalSpend * 100) / 100,
       currency: 'USD',
-      total_input_cost: 0,
-      total_output_cost: 0,
+      total_input_cost: totalInputCost,
+      total_output_cost: totalOutputCost,
       by_model: byModel,
       trend_7d,
       trend_30d: trends,
@@ -211,21 +228,11 @@ export async function getAnthropicSpend(ctx: ToolContext): Promise<{ data?: Spen
 
     // Anthropic does not expose a public billing/usage history API. Per-call usage is available
     // via message response metadata, but aggregated historical spend is not exposed publicly.
-    // Users must check billing via the console: https://console.anthropic.com/account/billing/overview
-    const data: SpendAnalytics = {
-      provider: 'anthropic',
-      total_spend_30d: 0,
-      currency: 'USD',
-      total_input_cost: 0,
-      total_output_cost: 0,
-      by_model: [],
-      trend_7d: [],
-      trend_30d: [],
-      cache_available: false,
+    return {
+      error: {
+        message: 'Anthropic spend analytics unavailable: no public billing API. Check billing at https://console.anthropic.com/account/billing/overview',
+      },
     };
-
-    setInCache('anthropic', data);
-    return { data };
   } catch (err) {
     return {
       error: {
@@ -264,81 +271,12 @@ export async function getOpenAISpend(ctx: ToolContext): Promise<{ data?: SpendAn
       };
     }
 
-    const billingData = (await billingRes.json()) as {
-      total_usage?: number;
-      daily_costs?: Array<{
-        date: string;
-        line_items?: Array<{ name: string; cost: number }>;
-      }>;
+    // OpenAI's billing API does not expose per-token-type costs (input vs output separation not available)
+    return {
+      error: {
+        message: 'OpenAI spend analytics unavailable: API does not expose input/output token cost separation. Total spend available via dashboard, not via API.',
+      },
     };
-
-    let totalSpend = billingData.total_usage ?? 0;
-    const trendMap = new Map<string, number>();
-    const modelMap = new Map<string, { spend: number }>();
-
-    // Parse daily costs and extract model breakdowns from line_items
-    if (billingData.daily_costs) {
-      for (const day of billingData.daily_costs) {
-        let dayCost = 0;
-        if (day.line_items) {
-          for (const item of day.line_items) {
-            dayCost += item.cost;
-            // Try to extract model name from line item (format may be "gpt-4-turbo", "text-embedding-3-small", etc.)
-            const modelName = item.name;
-            if (!modelMap.has(modelName)) {
-              modelMap.set(modelName, { spend: 0 });
-            }
-            modelMap.get(modelName)!.spend += item.cost;
-          }
-        }
-        if (dayCost > 0) {
-          trendMap.set(day.date, dayCost);
-        }
-      }
-    }
-
-    // Build trend data
-    const trends: SpendTrend[] = Array.from(trendMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([period, spend]) => ({
-        period,
-        spend: Math.round(spend * 100) / 100,
-      }));
-
-    if (trends.length === 0) {
-      trends.push(...buildEmptyTrends(30));
-    }
-
-    const trend_7d = trends.filter((t) => {
-      const d = new Date(t.period);
-      return d >= getDaysSince(7);
-    });
-
-    // Build model list (without input/output breakdown since OpenAI API doesn't expose it)
-    const byModel: ModelSpend[] = Array.from(modelMap.entries())
-      .map(([model, data]) => ({
-        model,
-        total_spend: Math.round(data.spend * 100) / 100,
-        input_tokens_cost: 0,
-        output_tokens_cost: 0,
-        currency: 'USD',
-      }))
-      .sort((a, b) => b.total_spend - a.total_spend);
-
-    const data: SpendAnalytics = {
-      provider: 'openai',
-      total_spend_30d: Math.round(totalSpend * 100) / 100,
-      currency: 'USD',
-      total_input_cost: 0,
-      total_output_cost: 0,
-      by_model: byModel,
-      trend_7d,
-      trend_30d: trends,
-      cache_available: false,
-    };
-
-    setInCache('openai', data);
-    return { data };
   } catch (err) {
     return {
       error: {
