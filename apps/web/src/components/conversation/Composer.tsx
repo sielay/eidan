@@ -2,7 +2,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, Cpu, Loader2, Mic, MoreVertical, Paperclip, Send, Square, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Cpu, Loader2, Mic, MoreVertical, Paperclip, Send, Square, X } from "lucide-react";
 
 import { isTranscribeAvailable, transcribeAudio } from "@/lib/api/transcribe";
 import type { ProviderOption } from "@/lib/models";
@@ -134,7 +134,7 @@ function ComposerMoreModelMenu({
           className="composer__more-item composer__more-back"
           onClick={() => setModelOpen(false)}
         >
-          <ChevronDown className="i" style={{ transform: "rotate(90deg)" }} aria-hidden />
+          <ArrowLeft className="i" aria-hidden />
           <span>Back</span>
         </button>
         <div className="composer__more-models">
@@ -186,47 +186,6 @@ function ComposerMoreModelMenu({
     >
       <Cpu className="i" aria-hidden />
       <span>{label}</span>
-    </button>
-  );
-}
-
-// Voice input: records via MediaRecorder, sends the clip to the engine's /api/transcribe, and hands
-// the transcript back to the composer (which fills the prompt — the user reviews before sending).
-// Hidden entirely when the engine has no STT configured or the browser can't record.
-function MicButton({
-  onText,
-  disabled,
-  recording,
-  busy,
-  onStart,
-  onStop,
-}: {
-  onText: (t: string) => void;
-  disabled?: boolean;
-  recording: boolean;
-  busy: boolean;
-  onStart: () => Promise<void>;
-  onStop: () => void;
-}): React.ReactElement | null {
-  const canRecord = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
-  const [available, setAvailable] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!canRecord) return;
-    void isTranscribeAvailable().then(setAvailable).catch(() => setAvailable(false));
-  }, [canRecord]);
-
-  if (!canRecord || !available) return null;
-  return (
-    <button
-      type="button"
-      className={"iconbtn composer__mic" + (recording ? " is-recording" : "")}
-      aria-label={recording ? "Stop recording" : "Voice input"}
-      title={busy ? "Transcribing…" : recording ? "Stop & transcribe" : "Voice input"}
-      disabled={disabled || busy}
-      onClick={() => { if (recording) onStop(); else void onStart(); }}
-    >
-      {busy ? <Loader2 className="i composer__mic-spin" aria-hidden /> : recording ? <Square className="i" aria-hidden /> : <Mic className="i" aria-hidden />}
     </button>
   );
 }
