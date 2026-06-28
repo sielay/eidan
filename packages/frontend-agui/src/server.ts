@@ -356,18 +356,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
     if (doFork && services.singleTurn) {
       const singleTurn = services.singleTurn.bind(services);
       const legLedger = services.LlmCalls;
-      // Request responses with a generous token budget to avoid mid-sentence truncation; the judge
-      // can handle longer context and will synthesize it down to the best answer.
-      const maxTokens = 4000;
       const settled = await Promise.allSettled(compareModels.map(async (m) => {
-        const resp = await singleTurn({ provider: m, prompt: text, maxTokens });
+        const resp = await singleTurn({ provider: m, prompt: text });
         const legModel = services.providers.get(m)?.model ?? m;
-        // Detect truncation via stop_reason from the provider (most reliable signal).
-        // Avoid string heuristics ('[truncated]', '...') which can produce false positives.
         const respText = typeof resp?.text === 'string' ? resp.text : '';
-        const stopReason = typeof resp?.stopReason === 'string' ? resp.stopReason : undefined;
-        const truncated = stopReason === 'length';
-        // Pass the raw response text; buildJudgeBriefing appends the truncation marker based on the flag
+        // singleTurn returns only { text, usage } — no stop_reason — so we can't reliably detect
+        // truncation here yet (would need the provider's stop reason surfaced through the service).
+        const truncated = false;
         const text_ = respText;
         // Record each compare leg in the cost ledger (role='compare_leg') so the trace/cost rollup
         // counts them — they run outside the streamed turn, so they weren't being recorded before.

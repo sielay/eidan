@@ -6,6 +6,25 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-06-28
+
+### Added
+
+- **Conversation readability + unread dots** — the sidebar list uses a larger title + readable timestamps
+  (were 9px/dimmed), and conversations changed since you last opened them show an unread dot
+  (metadata.last_read_at, cleared on open + after each turn).
+- **Agent + trigger on the chat header** — opening an agent-originated thread now shows which agent it is
+  and why it ran (scheduled / sensor / webhook / delegated-by / decision-gate / escalation-response).
+- **Agent inspector lists the agent's conversations** — recent runs with status + links, in the org-chart
+  detail panel.
+- **Board cards: due dates** (#478, by sage) — a date on each card, shown on the card and sorted soonest-first.
+
+### Fixed
+
+- **⑂ Compare disclosure shows per-model token usage** (#479, by sage) — input/output tokens per candidate
+  in the disclosure; judge briefing prefers complete answers. (The PR's stop-reason truncation flag needs
+  a capability singleTurn doesn't expose yet, so that part is deferred.)
+
 ## [0.14.0] — 2026-06-28
 
 ### Added

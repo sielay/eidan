@@ -53,6 +53,8 @@ export function ConversationView({
   const [history, setHistory] = React.useState<MessageRow[] | null>(null);
   const [historyError, setHistoryError] = React.useState<string | null>(null);
   const [title, setTitle] = React.useState<string | null>(null);
+  // Agent-origin threads: which agent + why it ran (for the header banner).
+  const [convInfo, setConvInfo] = React.useState<{ agent: string | null; agentId: string | null; trigger: string | null; detail: string | null } | null>(null);
   const [pendingUserText, setPendingUserText] = React.useState<string | null>(
     null,
   );
@@ -121,6 +123,7 @@ export function ConversationView({
     try {
       const row = await fetchConversation(conversationId);
       setTitle(row.title);
+      setConvInfo(row.origin === "agent" ? { agent: row.agent_name ?? null, agentId: row.agent_id ?? null, trigger: row.trigger_desc ?? null, detail: row.run_detail ?? null } : null);
     } catch {
       // Title is a nicety — silent failure keeps the header readable.
     }
@@ -288,6 +291,18 @@ export function ConversationView({
           inspect
         </button>
       </header>
+
+      {convInfo ? (
+        <div
+          title={convInfo.detail ?? undefined}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", fontSize: "var(--fs-13)", background: "var(--accent-soft, rgba(99,102,241,0.10))", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}
+        >
+          <span aria-hidden>🤖</span>
+          <span style={{ fontWeight: 600 }}>{convInfo.agent ?? "Agent"}</span>
+          {convInfo.trigger ? <span style={{ color: "var(--muted)" }}>· {convInfo.trigger}</span> : null}
+          {convInfo.detail ? <span style={{ color: "var(--faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>— {convInfo.detail}</span> : null}
+        </div>
+      ) : null}
 
       <div className="chat-thread">
         {history === null && historyError === null ? (

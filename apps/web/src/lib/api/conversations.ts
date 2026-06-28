@@ -79,6 +79,11 @@ export interface ConversationSummary {
   title: string | null;
   origin: string | null;
   agent_name: string | null;
+  /** Agent-origin only (from fetchConversation): the agent + why this thread ran. */
+  agent_id?: string | null;
+  trigger_type?: string | null;
+  trigger_desc?: string | null;
+  run_detail?: string | null;
   tags?: string[];
   /** When the viewer last opened this conversation (metadata.last_read_at); null = never. */
   last_read_at?: string | null;

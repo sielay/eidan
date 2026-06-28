@@ -26,6 +26,22 @@ function iso(v: unknown): string {
   return v instanceof Date ? v.toISOString() : String(v ?? '');
 }
 
+// Human description of the trigger that fired an agent-origin conversation (for the chat header).
+function triggerDesc(type: string | undefined, config: Record<string, unknown> | undefined): string | null {
+  if (!type) return null;
+  const cfg = config ?? {};
+  const s = (k: string): string | undefined => (typeof cfg[k] === 'string' ? (cfg[k] as string) : undefined);
+  switch (type) {
+    case 'schedule': return `Scheduled${s('schedule') ? ` (${s('schedule')})` : ''}`;
+    case 'sensor': return `Sensor: ${s('sensor_id') ?? 'sensor'}`;
+    case 'webhook': return `Webhook${s('path') ? `: ${s('path')}` : ''}`;
+    case 'agent_to_agent': return `Delegated by ${s('from_agent') ?? s('from') ?? 'another agent'}`;
+    case 'decision_gate': return 'Decision gate';
+    case 'response': return 'Response to an escalation';
+    default: return type;
+  }
+}
+
 function json(res: ServerResponse, code: number, obj: unknown, cors: Record<string, string>): void {
   res.writeHead(code, { 'content-type': 'application/json', ...cors });
   res.end(JSON.stringify(obj));
@@ -676,10 +692,28 @@ export async function handleRest(
     const sub = parts[3];
 
     if (sub === undefined && method === 'GET') {
-      const r = await withPrincipal(principal, (q) => q('select id, title, created_at, updated_at, starred from eidan.conversations where id=$1 and user_id=$2 and deleted_at is null', [id, uid]));
-      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown } | undefined;
+      // Enrich agent-origin conversations with their agent + the trigger that fired this thread, so the
+      // chat header can show "🤖 <agent> · <why it ran>" instead of leaving you guessing.
+      const r = await withPrincipal(principal, (q) => q(
+        `select c.id, c.title, c.created_at, c.updated_at, c.starred,
+                c.metadata->>'origin' as origin,
+                coalesce(a.name, c.metadata->>'agent_name') as agent_name,
+                r.agent_id as agent_id, r.detail as run_detail,
+                t.type as trigger_type, t.config as trigger_config
+           from eidan.conversations c
+           left join lateral (select agent_id, trigger_id, detail from eidan.agent_runs
+                               where conversation_id = c.id order by created_at asc limit 1) r on true
+           left join eidan.agent_triggers t on t.id = r.trigger_id
+           left join eidan.agents a on a.id = r.agent_id
+          where c.id=$1 and c.user_id=$2 and c.deleted_at is null`,
+        [id, uid]));
+      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown; origin?: string; agent_name?: string; agent_id?: string; run_detail?: string; trigger_type?: string; trigger_config?: Record<string, unknown> } | undefined;
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
-      json(res, 200, { id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true }, cors);
+      json(res, 200, {
+        id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
+        origin: row.origin ?? null, agent_name: row.agent_name ?? null, agent_id: row.agent_id ?? null,
+        trigger_type: row.trigger_type ?? null, trigger_desc: triggerDesc(row.trigger_type, row.trigger_config), run_detail: row.run_detail ?? null,
+      }, cors);
       return true;
     }
 
