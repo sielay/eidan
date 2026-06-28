@@ -57,7 +57,10 @@ export const DEFAULT_PROVIDERS = {
   // stream and a turn that finishes with zero iterations (no error). Only `claude` (anthropic
   // adapter) appends its own path, so it stays a base URL.
   openai:     { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4o", key: "OPENAI_API_KEY" },
-  openrouter: { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://openrouter.ai/api/v1/chat/completions", model: "anthropic/claude-sonnet-4.6", key: "OPENROUTER_API_KEY" },
+  // promptCaching: OpenRouter needs explicit cache_control breakpoints to cache Anthropic models
+  // (unlike OpenAI/DeepSeek, which cache automatically); without it every call re-bills the full
+  // prompt. The openai-compat adapter only emits the breakpoints when this is set.
+  openrouter: { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://openrouter.ai/api/v1/chat/completions", model: "anthropic/claude-sonnet-4.6", key: "OPENROUTER_API_KEY", parameters: { promptCaching: true } },
   grok:       { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://api.x.ai/v1/chat/completions", model: "grok-2", key: "XAI_API_KEY" },
   ollama:     { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "http://localhost:11434/v1/chat/completions", model: "llama3", key: null },
 };
@@ -162,6 +165,10 @@ export function renderMatbotYaml(config, target) {
     if (p.endpoint) lines.push(`    endpoint: ${p.endpoint}`);
     if (p.model) lines.push(`    model: ${p.model}`);
     if (p.key) { lines.push("    credentials:"); lines.push(`      apiKey: \${${p.key}}`); }
+    if (p.parameters && typeof p.parameters === "object") {
+      lines.push("    parameters:");
+      for (const [k, v] of Object.entries(p.parameters)) lines.push(`      ${k}: ${v}`);
+    }
   }
   return lines.join("\n") + "\n";
 }
