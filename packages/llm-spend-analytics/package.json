@@ -4,7 +4,7 @@
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "description": "LLM spend analytics: trailing-30-day cloud spend breakdown from OpenRouter, Anthropic, and OpenAI APIs (openrouter_spend_analytics, anthropic_spend_analytics, openai_spend_analytics) with cache hit rates and spend trends.",
+  "description": "LLM spend analytics: trailing-30-day cloud spend breakdown from OpenRouter (openrouter_spend_analytics operational; anthropic_spend_analytics and openai_spend_analytics planned) with cache hit rates and spend trends.",
   "matbotRuntime": ["node"],
   "exports": {
     ".": "./src/index.ts"

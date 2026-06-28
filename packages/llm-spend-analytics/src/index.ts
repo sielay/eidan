@@ -27,7 +27,7 @@ export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
     description:
-      'LLM Spend Analytics: trailing-30-day cloud spend breakdown from OpenRouter, Anthropic, and OpenAI APIs (openrouter_spend_analytics, anthropic_spend_analytics, openai_spend_analytics) with cache hit rates, spend by model, and 7-day/30-day trends for hardware buy-decision evaluation.',
+      'LLM Spend Analytics: trailing-30-day cloud spend breakdown (openrouter_spend_analytics operational; anthropic_spend_analytics and openai_spend_analytics planned) with cache hit rates, spend by model, and 7-day/30-day trends for hardware buy-decision evaluation.',
   },
   async setup(services: MatbotServices) {
     const tools = makeSpendAnalyticsTools();
@@ -62,7 +62,7 @@ export const plugin: MatbotPluginSpec = {
     });
 
     console.log(
-      '[llm-spend-analytics] plugin loaded: openrouter_spend_analytics, anthropic_spend_analytics, openai_spend_analytics'
+      '[llm-spend-analytics] plugin loaded: openrouter_spend_analytics (anthropic_spend_analytics and openai_spend_analytics planned)'
     );
   },
 };

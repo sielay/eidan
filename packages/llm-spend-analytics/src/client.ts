@@ -218,70 +218,23 @@ export async function getOpenRouterSpend(ctx: ToolContext): Promise<{ data?: Spe
   }
 }
 
-// Anthropic API client
-export async function getAnthropicSpend(ctx: ToolContext): Promise<{ data?: SpendAnalytics; error?: ApiError }> {
-  try {
-    const cached = getFromCache('anthropic');
-    if (cached) return { data: cached };
-
-    await secretRequired(ctx, 'ANTHROPIC_API_KEY');
-
-    // Anthropic does not expose a public billing/usage history API. Per-call usage is available
-    // via message response metadata, but aggregated historical spend is not exposed publicly.
-    return {
-      error: {
-        message: 'Anthropic spend analytics unavailable: no public billing API. Check billing at https://console.anthropic.com/account/billing/overview',
-      },
-    };
-  } catch (err) {
-    return {
-      error: {
-        message: err instanceof Error ? err.message : 'Unknown error fetching Anthropic spend',
-      },
-    };
-  }
+// TODO: Anthropic API client — currently no public billing API
+// When available, implement historical usage aggregation. Per-call usage available via message metadata.
+export async function getAnthropicSpend(_ctx: ToolContext): Promise<{ data?: SpendAnalytics; error?: ApiError }> {
+  return {
+    error: {
+      message: 'Anthropic spend analytics not yet implemented: no public billing API available. Check billing at https://console.anthropic.com/account/billing/overview',
+    },
+  };
 }
 
-// OpenAI API client
-export async function getOpenAISpend(ctx: ToolContext): Promise<{ data?: SpendAnalytics; error?: ApiError }> {
-  try {
-    const cached = getFromCache('openai');
-    if (cached) return { data: cached };
-
-    const apiKey = await secretRequired(ctx, 'OPENAI_API_KEY');
-
-    const now = new Date();
-    const start30d = getDaysSince(30);
-    const startDate = dateToIso(start30d);
-    const endDate = dateToIso(now);
-
-    // Query v1/dashboard/billing/usage for actual costs (requires org/project-level API key with billing read access)
-    const billingRes = await fetchWithRetry(
-      `https://api.openai.com/v1/dashboard/billing/usage?start_date=${startDate}&end_date=${endDate}`,
-      {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      }
-    );
-
-    if (!billingRes.ok) {
-      return {
-        error: {
-          message: 'OpenAI API error: Authentication failed or insufficient permissions. Please check your API key.',
-        },
-      };
-    }
-
-    // OpenAI's billing API does not expose per-token-type costs (input vs output separation not available)
-    return {
-      error: {
-        message: 'OpenAI spend analytics unavailable: API does not expose input/output token cost separation. Total spend available via dashboard, not via API.',
-      },
-    };
-  } catch (err) {
-    return {
-      error: {
-        message: err instanceof Error ? err.message : 'Unknown error fetching OpenAI spend',
-      },
-    };
-  }
+// TODO: OpenAI API client — billing API available but lacks input/output token separation
+// Implement fetch from v1/dashboard/billing/usage; aggregate by model if possible.
+// OpenAI API does not expose per-token-type pricing, so input/output costs may need estimation.
+export async function getOpenAISpend(_ctx: ToolContext): Promise<{ data?: SpendAnalytics; error?: ApiError }> {
+  return {
+    error: {
+      message: 'OpenAI spend analytics not yet implemented: API available but input/output token cost separation not exposed. See docs/spend-analytics.md for status.',
+    },
+  };
 }

@@ -1,6 +1,6 @@
 # @eidandev/llm-spend-analytics
 
-Spend analytics tools for cloud LLM providers — **trailing-30-day spend breakdown** from OpenRouter, Anthropic, and OpenAI APIs for hardware buy-decision evaluation (Model & Cache Observer agent gates).
+Spend analytics tools for cloud LLM providers — **trailing-30-day spend breakdown** from OpenRouter for hardware buy-decision evaluation (Model & Cache Observer agent gates). Anthropic and OpenAI tools are planned (see Implementation notes).
 
 Each tool queries the provider's API for historical usage and cost data, returning:
 
@@ -11,13 +11,11 @@ Each tool queries the provider's API for historical usage and cost data, returni
 
 ## Tools
 
-**`openrouter_spend_analytics()`** — OpenRouter trailing-30-day spend. Requires `OPENROUTER_API_KEY`.
+**`openrouter_spend_analytics()`** — OpenRouter trailing-30-day spend (implemented). Requires `OPENROUTER_API_KEY`. Callable from any agent and cached for 6 hours.
 
-**`anthropic_spend_analytics()`** — Anthropic trailing-30-day spend. Requires `ANTHROPIC_API_KEY`.
+**`anthropic_spend_analytics()`** — TODO: Anthropic trailing-30-day spend (blocked by lack of public billing API).
 
-**`openai_spend_analytics()`** — OpenAI trailing-30-day spend. Requires `OPENAI_API_KEY`.
-
-All three are callable from any agent and cached for 6 hours to avoid redundant API calls.
+**`openai_spend_analytics()`** — TODO: OpenAI trailing-30-day spend (blocked by lack of input/output token cost separation in API).
 
 ## Implementation notes
 
