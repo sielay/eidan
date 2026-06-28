@@ -51,15 +51,11 @@ function lastAssistantText(s: Session): string {
   return '';
 }
 
-// Framing prepended to every agent turn's persona. Agents run under the same Eidan identity + full
-// toolset as the chat surface, so a capable model reads its persona as a request to "Eidan the OS" and
-// reaches for the orchestration tools (agent_create / agent_schedule / agent_delegate / jobs /
-// procedures) — spinning up MORE agents or jobs instead of doing the task itself. This pins the model
-// into the worker role.
-//
-// If a persona explicitly includes "[skill: Agent Foundation]", that expands to this content.
-// Otherwise, we prepend it to maintain backward compatibility with existing agents.
-const AGENT_FRAMING = '— Your role and task —';
+// Note: Core agent framing and role definitions are now part of AGENT_FOUNDATION skill (see
+// packages/agents/src/skills/agent-foundation.ts). The foundation is either explicitly referenced
+// via "[skill: Agent Foundation]" in the persona, or automatically prepended for backward
+// compatibility with existing agents. The separator "— Your role and task —" is part of AGENT_FOUNDATION
+// and appears consistently before the task-specific persona content.
 
 // Run an agent's persona as a single turn under the owner's identity (so the conversation + memory
 // writes persist as that user), using the agent's own provider. Returns the final assistant text and
@@ -90,15 +86,14 @@ export async function runAgentTurn(
     if (onConversation) await onConversation(session.id);
 
     // Expand skill references in the persona. If persona doesn't reference [skill: Agent Foundation],
-    // prepend it for backward compatibility.
+    // prepend it for backward compatibility. AGENT_FOUNDATION now contains the role separator
+    // ("— Your role and task —") and must always be at the start of the expanded prompt.
     let expandedPersona = expandSkillReferences(persona);
     const referencedSkills = detectSkillReferences(persona);
     if (!referencedSkills.includes('agent-foundation')) {
       // Legacy agent without explicit skill reference: prepend Agent Foundation for compatibility
       const { AGENT_FOUNDATION } = await import('./skills/agent-foundation.js');
-      expandedPersona = AGENT_FOUNDATION + '\n' + AGENT_FRAMING + '\n\n' + expandedPersona;
-    } else {
-      expandedPersona = expandedPersona + '\n\n' + AGENT_FRAMING;
+      expandedPersona = AGENT_FOUNDATION + '\n\n' + expandedPersona;
     }
 
     const ac = new AbortController();

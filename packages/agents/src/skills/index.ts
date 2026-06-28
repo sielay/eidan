@@ -56,16 +56,31 @@ export const BUILTIN_SKILLS: Record<string, Skill> = {
  *   "You are a daily digest agent. [skill: Agent Foundation] Your task: summarize emails."
  *   ↓
  *   "You are a daily digest agent. <full content of Agent Foundation skill> Your task: summarize emails."
+ *
+ * Supports both hyphenated and space-separated skill names:
+ *   "[skill: Agent Foundation]" → agent-foundation
+ *   "[skill: agent-foundation]" → agent-foundation
+ *
+ * Deduplicates: if the same skill is referenced multiple times, its content appears only once (first reference).
  */
 export function expandSkillReferences(persona: string): string {
   let expanded = persona;
   const skillRefPattern = /\[skill:\s*([^\]]+)\]/gi;
+  const expandedSkills = new Set<string>();
 
   for (const match of persona.matchAll(skillRefPattern)) {
     const skillName = (match[1] ?? '').trim();
-    const skill = BUILTIN_SKILLS[skillName.toLowerCase()];
-    if (skill) {
+    // Normalize: spaces → hyphens, lowercase
+    const normalized = skillName.replace(/\s+/g, '-').toLowerCase();
+    const skill = BUILTIN_SKILLS[normalized];
+
+    if (skill && !expandedSkills.has(normalized)) {
+      // First occurrence: replace with content and mark as expanded
       expanded = expanded.replace(match[0], skill.content);
+      expandedSkills.add(normalized);
+    } else if (skill && expandedSkills.has(normalized)) {
+      // Duplicate: remove the reference entirely (don't include content again)
+      expanded = expanded.replace(match[0], '');
     }
   }
 
@@ -75,17 +90,20 @@ export function expandSkillReferences(persona: string): string {
 /**
  * Detect which skills a persona references.
  * Useful for logging, analytics, and understanding cache potential.
+ * Returns a deduplicated list of normalized skill IDs.
  */
 export function detectSkillReferences(persona: string): string[] {
   const skillRefPattern = /\[skill:\s*([^\]]+)\]/gi;
-  const refs: string[] = [];
+  const refs = new Set<string>();
   for (const match of persona.matchAll(skillRefPattern)) {
-    const skillName = (match[1] ?? '').trim().toLowerCase();
-    if (BUILTIN_SKILLS[skillName]) {
-      refs.push(skillName);
+    const skillName = (match[1] ?? '').trim();
+    // Normalize: spaces → hyphens, lowercase
+    const normalized = skillName.replace(/\s+/g, '-').toLowerCase();
+    if (BUILTIN_SKILLS[normalized]) {
+      refs.add(normalized);
     }
   }
-  return refs;
+  return Array.from(refs);
 }
 
 /**
