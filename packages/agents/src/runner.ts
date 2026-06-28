@@ -122,7 +122,6 @@ const AGENT_FRAMING = [
   '- Stay inside your role below. Don\'t reinterpret yourself as a larger system.',
   '',
   '— Your role and task —',
-  '',
 ];
 
 // Run an agent's persona as a single turn under the owner's identity (so the conversation + memory
