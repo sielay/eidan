@@ -379,7 +379,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, services: Matbo
         }
         return { model: legModel, text: text_, truncated, inputTokens: resp?.usage?.inputTokens, outputTokens: resp?.usage?.outputTokens };
       }));
-      const legs = settled.flatMap((r) => (r.status === 'fulfilled' && (r.value.text || '').trim() ? [r.value] : []));
+      const legs = settled.flatMap((r) => (r.status === 'fulfilled' && r.value.text !== undefined && r.value.text !== null ? [r.value] : []));
       if (legs.length >= 2) {
         forkLegs = legs;
         const briefing = buildJudgeBriefing(text, legs);
