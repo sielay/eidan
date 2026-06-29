@@ -23,12 +23,16 @@ import {
   getUsageProviders,
   getUsageNodes,
   getRecentCalls,
+  getUsageAgents,
+  getUsageEfficiency,
   type UsageSummary,
   type TimeSeriesResponse,
   type ModelsResponse,
   type ProvidersResponse,
   type NodesResponse,
   type RecentCallsResponse,
+  type AgentsUsageResponse,
+  type EfficiencyResponse,
 } from "@/lib/api/admin";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +67,8 @@ export function UsagePane(): React.ReactElement {
   const [providers, setProviders] = React.useState<ProvidersResponse | null>(null);
   const [nodes, setNodes] = React.useState<NodesResponse | null>(null);
   const [recentCalls, setRecentCalls] = React.useState<RecentCallsResponse | null>(null);
+  const [agents, setAgents] = React.useState<AgentsUsageResponse | null>(null);
+  const [efficiency, setEfficiency] = React.useState<EfficiencyResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
 
@@ -70,7 +76,7 @@ export function UsagePane(): React.ReactElement {
     if (!user) return;
     setLoading(true);
     try {
-      const [s, ts, m, p, n, r] = await Promise.all([
+      const [s, ts, m, p, n, r, ag, ef] = await Promise.all([
         getUsageSummary({ start_date: startDate, end_date: endDate }),
         getUsageTimeSeries({
           start_date: startDate,
@@ -82,6 +88,8 @@ export function UsagePane(): React.ReactElement {
         getUsageProviders({ start_date: startDate, end_date: endDate, order_by: "cost" }),
         getUsageNodes({ start_date: startDate, end_date: endDate, order_by: "cost" }),
         getRecentCalls({ limit: 50 }),
+        getUsageAgents({ start_date: startDate, end_date: endDate }),
+        getUsageEfficiency({ start_date: startDate, end_date: endDate }),
       ]);
       setSummary(s);
       setTimeSeries(ts);
@@ -89,6 +97,8 @@ export function UsagePane(): React.ReactElement {
       setProviders(p);
       setNodes(n);
       setRecentCalls(r);
+      setAgents(ag);
+      setEfficiency(ef);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -233,6 +243,44 @@ export function UsagePane(): React.ReactElement {
         )}
       </div>
 
+      {efficiency && (
+        <EfficiencyAdvisor data={efficiency} />
+      )}
+
+      {agents && agents.agents.length > 0 && (
+        <section className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
+          <h2 className="text-xs font-medium text-foreground">By Agent (runs &amp; cost)</h2>
+          <div className="overflow-x-auto text-xs">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left p-2">Agent</th>
+                  <th className="text-left p-2">Model</th>
+                  <th className="text-right p-2">Runs</th>
+                  <th className="text-right p-2">Tokens</th>
+                  <th className="text-right p-2">Cost</th>
+                  <th className="text-left p-2">Last run</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agents.agents.map((a) => (
+                  <tr key={a.agent_id} className="border-b border-border hover:bg-accent/20">
+                    <td className="p-2 font-medium">{a.agent_name}</td>
+                    <td className="p-2 text-muted-foreground">{a.model ?? "—"}</td>
+                    <td className="p-2 text-right">{a.run_count.toLocaleString()}</td>
+                    <td className="p-2 text-right">{a.total_tokens.toLocaleString()}</td>
+                    <td className="p-2 text-right font-medium">${a.cost_usd.toFixed(4)}</td>
+                    <td className="p-2 text-muted-foreground">
+                      {a.last_run ? new Date(a.last_run).toLocaleString() : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {nodes && nodes.nodes.length > 0 && (
         <section className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
           <h2 className="text-xs font-medium text-foreground">Nodes</h2>
@@ -277,6 +325,84 @@ export function UsagePane(): React.ReactElement {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+// Deterministic optimisation flags (the engine `observer` tool's efficiency_flags, user-scoped).
+// No LLM — just surfaces where money is likely being wasted so the operator (or an advisor agent)
+// knows where to look. An empty section renders a reassuring "no flags" line, not nothing.
+function EfficiencyAdvisor({ data }: { data: EfficiencyResponse }): React.ReactElement {
+  const empty =
+    data.high_cost_agents.length === 0 &&
+    data.logging_gaps.length === 0 &&
+    data.cache_misses.length === 0;
+  return (
+    <section className="flex flex-col gap-3 rounded-md border border-border bg-background p-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xs font-medium text-foreground">Efficiency Advisor</h2>
+        <span className="text-[10px] text-muted-foreground">deterministic — no LLM</span>
+      </div>
+      {empty && (
+        <p className="text-xs text-muted-foreground">No efficiency flags for this range. 🎉</p>
+      )}
+      {data.high_cost_agents.length > 0 && (
+        <FlagGroup title="Pricey model, light work">
+          {data.high_cost_agents.map((f, i) => (
+            <FlagRow
+              key={`hc-${i}`}
+              head={`${f.name} · ${f.model}`}
+              meta={`${f.tokens.toLocaleString()} tok · $${f.cost_usd.toFixed(4)}`}
+              reason={f.reason}
+            />
+          ))}
+        </FlagGroup>
+      )}
+      {data.cache_misses.length > 0 && (
+        <FlagGroup title="Low cache hit-rate">
+          {data.cache_misses.map((f, i) => (
+            <FlagRow
+              key={`cm-${i}`}
+              head={`${f.provider} · ${f.model}`}
+              meta={`${f.tokens.toLocaleString()} tok · in:out ${f.input_output_ratio}`}
+              reason={f.reason}
+            />
+          ))}
+        </FlagGroup>
+      )}
+      {data.logging_gaps.length > 0 && (
+        <FlagGroup title="Logging gaps">
+          {data.logging_gaps.map((f, i) => (
+            <FlagRow
+              key={`lg-${i}`}
+              head={f.agent}
+              meta={`${f.run_count.toLocaleString()} runs`}
+              reason={f.reason}
+            />
+          ))}
+        </FlagGroup>
+      )}
+    </section>
+  );
+}
+
+function FlagGroup({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="flex flex-col gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+function FlagRow({ head, meta, reason }: { head: string; meta: string; reason: string }): React.ReactElement {
+  return (
+    <div className="rounded border border-amber-200 bg-amber-50 p-2 dark:border-amber-900 dark:bg-amber-950/30">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+        <span className="text-xs font-medium text-foreground">{head}</span>
+        <span className="text-[10px] text-muted-foreground">{meta}</span>
+      </div>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{reason}</p>
     </div>
   );
 }

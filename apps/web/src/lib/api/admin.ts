@@ -809,3 +809,68 @@ export async function getRecentCalls(options: {
   }
   return (await res.json()) as RecentCallsResponse;
 }
+
+export interface AgentUsage {
+  agent_id: string;
+  agent_name: string;
+  model: string | null;
+  run_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  call_count: number;
+  last_run: string | null;
+}
+
+export interface AgentsUsageResponse {
+  agents: AgentUsage[];
+}
+
+export async function getUsageAgents(options: {
+  start_date?: string;
+  end_date?: string;
+} = {}): Promise<AgentsUsageResponse> {
+  const params = new URLSearchParams();
+  if (options.start_date) params.set("start_date", options.start_date);
+  if (options.end_date) params.set("end_date", options.end_date);
+
+  const qs = params.toString();
+  const path = `/api/admin/usage/agents${qs ? `?${qs}` : ""}`;
+  const res = await authFetch(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} returned ${res.status}`);
+  }
+  return (await res.json()) as AgentsUsageResponse;
+}
+
+export interface EfficiencyResponse {
+  high_cost_agents: { name: string; model: string; tokens: number; cost_usd: number; reason: string }[];
+  logging_gaps: { agent: string; run_count: number; reason: string }[];
+  cache_misses: { provider: string; model: string; tokens: number; input_output_ratio: number; reason: string }[];
+}
+
+export async function getUsageEfficiency(options: {
+  start_date?: string;
+  end_date?: string;
+} = {}): Promise<EfficiencyResponse> {
+  const params = new URLSearchParams();
+  if (options.start_date) params.set("start_date", options.start_date);
+  if (options.end_date) params.set("end_date", options.end_date);
+
+  const qs = params.toString();
+  const path = `/api/admin/usage/efficiency${qs ? `?${qs}` : ""}`;
+  const res = await authFetch(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} returned ${res.status}`);
+  }
+  return (await res.json()) as EfficiencyResponse;
+}
