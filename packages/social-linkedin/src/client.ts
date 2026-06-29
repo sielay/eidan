@@ -483,8 +483,8 @@ export class LinkedInClient {
   private mapPost(post: LinkedInPost): { id: string; text: string; author?: string; likes: number; comments: number } {
     return {
       id: post.id,
-      // Prefer description over title; empty string if neither exists
-      text: post.content?.description || post.content?.title || '',
+      // LinkedIn feed posts use description field; empty string if not present
+      text: post.content?.description || '',
       // Actor is optional in API response; undefined if missing (aligns with author?: string type)
       author: post.actor,
       // Default to 0 for missing engagement metrics (expected for posts with no engagement)
