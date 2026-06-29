@@ -221,7 +221,8 @@ const tokenResult = await callTool('db_query', {
       model,
       SUM(input_tokens) as total_input,
       SUM(output_tokens) as total_output,
-      SUM(input_tokens + output_tokens) as total_tokens
+      SUM(input_tokens + output_tokens) as total_tokens,
+      SUM(cache_read_tokens) as cache_read_tokens
     FROM eidan.llm_calls
     WHERE created_at > now() - interval '24 hours'
       AND deleted_at IS NULL
