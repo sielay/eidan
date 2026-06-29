@@ -3,6 +3,7 @@ import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { LlmCallsImpl, type LlmCalls } from './llm-calls.js';
+import { observerTool } from './observer-tool.js';
 
 declare module '@matatbread/matbot-plugin-api' {
   interface MatbotServices {
@@ -15,13 +16,14 @@ let db: Db | undefined;
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
-    description: 'LLM cost/usage ledger: records per-provider-call tokens + cost to eidan.llm_calls. Frontends call services.LlmCalls?.record() on each usage event.',
+    description: 'LLM cost/usage ledger: records per-provider-call tokens + cost to eidan.llm_calls. Frontends call services.LlmCalls?.record() on each usage event. Also exposes the read-only `observer` tool: deterministic token/agent/cost/efficiency rollups over the ledger (no LLM inference).',
   },
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
     if (!url) { console.warn('[llm-calls] no EIDAN_DATABASE_URL — ledger disabled'); return; }
     db = new Db(url);
     await services.register('LlmCalls', new LlmCallsImpl(db));
+    services.tools.register(observerTool(db));
     console.log('[llm-calls] ledger ready');
   },
   async teardown() {
