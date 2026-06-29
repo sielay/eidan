@@ -4,6 +4,9 @@ import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { LlmCallsImpl, type LlmCalls } from './llm-calls.js';
 import { observerTool } from './observer-tool.js';
+import { makeVendorResolver } from './vendor.js';
+import { ProviderSpendStore } from './spend-store.js';
+import { recordProviderSpendTool } from './spend-tool.js';
 
 declare module '@matatbread/matbot-plugin-api' {
   interface MatbotServices {
@@ -23,7 +26,9 @@ export const plugin: MatbotPluginSpec = {
     if (!url) { console.warn('[llm-calls] no EIDAN_DATABASE_URL — ledger disabled'); return; }
     db = new Db(url);
     await services.register('LlmCalls', new LlmCallsImpl(db));
-    services.tools.register(observerTool(db));
+    const spendStore = new ProviderSpendStore(db);
+    services.tools.register(observerTool(db, makeVendorResolver(services), spendStore));
+    services.tools.register(recordProviderSpendTool(spendStore));
     console.log('[llm-calls] ledger ready');
   },
   async teardown() {

@@ -14,6 +14,7 @@ const RATES: { match: RegExp; rate: Rate }[] = [
   { match: /gpt-4o-mini/i, rate: { input: 0.15,  output: 0.6, cacheRead: 0.075, cacheWrite: 0.15 } },
   { match: /gpt-4o/i,      rate: { input: 2.5,   output: 10,  cacheRead: 1.25,  cacheWrite: 2.5 } },
   { match: /deepseek/i,    rate: { input: 0.27,  output: 1.1, cacheRead: 0.07,  cacheWrite: 0.27 } },
+  { match: /gemini.*flash/i, rate: { input: 0.3, output: 2.5, cacheRead: 0.075, cacheWrite: 0.3833 } },
 ];
 
 export interface TokenCounts {
