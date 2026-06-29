@@ -62,7 +62,6 @@ packages/*
 !packages/social-instagram/
 !packages/social-threads/
 !packages/finance-trading212/
-!packages/finance-google-trends/
 !packages/finance-gsc/
 !packages/storage-postgres/
 !packages/vault-postgres/
