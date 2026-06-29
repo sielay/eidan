@@ -21,7 +21,7 @@ const result = await callTool('db_query', {
       COUNT(*) as call_count,
       SUM(input_tokens) as total_input,
       SUM(output_tokens) as total_output,
-      SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) as total_tokens,
+      SUM(input_tokens + output_tokens) as total_tokens,
       ROUND(AVG(input_tokens + output_tokens)::numeric, 2) as avg_tokens_per_call
     FROM eidan.llm_calls
     WHERE created_at > now() - interval '24 hours'
@@ -76,7 +76,7 @@ const result = await callTool('db_query', {
       a.name as agent_name,
       a.model,
       COUNT(DISTINCT ar.id) as run_count,
-      SUM(lc.input_tokens + lc.output_tokens + lc.cache_read_tokens + lc.cache_creation_tokens) as total_tokens,
+      SUM(lc.input_tokens + lc.output_tokens) as total_tokens,
       MAX(ar.created_at) as last_run
     FROM eidan.agent_runs ar
     JOIN eidan.agents a ON ar.agent_id = a.id
@@ -139,7 +139,7 @@ const result = await callTool('db_query', {
       model,
       SUM(input_tokens) as total_input,
       SUM(output_tokens) as total_output,
-      SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) as total_tokens
+      SUM(input_tokens + output_tokens) as total_tokens
     FROM eidan.llm_calls
     WHERE created_at > now() - interval '24 hours'
       AND deleted_at IS NULL
@@ -203,7 +203,7 @@ const agentResult = await callTool('db_query', {
       a.name as agent_name,
       a.model,
       COUNT(DISTINCT ar.id) as run_count,
-      COALESCE(SUM(lc.input_tokens + lc.output_tokens + lc.cache_read_tokens + lc.cache_creation_tokens), 0) as total_tokens
+      COALESCE(SUM(lc.input_tokens + lc.output_tokens), 0) as total_tokens
     FROM eidan.agent_runs ar
     JOIN eidan.agents a ON ar.agent_id = a.id
     LEFT JOIN eidan.llm_calls lc ON ar.conversation_id = lc.conversation_id
@@ -221,8 +221,7 @@ const tokenResult = await callTool('db_query', {
       model,
       SUM(input_tokens) as total_input,
       SUM(output_tokens) as total_output,
-      SUM(cache_read_tokens) as cache_read_tokens,
-      SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) as total_tokens
+      SUM(input_tokens + output_tokens) as total_tokens
     FROM eidan.llm_calls
     WHERE created_at > now() - interval '24 hours'
       AND deleted_at IS NULL
