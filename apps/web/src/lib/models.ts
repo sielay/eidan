@@ -23,8 +23,18 @@ export async function listProviders(): Promise<ProviderOption[]> {
   });
   if (!res.ok) throw new Error(`GET /api/providers returned ${res.status}`);
   const body = (await res.json()) as { providers?: ProviderOption[] };
-  return body.providers ?? [];
+  // Internal / alias providers that shouldn't clutter the user's model menu: classifier + inner-voice
+  // helpers, and `openrouter-haiku` (a back-compat alias now repointed to native Anthropic, so it's a
+  // confusing duplicate of `haiku`). Hidden from selection; existing saved picks still resolve.
+  return (body.providers ?? []).filter((p) => !HIDDEN_PROVIDERS.has(p.name));
 }
+
+const HIDDEN_PROVIDERS = new Set([
+  "openrouter-haiku",
+  "openrouter-free",
+  "inner-voice",
+  "skills-classifier",
+]);
 
 const KEY_DEFAULT = "eidan.provider.default";
 const keyFor = (conversationId: string): string => `eidan.provider.${conversationId}`;

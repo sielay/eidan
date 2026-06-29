@@ -20,6 +20,8 @@ import { Composer, type ComposerAttachment } from "./Composer";
 import { ConversationTitle } from "./ConversationTitle";
 import { CostCounter } from "./CostCounter";
 import { LlmCallTrace } from "./LlmCallTrace";
+import { listConversationLlmCalls } from "@/lib/api/llm-calls";
+import type { MsgStats } from "./Message";
 import { Thread } from "./Thread";
 
 /**
@@ -123,6 +125,30 @@ export function ConversationView({
     }
   }, [config, conversationId]);
 
+  // Per-response telemetry: sum each turn's llm_calls (classifiers + primary) by message id so the
+  // compact line under each answer shows provider/model + tokens + cost. Re-fetched after every turn.
+  const [llmStats, setLlmStats] = React.useState<Map<string, MsgStats>>(new Map());
+  const reloadLlmStats = React.useCallback(async () => {
+    if (!config) return;
+    try {
+      const calls = await listConversationLlmCalls(conversationId);
+      const m = new Map<string, MsgStats>();
+      for (const c of calls) {
+        if (!c.message_id) continue;
+        const s = m.get(c.message_id) ?? { provider: c.provider, model: c.model, input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cost: 0 };
+        s.input += c.input_tokens; s.output += c.output_tokens;
+        s.cacheRead += c.cache_read_tokens; s.cacheCreation += c.cache_creation_tokens;
+        s.cost += c.cost_usd;
+        // Label by the primary call (the user-facing answer), not a classifier/sizer sub-call.
+        if (c.role === "primary") { s.provider = c.provider; s.model = c.model; }
+        m.set(c.message_id, s);
+      }
+      setLlmStats(m);
+    } catch {
+      /* telemetry is a nicety — a failed fetch just leaves the lines absent */
+    }
+  }, [config, conversationId]);
+
   const reloadTitle = React.useCallback(async () => {
     if (!config) return;
     try {
@@ -141,6 +167,11 @@ export function ConversationView({
     // Opening a conversation marks it read (clears its unread dot in the sidebar).
     void markConversationRead(conversationId);
   }, [config, user, conversationId, reloadHistory, reloadTitle]);
+
+  // Refresh the per-response telemetry on open and after every committed turn.
+  React.useEffect(() => {
+    void reloadLlmStats();
+  }, [reloadLlmStats, turnRefreshKey]);
 
   const onSubmit = React.useCallback(
     async (text: string, attachments?: ComposerAttachment[], compare?: string[]) => {
@@ -354,7 +385,7 @@ export function ConversationView({
             {historyError}
           </p>
         ) : (
-          <Thread messages={messages} onSecondOpinion={onSecondOpinion} busy={inFlight} />
+          <Thread messages={messages} onSecondOpinion={onSecondOpinion} busy={inFlight} statsByMessage={llmStats} />
         )}
         {pendingPrompt ? (
           <AskUserForm

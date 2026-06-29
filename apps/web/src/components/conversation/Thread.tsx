@@ -3,7 +3,7 @@
 
 import * as React from "react";
 
-import { MessageBlock } from "./Message";
+import { MessageBlock, type MsgStats } from "./Message";
 
 /**
  * One tool call paired with its matching tool result, ready to fold
@@ -46,6 +46,8 @@ export interface ThreadProps {
   onSecondOpinion?: (() => void) | undefined;
   /** Disable the second-opinion affordance while a turn is streaming. */
   busy?: boolean | undefined;
+  /** Per-assistant-message telemetry (provider/model/tokens/cost), keyed by message id. */
+  statsByMessage?: Map<string, MsgStats> | undefined;
 }
 
 /**
@@ -56,7 +58,7 @@ export interface ThreadProps {
  * assistant chunk in view without fighting a user who has scrolled up
  * to read history — the effect only runs when the *last* row mutates.
  */
-export function Thread({ messages, onSecondOpinion, busy }: ThreadProps): React.ReactElement {
+export function Thread({ messages, onSecondOpinion, busy, statsByMessage }: ThreadProps): React.ReactElement {
   const bottomRef = React.useRef<HTMLDivElement | null>(null);
   // The second-opinion button only makes sense on the most recent finished assistant answer.
   let lastAssistantIdx = -1;
@@ -99,6 +101,7 @@ export function Thread({ messages, onSecondOpinion, busy }: ThreadProps): React.
           fork={m.fork}
           onSecondOpinion={i === lastAssistantIdx ? onSecondOpinion : undefined}
           secondOpinionBusy={busy}
+          stats={m.role === "assistant" ? statsByMessage?.get(m.id) : undefined}
         />
       ))}
       <div ref={bottomRef} />
