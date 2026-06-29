@@ -35,6 +35,9 @@ export class ThreadsClient {
       }
 
       const result = (await response.json()) as { id?: string };
+      if (!result.id) {
+        return { error: 'Failed to post to Threads.' };
+      }
       return { id: result.id };
     } catch (error) {
       return { error: 'Failed to post to Threads.' };
@@ -66,18 +69,24 @@ export class ThreadsClient {
         return { error: 'Failed to retrieve Threads profile.' };
       }
 
-      const user = (await response.json()) as any;
-
-      return {
-        user: {
-          id: user?.id,
-          username: user?.username,
-          name: user?.name,
-          biography: user?.biography,
-          profile_picture_url: user?.profile_picture_url,
-          followers_count: user?.followers_count,
-        },
+      const user = (await response.json()) as {
+        id?: string;
+        username?: string;
+        name?: string;
+        biography?: string;
+        profile_picture_url?: string;
+        followers_count?: number;
       };
+
+      const userData: any = {};
+      if (user?.id) userData.id = user.id;
+      if (user?.username) userData.username = user.username;
+      if (user?.name) userData.name = user.name;
+      if (user?.biography) userData.biography = user.biography;
+      if (user?.profile_picture_url) userData.profile_picture_url = user.profile_picture_url;
+      if (user?.followers_count !== undefined) userData.followers_count = user.followers_count;
+
+      return { user: userData };
     } catch (error) {
       return { error: 'Failed to retrieve Threads profile.' };
     }

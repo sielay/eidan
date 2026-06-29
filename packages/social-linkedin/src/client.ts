@@ -42,6 +42,9 @@ export class LinkedInClient {
       }
 
       const result = (await response.json()) as { id?: string };
+      if (!result.id) {
+        return { error: 'Failed to post to LinkedIn.' };
+      }
       return { id: result.id };
     } catch (error) {
       return { error: 'Failed to post to LinkedIn.' };
@@ -69,14 +72,17 @@ export class LinkedInClient {
         return { error: 'Failed to retrieve LinkedIn profile.' };
       }
 
-      const profile = (await response.json()) as any;
-      return {
-        profile: {
-          localizedFirstName: profile.localizedFirstName,
-          localizedLastName: profile.localizedLastName,
-          headline: profile.headline,
-        },
+      const profile = (await response.json()) as {
+        localizedFirstName?: string;
+        localizedLastName?: string;
+        headline?: string;
       };
+      const profileData: any = {};
+      if (profile.localizedFirstName) profileData.localizedFirstName = profile.localizedFirstName;
+      if (profile.localizedLastName) profileData.localizedLastName = profile.localizedLastName;
+      if (profile.headline) profileData.headline = profile.headline;
+
+      return { profile: profileData };
     } catch (error) {
       return { error: 'Failed to retrieve LinkedIn profile.' };
     }

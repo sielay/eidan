@@ -31,10 +31,12 @@ export class YouTubeClient {
 
       const data = (await response.json()) as { items?: Array<{ id?: { videoId?: string }; snippet?: { title?: string } }> };
       return {
-        videos: (data.items || []).map((item) => ({
-          id: item.id?.videoId,
-          title: item.snippet?.title,
-        })),
+        videos: (data.items || [])
+          .filter((item) => item.id?.videoId && item.snippet?.title)
+          .map((item) => ({
+            id: item.id!.videoId!,
+            title: item.snippet!.title!,
+          })),
       };
     } catch (error) {
       return { videos: [], error: 'Failed to search YouTube.' };
@@ -55,14 +57,24 @@ export class YouTubeClient {
         return { error: 'Failed to retrieve YouTube channel information.' };
       }
 
-      const data = (await response.json()) as { items?: Array<{ id?: string; snippet?: any; statistics?: any }> };
+      const data = (await response.json()) as {
+        items?: Array<{
+          id?: string;
+          snippet?: { title?: string; description?: string };
+          statistics?: { subscriberCount?: string; videoCount?: string };
+        }>;
+      };
       const channel = data.items?.[0];
+
+      if (!channel?.id || !channel?.snippet?.title) {
+        return { error: 'Failed to retrieve YouTube channel information.' };
+      }
 
       return {
         channel: {
-          id: channel?.id,
-          title: channel?.snippet?.title,
-          description: channel?.snippet?.description,
+          id: channel.id,
+          title: channel.snippet.title,
+          ...(channel.snippet?.description && { description: channel.snippet.description }),
           subscriberCount: parseInt(channel?.statistics?.subscriberCount || '0'),
           videoCount: parseInt(channel?.statistics?.videoCount || '0'),
         },
@@ -73,6 +85,9 @@ export class YouTubeClient {
   }
 
   async uploadMetadata(title: string, description: string): Promise<YouTubeUploadResult> {
+    // ponytail: videos.insert endpoint requires multipart upload with video file (media part) + metadata (snippet/status)
+    // this method only creates metadata; the actual video file upload requires resumable upload protocol
+    // upgrade path: implement resumable upload with fetch in chunks, or switch to gapi.youtube.videos.insert
     try {
       const accessToken = await secretRequired(this.ctx, 'YOUTUBE_ACCESS_TOKEN');
 
@@ -100,6 +115,9 @@ export class YouTubeClient {
       }
 
       const result = (await response.json()) as { id?: string };
+      if (!result.id) {
+        return { error: 'Failed to upload video metadata to YouTube.' };
+      }
       return { id: result.id };
     } catch (error) {
       return { error: 'Failed to upload video metadata to YouTube.' };

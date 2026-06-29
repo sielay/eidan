@@ -17,6 +17,10 @@ export class InstagramClient {
       const accessToken = await secretRequired(this.ctx, 'INSTAGRAM_ACCESS_TOKEN');
       const businessAccountId = await secretRequired(this.ctx, 'INSTAGRAM_BUSINESS_ACCOUNT_ID');
 
+      if (!imageUrl) {
+        return { error: 'Instagram posts require an image URL. Text-only posts are not supported via the API.' };
+      }
+
       const containerResponse = await fetch(`${API_BASE}/${businessAccountId}/media`, {
         method: 'POST',
         headers: {
@@ -24,7 +28,7 @@ export class InstagramClient {
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          media_type: imageUrl ? 'IMAGE' : 'CAROUSEL',
+          media_type: 'IMAGE',
           image_url: imageUrl,
           caption,
         }),
@@ -57,6 +61,9 @@ export class InstagramClient {
       }
 
       const publishResult = (await publishResponse.json()) as { id?: string };
+      if (!publishResult.id) {
+        return { error: 'Failed to post to Instagram.' };
+      }
       return { id: publishResult.id };
     } catch (error) {
       return { error: 'Failed to post to Instagram.' };
@@ -89,18 +96,24 @@ export class InstagramClient {
         return { error: 'Failed to retrieve Instagram profile.' };
       }
 
-      const user = (await response.json()) as any;
-
-      return {
-        user: {
-          id: user?.id,
-          username: user?.username,
-          name: user?.name,
-          biography: user?.biography,
-          profile_picture_url: user?.profile_picture_url,
-          followers_count: user?.followers_count,
-        },
+      const user = (await response.json()) as {
+        id?: string;
+        username?: string;
+        name?: string;
+        biography?: string;
+        profile_picture_url?: string;
+        followers_count?: number;
       };
+
+      const profileData: any = {};
+      if (user?.id) profileData.id = user.id;
+      if (user?.username) profileData.username = user.username;
+      if (user?.name) profileData.name = user.name;
+      if (user?.biography) profileData.biography = user.biography;
+      if (user?.profile_picture_url) profileData.profile_picture_url = user.profile_picture_url;
+      if (user?.followers_count !== undefined) profileData.followers_count = user.followers_count;
+
+      return { user: profileData };
     } catch (error) {
       return { error: 'Failed to retrieve Instagram profile.' };
     }

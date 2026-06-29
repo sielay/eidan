@@ -34,7 +34,12 @@ export class MastodonClient {
       }
 
       const result = (await response.json()) as { id?: string; uri?: string };
-      return { id: result.id, uri: result.uri };
+      if (!result.id) {
+        return { error: 'Failed to post to Mastodon.' };
+      }
+      const postData: any = { id: result.id };
+      if (result.uri) postData.uri = result.uri;
+      return postData;
     } catch (error) {
       return { error: 'Failed to post to Mastodon.' };
     }
@@ -59,10 +64,12 @@ export class MastodonClient {
 
       const data = (await response.json()) as { statuses?: Array<{ id?: string; content?: string }> };
       return {
-        statuses: (data.statuses || []).map((s) => ({
-          id: s.id,
-          content: s.content,
-        })),
+        statuses: (data.statuses || [])
+          .filter((s) => s.id && s.content)
+          .map((s) => ({
+            id: s.id!,
+            content: s.content!,
+          })),
       };
     } catch (error) {
       return { statuses: [], error: 'Failed to search Mastodon.' };
@@ -83,16 +90,21 @@ export class MastodonClient {
         return { error: 'Failed to retrieve Mastodon profile.' };
       }
 
-      const account = (await response.json()) as any;
-      return {
-        account: {
-          id: account.id,
-          username: account.username,
-          displayName: account.display_name,
-          avatar: account.avatar,
-          note: account.note,
-        },
+      const account = (await response.json()) as {
+        id?: string;
+        username?: string;
+        display_name?: string;
+        avatar?: string;
+        note?: string;
       };
+      const accountData: any = {};
+      if (account.id) accountData.id = account.id;
+      if (account.username) accountData.username = account.username;
+      if (account.display_name) accountData.displayName = account.display_name;
+      if (account.avatar) accountData.avatar = account.avatar;
+      if (account.note) accountData.note = account.note;
+
+      return { account: accountData };
     } catch (error) {
       return { error: 'Failed to retrieve Mastodon profile.' };
     }

@@ -42,7 +42,6 @@ plugins:
   - ./packages/social-instagram # Instagram (instagram_post, instagram_search, instagram_profile) via Instagram Graph API
   - ./packages/social-threads # Threads (threads_post, threads_search, threads_profile) via Threads API
   - ./packages/finance-trading212 # Trading 212 (trading212_portfolio, trading212_account, trading212_trades) via Trading 212 API
-  - ./packages/finance-google-trends # Google Trends (google_trends_search, google_trends_topics, google_trends_rising) via Google Trends API
   - ./packages/finance-gsc # Google Search Console (gsc_performance, gsc_sitemaps, gsc_indexing) via GSC API
   # Paid bundles append here per deploy, e.g.:  - ./packages/sage   (registers a 'code' JobHandler)
 

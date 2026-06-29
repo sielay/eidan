@@ -41,13 +41,13 @@ export class XClient {
         includes?: { users?: Array<{ id?: string; username?: string }> };
       };
 
-      const usersMap = new Map((data.includes?.users || []).map(u => [u.id, u]));
-
       return {
-        tweets: (data.data || []).map((tweet) => ({
-          id: tweet.id,
-          text: tweet.text,
-        })),
+        tweets: (data.data || [])
+          .filter((tweet) => tweet.id && tweet.text)
+          .map((tweet) => ({
+            id: tweet.id!,
+            text: tweet.text!,
+          })),
       };
     } catch (error) {
       return { tweets: [], error: 'Failed to search X.' };
