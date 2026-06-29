@@ -6,6 +6,32 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.14.4] — 2026-06-29
+
+### Fixed
+
+- **Agentic tool-loops no longer re-bill the full transcript every iteration.** The Anthropic adapter set
+  its message cache breakpoint only when the second-to-last user turn ended in a `text` block — but in
+  tool loops those turns end in `tool_result`, so caching was silently skipped and the whole growing
+  transcript (mostly large tool results) was re-sent uncached on every step. The breakpoint now lands on
+  `text | image | tool_result`. Separately, the OpenAI-compatible adapter gained opt-in `promptCaching`
+  so OpenRouter calls to Anthropic models cache instead of re-billing the full prompt (enabled on the
+  `openrouter` provider).
+- **The LLM-call ledger now records agent runs.** Token/cost for agent fires, jobs, A2A, and Telegram
+  turns were never written to `eidan.llm_calls` (only the chat surface logged), under-counting spend.
+  All four paths now record usage.
+
+### Added
+
+- **Agents know the current time.** A small time-context block (ISO + owner-local time, IANA zone, day of
+  week) is injected into every agent fire, computed once per fire so it stays cache-safe.
+- **Per-trigger model selection for agents** — a single agent can run different models per trigger
+  (`agent_schedule` / the trigger UI take an optional `model`; fire order is trigger → agent → node
+  default). decision_gate relations can also override the model.
+- **Model picker modal with a comparison table** in the agent UI.
+- **ask_user human-in-the-loop prompts in web chat** (SSE prompt round-trip).
+- **GFM tables in the WYSIWYG editor** + roomier markdown spacing.
+
 ## [0.14.3] — 2026-06-28
 
 ### Fixed
