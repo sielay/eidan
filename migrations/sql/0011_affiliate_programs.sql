@@ -9,7 +9,7 @@ create table eidan.affiliate_programs (
     description text,
     program_type text not null, -- 'amazon', 'kdp', 'draft2digital', 'patreon', 'skillshare', etc.
     api_endpoint text, -- e.g. https://api.amazon.com/v1/associates or null for direct URL construction
-    api_key text, -- encrypted secrets per user; use vault for sensitive values
+    api_key text, -- DEPRECATED: should not be used. Store affiliate API credentials in vault (@eidandev/vault-postgres) instead for security
     link_template text not null, -- e.g. 'https://amazon.com/dp/{product_id}?tag={affiliate_id}'
     commission_pct numeric(5,2), -- expected commission percentage
     enabled boolean default true not null,

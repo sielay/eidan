@@ -259,11 +259,11 @@ export class AffiliateService {
 
     if (linksToAdd.length === 0) return result;
 
-    const resourcesPattern = /##\s*(?:Resources|Related|Links|Recommended)/i;
-    const resourcesMatch = result.match(resourcesPattern);
+    const sectionPattern = /##\s*(?:Resources|Related|Links|Recommended|See Also|Further Reading|Learn More|References|Affiliate)/i;
+    const sectionMatch = result.match(sectionPattern);
 
-    if (resourcesMatch) {
-      const insertPos = resourcesMatch.index! + resourcesMatch[0].length;
+    if (sectionMatch) {
+      const insertPos = sectionMatch.index! + sectionMatch[0].length;
       result = result.slice(0, insertPos) + '\n' + linksToAdd.join('\n') + result.slice(insertPos);
     } else {
       result += `\n\n## Resources\n${linksToAdd.join('\n')}`;
@@ -290,11 +290,23 @@ export class AffiliateService {
     if (linksToAdd.length === 0) return content;
 
     let result = content;
-    for (const url of linksToAdd) {
+    // For twitter/short content, try to add links with priority to fitting one main link
+    for (let i = 0; i < linksToAdd.length; i++) {
+      const url = linksToAdd[i];
+      // Try appending with space separator
       const withLink = result + ` ${url}`;
       if (withLink.length <= MAX_TWITTER_LENGTH) {
         result = withLink;
+      } else if (i === 0) {
+        // If first link doesn't fit and we're on Twitter, prioritize it by trimming content
+        // This ensures at least the primary link is included
+        const availableSpace = MAX_TWITTER_LENGTH - url.length - 1;
+        if (availableSpace > 20) {
+          result = content.slice(0, availableSpace).trim() + ` ${url}`;
+        }
+        break;
       } else {
+        // Stop adding more links if we run out of space
         break;
       }
     }
