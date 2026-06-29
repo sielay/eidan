@@ -87,8 +87,8 @@ export class LinkedInClient {
     const ipv6Patterns = [
       /^::1$/,            // loopback (::1/128) per RFC4291
       /^::$/,             // unspecified (::/128) per RFC4291
-      /^f[cd]/,           // unique local unicast (fc00::/7 and fd00::/7) per RFC4193 — includes all ULA addresses
-      /^fe[89ab]/,        // link-local unicast (fe80::/10) per RFC4291 — fe80:: through febf::
+      /^f[cd][0-9a-f]{2}:/, // unique local unicast (fc00::/7 and fd00::/7) per RFC4193 — includes all ULA addresses
+      /^fe[89ab][0-9a-f]:/, // link-local unicast (fe80::/10) per RFC4291 — fe80:: through febf::
       /^ff/,              // multicast (ff00::/8) per RFC4291
       /^::ffff:127\./,    // IPv4-mapped loopback per RFC4291
       /^::ffff:10\./,     // IPv4-mapped private per RFC4291
@@ -119,8 +119,7 @@ export class LinkedInClient {
         return true;
       }
       // Subdomain match: allow exactly one level of subdomains to prevent attacks like
-      // evil.com.trustedcdn.com when trustedcdn.com is whitelisted. Split by dots and
-      // verify that hostname has exactly one more component than the domain.
+      // evil.com.trustedcdn.com when trustedcdn.com is whitelisted
       if (normalizedHostname.endsWith(`.${normalizedDomain}`)) {
         const hostnameParts = normalizedHostname.split('.');
         const domainParts = normalizedDomain.split('.');
@@ -214,7 +213,12 @@ export class LinkedInClient {
           // location values could still cause issues; validation here catches them.
           let resolvedLocation: string;
           try {
-            resolvedLocation = new URL(location, currentUrl).toString();
+            const resolvedUrl = new URL(location, currentUrl);
+            // Explicitly check protocol to ensure redirects don't use non-HTTPS schemes (data:, javascript:, etc.)
+            if (resolvedUrl.protocol !== 'https:') {
+              throw new Error(`Redirect must use HTTPS protocol, got: ${resolvedUrl.protocol}`);
+            }
+            resolvedLocation = resolvedUrl.toString();
           } catch (err) {
             throw new Error(`Invalid Location header in redirect: ${location}`);
           }
