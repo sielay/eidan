@@ -66,6 +66,21 @@ export function Thread({ messages, onSecondOpinion, busy, statsByMessage }: Thre
     const m = messages[i];
     if (m.role === "assistant" && !m.streaming && m.content && m.content.length > 0) { lastAssistantIdx = i; break; }
   }
+  // llm_calls are keyed to the turn's USER message (the anchor stamped by the AG-UI server), not the
+  // assistant row. So resolve each assistant message to its preceding user message, and show the stats
+  // line once per turn — on the LAST assistant row before the next user message.
+  const anchorFor: Array<string | undefined> = [];
+  const showStatsAt = new Set<number>();
+  let curAnchor: string | undefined;
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "user") curAnchor = messages[i].id;
+    anchorFor[i] = curAnchor;
+    if (messages[i].role === "assistant") {
+      const next = messages[i + 1];
+      if (!next || next.role === "user") showStatsAt.add(i);
+    }
+  }
+
   const lastSignature =
     messages.length > 0
       ? `${messages[messages.length - 1].id}:${messages[messages.length - 1].content?.length ?? 0}`
@@ -101,7 +116,7 @@ export function Thread({ messages, onSecondOpinion, busy, statsByMessage }: Thre
           fork={m.fork}
           onSecondOpinion={i === lastAssistantIdx ? onSecondOpinion : undefined}
           secondOpinionBusy={busy}
-          stats={m.role === "assistant" ? statsByMessage?.get(m.id) : undefined}
+          stats={showStatsAt.has(i) ? statsByMessage?.get(anchorFor[i] ?? "") : undefined}
         />
       ))}
       <div ref={bottomRef} />
