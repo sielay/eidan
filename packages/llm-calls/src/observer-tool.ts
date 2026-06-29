@@ -38,6 +38,19 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+interface AgentActivityResult {
+  window_hours: number;
+  total_runs: number;
+  agents_active: Array<{ agent_name: string; model: string; run_count: number; total_tokens: number; cost_usd: number; last_run: unknown }>;
+}
+
+interface TokenSummaryResult {
+  window_hours: number;
+  total_calls: number;
+  total_tokens: number;
+  breakdown: Array<{ provider: string; model: string; total_input: number; total_output: number; total_cache_read: number; total_cache_write: number; total_tokens: number }>;
+}
+
 async function tokenSummary(db: Db, hours: number): Promise<unknown> {
   const { rows } = await db.query(
     `select provider, model,
@@ -143,7 +156,7 @@ async function costBreakdown(db: Db, hours: number): Promise<unknown> {
   const totalCostUsd = Math.round(totalCost * 10000) / 10000;
   // Scale the observed window up to a 30-day month so projections are comparable across window sizes.
   // This assumes constant usage rate across the month; bursty/seasonal patterns will differ.
-  const monthlyProjection = Math.round((totalCost / hours) * 24 * 30 * 100) / 100;
+  const monthlyProjection = Math.round((totalCost / hours) * 24 * 30 * 10000) / 10000;
   return {
     window_hours: hours,
     providers,
@@ -158,17 +171,14 @@ async function efficiencyFlags(db: Db, hours: number): Promise<unknown> {
   // each call will recompute from the database. This is acceptable for <500ms per action, and keeps each
   // action independently callable (stateless). Future optimization: if sequential calls become a bottleneck,
   // the executor could cache intermediate results and pass them here.
-  const agents = (await agentActivity(db, hours)) as {
-    agents_active: { agent_name: string; model: string; run_count: number; total_tokens: number }[];
-  };
-  const tokens = (await tokenSummary(db, hours)) as {
-    breakdown: { provider: string; model: string; total_input: number; total_output: number; total_cache_read: number; total_tokens: number }[];
-  };
+  const agents = (await agentActivity(db, hours)) as AgentActivityResult;
+  const tokens = (await tokenSummary(db, hours)) as TokenSummaryResult;
 
   const active = agents.agents_active;
-  const avgTokens = active.length
-    ? active.reduce((s, a) => s + a.total_tokens, 0) / active.length
-    : 0;
+  if (active.length === 0) {
+    return { window_hours: hours, high_cost_agents: [], logging_gaps: [], cache_misses: [] };
+  }
+  const avgTokens = active.reduce((s, a) => s + a.total_tokens, 0) / active.length;
 
   const pricey = /opus|sonnet|gpt-4o(?!-mini)/i;
   // Flag agents using expensive models (opus, sonnet, gpt-4o) but consuming <50% of the average tokens.
