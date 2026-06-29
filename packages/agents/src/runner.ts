@@ -138,6 +138,8 @@ export async function runAgentTurn(
   extSignal?: AbortSignal,
   // Owner's IANA timezone for the injected time-context block; defaults to UTC if omitted/malformed.
   timezone?: string,
+  // Message ID for provenance tracking (used by remembered_facts_action); optional.
+  messageId?: string,
 ): Promise<{ text: string; conversationId: string }> {
   const run = services.run;
   const sessions = services.sessions;
@@ -159,7 +161,7 @@ export async function runAgentTurn(
     // timeout also bounds resource use per fire.
     const timer = timeoutMs && timeoutMs > 0 ? setTimeout(() => ac.abort(), timeoutMs) : undefined;
     try {
-      const framing = [generateContextBlock(new Date(), timezone ?? 'UTC', session.id), AGENT_FRAMING, persona]
+      const framing = [generateContextBlock(new Date(), timezone ?? 'UTC', session.id, messageId), AGENT_FRAMING, persona]
         .filter((s) => s.length > 0).join('\n\n');
       const view = await run.open({
         sessionId: session.id, signal: ac.signal,
