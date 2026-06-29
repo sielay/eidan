@@ -65,7 +65,7 @@ export class MastodonClient {
       const clampedLimit = Math.max(1, Math.min(limit, 40));
 
       const response = await fetch(
-        `${this.instanceUrl}/api/v2/search?q=${encodeURIComponent(query)}&type=statuses&limit=${clampedLimit}`,
+        `${this.instanceUrl}/api/v2/search?q=${encodeURIComponent(query)}&type=statuses&limit=${clampedLimit}&resolve=true`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
