@@ -42,6 +42,10 @@ export interface ThreadMessage {
 
 export interface ThreadProps {
   messages: ThreadMessage[];
+  /** Re-run the Inner voice skill on the latest assistant answer (opt-in second opinion). */
+  onSecondOpinion?: (() => void) | undefined;
+  /** Disable the second-opinion affordance while a turn is streaming. */
+  busy?: boolean | undefined;
 }
 
 /**
@@ -52,8 +56,14 @@ export interface ThreadProps {
  * assistant chunk in view without fighting a user who has scrolled up
  * to read history — the effect only runs when the *last* row mutates.
  */
-export function Thread({ messages }: ThreadProps): React.ReactElement {
+export function Thread({ messages, onSecondOpinion, busy }: ThreadProps): React.ReactElement {
   const bottomRef = React.useRef<HTMLDivElement | null>(null);
+  // The second-opinion button only makes sense on the most recent finished assistant answer.
+  let lastAssistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "assistant" && !m.streaming && m.content && m.content.length > 0) { lastAssistantIdx = i; break; }
+  }
   const lastSignature =
     messages.length > 0
       ? `${messages[messages.length - 1].id}:${messages[messages.length - 1].content?.length ?? 0}`
@@ -77,7 +87,7 @@ export function Thread({ messages }: ThreadProps): React.ReactElement {
 
   return (
     <div className="thread">
-      {messages.map((m) => (
+      {messages.map((m, i) => (
         <MessageBlock
           key={m.id}
           role={m.role}
@@ -87,6 +97,8 @@ export function Thread({ messages }: ThreadProps): React.ReactElement {
           interrupted={m.interrupted}
           time={m.created_at}
           fork={m.fork}
+          onSecondOpinion={i === lastAssistantIdx ? onSecondOpinion : undefined}
+          secondOpinionBusy={busy}
         />
       ))}
       <div ref={bottomRef} />

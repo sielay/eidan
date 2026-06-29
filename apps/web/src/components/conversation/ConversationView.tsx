@@ -255,6 +255,17 @@ export function ConversationView({
     [config, conversationId, provider, reloadHistory, reloadTitle],
   );
 
+  // "Second opinion": explicitly invoke the (now opt-in) Inner voice skill on the latest answer. The
+  // skill no longer auto-fires, so the button sends a clear instruction to load + apply it. Reuses the
+  // normal turn path; the request reads naturally in history.
+  const onSecondOpinion = React.useCallback(() => {
+    if (inFlight) return;
+    void onSubmit(
+      'Give me a second opinion on your previous response: load your "Inner voice" skill (skill_action ' +
+        'load) and use it to critique and sharpen that answer, then return the improved version.',
+    );
+  }, [inFlight, onSubmit]);
+
   // Settle a parked ask_user prompt. Clear it optimistically (the form vanishes immediately); the
   // turn's open SSE stream delivers whatever the agent does next once the engine unblocks the tool.
   const respondToPrompt = React.useCallback(
@@ -343,7 +354,7 @@ export function ConversationView({
             {historyError}
           </p>
         ) : (
-          <Thread messages={messages} />
+          <Thread messages={messages} onSecondOpinion={onSecondOpinion} busy={inFlight} />
         )}
         {pendingPrompt ? (
           <AskUserForm
