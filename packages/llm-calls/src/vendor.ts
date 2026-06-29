@@ -3,15 +3,21 @@ import type { MatbotServices } from '@matatbread/matbot-plugin-api';
 import type { VendorResolver } from './observer-tool.js';
 
 // Map a provider endpoint URL to its vendor. The endpoint is the authoritative signal — it survives
-// confusingly-named keys (e.g. `openrouter-haiku` repointed to native Anthropic).
+// confusingly-named keys (e.g. `openrouter-haiku` repointed to native Anthropic). Match on the parsed
+// HOSTNAME (not a substring of the whole URL), so a host like `api.anthropic.com.evil.com` or a path
+// segment can't be mistaken for the vendor (CWE-20 / js/incomplete-url-substring-sanitization).
+function hostEndsWith(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
 function vendorForEndpoint(endpoint: string | undefined): string {
-  const e = (endpoint ?? '').toLowerCase();
-  if (!e) return 'unknown';
-  if (e.includes('api.anthropic.com')) return 'anthropic';
-  if (e.includes('openrouter.ai')) return 'openrouter';
-  if (e.includes('api.openai.com')) return 'openai';
-  if (e.includes('x.ai')) return 'xai';
-  if (e.includes('localhost') || e.includes('127.0.0.1') || e.includes(':11434')) return 'local';
+  if (!endpoint) return 'unknown';
+  let host: string;
+  try { host = new URL(endpoint).hostname.toLowerCase(); } catch { return 'unknown'; }
+  if (hostEndsWith(host, 'anthropic.com')) return 'anthropic';
+  if (hostEndsWith(host, 'openrouter.ai')) return 'openrouter';
+  if (hostEndsWith(host, 'openai.com')) return 'openai';
+  if (hostEndsWith(host, 'x.ai')) return 'xai';
+  if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost')) return 'local';
   return 'other';
 }
 
