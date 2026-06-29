@@ -22,7 +22,16 @@ import * as track from './tracking.js';
 import type { CursorRow } from './tracking.js';
 import type { Db } from './db.js';
 import type { SageConfig } from './config.js';
-import { runSelfReview, blockingConcerns, type SelfReviewConfig } from './selfreview.js';
+import { runSelfReview, blockingConcerns, type SelfReviewConfig, type SelfReviewResult } from './selfreview.js';
+
+// Memoise the cheap-model self-review verdict per cursor, keyed by the tick's input signature. The
+// self-review (a billed OpenRouter call on the FULL PR diff) fires every tick an open, Copilot-less PR
+// is settled — and re-fires on each retry (lease miss, failed fix) even though nothing changed, so the
+// same diff gets re-billed repeatedly until the PR parks. The model runs at temperature 0, so an
+// unchanged diff yields an identical verdict; reuse it instead of paying again. Only the latest sig per
+// row is held, so any real change (new commit / check / comment → new sig) always re-reviews. The diff
+// fetch is skipped on a hit too. Process-local (the poll loop is one process); a restart re-reviews once.
+const selfReviewMemo = new Map<string, { sig: string; result: SelfReviewResult }>();
 import type { Concern } from './critic.js';
 
 // Optional escalation sink — mirrors a paused/escalated PR to the operator's inbox. Brick 2 makes it
@@ -438,6 +447,7 @@ async function stallToWaiting(deps: IterationDeps, row: CursorRow, sig: string, 
   const host = row.host;
   const ownerRepo = row.repo;
   const pr = row.pr_number;
+  selfReviewMemo.delete(row.id); // parked — a re-arm changes the sig and re-reviews fresh anyway
   await commentSafe(deps, host, ownerRepo, pr, waitingComment(row.iteration, cfg.maxIterations));
   await escalateSafe(deps, row, formatStallEscalation(ownerRepo, pr, reason), threadIds, 'no_progress');
   await track.markWaiting(db, { rowId: row.id, lastInputSig: sig, escalationsDelta: 1 });
@@ -644,22 +654,33 @@ async function selfReviewPath(deps: IterationDeps, row: CursorRow, failing: gh.C
   const ownerRepo = row.repo;
   const pr = row.pr_number;
 
-  let diffText: string;
-  try {
-    diffText = await gh.prDiff(resolvePat, { host, ownerRepo, number: pr });
-  } catch (e) {
-    console.error(`[sage] self-review diff fetch failed for ${ownerRepo}#${pr}: ${e instanceof Error ? e.message : String(e)}`);
-    return 'not_settled';
+  // Reuse the prior verdict when the diff signature is unchanged (deterministic at temp 0) — skips both
+  // the GitHub diff fetch and the billed OpenRouter call. A real change rotates `sig`, forcing a fresh
+  // review below.
+  let result: SelfReviewResult;
+  const memo = selfReviewMemo.get(row.id);
+  if (memo && memo.sig === sig) {
+    result = memo.result;
+  } else {
+    let diffText: string;
+    try {
+      diffText = await gh.prDiff(resolvePat, { host, ownerRepo, number: pr });
+    } catch (e) {
+      console.error(`[sage] self-review diff fetch failed for ${ownerRepo}#${pr}: ${e instanceof Error ? e.message : String(e)}`);
+      return 'not_settled';
+    }
+    const fresh = await runSelfReview(selfreview, { taskPrompt: row.task_prompt ?? '', repo: ownerRepo, prNumber: pr, diff: diffText });
+    if (fresh.verdict === 'error') return 'not_settled'; // flaky cheap model must not retire the PR
+    result = fresh;
+    selfReviewMemo.set(row.id, { sig, result });
   }
-
-  const result = await runSelfReview(selfreview, { taskPrompt: row.task_prompt ?? '', repo: ownerRepo, prNumber: pr, diff: diffText });
-  if (result.verdict === 'error') return 'not_settled'; // flaky cheap model must not retire the PR
 
   const nextIter = row.iteration + 1;
   // #62: a clean diff is NOT "done" while CI is red — fold failing checks into the blocking set.
   const blocking = blockingConcerns(result.concerns).concat(ciConcernsFromChecks(failing));
 
   if (!blocking.length) {
+    selfReviewMemo.delete(row.id); // settled clean — drop the cached verdict
     await commentSafe(deps, host, ownerRepo, pr, selfreviewCleanComment(result.model, result.concerns.length));
     await track.advance(db, { rowId: row.id, status: 'done', iteration: nextIter });
     return 'done';
