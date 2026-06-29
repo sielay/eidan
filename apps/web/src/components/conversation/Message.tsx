@@ -54,6 +54,11 @@ export interface MessageBlockProps {
   time?: string;
   /** ⑂ Compare: the candidate models' raw answers, shown in a disclosure below the merged answer. */
   fork?: { legs: Array<{ model: string; text: string; truncated?: boolean; inputTokens?: number; outputTokens?: number }> };
+  /** "Second opinion": when provided (latest assistant reply only), shows a button that re-runs the
+   *  Inner voice skill to critique + sharpen this answer. Opt-in — the skill no longer auto-fires. */
+  onSecondOpinion?: (() => void) | undefined;
+  /** Disable the second-opinion button while a turn is in flight. */
+  secondOpinionBusy?: boolean | undefined;
 }
 
 /**
@@ -77,6 +82,8 @@ export function MessageBlock({
   streaming,
   time,
   fork,
+  onSecondOpinion,
+  secondOpinionBusy,
 }: MessageBlockProps): React.ReactElement {
   const hasBody = content !== null && content.length > 0;
   const hasToolCalls = toolCalls !== undefined && toolCalls.length > 0;
@@ -129,6 +136,18 @@ export function MessageBlock({
       ) : null}
       {hasToolCalls ? <ToolDisclosure calls={toolCalls!} /> : null}
       {fork && fork.legs.length ? <ForkDisclosure legs={fork.legs} /> : null}
+      {onSecondOpinion && hasBody && !streaming ? (
+        <button
+          type="button"
+          onClick={onSecondOpinion}
+          disabled={secondOpinionBusy}
+          title="A different-lineage model critiques and sharpens this answer (Inner voice)"
+          className="mt-1.5 inline-flex items-center gap-1.5 self-start rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+        >
+          <span aria-hidden>◎</span>
+          Second opinion
+        </button>
+      ) : null}
     </div>
   );
 }
