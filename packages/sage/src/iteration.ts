@@ -55,6 +55,19 @@ export interface IterationDeps {
   // The OpenRouter cheap-model self-review fallback (Brick 3). null → the loop keeps waiting for
   // Copilot when it doesn't engage, exactly as the Python loop does when cfg.selfreview is None.
   selfreview?: SelfReviewConfig | null | undefined;
+  // Optional sink for self-review token usage → eidan.llm_calls, so this off-ledger spend (a direct
+  // fetch, not a matbot provider) becomes visible to the observer. Best-effort; never blocks the loop.
+  recordLlmCall?: ((c: SageLlmCall) => void) | undefined;
+}
+
+export interface SageLlmCall {
+  userId: string;
+  provider: string;
+  model: string;
+  role: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
 }
 
 const COPILOT_LOGIN = 'copilot-pull-request-reviewer[bot]';
@@ -673,6 +686,15 @@ async function selfReviewPath(deps: IterationDeps, row: CursorRow, failing: gh.C
     if (fresh.verdict === 'error') return 'not_settled'; // flaky cheap model must not retire the PR
     result = fresh;
     selfReviewMemo.set(row.id, { sig, result });
+    // Make this (otherwise invisible) self-review spend show up in the cost ledger.
+    if (fresh.usage && deps.recordLlmCall && row.user_id) {
+      try {
+        deps.recordLlmCall({
+          userId: row.user_id, provider: 'openrouter', model: fresh.model, role: 'critic',
+          inputTokens: fresh.usage.inputTokens, outputTokens: fresh.usage.outputTokens, cacheReadTokens: fresh.usage.cachedTokens,
+        });
+      } catch { /* telemetry must never break the loop */ }
+    }
   }
 
   const nextIter = row.iteration + 1;
