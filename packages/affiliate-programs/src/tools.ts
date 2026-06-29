@@ -162,9 +162,9 @@ export function getAffiliatePerformance(service: AffiliateService): Tool {
               program: r.program,
               links_placed: r.total_links,
               top_product: r.product_id,
-              commission_pct: r.commission_est,
+              commission_est: r.commission_est,
             })),
-            total_estimated_commission_pct: report.reduce((sum, r) => sum + r.commission_est * r.total_links, 0) / Math.max(1, report.reduce((sum, r) => sum + r.total_links, 0)),
+            total_estimated_revenue: report.reduce((sum, r) => sum + r.commission_est, 0),
           },
         };
       },

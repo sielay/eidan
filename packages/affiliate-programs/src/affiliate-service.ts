@@ -57,7 +57,6 @@ export class AffiliateService {
     description?: string;
     program_type: string;
     api_endpoint?: string;
-    api_key?: string;
     link_template: string;
     commission_pct?: number;
     metadata?: Record<string, unknown>;
@@ -65,8 +64,8 @@ export class AffiliateService {
     return this.db.withPrincipalTx(async (q) => {
       const r = await q(
         `insert into eidan.affiliate_programs
-         (user_id, name, description, program_type, api_endpoint, api_key, link_template, commission_pct, metadata)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         (user_id, name, description, program_type, api_endpoint, link_template, commission_pct, metadata)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
          returning id`,
         [
           currentPrincipal().id,
@@ -74,7 +73,6 @@ export class AffiliateService {
           input.description ?? null,
           input.program_type,
           input.api_endpoint ?? null,
-          input.api_key ?? null,
           input.link_template,
           input.commission_pct ?? null,
           JSON.stringify(input.metadata ?? {}),
@@ -177,7 +175,7 @@ export class AffiliateService {
       const r = await q(
         `select ap.name as program, al.product_id,
                 count(al.id) as total_links,
-                coalesce(ap.commission_pct, 0) as commission_est
+                coalesce(ap.commission_pct * count(al.id), 0) as commission_est
          from eidan.affiliate_links al
          join eidan.affiliate_programs ap on al.program_id = ap.id
          ${whereClause}
@@ -226,22 +224,52 @@ export class AffiliateService {
 
   private injectIntoMarkdown(content: string, linkMap: Record<string, string>): string {
     let result = content;
+    const linksToAdd: string[] = [];
+
     for (const [product, url] of Object.entries(linkMap)) {
       const linkMd = `[${product}](${url})`;
       if (!result.includes(linkMd) && !result.includes(url)) {
-        result += `\n\n${linkMd}`;
+        linksToAdd.push(linkMd);
       }
     }
+
+    if (linksToAdd.length === 0) return result;
+
+    const resourcesPattern = /##\s*(?:Resources|Related|Links|Recommended)/i;
+    const match = result.match(resourcesPattern);
+
+    if (match) {
+      const insertPos = match.index! + match[0].length;
+      result = result.slice(0, insertPos) + '\n' + linksToAdd.join('\n') + result.slice(insertPos);
+    } else {
+      result += `\n\n## Resources\n${linksToAdd.join('\n')}`;
+    }
+
     return result;
   }
 
   private injectIntoText(content: string, linkMap: Record<string, string>): string {
-    let result = content;
+    const MAX_TWITTER_LENGTH = 280;
+    const linksToAdd: string[] = [];
+
     for (const [product, url] of Object.entries(linkMap)) {
-      if (!result.includes(url)) {
-        result += ` ${url}`;
+      if (!content.includes(url) && !content.includes(product)) {
+        linksToAdd.push(url);
       }
     }
+
+    if (linksToAdd.length === 0) return content;
+
+    let result = content;
+    for (const url of linksToAdd) {
+      const withLink = result + ` ${url}`;
+      if (withLink.length <= MAX_TWITTER_LENGTH) {
+        result = withLink;
+      } else {
+        break;
+      }
+    }
+
     return result;
   }
 }
