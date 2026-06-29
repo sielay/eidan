@@ -90,9 +90,12 @@ function formatLocalDateTime(now: Date, tz: string): string {
 // A small, stable time-context block prepended to the agent framing so a fired agent knows "now" in the
 // owner's timezone (otherwise it has no clock). Computed once per fire and fixed for the session, so it
 // stays inside the cached prefix and does not bust prompt caching across the turn's loop iterations.
-function generateContextBlock(now: Date, tz: string): string {
+// Includes sessionId for conversation tracking and messageId for provenance (used by remembered_facts_action).
+function generateContextBlock(now: Date, tz: string, sessionId: string, messageId?: string): string {
   const zone = safeZone(tz);
   const context = {
+    sessionId,
+    messageId: messageId ?? null,
     currentTime: now.toISOString(),
     currentTimeLocal: formatLocalDateTime(now, zone),
     timezone: zone,
@@ -135,6 +138,8 @@ export async function runAgentTurn(
   extSignal?: AbortSignal,
   // Owner's IANA timezone for the injected time-context block; defaults to UTC if omitted/malformed.
   timezone?: string,
+  // Message ID for provenance tracking (used by remembered_facts_action); optional.
+  messageId?: string,
 ): Promise<{ text: string; conversationId: string }> {
   const run = services.run;
   const sessions = services.sessions;
@@ -156,7 +161,7 @@ export async function runAgentTurn(
     // timeout also bounds resource use per fire.
     const timer = timeoutMs && timeoutMs > 0 ? setTimeout(() => ac.abort(), timeoutMs) : undefined;
     try {
-      const framing = [generateContextBlock(new Date(), timezone ?? 'UTC'), AGENT_FRAMING, persona]
+      const framing = [generateContextBlock(new Date(), timezone ?? 'UTC', session.id, messageId), AGENT_FRAMING, persona]
         .filter((s) => s.length > 0).join('\n\n');
       const view = await run.open({
         sessionId: session.id, signal: ac.signal,
