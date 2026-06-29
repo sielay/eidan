@@ -402,7 +402,7 @@ export function Composer({
     setRecording(false);
   }, []);
 
-  const mic = { available: micAvailable, recording, busy, start: micStart, stop: micStop };
+  const mic = { recording, busy, start: micStart, stop: micStop };
 
   const onPickFiles = React.useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
