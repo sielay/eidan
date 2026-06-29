@@ -220,8 +220,8 @@ export function continuationPreamble(conversationId: string | null): string {
 // Manual "run now" (test affordance, surfaced via POST /api/agents/:id/run). Starts the agent's turn
 // under its OWN provider (+ model synthesis), tags the conversation as agent-origin, and returns the
 // conversation id AS SOON AS it's created — the turn itself runs detached so the HTTP request doesn't
-// block on a long agent run (and can't hit a proxy/gateway timeout). No agent_runs row is written: the
-// run ledger is keyed by a trigger, and a manual test has none. Returns null if the agent is gone.
+// block on a long agent run (and can't hit a proxy/gateway timeout). A manual agent_run row IS written
+// (trigger_id null, status 'started') so test runs are observable. Returns null if the agent is gone.
 export async function fireAgentNow(
   services: MatbotServices,
   store: AgentsStore,
@@ -237,7 +237,11 @@ export async function fireAgentNow(
   const idReady = new Promise<string>((r) => { resolveId = r; });
   void runAgentTurn(
     services, userId, agent.persona, provider,
-    async (cid) => { await store.markAgentConversation(cid, agentId, agent.name); resolveId(cid); },
+    async (cid) => {
+      await store.markAgentConversation(cid, agentId, agent.name);
+      void store.recordManualRun(agentId, userId, cid).catch(() => undefined); // observability, best-effort
+      resolveId(cid);
+    },
     opts.turnTimeoutMs, undefined, timezone,
   ).catch((e) => console.warn(`[agents] run-now "${agent.name}" failed:`, e instanceof Error ? e.message : e));
   return { conversationId: await idReady };
