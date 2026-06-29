@@ -35,6 +35,12 @@ RUN pnpm install --config.engine-strict=false
 # 3) host config (plugins + provider; secrets arrive via env: EIDAN_DATABASE_URL, ANTHROPIC_API_KEY).
 COPY infra/fly-mb/matbot.yaml ./matbot.yaml
 
+# The deployed eidan version (the in-image ./package.json is a 0.0.0 host stub, so the engine can't
+# read it from there). The deploy CLI passes --build-arg EIDAN_VERSION=<root package.json version>;
+# telemetry surfaces it in node_heartbeats.metadata for the web version indicator.
+ARG EIDAN_VERSION=dev
+ENV EIDAN_VERSION=${EIDAN_VERSION}
+
 # AG-UI :8090, inbound MCP :8091, secure secrets API :8092, inbound A2A :8095. A worker-only node
 # needs none of these exposed.
 ENV MATBOT_AGUI_PORT=8090 MATBOT_MCP_PORT=8091 MATBOT_SECRETS_PORT=8092 MATBOT_A2A_PORT=8095

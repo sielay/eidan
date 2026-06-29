@@ -6,6 +6,15 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.14.5] — 2026-06-29
+
+### Added
+
+- **Deployed-version indicator.** The desktop rail shows a compact version label (e.g. `v0.14.5` or
+  `v0.14.5/0.14.4` when layers drift); click it for a modal breaking down the version + liveness of each
+  layer — web (Vercel), Fly (cloud engine), Pi (kesha). Engine nodes report their version via
+  `node_heartbeats.metadata.version` (telemetry); the web reads its own build version. Wide screens only.
+
 ## [0.14.4] — 2026-06-29
 
 ### Fixed

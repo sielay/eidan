@@ -262,7 +262,11 @@ switch (cmd) {
       const rootToml = join(ROOT, "fly.toml");
       writeFileSync(rootToml, flyToml);
       ensureEnvPushed(t, targetName); // secrets must be on the app before the release
-      sh("flyctl", ["deploy", ROOT, "--app", t.app, "--config", rootToml, "--yes"]);
+      // Bake the deployed version into the image (telemetry surfaces it per-node for the web UI). The
+      // in-image package.json is a host stub, so read the real version here and pass it as a build-arg.
+      let eidanVersion = "dev";
+      try { eidanVersion = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version || "dev"; } catch { /* keep dev */ }
+      sh("flyctl", ["deploy", ROOT, "--app", t.app, "--config", rootToml, "--build-arg", `EIDAN_VERSION=${eidanVersion}`, "--yes"]);
     } else if (t.type === "vercel") {
       // Web (Next.js) → Vercel. Deploy via the vercel CLI if present; else guide the operator.
       const hasVercel = (() => { try { execFileSync("vercel", ["--version"], { stdio: "ignore" }); return true; } catch { return false; } })();

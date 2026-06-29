@@ -9,6 +9,7 @@ import { Plus, Sparkles } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { NavIcon } from "@/components/shell/NavIcon";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
+import { VersionBadge } from "@/components/shell/VersionBadge";
 import { pluginNav } from "@/plugins/registry.generated";
 import {
   ADMIN_CONTRIBUTION,
@@ -114,6 +115,7 @@ export function AppShell({
 
         <div className="rail__spacer" />
         <RailLink section={SETTINGS_SECTION} pathname={pathname} />
+        <VersionBadge />
       </aside>
 
       {/* ---- main column ---- */}
