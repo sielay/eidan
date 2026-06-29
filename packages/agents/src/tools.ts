@@ -244,9 +244,14 @@ export function buildAgentTools(store: AgentsStore): Tool[] {
             const t = await store.addTrigger(agentId, type, config);
             // A decision_gate agent pauses by raising a decision_gate escalation, then resumes when it's
             // answered — which needs a `response` trigger. Auto-add one (idempotently) so the gate works.
+            // The `response` trigger is what actually fires the gate, and responseTriggeredAgents reads the
+            // model override off it — so the override must live here, not only on the decision_gate trigger,
+            // or it would be written but never read.
             if (isGate) {
               const existing = await store.listTriggers(agentId);
-              if (!existing.some((x) => x.type === 'response')) await store.addTrigger(agentId, 'response', {});
+              if (!existing.some((x) => x.type === 'response')) {
+                await store.addTrigger(agentId, 'response', model ? { model } : {});
+              }
             }
             yield { type: 'result', value: triggerView(t) };
           } catch (e) {
