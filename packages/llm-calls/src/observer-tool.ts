@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Tool } from '@matatbread/matbot-plugin-api';
+import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import type { Db } from './db.js';
+import type { ProviderSpendStore } from './spend-store.js';
 
 // Model & Cache Observer: read-only aggregations over the cost/usage ledger this plugin owns
 // (eidan.llm_calls) joined with eidan.agent_runs/eidan.agents. These are NOT procedures
@@ -9,8 +11,14 @@ import type { Db } from './db.js';
 // SQL. Cost is read from the stored cost_usd column (computed once in pricing.ts at record time),
 // not re-derived here, so the rollups always match the ledger.
 
-const ACTIONS = ['token_summary', 'agent_activity', 'cost_breakdown', 'efficiency_flags'] as const;
+const ACTIONS = ['token_summary', 'agent_activity', 'cost_breakdown', 'efficiency_flags', 'spend_actuals'] as const;
 type Action = (typeof ACTIONS)[number];
+
+// Resolve a ledger provider-KEY (e.g. "haiku", "openrouter-haiku") to its real vendor. The ledger
+// stores the eidan provider key, whose name is NOT a reliable vendor hint (we repointed
+// `openrouter-haiku` to native Anthropic), so the accurate source is the live provider registry's
+// endpoint. A weak observer model otherwise guesses "haiku = local"; this hands it the truth.
+export type VendorResolver = (provider: string) => string;
 
 const DESCRIPTION = [
   'Model & Cache Observer: deterministic, read-only rollups over the LLM cost/usage ledger',
@@ -21,9 +29,14 @@ const DESCRIPTION = [
   "  { action: 'agent_activity'; window_hours?: number }   // per-agent runs, tokens and cost, last run time",
   "  { action: 'cost_breakdown'; window_hours?: number }   // USD cost by provider/model (from stored cost_usd) + monthly projection",
   "  { action: 'efficiency_flags'; window_hours?: number } // optimisation flags: pricey-model/low-work, logging gaps, low cache-hit",
+  "  { action: 'spend_actuals'; window_hours?: number }    // invoice ACTUALS vs ledger estimate per vendor + the gap (use ~720h)",
   '',
-  'Prefer this tool over hand-written SQL or a procedure for these four questions — it owns the',
-  'pricing-correct numbers and is stable across runs.',
+  'Prefer this tool over hand-written SQL or a procedure for these questions — it owns the',
+  'pricing-correct numbers and is stable across runs. `vendor` on each row is the real billing vendor',
+  '(anthropic / openrouter / openai / local), resolved from the live provider registry — trust it over',
+  'the provider KEY name. `spend_actuals` compares invoice-sourced actuals (eidan.provider_spend, fed by',
+  'record_provider_spend) against the ledger estimate; a positive gap = spend the ledger is not capturing',
+  "(e.g. tools that bill outside eidan). Needs invoices recorded first, else actuals are empty.",
 ].join('\n');
 
 function windowHours(input: unknown): number {
@@ -38,7 +51,7 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-async function tokenSummary(db: Db, hours: number): Promise<unknown> {
+async function tokenSummary(db: Db, hours: number, vendorOf: VendorResolver): Promise<unknown> {
   const { rows } = await db.query(
     `select provider, model,
        count(*)::int as call_count,
@@ -62,6 +75,7 @@ async function tokenSummary(db: Db, hours: number): Promise<unknown> {
     totalTokens += totalTok;
     return {
       provider: r.provider,
+      vendor: vendorOf(String(r.provider ?? '')),
       model: r.model,
       call_count: callCount,
       total_input: num(r.total_input),
@@ -118,7 +132,7 @@ async function agentActivity(db: Db, hours: number): Promise<unknown> {
   return { window_hours: hours, total_runs: totalRuns, agents_active: agentsActive };
 }
 
-async function costBreakdown(db: Db, hours: number): Promise<unknown> {
+async function costBreakdown(db: Db, hours: number, vendorOf: VendorResolver): Promise<unknown> {
   const { rows } = await db.query(
     `select provider, model,
        coalesce(sum(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens),0)::bigint as total_tokens,
@@ -135,6 +149,7 @@ async function costBreakdown(db: Db, hours: number): Promise<unknown> {
     totalCost += cost;
     return {
       provider: r.provider,
+      vendor: vendorOf(String(r.provider ?? '')),
       model: r.model,
       tokens: num(r.total_tokens),
       estimated_cost_usd: Math.round(cost * 10000) / 10000,
@@ -152,7 +167,7 @@ async function costBreakdown(db: Db, hours: number): Promise<unknown> {
   };
 }
 
-async function efficiencyFlags(db: Db, hours: number): Promise<unknown> {
+async function efficiencyFlags(db: Db, hours: number, vendorOf: VendorResolver): Promise<unknown> {
   // Note: this function independently calls agentActivity() and tokenSummary() to compute flags.
   // If the agent calls these actions sequentially in the same turn (token_summary → agent_activity → efficiency_flags),
   // each call will recompute from the database. This is acceptable for <500ms per action, and keeps each
@@ -161,8 +176,8 @@ async function efficiencyFlags(db: Db, hours: number): Promise<unknown> {
   const agents = (await agentActivity(db, hours)) as {
     agents_active: { agent_name: string; model: string; run_count: number; total_tokens: number }[];
   };
-  const tokens = (await tokenSummary(db, hours)) as {
-    breakdown: { provider: string; model: string; total_input: number; total_output: number; total_cache_read: number; total_tokens: number }[];
+  const tokens = (await tokenSummary(db, hours, vendorOf)) as {
+    breakdown: { provider: string; vendor: string; model: string; total_input: number; total_output: number; total_cache_read: number; total_tokens: number }[];
   };
 
   const active = agents.agents_active;
@@ -205,6 +220,7 @@ async function efficiencyFlags(db: Db, hours: number): Promise<unknown> {
     .slice(0, 10)
     .map((b) => ({
       provider: b.provider,
+      vendor: b.vendor,
       model: b.model,
       tokens: b.total_tokens,
       input_output_ratio: b.total_output > 0 ? Math.round((b.total_input / b.total_output) * 100) / 100 : 0,
@@ -214,7 +230,58 @@ async function efficiencyFlags(db: Db, hours: number): Promise<unknown> {
   return { window_hours: hours, high_cost_agents, logging_gaps, cache_misses };
 }
 
-export function observerTool(db: Db): Tool {
+// Reconcile invoice ACTUALS (eidan.provider_spend, vendor-keyed) against the ledger ESTIMATE
+// (eidan.llm_calls cost_usd, provider-keyed → mapped to vendor). A positive gap = the vendor billed
+// more than the ledger accounts for → spend happening outside eidan (e.g. sage's off-ledger review).
+// User-scoped (invoices belong to a user); empty actuals until invoices are recorded.
+async function spendActuals(db: Db, store: ProviderSpendStore | undefined, vendorOf: VendorResolver, hours: number): Promise<unknown> {
+  const userId = tryCurrentPrincipal()?.id;
+  if (!userId) return { error: 'no user context — spend_actuals is user-scoped' };
+  if (!store) return { error: 'provider spend store unavailable' };
+
+  // ledger estimate over the window, grouped by vendor
+  const { rows: ledger } = await db.query(
+    `select provider, coalesce(sum(cost_usd),0)::float8 as cost
+     from eidan.llm_calls
+     where user_id = $1 and created_at > now() - make_interval(hours => $2)
+     group by provider`,
+    [userId, hours],
+  );
+  const estimateByVendor = new Map<string, number>();
+  for (const r of ledger) {
+    const v = vendorOf(String(r.provider ?? ''));
+    estimateByVendor.set(v, (estimateByVendor.get(v) ?? 0) + num(r.cost));
+  }
+
+  // invoice actuals whose period overlaps the window
+  const sinceMs = Date.now() - hours * 3600_000;
+  const since = new Date(sinceMs).toISOString().slice(0, 10);
+  const invoices = await store.listSince(userId, since);
+  const actualByVendor = new Map<string, number>();
+  for (const inv of invoices) {
+    actualByVendor.set(inv.provider, (actualByVendor.get(inv.provider) ?? 0) + num(inv.amount));
+  }
+
+  const vendors = new Set<string>([...estimateByVendor.keys(), ...actualByVendor.keys()]);
+  const reconciliation = [...vendors].map((vendor) => {
+    const actual = Math.round((actualByVendor.get(vendor) ?? 0) * 100) / 100;
+    const estimate = Math.round((estimateByVendor.get(vendor) ?? 0) * 100) / 100;
+    const hasActual = actualByVendor.has(vendor);
+    return {
+      vendor,
+      invoice_actual_usd: hasActual ? actual : null,
+      ledger_estimate_usd: estimate,
+      gap_usd: hasActual ? Math.round((actual - estimate) * 100) / 100 : null,
+      note: hasActual
+        ? (actual - estimate > 0.5 ? 'invoice exceeds ledger — untracked spend (calls billed outside eidan)' : 'ledger roughly matches invoice')
+        : 'no invoice recorded for this vendor/window — actual unknown',
+    };
+  }).sort((a, b) => (b.invoice_actual_usd ?? b.ledger_estimate_usd) - (a.invoice_actual_usd ?? a.ledger_estimate_usd));
+
+  return { window_hours: hours, reconciliation, invoices_found: invoices.length };
+}
+
+export function observerTool(db: Db, vendorOf: VendorResolver, spendStore?: ProviderSpendStore): Tool {
   return {
     name: 'observer',
     description: DESCRIPTION,
@@ -233,10 +300,11 @@ export function observerTool(db: Db): Tool {
         const hours = windowHours(input);
         try {
           switch (action) {
-            case 'token_summary':    yield { type: 'result', value: await tokenSummary(db, hours) }; return;
+            case 'token_summary':    yield { type: 'result', value: await tokenSummary(db, hours, vendorOf) }; return;
             case 'agent_activity':   yield { type: 'result', value: await agentActivity(db, hours) }; return;
-            case 'cost_breakdown':   yield { type: 'result', value: await costBreakdown(db, hours) }; return;
-            case 'efficiency_flags': yield { type: 'result', value: await efficiencyFlags(db, hours) }; return;
+            case 'cost_breakdown':   yield { type: 'result', value: await costBreakdown(db, hours, vendorOf) }; return;
+            case 'efficiency_flags': yield { type: 'result', value: await efficiencyFlags(db, hours, vendorOf) }; return;
+            case 'spend_actuals':    yield { type: 'result', value: await spendActuals(db, spendStore, vendorOf, hours) }; return;
             default:
               yield { type: 'error', message: `unknown action: ${String(action)} (expected ${ACTIONS.join(' | ')})` };
           }

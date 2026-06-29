@@ -6,7 +6,7 @@ import { ensureSchema } from './schema.js';
 import { loadConfig } from './config.js';
 import { loadPats, routePat, type PatEntry } from './pats.js';
 import { runInitialPipeline, parseRepo, type Notify, type PipelineResult } from './pipeline.js';
-import { runTick } from './iteration.js';
+import { runTick, type SageLlmCall } from './iteration.js';
 import { loadSelfReviewConfig } from './selfreview.js';
 import { makeEscalate } from './escalations.js';
 import { startPrReconcile } from './reconcile.js';
@@ -69,7 +69,7 @@ function makeCodeHandler(db: Db, pats: PatEntry[]): JobHandler {
 
 // The PR-iteration poll. The Python plugin used the host's `schedule:` behaviour; here we self-pace
 // a detached loop (same shape as @eidandev/jobs' worker), gated on claude being present.
-function startIterationPoll(db: Db, pats: PatEntry[], notify: Notify): () => void {
+function startIterationPoll(db: Db, pats: PatEntry[], notify: Notify, recordLlmCall?: (c: SageLlmCall) => void): () => void {
   const cfg = loadConfig();
   const resolvePat = (opts: { host: string; ownerRepo: string; scope: 'read' | 'write' }): string | null =>
     routePat(pats, opts)?.token ?? null;
@@ -84,7 +84,7 @@ function startIterationPoll(db: Db, pats: PatEntry[], notify: Notify): () => voi
   const loop = async (): Promise<void> => {
     while (!stopped) {
       try {
-        await runTick({ db, cfg, resolvePat, notify, selfreview, escalate });
+        await runTick({ db, cfg, resolvePat, notify, selfreview, escalate, recordLlmCall });
       } catch (e) {
         console.warn(`[sage] iteration tick error: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -137,7 +137,18 @@ export const plugin: MatbotPluginSpec = {
       }
       if (!services.Notify) console.log(`[sage] ${text}`);
     };
-    stopPoll = startIterationPoll(db, pats, pollNotify);
+    // Sink self-review token usage into the cost ledger (cost derived from the model's list price in
+    // @eidandev/llm-calls). Loosely typed: the LlmCalls service interface is declared in that plugin.
+    const llmCalls = (services as { LlmCalls?: { record?: (c: Record<string, unknown>) => Promise<void> } }).LlmCalls;
+    const recordLlmCall = llmCalls?.record
+      ? (c: SageLlmCall): void => {
+          void llmCalls.record!({
+            userId: c.userId, provider: c.provider, model: c.model, role: c.role,
+            inputTokens: c.inputTokens, outputTokens: c.outputTokens, cacheReadTokens: c.cacheReadTokens,
+          }).catch(() => undefined);
+        }
+      : undefined;
+    stopPoll = startIterationPoll(db, pats, pollNotify, recordLlmCall);
     // Passive PR-state mirror: reflect merged/closed/CI-failed back onto each job's phase.
     stopReconcile = startPrReconcile(db, pats, pollNotify);
 
