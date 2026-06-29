@@ -142,6 +142,7 @@ async function costBreakdown(db: Db, hours: number): Promise<unknown> {
   });
   const totalCostUsd = Math.round(totalCost * 10000) / 10000;
   // Scale the observed window up to a 30-day month so projections are comparable across window sizes.
+  // This assumes constant usage rate across the month; bursty/seasonal patterns will differ.
   const monthlyProjection = Math.round((totalCost / hours) * 24 * 30 * 100) / 100;
   return {
     window_hours: hours,
@@ -152,6 +153,11 @@ async function costBreakdown(db: Db, hours: number): Promise<unknown> {
 }
 
 async function efficiencyFlags(db: Db, hours: number): Promise<unknown> {
+  // Note: this function independently calls agentActivity() and tokenSummary() to compute flags.
+  // If the agent calls these actions sequentially in the same turn (token_summary → agent_activity → efficiency_flags),
+  // each call will recompute from the database. This is acceptable for <500ms per action, and keeps each
+  // action independently callable (stateless). Future optimization: if sequential calls become a bottleneck,
+  // the executor could cache intermediate results and pass them here.
   const agents = (await agentActivity(db, hours)) as {
     agents_active: { agent_name: string; model: string; run_count: number; total_tokens: number }[];
   };
@@ -165,6 +171,10 @@ async function efficiencyFlags(db: Db, hours: number): Promise<unknown> {
     : 0;
 
   const pricey = /opus|sonnet|gpt-4o(?!-mini)/i;
+  // Flag agents using expensive models (opus, sonnet, gpt-4o) but consuming <50% of the average tokens.
+  // This heuristic identifies cases where a cheaper model (haiku) might be sufficient.
+  // Note: low-token agents on pricey models may legitimately need that model for critical quality
+  // work, so this is a candidate for review, not a hard recommendation.
   const high_cost_agents = active
     .filter((a) => pricey.test(a.model) && a.total_tokens > 0 && a.total_tokens < avgTokens * 0.5)
     .slice(0, 10)
@@ -172,7 +182,7 @@ async function efficiencyFlags(db: Db, hours: number): Promise<unknown> {
       name: a.agent_name,
       model: a.model,
       tokens: a.total_tokens,
-      reason: 'pricey model doing below-average work — candidate to downgrade (e.g. to haiku)',
+      reason: 'potentially inefficient: pricey model on relatively low token volume — review for downgrade feasibility',
     }));
 
   const logging_gaps = active
@@ -188,6 +198,8 @@ async function efficiencyFlags(db: Db, hours: number): Promise<unknown> {
     .filter((b) => {
       if (b.total_output <= 0) return false;
       const cacheHit = b.total_tokens > 0 ? b.total_cache_read / b.total_tokens : 0;
+      // Flag models where input tokens are ≥1.5x output tokens AND cache hit rate <10%.
+      // High input:output suggests repetitive prompts; low cache usage suggests caching is not enabled/effective.
       return b.total_input > b.total_output * 1.5 && cacheHit < 0.1;
     })
     .slice(0, 10)
