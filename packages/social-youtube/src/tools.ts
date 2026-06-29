@@ -28,6 +28,11 @@ const UPLOAD_SCHEMA = {
       maxLength: 5000,
       description: 'Video description.',
     },
+    privacyStatus: {
+      type: 'string',
+      enum: ['public', 'unlisted', 'private'],
+      description: 'Video privacy status (default: private).',
+    },
   },
 };
 
@@ -78,7 +83,7 @@ export function makeYouTubeTools(): Tool[] {
     inputSchema: UPLOAD_SCHEMA,
     executor: {
       async *execute(input, ctx) {
-        const args = (input ?? {}) as { title?: string; description?: string };
+        const args = (input ?? {}) as { title?: string; description?: string; privacyStatus?: string };
         const title = String(args.title ?? '').trim();
 
         if (!title) {
@@ -87,7 +92,7 @@ export function makeYouTubeTools(): Tool[] {
         }
 
         const client = new YouTubeClient(ctx);
-        const result = await client.uploadMetadata(title, args.description || '');
+        const result = await client.uploadMetadata(title, args.description || '', args.privacyStatus);
 
         if (result.error) {
           yield { type: 'error', message: result.error };

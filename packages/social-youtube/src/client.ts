@@ -87,7 +87,7 @@ export class YouTubeClient {
     }
   }
 
-  async uploadMetadata(title: string, description: string): Promise<YouTubeUploadResult> {
+  async uploadMetadata(title: string, description: string, privacyStatus: string = 'private'): Promise<YouTubeUploadResult> {
     // ponytail: videos.insert endpoint requires multipart upload with video file (media part) + metadata (snippet/status)
     // this method only creates metadata; the actual video file upload requires resumable upload protocol
     // upgrade path: implement resumable upload with fetch in chunks, or switch to gapi.youtube.videos.insert
@@ -118,7 +118,7 @@ export class YouTubeClient {
             categoryId: '22',
           },
           status: {
-            privacyStatus: 'private',
+            privacyStatus,
           },
         }),
       });
