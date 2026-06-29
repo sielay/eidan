@@ -71,6 +71,7 @@ const SCHEDULE_SCHEMA: JSONSchema = {
   properties: {
     agent_id: { type: 'string', description: 'The agent to attach a schedule trigger to.', minLength: 1 },
     schedule: { type: 'string', description: SCHEDULE_HELP, minLength: 1 },
+    model: { type: 'string', description: 'Optional model override for this trigger; omit to use the agent\'s model.', minLength: 1 },
   },
   required: ['agent_id', 'schedule'],
   additionalProperties: false,
@@ -98,6 +99,7 @@ const RELATE_SCHEMA: JSONSchema = {
     },
     to_agent: { type: 'string', description: 'Target agent id (required unless relation=decision_gate).', minLength: 1 },
     note: { type: 'string', description: 'Optional short description of the link (shown on the org-chart edge).', minLength: 1 },
+    model: { type: 'string', description: 'Optional model override (decision_gate only); omit to use the agent\'s model.', minLength: 1 },
   },
   required: ['agent_id', 'relation'],
 };
@@ -198,10 +200,13 @@ export function buildAgentTools(store: AgentsStore): Tool[] {
           const args = (input ?? {}) as Record<string, unknown>;
           const agentId = str(args['agent_id']).trim();
           const schedule = str(args['schedule']).trim();
+          const model = args['model'] !== undefined ? str(args['model']).trim() : null;
           if (!agentId || !schedule) return yield { type: 'error', message: 'agent_id and schedule are required' };
           if (!isValidSchedule(schedule)) return yield { type: 'error', message: `invalid schedule "${schedule}". ${SCHEDULE_HELP}` };
           try {
-            const t = await store.addTrigger(agentId, 'schedule', { schedule });
+            const config: Record<string, unknown> = { schedule };
+            if (model) config['model'] = model;
+            const t = await store.addTrigger(agentId, 'schedule', config);
             yield { type: 'result', value: triggerView(t) };
           } catch (e) {
             yield { type: 'error', message: e instanceof Error ? e.message : String(e) };
@@ -225,20 +230,28 @@ export function buildAgentTools(store: AgentsStore): Tool[] {
           const relation = str(args['relation']).trim();
           const toAgent = str(args['to_agent']).trim();
           const note = str(args['note']).trim();
+          const model = args['model'] !== undefined ? str(args['model']).trim() : null;
           if (!agentId || !relation) return yield { type: 'error', message: 'agent_id and relation are required' };
           const isGate = relation === 'decision_gate';
           if (!isGate && !toAgent) return yield { type: 'error', message: `relation "${relation}" needs a to_agent (the target agent id)` };
+          if (!isGate && model) return yield { type: 'error', message: 'model override is only supported for decision_gate relations' };
           const type = isGate ? 'decision_gate' : 'agent_to_agent';
           const config: Record<string, unknown> = { relation };
           if (toAgent) config['to_agent'] = toAgent;
           if (note) config['note'] = note;
+          if (model) config['model'] = model;
           try {
             const t = await store.addTrigger(agentId, type, config);
             // A decision_gate agent pauses by raising a decision_gate escalation, then resumes when it's
             // answered — which needs a `response` trigger. Auto-add one (idempotently) so the gate works.
+            // The `response` trigger is what actually fires the gate, and responseTriggeredAgents reads the
+            // model override off it — so the override must live here, not only on the decision_gate trigger,
+            // or it would be written but never read.
             if (isGate) {
               const existing = await store.listTriggers(agentId);
-              if (!existing.some((x) => x.type === 'response')) await store.addTrigger(agentId, 'response', {});
+              if (!existing.some((x) => x.type === 'response')) {
+                await store.addTrigger(agentId, 'response', model ? { model } : {});
+              }
             }
             yield { type: 'result', value: triggerView(t) };
           } catch (e) {

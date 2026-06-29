@@ -416,11 +416,11 @@ export async function runAgentNow(id: string): Promise<{ conversation_id: string
   return { conversation_id: body.conversation_id };
 }
 
-export async function addAgentSchedule(id: string, schedule: string): Promise<void> {
+export async function addAgentSchedule(id: string, schedule: string, model?: string): Promise<void> {
   const res = await authFetch(`/api/admin/agents/${encodeURIComponent(id)}/triggers`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ schedule }),
+    body: JSON.stringify({ schedule, ...(model ? { model } : {}) }),
   });
   await jsonOrThrow(res, `POST /api/admin/agents/${id}/triggers`);
 }

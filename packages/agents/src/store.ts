@@ -34,6 +34,7 @@ export interface FireableRow {
   provider: string | null;
   model: string | null;
   target_node: string | null;
+  trigger_model: string | null;
 }
 
 export interface DueScheduleRow extends FireableRow {
@@ -210,7 +211,7 @@ export class AgentsStore {
   async dueScheduleScan(): Promise<DueScheduleRow[]> {
     const r = await this.db.query(
       `select t.id as trigger_id, a.id as agent_id, a.user_id, a.name, a.persona, a.provider,
-              a.model, a.target_node, t.config->>'schedule' as schedule
+              a.model, a.target_node, t.config->>'schedule' as schedule, t.config->>'model' as trigger_model
          from eidan.agent_triggers t
          join eidan.agents a on a.id = t.agent_id
         where t.type = 'schedule' and t.enabled and t.deleted_at is null
@@ -251,7 +252,7 @@ export class AgentsStore {
   async responseTriggeredAgents(): Promise<FireableRow[]> {
     const r = await this.db.query(
       `select t.id as trigger_id, a.id as agent_id, a.user_id, a.name, a.persona, a.provider,
-              a.model, a.target_node
+              a.model, a.target_node, t.config->>'model' as trigger_model
          from eidan.agent_triggers t
          join eidan.agents a on a.id = t.agent_id
         where t.type = 'response' and t.enabled and t.deleted_at is null
