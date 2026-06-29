@@ -90,19 +90,21 @@ export class LinkedInClient {
       /^f[cd][0-9a-f]{2}:/, // unique local unicast (fc00::/7 and fd00::/7) per RFC4193 — includes all ULA addresses
       /^fe[89ab][0-9a-f]:/, // link-local unicast (fe80::/10) per RFC4291 — fe80:: through febf::
       /^ff/,              // multicast (ff00::/8) per RFC4291
-      /^::ffff:127\./,    // IPv4-mapped loopback per RFC4291
-      /^::ffff:10\./,     // IPv4-mapped private per RFC4291
-      /^::ffff:172\.(1[6-9]|2\d|3[01])\./,  // IPv4-mapped private per RFC4291
-      /^::ffff:192\.168\./, // IPv4-mapped private per RFC4291
-      /^::ffff:169\.254\./, // IPv4-mapped link-local per RFC4291
-      /^::ffff:0:0\//,    // IPv4-mapped any per RFC4291
-      /^0*:0*:0*:0*:0*:0*:0*:0*$/,  // all zeros per RFC4291
       /^100::/,           // discard prefix (100::/64) per RFC6666
       /^2001:db8:/,       // documentation (2001:db8::/32) per RFC3849
       /^2001:20::/,       // ORCHIDv2 (2001:20::/28) per RFC7343
       /^2001::/,          // TEREDO (2001::/32) per RFC4380
       /^::2/,             // documentation (::2/128) per RFC5737
+      /^0*:0*:0*:0*:0*:0*:0*:0*$/,  // all zeros per RFC4291
     ];
+
+    // Check for IPv4-mapped IPv6 addresses: extract the IPv4 part and validate it
+    // Format: ::ffff:x.x.x.x or 0:0:0:0:0:ffff:x.x.x.x (and other formats)
+    const ipv4MappedMatch = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(ip);
+    if (ipv4MappedMatch) {
+      const ipv4Part = ipv4MappedMatch[1];
+      return this.isPrivateIp(ipv4Part);
+    }
 
     const isPrivateIpv4 = ipv4Patterns.some((pattern) => pattern.test(ip));
     const isPrivateIpv6 = ipv6Patterns.some((pattern) => pattern.test(ip));

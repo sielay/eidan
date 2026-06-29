@@ -230,8 +230,18 @@ test('IPv6 patterns correctly identify private ranges', async () => {
     // IPv6 Loopback
     assert.ok(isPrivateIp('::1'), 'Should reject ::1');
 
+    // IPv4-mapped IPv6 loopback
+    assert.ok(isPrivateIp('::ffff:127.0.0.1'), 'Should reject IPv4-mapped loopback');
+
+    // IPv4-mapped IPv6 private ranges
+    assert.ok(isPrivateIp('::ffff:10.0.0.1'), 'Should reject IPv4-mapped 10.x.x.x');
+    assert.ok(isPrivateIp('::ffff:172.16.0.1'), 'Should reject IPv4-mapped 172.16.x.x');
+    assert.ok(isPrivateIp('::ffff:192.168.1.1'), 'Should reject IPv4-mapped 192.168.x.x');
+    assert.ok(isPrivateIp('::ffff:169.254.1.1'), 'Should reject IPv4-mapped link-local');
+
     // Public addresses should not be rejected
     assert.ok(!isPrivateIp('2001:4860:4860::8888'), 'Should accept public IPv6');
+    assert.ok(!isPrivateIp('::ffff:8.8.8.8'), 'Should accept IPv4-mapped public');
 
     // IPv4 ranges
     assert.ok(isPrivateIp('127.0.0.1'), 'Should reject loopback IPv4');
