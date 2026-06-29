@@ -14,6 +14,18 @@ export class MastodonClient {
 
   async post(text: string, spoilerText?: string, visibility?: string): Promise<MastodonPostResult> {
     try {
+      // Validate text length
+      if (text.length > 500) {
+        return { error: `Text exceeds maximum length of 500 characters (got ${text.length}).` };
+      }
+
+      // Validate visibility enum
+      const validVisibilities = ['public', 'unlisted', 'private', 'direct'];
+      const visibilityValue = visibility || 'public';
+      if (!validVisibilities.includes(visibilityValue)) {
+        return { error: `Invalid visibility value. Must be one of: ${validVisibilities.join(', ')}` };
+      }
+
       const accessToken = await secretRequired(this.ctx, 'MASTODON_ACCESS_TOKEN');
 
       const response = await fetch(`${this.instanceUrl}/api/v1/statuses`, {
@@ -25,7 +37,7 @@ export class MastodonClient {
         body: JSON.stringify({
           status: text,
           spoiler_text: spoilerText || undefined,
-          visibility: visibility || 'public',
+          visibility: visibilityValue,
         }),
       });
 
@@ -49,8 +61,11 @@ export class MastodonClient {
     try {
       const accessToken = await secretRequired(this.ctx, 'MASTODON_ACCESS_TOKEN');
 
+      // Clamp limit to valid range
+      const clampedLimit = Math.max(1, Math.min(limit, 40));
+
       const response = await fetch(
-        `${this.instanceUrl}/api/v2/search?q=${encodeURIComponent(query)}&type=statuses&limit=${Math.min(limit, 40)}`,
+        `${this.instanceUrl}/api/v2/search?q=${encodeURIComponent(query)}&type=statuses&limit=${clampedLimit}`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,

@@ -14,6 +14,11 @@ export class LinkedInClient {
 
   async post(text: string): Promise<LinkedInPostResult> {
     try {
+      // Validate text length
+      if (text.length > 3000) {
+        return { error: `Text exceeds maximum length of 3000 characters (got ${text.length}).` };
+      }
+
       const accessToken = await secretRequired(this.ctx, 'LINKEDIN_ACCESS_TOKEN');
       const userId = await secretRequired(this.ctx, 'LINKEDIN_USER_ID');
 
@@ -52,6 +57,9 @@ export class LinkedInClient {
   }
 
   async search(query: string, limit: number = 10): Promise<LinkedInSearchResult> {
+    // Clamp limit to valid range
+    const clampedLimit = Math.max(1, Math.min(limit, 100));
+
     // ponytail: public post search on LinkedIn is not available via the standard API
     // upgrade path: use feed endpoint to search within user's own posts, or integrate LinkedIn Search API if available
     return { posts: [], error: 'Public post search is not available via LinkedIn API. Use feed endpoint for personal posts.' };

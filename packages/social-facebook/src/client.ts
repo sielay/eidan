@@ -13,12 +13,20 @@ export class FacebookClient {
   }
 
   async post(message: string): Promise<FacebookPostResult> {
+    // Validate message length
+    if (message.length > 63206) {
+      return { error: `Message exceeds maximum length of 63206 characters (got ${message.length}).` };
+    }
+
     // ponytail: /me/feed endpoint is deprecated and text-only posts to user feeds are restricted
     // upgrade path: post to a page instead (/me/accounts -> get page ID -> POST /page-id/feed) or use /me/photos for media
     return { error: 'Direct posting to user feed is not supported. Post to a Page instead (POST /page-id/feed) or share photos (/me/photos).' };
   }
 
   async search(query: string, limit: number = 10): Promise<FacebookSearchResult> {
+    // Clamp limit to valid range
+    const clampedLimit = Math.max(1, Math.min(limit, 100));
+
     // ponytail: public post search via /search is restricted by Facebook and not available for most apps
     // upgrade path: use page/group-specific search or implement feed search within a user's own posts
     return { posts: [], error: 'Public post search is not available via Facebook API for this app. Use page-specific searches instead.' };

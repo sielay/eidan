@@ -15,6 +15,20 @@ export class ThreadsClient {
 
   async post(text: string, mediaUrl?: string): Promise<ThreadsPostResult> {
     try {
+      // Validate text length
+      if (text.length > 500) {
+        return { error: `Text exceeds maximum length of 500 characters (got ${text.length}).` };
+      }
+
+      // Validate mediaUrl format if provided
+      if (mediaUrl) {
+        try {
+          new URL(mediaUrl);
+        } catch {
+          return { error: 'Invalid mediaUrl format. Must be a valid URL.' };
+        }
+      }
+
       const accessToken = await secretRequired(this.ctx, 'THREADS_ACCESS_TOKEN');
       const userId = await secretRequired(this.ctx, 'THREADS_USER_ID');
 
@@ -45,6 +59,9 @@ export class ThreadsClient {
   }
 
   async search(query: string, limit: number = 10): Promise<ThreadsSearchResult> {
+    // Clamp limit to valid range
+    const clampedLimit = Math.max(1, Math.min(limit, 50));
+
     // ponytail: Threads API search is not yet fully available in the public API; ig_hashtag_search is Instagram-specific
     // upgrade path: monitor Threads API docs for search endpoint releases
     return { posts: [], error: 'Threads search API is not yet available. Check developer docs for updates.' };

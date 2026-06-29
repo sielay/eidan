@@ -58,7 +58,10 @@ export class Trading212Client {
     try {
       const apiKey = await secretRequired(this.ctx, 'TRADING212_API_KEY');
 
-      const response = await fetch(`${API_BASE}/orders?limit=${Math.min(limit, 200)}`, {
+      // Clamp limit to valid range
+      const clampedLimit = Math.max(1, Math.min(limit, 200));
+
+      const response = await fetch(`${API_BASE}/orders?limit=${clampedLimit}`, {
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },

@@ -13,6 +13,11 @@ export class XClient {
   }
 
   async post(text: string): Promise<XPostResult> {
+    // Validate text length
+    if (text.length > 280) {
+      return { error: `Text exceeds maximum length of 280 characters (got ${text.length}).` };
+    }
+
     // ponytail: X API v2 POST /tweets requires OAuth 1.0a User Context, not Bearer (OAuth 2.0)
     // Bearer tokens work only for read-only operations or app-only contexts
     // upgrade path: implement OAuth 1.0a signing for write operations, or use the legacy v1.1 API
@@ -23,8 +28,11 @@ export class XClient {
     try {
       const accessToken = await secretRequired(this.ctx, 'X_ACCESS_TOKEN');
 
+      // Clamp limit to valid range
+      const clampedLimit = Math.max(1, Math.min(limit, 100));
+
       const response = await fetch(
-        `${API_BASE}/tweets/search/recent?query=${encodeURIComponent(query)}&max_results=${Math.min(limit, 100)}&tweet.fields=public_metrics,created_at&expansions=author_id&user.fields=username`,
+        `${API_BASE}/tweets/search/recent?query=${encodeURIComponent(query)}&max_results=${clampedLimit}&tweet.fields=public_metrics,created_at&expansions=author_id&user.fields=username`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,

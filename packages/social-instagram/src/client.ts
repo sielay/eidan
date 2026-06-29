@@ -17,8 +17,20 @@ export class InstagramClient {
       const accessToken = await secretRequired(this.ctx, 'INSTAGRAM_ACCESS_TOKEN');
       const businessAccountId = await secretRequired(this.ctx, 'INSTAGRAM_BUSINESS_ACCOUNT_ID');
 
+      // Validate caption length
+      if (caption.length > 2200) {
+        return { error: `Caption exceeds maximum length of 2200 characters (got ${caption.length}).` };
+      }
+
       if (!imageUrl) {
         return { error: 'Instagram posts require an image URL. Text-only posts are not supported via the API.' };
+      }
+
+      // Validate imageUrl format
+      try {
+        new URL(imageUrl);
+      } catch {
+        return { error: 'Invalid imageUrl format. Must be a valid URL.' };
       }
 
       const containerResponse = await fetch(`${API_BASE}/${businessAccountId}/media`, {
@@ -71,6 +83,9 @@ export class InstagramClient {
   }
 
   async searchMedia(hashtag: string, limit: number = 10): Promise<InstagramSearchResult> {
+    // Clamp limit to valid range
+    const clampedLimit = Math.max(1, Math.min(limit, 50));
+
     // ponytail: hashtag search requires 2-step process: search for hashtag ID, then get media for that hashtag
     // current endpoint limitation: recently_searched_hashtags is for user's search history, not general search
     // upgrade path: implement full 2-step hashtag search or use ig_hashtag_search -> media endpoint

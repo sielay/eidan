@@ -16,8 +16,11 @@ export class YouTubeClient {
     try {
       const apiKey = await secretRequired(this.ctx, 'YOUTUBE_API_KEY');
 
+      // Clamp limit to valid range
+      const clampedLimit = Math.max(1, Math.min(limit, 50));
+
       const response = await fetch(
-        `${API_BASE}/search?part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=${Math.min(limit, 50)}&key=${apiKey}`,
+        `${API_BASE}/search?part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=${clampedLimit}&key=${apiKey}`,
         {
           headers: {
             Accept: 'application/json',
@@ -89,6 +92,16 @@ export class YouTubeClient {
     // this method only creates metadata; the actual video file upload requires resumable upload protocol
     // upgrade path: implement resumable upload with fetch in chunks, or switch to gapi.youtube.videos.insert
     try {
+      // Validate title length
+      if (title.length > 100) {
+        return { error: `Title exceeds maximum length of 100 characters (got ${title.length}).` };
+      }
+
+      // Validate description length
+      if (description.length > 5000) {
+        return { error: `Description exceeds maximum length of 5000 characters (got ${description.length}).` };
+      }
+
       const accessToken = await secretRequired(this.ctx, 'YOUTUBE_ACCESS_TOKEN');
 
       const response = await fetch(`${API_BASE}/videos?part=snippet,status`, {
