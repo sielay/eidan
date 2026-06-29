@@ -90,9 +90,12 @@ function formatLocalDateTime(now: Date, tz: string): string {
 // A small, stable time-context block prepended to the agent framing so a fired agent knows "now" in the
 // owner's timezone (otherwise it has no clock). Computed once per fire and fixed for the session, so it
 // stays inside the cached prefix and does not bust prompt caching across the turn's loop iterations.
-function generateContextBlock(now: Date, tz: string): string {
+// Includes sessionId for conversation tracking and messageId for provenance (used by remembered_facts_action).
+function generateContextBlock(now: Date, tz: string, sessionId: string, messageId?: string): string {
   const zone = safeZone(tz);
   const context = {
+    sessionId,
+    messageId: messageId ?? null,
     currentTime: now.toISOString(),
     currentTimeLocal: formatLocalDateTime(now, zone),
     timezone: zone,
@@ -135,6 +138,8 @@ export async function runAgentTurn(
   extSignal?: AbortSignal,
   // Owner's IANA timezone for the injected time-context block; defaults to UTC if omitted/malformed.
   timezone?: string,
+  // Message ID for provenance tracking (used by remembered_facts_action); optional.
+  messageId?: string,
 ): Promise<{ text: string; conversationId: string }> {
   const run = services.run;
   const sessions = services.sessions;
@@ -156,7 +161,7 @@ export async function runAgentTurn(
     // timeout also bounds resource use per fire.
     const timer = timeoutMs && timeoutMs > 0 ? setTimeout(() => ac.abort(), timeoutMs) : undefined;
     try {
-      const framing = [generateContextBlock(new Date(), timezone ?? 'UTC'), AGENT_FRAMING, persona]
+      const framing = [generateContextBlock(new Date(), timezone ?? 'UTC', session.id, messageId), AGENT_FRAMING, persona]
         .filter((s) => s.length > 0).join('\n\n');
       const view = await run.open({
         sessionId: session.id, signal: ac.signal,
@@ -220,8 +225,8 @@ export function continuationPreamble(conversationId: string | null): string {
 // Manual "run now" (test affordance, surfaced via POST /api/agents/:id/run). Starts the agent's turn
 // under its OWN provider (+ model synthesis), tags the conversation as agent-origin, and returns the
 // conversation id AS SOON AS it's created — the turn itself runs detached so the HTTP request doesn't
-// block on a long agent run (and can't hit a proxy/gateway timeout). No agent_runs row is written: the
-// run ledger is keyed by a trigger, and a manual test has none. Returns null if the agent is gone.
+// block on a long agent run (and can't hit a proxy/gateway timeout). A manual agent_run row IS written
+// (trigger_id null, status 'started') so test runs are observable. Returns null if the agent is gone.
 export async function fireAgentNow(
   services: MatbotServices,
   store: AgentsStore,
@@ -237,7 +242,11 @@ export async function fireAgentNow(
   const idReady = new Promise<string>((r) => { resolveId = r; });
   void runAgentTurn(
     services, userId, agent.persona, provider,
-    async (cid) => { await store.markAgentConversation(cid, agentId, agent.name); resolveId(cid); },
+    async (cid) => {
+      await store.markAgentConversation(cid, agentId, agent.name);
+      void store.recordManualRun(agentId, userId, cid).catch(() => undefined); // observability, best-effort
+      resolveId(cid);
+    },
     opts.turnTimeoutMs, undefined, timezone,
   ).catch((e) => console.warn(`[agents] run-now "${agent.name}" failed:`, e instanceof Error ? e.message : e));
   return { conversationId: await idReady };

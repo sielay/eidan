@@ -6,6 +6,41 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-06-30
+
+### Added
+
+- **Model & Cache Observer + usage observability.** A read-only `observer` tool over `eidan.llm_calls`
+  (token / agent-activity / cost / efficiency-flags rollups), with each row labelled by its real billing
+  vendor (resolved from the live provider registry, so the ledger's provider *key* name can't mislead).
+  The admin Usage pane gains a **By Agent** breakdown and an **Efficiency Advisor** (pricey-model/low-work,
+  low cache-hit, logging gaps) — all deterministic, no LLM.
+- **Invoice-sourced spend ledger.** `eidan.provider_spend` + a `record_provider_spend` tool + an observer
+  `spend_actuals` action that reconciles invoice actuals against the ledger estimate per vendor (the gap =
+  spend billed outside eidan). Vendor billing APIs are unreachable with inference keys, so receipts are the
+  ground truth.
+- **Per-response model/token line.** Under each chat answer: `provider · model · input↓ / output↑ / cache⚡ ·
+  cost`, summed over the turn's `llm_calls`.
+- **"Second opinion" button.** On-demand bicameral critique (Inner voice) on the latest answer. The skill is
+  now opt-in (its auto-trigger was removed) rather than firing on any sign of skepticism.
+- Manual "Run now" agent fires are now recorded as `agent_runs` (observable); agent turns carry
+  `sessionId`/`messageId` for provenance.
+
+### Fixed
+
+- **Telegram outbound delivery restored.** `telegram_send` + the `TelegramChats` service now register
+  independent of the inbound-chat gates (which lost a provider load-order race), and `frontend-telegram` is
+  re-enabled on Fly as outbound-only (`EIDAN_TELEGRAM_POLL=false`). Agents deliver to the bound chat via
+  `telegram_send` instead of `send_message` (which 400s on a non-numeric target).
+- **Sage self-review no longer re-bills the same diff and is no longer invisible.** Its verdict is memoised
+  per unchanged input signature, and the (off-ledger) call is now recorded to `eidan.llm_calls`.
+- Calendar/Email digest agents load workspace config via `fs_read`.
+
+### Changed
+
+- Redundant/internal providers (`openrouter-haiku` alias, `openrouter-free`, `inner-voice`,
+  `skills-classifier`) are hidden from the chat model picker; existing saved picks still resolve.
+
 ## [0.14.5] — 2026-06-29
 
 ### Added

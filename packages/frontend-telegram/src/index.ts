@@ -94,27 +94,12 @@ export const plugin: MatbotPluginSpec = {
     db = new Db(url);
     const store = new TelegramStore(db);
 
-    const allow: Allowlist = loadAllowlist(await resolveOptional(services, '${EIDAN_TELEGRAM_ALLOWLIST}'));
-
-    const sessions = services.sessions;
-    const run = services.run;
-    if (!sessions || !run) {
-      console.warn('[frontend-telegram] sessions/runner unavailable — not starting');
-      return;
-    }
-
-    const provider = (await resolveOptional(services, '${EIDAN_TELEGRAM_PROVIDER}'))
-      ?? [...services.providers.keys()][0];
-    if (!provider || !services.providers.has(provider)) {
-      console.warn('[frontend-telegram] no usable provider configured — not starting');
-      return;
-    }
-
-    services.registerFrontend({ name: 'frontend-telegram' });
-    const settings = services.settings();
-    const webUrl = process.env['EIDAN_WEB_URL']?.replace(/\/$/, '');
-
-    // Outbound delivery service for other plugins (routines, etc.).
+    // OUTBOUND first, and independent of the inbound gates below. Delivering to a bound chat needs only
+    // the token + the chats store — NOT sessions/runner or a usable inbound provider. Registering it
+    // here means `telegram_send` + the TelegramChats service exist even when inbound is off (fly,
+    // EIDAN_TELEGRAM_POLL=false) or when the provider registry hasn't populated yet at setup time (a
+    // load-order race that previously bailed the whole plugin → agents lost telegram_send and fell back
+    // to notify's send_message, which 400s on a non-numeric target).
     const telegramChats: TelegramChats = {
       getChatId: (userId) => store.chatForUser(userId),
       async sendToUser(userId, text) {
@@ -124,10 +109,29 @@ export const plugin: MatbotPluginSpec = {
       },
     };
     await services.register('TelegramChats', telegramChats);
-
     // Agent tool: "message me on Telegram" — resolves the recipient from the account binding so the
     // user never has to hand over a numeric chat id. (notify's send_message covers raw chat ids/Slack.)
     services.tools.register(telegramSendTool(token, store));
+
+    const allow: Allowlist = loadAllowlist(await resolveOptional(services, '${EIDAN_TELEGRAM_ALLOWLIST}'));
+
+    const sessions = services.sessions;
+    const run = services.run;
+    if (!sessions || !run) {
+      console.warn('[frontend-telegram] sessions/runner unavailable — inbound Telegram off (outbound stays on)');
+      return;
+    }
+
+    const provider = (await resolveOptional(services, '${EIDAN_TELEGRAM_PROVIDER}'))
+      ?? [...services.providers.keys()][0];
+    if (!provider || !services.providers.has(provider)) {
+      console.warn('[frontend-telegram] no usable inbound provider — inbound Telegram off (outbound stays on)');
+      return;
+    }
+
+    services.registerFrontend({ name: 'frontend-telegram' });
+    const settings = services.settings();
+    const webUrl = process.env['EIDAN_WEB_URL']?.replace(/\/$/, '');
 
     // Account-link redemption endpoint, exposed through the AG-UI front door.
     const linkPort = Number(process.env['MATBOT_TELEGRAM_LINK_PORT'] ?? 8096);

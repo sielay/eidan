@@ -272,6 +272,18 @@ export class AgentsStore {
     return (r.rowCount ?? 0) > 0;
   }
 
+  // Record a manual ("Run now") fire as an agent_run so test runs are observable (the observer's
+  // agent_activity counts them and joins llm_calls by conversation_id for tokens). trigger_id is null
+  // — manual runs have no trigger (0018 made the column nullable); fire_key carries the conversation
+  // id (unique per run). Status stays 'started': the turn is detached, so we don't await its outcome.
+  async recordManualRun(agentId: string, userId: string, conversationId: string): Promise<void> {
+    await this.db.query(
+      `insert into eidan.agent_runs (agent_id, trigger_id, user_id, fire_key, status, conversation_id)
+       values ($1, null, $2, $3, 'started', $4)`,
+      [agentId, userId, `manual:${conversationId}`, conversationId],
+    );
+  }
+
   // Tag the conversation an agent fire produced so the human chat sidebar can exclude it (the Agents
   // view surfaces it instead). Stamped at creation, before the turn runs, so it never flickers into
   // the list. metadata->>'origin' = 'agent' is the marker the frontend-agui conversation list filters.

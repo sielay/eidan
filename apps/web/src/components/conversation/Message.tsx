@@ -54,7 +54,28 @@ export interface MessageBlockProps {
   time?: string;
   /** ⑂ Compare: the candidate models' raw answers, shown in a disclosure below the merged answer. */
   fork?: { legs: Array<{ model: string; text: string; truncated?: boolean; inputTokens?: number; outputTokens?: number }> };
+  /** "Second opinion": when provided (latest assistant reply only), shows a button that re-runs the
+   *  Inner voice skill to critique + sharpen this answer. Opt-in — the skill no longer auto-fires. */
+  onSecondOpinion?: (() => void) | undefined;
+  /** Disable the second-opinion button while a turn is in flight. */
+  secondOpinionBusy?: boolean | undefined;
+  /** Per-response telemetry (summed over the turn's llm_calls): provider/model + tokens + cost. */
+  stats?: MsgStats | undefined;
 }
+
+/** Aggregated llm_calls for one assistant turn — what the compact under-response line shows. */
+export interface MsgStats {
+  provider: string;
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+  cost: number;
+}
+
+const fmtTok = (n: number): string =>
+  n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
 
 /**
  * One rendered message row as a chat bubble (UI_DESIGN_BRIEF §6).
@@ -77,6 +98,9 @@ export function MessageBlock({
   streaming,
   time,
   fork,
+  onSecondOpinion,
+  secondOpinionBusy,
+  stats,
 }: MessageBlockProps): React.ReactElement {
   const hasBody = content !== null && content.length > 0;
   const hasToolCalls = toolCalls !== undefined && toolCalls.length > 0;
@@ -129,6 +153,27 @@ export function MessageBlock({
       ) : null}
       {hasToolCalls ? <ToolDisclosure calls={toolCalls!} /> : null}
       {fork && fork.legs.length ? <ForkDisclosure legs={fork.legs} /> : null}
+      {stats && !streaming ? (
+        <div className="mt-1 self-start font-mono text-[10px] leading-tight text-muted-foreground/80" title="provider · model · input↓ / output↑ / cache · cost">
+          <span className="text-foreground/70">{stats.provider}</span>
+          {stats.model && stats.model !== stats.provider ? <span> · {stats.model}</span> : null}
+          <span> · {fmtTok(stats.input)}↓ {fmtTok(stats.output)}↑</span>
+          {stats.cacheRead > 0 ? <span> · {fmtTok(stats.cacheRead)}⚡</span> : null}
+          <span> · ${stats.cost.toFixed(4)}</span>
+        </div>
+      ) : null}
+      {onSecondOpinion && hasBody && !streaming ? (
+        <button
+          type="button"
+          onClick={onSecondOpinion}
+          disabled={secondOpinionBusy}
+          title="A different-lineage model critiques and sharpens this answer (Inner voice)"
+          className="mt-1.5 inline-flex items-center gap-1.5 self-start rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+        >
+          <span aria-hidden>◎</span>
+          Second opinion
+        </button>
+      ) : null}
     </div>
   );
 }

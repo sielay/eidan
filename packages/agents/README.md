@@ -47,6 +47,22 @@ escalation via @eidandev/escalations (best-effort, deduped per agent).
 Schedules accept clock (`"08:00"`, `"mon,wed,fri 18:30"`) and interval (`"every 5
 minutes"`, `"every 2 hours"`, `"hourly"`) forms.
 
+## Agent Guidelines
+
+### Loading Workspace Markdown Files
+
+When an agent needs to load configuration files (routines.md, calendars.md, etc.) from the workspace, use **`fs_read`** with a path parameter, not `workspace_action`. This ensures proper access control and storage backend support (local, Supabase, S3, Google Drive).
+
+**Example:** A Calendar Digest agent loading calendar configuration:
+```
+Use fs_read to load the calendar configuration:
+- fs_read({ path: "calendars.md" }) — read the calendars config
+- fs_read({ path: "events.md" }) — read the events config
+- fs_read({ path: "routines.md" }) — read your routine preferences
+```
+
+The agent context includes `sessionId` and `messageId` for provenance when recording findings via `remembered_facts_action`.
+
 ## Layout
 
 - `src/index.ts` — the `MatbotPluginSpec`; builds `Db`, registers the `Agents`

@@ -19,11 +19,20 @@ export interface SelfReviewConfig {
   timeoutMs: number;
 }
 
+export interface SelfReviewUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+}
+
 export interface SelfReviewResult {
   verdict: 'approve' | 'request_changes' | 'error';
   concerns: Concern[];
   model: string;
   detail: string;
+  // Token usage for the call, when the provider reported it — recorded to eidan.llm_calls so this
+  // otherwise off-ledger spend (a direct fetch, not a matbot provider) becomes visible to observability.
+  usage?: SelfReviewUsage;
 }
 
 export function loadSelfReviewConfig(): SelfReviewConfig | null {
@@ -67,7 +76,7 @@ function buildPrompt(opts: { taskPrompt: string; repo: string; prNumber: number;
   );
 }
 
-async function chatCompletion(cfg: SelfReviewConfig, prompt: string): Promise<string> {
+async function chatCompletion(cfg: SelfReviewConfig, prompt: string): Promise<{ content: string; usage: SelfReviewUsage | undefined }> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), cfg.timeoutMs);
   try {
@@ -82,10 +91,17 @@ async function chatCompletion(cfg: SelfReviewConfig, prompt: string): Promise<st
       signal: ac.signal,
     });
     if (!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-    const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const data = (await resp.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
+    };
     const choices = data.choices ?? [];
     if (!choices.length) throw new Error('OpenRouter response had no choices');
-    return String(choices[0]?.message?.content ?? '');
+    const u = data.usage;
+    const usage: SelfReviewUsage | undefined = u
+      ? { inputTokens: u.prompt_tokens ?? 0, outputTokens: u.completion_tokens ?? 0, cachedTokens: u.prompt_tokens_details?.cached_tokens ?? 0 }
+      : undefined;
+    return { content: String(choices[0]?.message?.content ?? ''), usage };
   } finally {
     clearTimeout(timer);
   }
@@ -98,8 +114,11 @@ export async function runSelfReview(
 ): Promise<SelfReviewResult> {
   const prompt = buildPrompt(opts);
   let raw: string;
+  let usage: SelfReviewUsage | undefined;
   try {
-    raw = await chatCompletion(cfg, prompt);
+    const out = await chatCompletion(cfg, prompt);
+    raw = out.content;
+    usage = out.usage;
   } catch (e) {
     console.warn(`[sage] self-review call failed for ${opts.repo}#${opts.prNumber} via ${cfg.model}: ${e instanceof Error ? e.message : String(e)}`);
     return { verdict: 'error', concerns: [], model: cfg.model, detail: String(e).slice(0, 200) };
@@ -109,7 +128,7 @@ export async function runSelfReview(
     concerns = parseConcerns(raw);
   } catch (e) {
     console.warn(`[sage] self-review output from ${cfg.model} did not parse for ${opts.repo}#${opts.prNumber}: ${e instanceof Error ? e.message : String(e)}`);
-    return { verdict: 'error', concerns: [], model: cfg.model, detail: String(e).slice(0, 200) };
+    return { verdict: 'error', concerns: [], model: cfg.model, detail: String(e).slice(0, 200), ...(usage ? { usage } : {}) };
   }
-  return { verdict: verdictFor(concerns), concerns, model: cfg.model, detail: '' };
+  return { verdict: verdictFor(concerns), concerns, model: cfg.model, detail: '', ...(usage ? { usage } : {}) };
 }
