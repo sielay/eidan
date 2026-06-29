@@ -101,28 +101,26 @@ export class AffiliateService {
     content: string,
     linkMap: Record<string, Record<string, string>>, // programId -> { productId -> URL }
   ): Promise<LinkInjectionResult> {
-    // Flatten linkMap for injection
-    const flattenedLinks: Record<string, string> = {};
+    // Build injection list with composite keys to avoid collisions across programs
+    const linksList: Array<{ productId: string; url: string; programId: string }> = [];
     for (const [programId, links] of Object.entries(linkMap)) {
       for (const [productId, url] of Object.entries(links)) {
-        flattenedLinks[productId] = url;
+        linksList.push({ productId, url, programId });
       }
     }
 
-    const modifiedContent = this.safeInjectLinks(content, flattenedLinks, contentType);
+    const modifiedContent = this.safeInjectLinks(content, linksList, contentType);
     let injectedCount = 0;
 
     await this.db.withPrincipalTx(async (q) => {
-      for (const [programId, links] of Object.entries(linkMap)) {
-        for (const [productId, url] of Object.entries(links)) {
-          await q(
-            `insert into eidan.affiliate_links
-             (user_id, program_id, content_type, content_id, product_id, generated_url, injected_at)
-             values ($1, $2, $3, $4, $5, $6, now())`,
-            [currentPrincipal().id, programId, contentType, contentId, productId, url],
-          );
-          injectedCount++;
-        }
+      for (const { programId, productId, url } of linksList) {
+        await q(
+          `insert into eidan.affiliate_links
+           (user_id, program_id, content_type, content_id, product_id, generated_url, injected_at)
+           values ($1, $2, $3, $4, $5, $6, now())`,
+          [currentPrincipal().id, programId, contentType, contentId, productId, url],
+        );
+        injectedCount++;
       }
     });
 
@@ -197,49 +195,75 @@ export class AffiliateService {
   private interpolateTemplate(template: string, vars: Record<string, string>): string {
     let result = template;
     for (const [key, value] of Object.entries(vars)) {
-      result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value || '');
+      // Escape regex metacharacters in the key to prevent ReDoS
+      const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      result = result.replace(new RegExp(`\\{${escapedKey}\\}`, 'g'), value || '');
     }
     return result;
   }
 
-  private safeInjectLinks(content: string, linkMap: Record<string, string>, contentType: string): string {
+  private safeInjectLinks(
+    content: string,
+    linksList: Array<{ productId: string; url: string; programId: string }>,
+    contentType: string,
+  ): string {
     if (contentType.includes('youtube')) {
-      return this.injectIntoYouTubeDescription(content, linkMap);
+      return this.injectIntoYouTubeDescription(content, linksList);
     } else if (contentType.includes('markdown') || contentType.includes('blog')) {
-      return this.injectIntoMarkdown(content, linkMap);
+      return this.injectIntoMarkdown(content, linksList);
     } else if (contentType.includes('tweet') || contentType.includes('social')) {
-      return this.injectIntoText(content, linkMap);
+      return this.injectIntoText(content, linksList);
     }
-    return this.injectIntoText(content, linkMap);
+    return this.injectIntoText(content, linksList);
   }
 
-  private injectIntoYouTubeDescription(content: string, linkMap: Record<string, string>): string {
+  private injectIntoYouTubeDescription(
+    content: string,
+    linksList: Array<{ productId: string; url: string }>,
+  ): string {
     let lines = content.split('\n');
-    const linksToAdd = Object.entries(linkMap).map(([product, url]) => `${product}: ${url}`);
+    const linksToAdd = linksList
+      .filter((link) => !content.includes(link.url))
+      .map((link) => `${link.productId}: ${link.url}`);
     if (linksToAdd.length > 0) {
       lines = [...lines.filter((l) => l.trim()), '', '--- Affiliate Links ---', ...linksToAdd];
     }
     return lines.join('\n');
   }
 
-  private injectIntoMarkdown(content: string, linkMap: Record<string, string>): string {
+  private injectIntoMarkdown(
+    content: string,
+    linksList: Array<{ productId: string; url: string }>,
+  ): string {
     let result = content;
     const linksToAdd: string[] = [];
+    const urlsAlreadyPresent = new Set<string>();
 
-    for (const [product, url] of Object.entries(linkMap)) {
-      const linkMd = `[${product}](${url})`;
-      if (!result.includes(linkMd) && !result.includes(url)) {
-        linksToAdd.push(linkMd);
+    // Extract URLs already in the content (both in markdown links and plain URLs)
+    const urlPattern = /\[([^\]]+)\]\(([^)]+)\)|https?:\/\/[^\s)]+/g;
+    let match;
+    while ((match = urlPattern.exec(content)) !== null) {
+      if (match[2]) {
+        urlsAlreadyPresent.add(match[2]);
+      } else if (match[0]) {
+        urlsAlreadyPresent.add(match[0]);
+      }
+    }
+
+    for (const { productId, url } of linksList) {
+      if (!urlsAlreadyPresent.has(url)) {
+        linksToAdd.push(`[${productId}](${url})`);
+        urlsAlreadyPresent.add(url);
       }
     }
 
     if (linksToAdd.length === 0) return result;
 
     const resourcesPattern = /##\s*(?:Resources|Related|Links|Recommended)/i;
-    const match = result.match(resourcesPattern);
+    const resourcesMatch = result.match(resourcesPattern);
 
-    if (match) {
-      const insertPos = match.index! + match[0].length;
+    if (resourcesMatch) {
+      const insertPos = resourcesMatch.index! + resourcesMatch[0].length;
       result = result.slice(0, insertPos) + '\n' + linksToAdd.join('\n') + result.slice(insertPos);
     } else {
       result += `\n\n## Resources\n${linksToAdd.join('\n')}`;
@@ -248,12 +272,17 @@ export class AffiliateService {
     return result;
   }
 
-  private injectIntoText(content: string, linkMap: Record<string, string>): string {
+  private injectIntoText(
+    content: string,
+    linksList: Array<{ productId: string; url: string }>,
+  ): string {
     const MAX_TWITTER_LENGTH = 280;
     const linksToAdd: string[] = [];
+    const urlPattern = /https?:\/\/[^\s)]+/g;
+    const existingUrls = new Set((content.match(urlPattern) || []).map((u) => u.trim()));
 
-    for (const [product, url] of Object.entries(linkMap)) {
-      if (!content.includes(url) && !content.includes(product)) {
+    for (const { url } of linksList) {
+      if (!existingUrls.has(url)) {
         linksToAdd.push(url);
       }
     }
