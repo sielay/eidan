@@ -219,7 +219,7 @@ export class AffiliateService {
 
   private injectIntoYouTubeDescription(
     content: string,
-    linksList: Array<{ productId: string; url: string }>,
+    linksList: Array<{ productId: string; url: string; programId: string }>,
   ): string {
     let lines = content.split('\n');
     const linksToAdd = linksList
@@ -233,7 +233,7 @@ export class AffiliateService {
 
   private injectIntoMarkdown(
     content: string,
-    linksList: Array<{ productId: string; url: string }>,
+    linksList: Array<{ productId: string; url: string; programId: string }>,
   ): string {
     let result = content;
     const linksToAdd: string[] = [];
@@ -274,7 +274,7 @@ export class AffiliateService {
 
   private injectIntoText(
     content: string,
-    linksList: Array<{ productId: string; url: string }>,
+    linksList: Array<{ productId: string; url: string; programId: string }>,
   ): string {
     const MAX_TWITTER_LENGTH = 280;
     const linksToAdd: string[] = [];
