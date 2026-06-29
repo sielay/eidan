@@ -41,6 +41,7 @@ export const plugin: MatbotPluginSpec = {
           name: 'YOUTUBE_API_KEY',
           label: 'API Key',
           secret: false,
+          required: true,
           help: 'Public API key for search functionality (not technically a secret, but rate-limited per key). Generate at https://console.cloud.google.com',
         },
         {

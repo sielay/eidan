@@ -32,14 +32,69 @@ export class YouTubeClient {
         return { videos: [], error: 'Failed to search YouTube.' };
       }
 
-      const data = (await response.json()) as { items?: Array<{ id?: { videoId?: string }; snippet?: { title?: string } }> };
+      const data = (await response.json()) as {
+        items?: Array<{
+          id?: { videoId?: string };
+          snippet?: {
+            title?: string;
+            description?: string;
+            publishedAt?: string;
+          };
+        }>;
+      };
+
+      const videoIds = (data.items || [])
+        .filter((item) => item.id?.videoId)
+        .map((item) => item.id!.videoId!);
+
+      if (videoIds.length === 0) {
+        return { videos: [] };
+      }
+
+      const statsResponse = await fetch(
+        `${API_BASE}/videos?part=statistics&id=${videoIds.join(',')}&key=${apiKey}`,
+        {
+          headers: {
+            Accept: 'application/json',
+          },
+        }
+      );
+
+      const statsData =
+        statsResponse.ok
+          ? ((await statsResponse.json()) as {
+              items?: Array<{
+                id?: string;
+                statistics?: { viewCount?: string; likeCount?: string };
+              }>;
+            })
+          : { items: [] };
+
+      const statsMap = new Map(
+        (statsData.items || []).map((item) => [
+          item.id,
+          {
+            viewCount: parseInt(item.statistics?.viewCount || '0'),
+            likeCount: parseInt(item.statistics?.likeCount || '0'),
+          },
+        ])
+      );
+
       return {
         videos: (data.items || [])
           .filter((item) => item.id?.videoId && item.snippet?.title)
-          .map((item) => ({
-            id: item.id!.videoId!,
-            title: item.snippet!.title!,
-          })),
+          .map((item) => {
+            const videoId = item.id!.videoId!;
+            const stats = statsMap.get(videoId) || { viewCount: 0, likeCount: 0 };
+            return {
+              id: videoId,
+              title: item.snippet!.title!,
+              ...(item.snippet?.description && { description: item.snippet.description }),
+              ...(item.snippet?.publishedAt && { publishedAt: item.snippet.publishedAt }),
+              viewCount: stats.viewCount,
+              likeCount: stats.likeCount,
+            };
+          }),
       };
     } catch (error) {
       return { videos: [], error: 'Failed to search YouTube.' };

@@ -77,13 +77,42 @@ export class MastodonClient {
         return { statuses: [], error: 'Failed to search Mastodon.' };
       }
 
-      const data = (await response.json()) as { statuses?: Array<{ id?: string; content?: string }> };
+      const data = (await response.json()) as {
+        statuses?: Array<{
+          id?: string;
+          content?: string;
+          created_at?: string;
+          favourites_count?: number;
+          replies_count?: number;
+          reblogs_count?: number;
+          account?: {
+            id?: string;
+            username?: string;
+            display_name?: string;
+            avatar?: string;
+            note?: string;
+          };
+        }>;
+      };
       return {
         statuses: (data.statuses || [])
           .filter((s) => s.id && s.content)
           .map((s) => ({
             id: s.id!,
             content: s.content!,
+            ...(s.created_at && { createdAt: s.created_at }),
+            favouritesCount: s.favourites_count ?? 0,
+            repliesCount: s.replies_count ?? 0,
+            reblogsCount: s.reblogs_count ?? 0,
+            ...(s.account && {
+              account: {
+                ...(s.account.id && { id: s.account.id }),
+                ...(s.account.username && { username: s.account.username }),
+                ...(s.account.display_name && { displayName: s.account.display_name }),
+                ...(s.account.avatar && { avatar: s.account.avatar }),
+                ...(s.account.note && { note: s.account.note }),
+              },
+            }),
           })),
       };
     } catch (error) {
