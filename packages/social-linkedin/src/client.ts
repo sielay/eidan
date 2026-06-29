@@ -16,6 +16,8 @@ const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp
 // Default whitelist of trusted image hosting domains for SSRF mitigation.
 // Can be extended via LINKEDIN_ALLOWED_IMAGE_DOMAINS vault secret (comma-separated) or
 // LINKEDIN_IMAGE_DOMAINS environment variable (comma-separated).
+// WARNING: Only add domains you fully control and trust. A compromised or malicious domain
+// can be used to attack internal resources via SSRF. Review any custom domains carefully.
 function getAllowedImageDomains(customDomainsFromVault?: string): string[] {
   const defaults = [
     'cdn.jsdelivr.net',
@@ -81,19 +83,27 @@ export class LinkedInClient {
       /^0\./,             // current network (0.0.0.0/8) per RFC5735
       /^224\./,           // multicast (224.0.0.0/4) per RFC5771
       /^240\./,           // reserved (240.0.0.0/4) per RFC5735
+      /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./, // CGNAT (100.64.0.0/10) per RFC6598
+      /^198\.(1[8-9])\./,  // network device benchmarking (198.18.0.0/15) per RFC2544
+      /^192\.0\.0\./,      // IETF protocol assignments (192.0.0.0/24) per RFC6890
+      /^192\.0\.2\./,      // TEST-NET-1 (192.0.2.0/24) per RFC5737
+      /^198\.51\.100\./,   // TEST-NET-3 (198.51.100.0/24) per RFC5737
+      /^203\.0\.113\./,    // TEST-NET-2 (203.0.113.0/24) per RFC5737
     ];
 
     // IPv6 private/reserved ranges per RFC4193 (ULA), RFC4291 (addressing), RFC4862 (autoconfiguration), RFC5952 (representation)
     const ipv6Patterns = [
       /^::1$/,            // loopback (::1/128) per RFC4291
       /^::$/,             // unspecified (::/128) per RFC4291
-      /^f[cd][0-9a-f]{2}:/, // unique local unicast (fc00::/7 and fd00::/7) per RFC4193 — includes all ULA addresses
-      /^fe[89ab][0-9a-f]:/, // link-local unicast (fe80::/10) per RFC4291 — fe80:: through febf::
+      /^fc[0-9a-f]{2}:/,  // unique local unicast (fc00::/8) per RFC4193
+      /^fd[0-9a-f]{2}:/,  // unique local unicast (fd00::/8) per RFC4193
+      /^fe80:/,           // link-local unicast (fe80::/10) per RFC4291
+      /^fe[89ab][0-9a-f]:/, // additional link-local coverage (fe80::/10) per RFC4291
       /^ff/,              // multicast (ff00::/8) per RFC4291
       /^100::/,           // discard prefix (100::/64) per RFC6666
       /^2001:db8:/,       // documentation (2001:db8::/32) per RFC3849
       /^2001:20::/,       // ORCHIDv2 (2001:20::/28) per RFC7343
-      /^2001::/,          // TEREDO (2001::/32) per RFC4380
+      /^2002:/,           // 6to4 (2002::/16) per RFC3056
       /^::2/,             // documentation (::2/128) per RFC5737
       /^0*:0*:0*:0*:0*:0*:0*:0*$/,  // all zeros per RFC4291
     ];
@@ -135,7 +145,7 @@ export class LinkedInClient {
   private async validateImageUrl(imageUrl: string): Promise<boolean> {
     try {
       const url = new URL(imageUrl);
-      // Only allow HTTPS; explicitly reject other protocols (http, ftp, file, etc.) to prevent SSRF
+      // Only allow HTTPS via explicit allowlist to prevent SSRF (not blocklist of other protocols)
       if (url.protocol !== 'https:') {
         return false;
       }
@@ -216,7 +226,7 @@ export class LinkedInClient {
           let resolvedLocation: string;
           try {
             const resolvedUrl = new URL(location, currentUrl);
-            // Explicitly check protocol to ensure redirects don't use non-HTTPS schemes (data:, javascript:, etc.)
+            // Use explicit allowlist for protocol validation to prevent SSRF via non-HTTPS schemes
             if (resolvedUrl.protocol !== 'https:') {
               throw new Error(`Redirect must use HTTPS protocol, got: ${resolvedUrl.protocol}`);
             }
