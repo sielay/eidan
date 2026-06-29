@@ -205,10 +205,8 @@ export function AgentOrgChartPane(): React.ReactElement {
 
     if (relationships) {
       for (const rel of relationships) {
-        const fromAgent = agents.find((a) => a.name === rel.from_agent_name);
-        const toAgent = agents.find((a) => a.name === rel.to_agent_name);
-        if (fromAgent && toAgent && agentIds.has(fromAgent.id) && agentIds.has(toAgent.id)) {
-          const key = `${fromAgent.id}→${toAgent.id}`;
+        if (agentIds.has(rel.from_agent_id) && agentIds.has(rel.to_agent_id)) {
+          const key = `${rel.from_agent_id}→${rel.to_agent_id}`;
           let entry = edgeMap.get(key);
           if (!entry) {
             entry = { escalations: 0 };

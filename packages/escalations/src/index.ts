@@ -90,10 +90,10 @@ export const plugin: MatbotPluginSpec = {
         return await store.markResponseProcessed(id);
       },
       async listAgentRelationships(userId: string, options?: { fromAgentId?: string; toAgentId?: string }) {
-        return await store.listAgentRelationships(userId, options);
+        return await store.listAgentRelationships(userId, { fromAgentId: options?.fromAgentId, toAgentId: options?.toAgentId });
       },
       async setAgentRelationship(userId: string, rel: { fromAgentId: string; toAgentId: string; type: RelationshipType; strength?: number; description?: string }) {
-        return await store.setAgentRelationship(userId, rel);
+        return await store.setAgentRelationship(userId, { fromAgentId: rel.fromAgentId, toAgentId: rel.toAgentId, type: rel.type, strength: rel.strength, description: rel.description });
       },
       async deleteAgentRelationship(userId: string, fromAgentId: string, toAgentId: string) {
         return await store.deleteAgentRelationship(userId, fromAgentId, toAgentId);
