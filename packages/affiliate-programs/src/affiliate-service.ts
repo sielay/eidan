@@ -62,6 +62,7 @@ export class AffiliateService {
     metadata?: Record<string, unknown>;
   }): Promise<string> {
     return this.db.withPrincipalTx(async (q) => {
+      // Note: api_key is deprecated and not stored. Store sensitive credentials in the vault instead.
       const r = await q(
         `insert into eidan.affiliate_programs
          (user_id, name, description, program_type, api_endpoint, link_template, commission_pct, metadata)
@@ -91,7 +92,18 @@ export class AffiliateService {
       );
       if (r.rows.length === 0) throw new Error(`Program ${programId} not found`);
       const template = (r.rows[0] as { link_template: string }).link_template;
-      return this.interpolateTemplate(template, { product_id: productId, ...context });
+      const vars = { product_id: productId, ...context };
+      // Ensure all template variables are provided (warn if template contains unreplaced placeholders)
+      const unreplaced = template.match(/\{([^}]+)\}/g) || [];
+      for (const placeholder of unreplaced) {
+        const key = placeholder.slice(1, -1);
+        if (!(key in vars)) {
+          throw new Error(
+            `Missing template variable '${key}' for program ${programId}. Provide it in context or ensure affiliate_id is included.`
+          );
+        }
+      }
+      return this.interpolateTemplate(template, vars);
     });
   }
 
@@ -173,7 +185,7 @@ export class AffiliateService {
       const r = await q(
         `select ap.name as program, al.product_id,
                 count(al.id) as total_links,
-                coalesce(ap.commission_pct * count(al.id), 0) as commission_est
+                coalesce(ap.commission_pct, 0) as commission_est
          from eidan.affiliate_links al
          join eidan.affiliate_programs ap on al.program_id = ap.id
          ${whereClause}
@@ -259,13 +271,15 @@ export class AffiliateService {
 
     if (linksToAdd.length === 0) return result;
 
+    // Try to inject into existing resources section first
     const sectionPattern = /##\s*(?:Resources|Related|Links|Recommended|See Also|Further Reading|Learn More|References|Affiliate)/i;
     const sectionMatch = result.match(sectionPattern);
 
-    if (sectionMatch) {
-      const insertPos = sectionMatch.index! + sectionMatch[0].length;
+    if (sectionMatch && sectionMatch.index !== undefined) {
+      const insertPos = sectionMatch.index + sectionMatch[0].length;
       result = result.slice(0, insertPos) + '\n' + linksToAdd.join('\n') + result.slice(insertPos);
     } else {
+      // Create a new Resources section at the end if no relevant section exists
       result += `\n\n## Resources\n${linksToAdd.join('\n')}`;
     }
 
