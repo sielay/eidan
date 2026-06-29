@@ -1,9 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import os from 'node:os';
+import { readFileSync } from 'node:fs';
 import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { calculateStaleThreshold } from './stale.js';
+
+// The deployed eidan version this node runs, surfaced in node_heartbeats.metadata so the web UI can
+// show what's live on each layer. EIDAN_VERSION is baked into the fly image at build (the in-image
+// package.json is a 0.0.0 host stub); on the Pi (rsynced from the repo) the real root package.json is
+// the fallback. 'dev' if neither resolves.
+const ENGINE_VERSION = ((): string => {
+  const env = process.env['EIDAN_VERSION'];
+  if (env && env.trim()) return env.trim();
+  try {
+    const raw = readFileSync(new URL('../../../package.json', import.meta.url), 'utf8');
+    const v = (JSON.parse(raw) as { version?: unknown }).version;
+    return typeof v === 'string' && v ? v : 'dev';
+  } catch { return 'dev'; }
+})();
 
 const HEARTBEAT_MS = 30_000;
 const DEFAULT_REAPER_INTERVAL_MS = 300_000; // 5 minutes
@@ -64,7 +79,7 @@ export const plugin: MatbotPluginSpec = {
     db = new Db(url);
 
     const servedKinds = (process.env['EIDAN_JOB_KINDS'] ?? 'chat').split(',').map((s) => s.trim()).filter(Boolean);
-    const metadata = { host: os.hostname(), pid: process.pid, startedAt: new Date().toISOString() };
+    const metadata = { host: os.hostname(), pid: process.pid, startedAt: new Date().toISOString(), version: ENGINE_VERSION };
 
     const beat = async (): Promise<void> => {
       // Read the tool list per-beat, not once at setup: telemetry loads early in the plugin order, so

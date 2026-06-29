@@ -65,6 +65,7 @@ apps/web/src/app/api/*/
 !apps/web/src/app/api/mentions/
 !apps/web/src/app/api/openrouter/
 !apps/web/src/app/api/notes/
+!apps/web/src/app/api/version/
 
 # operator deploy config (per-deploy; targets + bundle paths)
 eidan.deploy.json
