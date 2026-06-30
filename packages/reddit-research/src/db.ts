@@ -117,6 +117,9 @@ export class RedditDb {
   }
 
   async getTrendsByVenture(userId: string, venture: string, days: number = 7): Promise<RedditPost[]> {
+    // Uses subquery to fetch subreddits for venture, then filters posts by that set.
+    // Performance TODO: if ventures grow to hundreds of subreddits, refactor to a JOIN
+    // or pre-fetch the subreddit list separately to avoid large IN clauses.
     const result = await this.pool.query(
       `select p.id, p.post_id, p.subreddit, p.title, p.author, p.score, p.num_comments, p.url, p.text_content, p.sentiment, p.keywords, p.created_utc, p.fetched_at
        from eidan.reddit_posts p

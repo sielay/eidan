@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Snoowrap from 'snoowrap';
-import { randomUUID } from 'crypto';
-import pkg from '../package.json' with { type: 'json' };
 
 const FRUSTRATION_KEYWORDS = [
   'struggling', 'frustrated', 'difficult', 'problem', 'help', 'issue', 'broken',
@@ -35,12 +33,11 @@ export interface RedditSearchResult {
 export class RedditClient {
   private reddit: Snoowrap;
 
-  constructor(clientId: string, clientSecret: string, refreshToken?: string | undefined, instanceId: string = randomUUID()) {
-    const sanitizedInstanceId = instanceId.replace(/[^a-zA-Z0-9\-_.]/g, '');
+  constructor(clientId: string, clientSecret: string, refreshToken?: string | undefined) {
     const opts: ConstructorParameters<typeof Snoowrap>[0] = {
       clientId,
       clientSecret,
-      userAgent: `Eidan-Reddit-Research/${pkg.version} (Instance:${sanitizedInstanceId}; +https://github.com/sielay/eidan)`,
+      userAgent: 'Eidan-Reddit-Research (+https://github.com/sielay/eidan)',
     };
 
     if (refreshToken) {
