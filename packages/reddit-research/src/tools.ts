@@ -141,8 +141,8 @@ export function makeRedditTools(db: RedditDb): Tool[] {
             score: post.score,
             num_comments: post.num_comments,
             url: post.url,
-            text_content: post.text_content ?? undefined,
-            sentiment: post.sentiment ?? null,
+            text_content: post.text_content,
+            sentiment: post.sentiment,
             keywords,
             created_utc: post.created_utc,
           });

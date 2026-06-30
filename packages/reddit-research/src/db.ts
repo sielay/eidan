@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Pool } from 'pg';
 
+// created_utc is a Unix timestamp (seconds since epoch) as returned by Reddit API
 export interface RedditPost {
   id: string;
   post_id: string;
@@ -10,7 +11,7 @@ export interface RedditPost {
   score: number;
   num_comments: number;
   url: string;
-  text_content: string | undefined;
+  text_content: string | null;
   sentiment: string | null;
   keywords: string[];
   created_utc: number;
@@ -66,7 +67,8 @@ export class RedditDb {
     const result = await this.pool.query(
       `select id, post_id, subreddit, title, author, score, num_comments, url, text_content, sentiment, keywords, created_utc, fetched_at
        from eidan.reddit_posts
-       where user_id = $1 and subreddit = $2 and created_utc > extract(epoch from now()) - ($3 * 86400)
+       where user_id = $1 and subreddit = $2
+       and created_utc > extract(epoch from now()) - ($3 * 86400)
        and deleted_at is null
        order by created_utc desc
        limit $4`,

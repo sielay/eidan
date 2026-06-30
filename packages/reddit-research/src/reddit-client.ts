@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Snoowrap from 'snoowrap';
+import { randomUUID } from 'crypto';
 
 const FRUSTRATION_KEYWORDS = [
   'struggling', 'frustrated', 'difficult', 'problem', 'help', 'issue', 'broken',
@@ -25,16 +26,15 @@ export interface RedditSearchResult {
   score: number;
   num_comments: number;
   url: string;
-  text_content: string | undefined;
+  text_content: string | null;
   created_utc: number;
-  sentiment: string | undefined;
+  sentiment: string | null;
 }
 
 export class RedditClient {
   private reddit: Snoowrap;
 
-  constructor(clientId: string, clientSecret: string, refreshToken?: string | undefined, instanceId: string = 'default') {
-    // instanceId should not contain sensitive/PII; callers must ensure it's a benign identifier (UUID/generic string)
+  constructor(clientId: string, clientSecret: string, refreshToken?: string | undefined, instanceId: string = randomUUID()) {
     const sanitizedInstanceId = instanceId.replace(/[^a-zA-Z0-9-_.]/g, '');
     const opts = {
       clientId,
@@ -75,9 +75,9 @@ export class RedditClient {
         score: post.score,
         num_comments: post.num_comments,
         url: post.url,
-        text_content: (post.selftext || undefined) as string | undefined,
+        text_content: post.selftext || null,
         created_utc: post.created_utc,
-        sentiment: this.detectSentiment(post.title, post.selftext) ?? undefined,
+        sentiment: this.detectSentiment(post.title, post.selftext) ?? null,
       });
     }
     return posts;
@@ -100,9 +100,9 @@ export class RedditClient {
         score: post.score,
         num_comments: post.num_comments,
         url: post.url,
-        text_content: (post.selftext || undefined) as string | undefined,
+        text_content: post.selftext || null,
         created_utc: post.created_utc,
-        sentiment: this.detectSentiment(post.title, post.selftext) ?? undefined,
+        sentiment: this.detectSentiment(post.title, post.selftext) ?? null,
       });
     }
     return posts;
