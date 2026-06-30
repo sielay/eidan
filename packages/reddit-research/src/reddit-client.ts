@@ -117,6 +117,9 @@ export class RedditClient {
   }
 
   private detectSentiment(title: string, content?: string): string | undefined {
+    // ponytail: simple keyword-based sentiment classification without negation handling.
+    // Known limitation: context-insensitive, so 'overcame a difficult challenge' scores as frustration.
+    // For production use, consider a rule-based system (e.g., handle negation) or ML model.
     const text = `${title} ${content || ''}`.toLowerCase();
     const frustrationCount = FRUSTRATION_KEYWORDS.filter((kw) => text.includes(kw)).length;
 

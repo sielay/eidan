@@ -4,6 +4,7 @@ import { currentPrincipal } from '@matatbread/matbot-plugin-api';
 import { RedditDb } from './db.js';
 import { RedditClient } from './reddit-client.js';
 import { getSecret } from './vault.js';
+import { getEngagement } from './engagement.js';
 
 const SEARCH_REDDIT_SCHEMA = {
   type: 'object',
@@ -158,7 +159,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
               comments: p.num_comments,
               url: p.url,
               sentiment: p.sentiment,
-              engagement: p.score + p.num_comments,
+              engagement: getEngagement(p),
             })),
           },
         };
@@ -211,7 +212,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
                 count: group.length,
                 top_posts: group.slice(0, 5).map((p) => ({
                   title: p.title,
-                  engagement: p.score + p.num_comments,
+                  engagement: getEngagement(p),
                   url: p.url,
                 })),
               },
@@ -269,7 +270,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
         if (frustrationPosts.length > 0) {
           markdown += `## Key Pain Points\n\n`;
           for (const post of frustrationPosts.slice(0, 5)) {
-            markdown += `- **${post.title}** (${post.score + post.num_comments} engagement)\n`;
+            markdown += `- **${post.title}** (${getEngagement(post)} engagement)\n`;
           }
           markdown += '\n';
         }
@@ -293,7 +294,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
 
         markdown += `## Top Discussions by Engagement\n\n`;
         for (const post of posts.slice(0, 10)) {
-          markdown += `- [${post.title}](${post.url}) - ${post.score + post.num_comments} engagement\n`;
+          markdown += `- [${post.title}](${post.url}) - ${getEngagement(post)} engagement\n`;
         }
 
         if (posts.length > 0) {
