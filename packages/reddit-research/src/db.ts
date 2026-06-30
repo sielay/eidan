@@ -20,6 +20,7 @@ export interface RedditPost {
 
 export interface RedditVenture {
   id: string;
+  user_id: string;
   venture: string;
   subreddit: string;
   keywords: string[];
@@ -56,6 +57,44 @@ export class RedditDb {
       ],
     );
     return result.rows[0];
+  }
+
+  async savePosts(userId: string, posts: Array<Omit<RedditPost, 'id' | 'fetched_at'>>): Promise<RedditPost[]> {
+    if (posts.length === 0) return [];
+
+    // Build a single INSERT with multiple rows to avoid N+1 queries
+    const placeholders = posts.map((_, i) => {
+      const base = i * 12 + 1;
+      return `($${base}, $${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11})`;
+    }).join(',');
+
+    const values: unknown[] = [];
+    for (const post of posts) {
+      values.push(
+        userId,
+        post.post_id,
+        post.subreddit,
+        post.title,
+        post.author,
+        post.score,
+        post.num_comments,
+        post.url,
+        post.text_content ?? null,
+        post.sentiment ?? null,
+        post.keywords,
+        post.created_utc,
+      );
+    }
+
+    const result = await this.pool.query(
+      `insert into eidan.reddit_posts (user_id, post_id, subreddit, title, author, score, num_comments, url, text_content, sentiment, keywords, created_utc)
+       values ${placeholders}
+       on conflict (user_id, post_id) do update
+       set score = excluded.score, num_comments = excluded.num_comments, updated_at = now(), deleted_at = null
+       returning *`,
+      values,
+    );
+    return result.rows;
   }
 
   async getPostsBySubreddit(
@@ -116,7 +155,7 @@ export class RedditDb {
        values ($1, $2, $3, $4, $5)
        on conflict (user_id, venture, subreddit) do update
        set keywords = excluded.keywords, sentiment_keywords = excluded.sentiment_keywords, updated_at = now(), deleted_at = null
-       returning id, venture, subreddit, keywords, sentiment_keywords`,
+       returning id, user_id, venture, subreddit, keywords, sentiment_keywords`,
       // Null/undefined keyword params are explicitly converted to empty arrays; database always stores arrays (never null).
       [userId, venture, subreddit, keywords ?? [], sentimentKeywords ?? []],
     );

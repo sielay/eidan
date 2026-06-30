@@ -130,23 +130,21 @@ export function makeRedditTools(db: RedditDb): Tool[] {
           return;
         }
 
-        // Cache results in database
+        // Cache results in database (bulk insert to avoid N+1 queries)
         const userId = currentPrincipal().id;
-        for (const post of results) {
-          await db.savePost(userId, {
-            post_id: post.post_id,
-            subreddit,
-            title: post.title,
-            author: post.author,
-            score: post.score,
-            num_comments: post.num_comments,
-            url: post.url,
-            text_content: post.text_content,
-            sentiment: post.sentiment,
-            keywords,
-            created_utc: post.created_utc,
-          });
-        }
+        await db.savePosts(userId, results.map((post) => ({
+          post_id: post.post_id,
+          subreddit,
+          title: post.title,
+          author: post.author,
+          score: post.score,
+          num_comments: post.num_comments,
+          url: post.url,
+          text_content: post.text_content,
+          sentiment: post.sentiment,
+          keywords,
+          created_utc: post.created_utc,
+        })));
 
         yield {
           type: 'result',
