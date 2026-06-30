@@ -1,0 +1,15 @@
+{
+  "_comment": "Reddit research configuration: map ventures to subreddits for market research. This is optional — agents can call search_reddit directly with any subreddit.",
+  "ventures": {
+    "mathbuns": {
+      "subreddits": ["parenting", "homeschool", "education"],
+      "keywords": ["math homework", "math practice", "learning math", "teaching math"],
+      "sentiment_keywords": ["struggling", "difficult", "help", "frustrated", "can't figure out"]
+    },
+    "phonekills": {
+      "subreddits": ["nosurf", "digital_wellbeing", "parenting"],
+      "keywords": ["screen time", "phone addiction", "digital detox", "kids technology"],
+      "sentiment_keywords": ["addiction", "struggling", "help", "frustrated", "can't control"]
+    }
+  }
+}
