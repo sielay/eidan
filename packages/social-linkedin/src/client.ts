@@ -95,18 +95,16 @@ export class LinkedInClient {
     const ipv6Patterns = [
       /^::1$/,            // loopback (::1/128) per RFC4291
       /^::$/,             // unspecified (::/128) per RFC4291
-      /^fc[0-9a-f]{0,2}:/,  // unique local unicast (fc00::/8) per RFC4193
-      /^fd[0-9a-f]{0,2}:/,  // unique local unicast (fd00::/8) per RFC4193
+      /^fc[0-9a-f]:/,     // unique local unicast (fc00::/8) per RFC4193
+      /^fd[0-9a-f]:/,     // unique local unicast (fd00::/8) per RFC4193
       /^fe80:/,           // link-local unicast (fe80::/10) per RFC4291
-      /^fe[8-b][0-9a-f]{0,1}:/, // link-local coverage (fe80::/10) per RFC4291
-      /^ff[0-9a-f]{0,2}:/,  // multicast (ff00::/8) per RFC4291
+      /^fe[8-b][0-9a-f]{1,3}:/, // link-local coverage (fe80::/10) per RFC4291
+      /^ff[0-9a-f]{1,3}:/,  // multicast (ff00::/8) per RFC4291
       /^100::/,           // discard prefix (100::/64) per RFC6666
       /^2001:db8:/,       // documentation (2001:db8::/32) per RFC3849
       /^2001:20::/,       // ORCHIDv2 (2001:20::/28) per RFC7343
       /^2002:/,           // 6to4 (2002::/16) per RFC3056
       /^2001:/,           // Teredo and other 2001: reserved (2001::/32) per RFC4291
-      /^::2/,             // documentation (::2/128) per RFC5737
-      /^0*:0*:0*:0*:0*:0*:0*:0*$/,  // all zeros per RFC4291
     ];
 
     // Check for IPv4-mapped IPv6 addresses: extract the IPv4 part and validate it
@@ -146,7 +144,7 @@ export class LinkedInClient {
   private async validateImageUrl(imageUrl: string): Promise<boolean> {
     try {
       const url = new URL(imageUrl);
-      // Explicit protocol allowlist: only accept https (not blocklist of other protocols like file:, ftp:, etc.)
+      // Explicit protocol allowlist: only accept HTTPS. Reject all other protocols (file:, ftp:, gopher:, data:, etc.)
       if (url.protocol !== 'https:') {
         return false;
       }
