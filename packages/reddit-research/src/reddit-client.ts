@@ -34,6 +34,7 @@ export class RedditClient {
   private reddit: Snoowrap;
 
   constructor(clientId: string, clientSecret: string, refreshToken?: string | undefined, instanceId: string = 'default') {
+    // instanceId should not contain sensitive/PII; callers must ensure it's a benign identifier (UUID/generic string)
     const opts = {
       clientId,
       clientSecret,
@@ -53,16 +54,16 @@ export class RedditClient {
 
     const timeWindow = this.convertDaysToTimeParam(timeWindowDays ?? 7);
     // sort 'top' by engagement (upvotes + comments), which is the primary ranking metric for market research
+    // pass limit directly to Reddit API for efficient fetching
     const postsIterable = (await sr.search({
       query: searchQuery,
       sort: 'top',
       time: timeWindow,
+      limit,
     })) as any;
 
     const posts: RedditSearchResult[] = [];
-    let count = 0;
     for await (const post of postsIterable) {
-      if (count >= limit) break;
       const author = post.author && typeof post.author === 'object' && 'name' in post.author
         ? post.author.name
         : '[deleted]';
@@ -77,19 +78,17 @@ export class RedditClient {
         created_utc: post.created_utc,
         sentiment: this.detectSentiment(post.title, post.selftext) ?? undefined,
       });
-      count++;
     }
     return posts;
   }
 
   async getNewPosts(subredditName: string, limit: number = 30): Promise<RedditSearchResult[]> {
     const sr = this.reddit.getSubreddit(subredditName);
-    const postsIterable = (await sr.getNew()) as any;
+    // pass limit directly to Reddit API for efficient fetching
+    const postsIterable = (await sr.getNew({ limit })) as any;
 
     const posts: RedditSearchResult[] = [];
-    let count = 0;
     for await (const post of postsIterable) {
-      if (count >= limit) break;
       const author = post.author && typeof post.author === 'object' && 'name' in post.author
         ? post.author.name
         : '[deleted]';
@@ -104,7 +103,6 @@ export class RedditClient {
         created_utc: post.created_utc,
         sentiment: this.detectSentiment(post.title, post.selftext) ?? undefined,
       });
-      count++;
     }
     return posts;
   }

@@ -115,7 +115,7 @@ export class RedditDb {
        on conflict (user_id, venture, subreddit) do update
        set keywords = excluded.keywords, sentiment_keywords = excluded.sentiment_keywords, updated_at = now(), deleted_at = null
        returning id, venture, subreddit, keywords, sentiment_keywords`,
-      // pg driver safely handles array serialization. Keywords from config are pre-validated; array elements are strings.
+      // Null/undefined keyword params are explicitly converted to empty arrays; database always stores arrays (never null).
       [userId, venture, subreddit, keywords ?? [], sentimentKeywords ?? []],
     );
     return result.rows[0];
