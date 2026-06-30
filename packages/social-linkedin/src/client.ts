@@ -81,8 +81,8 @@ export class LinkedInClient {
       /^192\.168\./,      // private (192.168.0.0/16) per RFC1918
       /^169\.254\./,      // link-local (169.254.0.0/16) per RFC3927
       /^0\./,             // current network (0.0.0.0/8) per RFC5735
-      /^224\./,           // multicast (224.0.0.0/4) per RFC5771
-      /^240\./,           // reserved (240.0.0.0/4) per RFC5735
+      /^(22[4-9]|23[0-9])\./, // multicast (224.0.0.0/4) per RFC5771
+      /^(24[0-9]|25[0-5])\./, // reserved (240.0.0.0/4) per RFC5735
       /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./, // CGNAT (100.64.0.0/10) per RFC6598
       /^198\.(1[8-9])\./,  // network device benchmarking (198.18.0.0/15) per RFC2544
       /^192\.0\.0\./,      // IETF protocol assignments (192.0.0.0/24) per RFC6890
@@ -95,15 +95,16 @@ export class LinkedInClient {
     const ipv6Patterns = [
       /^::1$/,            // loopback (::1/128) per RFC4291
       /^::$/,             // unspecified (::/128) per RFC4291
-      /^fc[0-9a-f]{2}:/,  // unique local unicast (fc00::/8) per RFC4193
-      /^fd[0-9a-f]{2}:/,  // unique local unicast (fd00::/8) per RFC4193
+      /^fc[0-9a-f]{0,2}:/,  // unique local unicast (fc00::/8) per RFC4193
+      /^fd[0-9a-f]{0,2}:/,  // unique local unicast (fd00::/8) per RFC4193
       /^fe80:/,           // link-local unicast (fe80::/10) per RFC4291
-      /^fe[89ab][0-9a-f]:/, // additional link-local coverage (fe80::/10) per RFC4291
-      /^ff/,              // multicast (ff00::/8) per RFC4291
+      /^fe[8-b][0-9a-f]{0,1}:/, // link-local coverage (fe80::/10) per RFC4291
+      /^ff[0-9a-f]{0,2}:/,  // multicast (ff00::/8) per RFC4291
       /^100::/,           // discard prefix (100::/64) per RFC6666
       /^2001:db8:/,       // documentation (2001:db8::/32) per RFC3849
       /^2001:20::/,       // ORCHIDv2 (2001:20::/28) per RFC7343
       /^2002:/,           // 6to4 (2002::/16) per RFC3056
+      /^2001:/,           // Teredo and other 2001: reserved (2001::/32) per RFC4291
       /^::2/,             // documentation (::2/128) per RFC5737
       /^0*:0*:0*:0*:0*:0*:0*:0*$/,  // all zeros per RFC4291
     ];
@@ -145,7 +146,7 @@ export class LinkedInClient {
   private async validateImageUrl(imageUrl: string): Promise<boolean> {
     try {
       const url = new URL(imageUrl);
-      // Only allow HTTPS via explicit allowlist to prevent SSRF (not blocklist of other protocols)
+      // Explicit protocol allowlist: only accept https (not blocklist of other protocols like file:, ftp:, etc.)
       if (url.protocol !== 'https:') {
         return false;
       }
