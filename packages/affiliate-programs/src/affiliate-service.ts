@@ -99,7 +99,7 @@ export class AffiliateService {
         const key = placeholder.slice(1, -1);
         if (!(key in vars)) {
           throw new Error(
-            `Missing template variable '${key}' for program ${programId}. Provide it in context or ensure affiliate_id is included.`
+            `Missing template variable '{${key}}' for program ${programId}. Provide it in the context parameter.`
           );
         }
       }
