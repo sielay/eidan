@@ -155,6 +155,8 @@ export function getAffiliatePerformance(service: AffiliateService): Tool {
       async *execute(input) {
         const { program_id } = input as { program_id?: string };
         const report = await service.getPerformanceReport(program_id);
+        const totalLinks = report.reduce((sum, r) => sum + r.total_links, 0);
+        const weightedCommissionSum = report.reduce((sum, r) => sum + r.commission_est * r.total_links, 0);
         yield {
           type: 'result',
           value: {
@@ -164,7 +166,7 @@ export function getAffiliatePerformance(service: AffiliateService): Tool {
               top_product: r.product_id,
               commission_est: r.commission_est,
             })),
-            avg_commission_pct: report.length > 0 ? report.reduce((sum, r) => sum + r.commission_est, 0) / report.length : 0,
+            avg_commission_pct: totalLinks > 0 ? weightedCommissionSum / totalLinks : 0,
           },
         };
       },
