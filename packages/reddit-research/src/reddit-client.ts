@@ -115,14 +115,18 @@ export class RedditClient {
   }
 
   private detectSentiment(title: string, content?: string): string | undefined {
-    // ponytail: simple keyword-based sentiment classification without negation handling.
+    // ponytail: simple keyword-based sentiment classification.
     // Known limitation: context-insensitive, so 'overcame a difficult challenge' scores as frustration.
-    // TODO: improve with negation handling (e.g., "not frustrated") or a rule-based/ML approach for future iterations.
+    // Basic negation check for 'help' to avoid false positives like "need help avoiding frustration".
     const text = `${title} ${content || ''}`.toLowerCase();
     const frustrationCount = FRUSTRATION_KEYWORDS.filter((kw) => text.includes(kw)).length;
 
     if (frustrationCount >= 2) return 'frustration';
-    if (frustrationCount === 1 && text.includes('help')) return 'seeking_help';
+    if (frustrationCount === 1 && text.includes('help')) {
+      // Avoid classifying posts with negated help (e.g., "don't need help", "no help avoiding X")
+      const hasNegation = /(?:not|don't|didn't|can't|won't|no)\s+\w*help/.test(text);
+      if (!hasNegation) return 'seeking_help';
+    }
     if (text.includes('love') || text.includes('great') || text.includes('amazing')) return 'positive';
     return undefined;
   }
