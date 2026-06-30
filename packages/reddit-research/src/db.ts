@@ -162,7 +162,7 @@ export class RedditDb {
     return result.rows[0];
   }
 
-  async close(): Promise<void> {
+  async teardown(): Promise<void> {
     await this.pool.end();
   }
 }

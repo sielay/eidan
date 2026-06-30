@@ -76,6 +76,6 @@ export const plugin: MatbotPluginSpec = {
     });
   },
   async teardown() {
-    if (db) await db.close();
+    if (db) await db.teardown();
   },
 };

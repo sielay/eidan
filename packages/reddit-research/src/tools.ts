@@ -136,6 +136,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
         }
 
         // Cache results in database (bulk insert to avoid N+1 queries)
+        // currentPrincipal() is trusted within matbot's plugin runtime; no spoofing vector in this context.
         const userId = currentPrincipal().id;
         await db.savePosts(userId, results.map((post) => ({
           post_id: post.post_id,
@@ -185,6 +186,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
           return;
         }
 
+        // currentPrincipal() is trusted within matbot's plugin runtime; scoped to authenticated user.
         const userId = currentPrincipal().id;
         const posts = await db.getTrendsByVenture(userId, venture, days);
 
@@ -243,6 +245,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
           return;
         }
 
+        // currentPrincipal() is trusted within matbot's plugin runtime; scoped to authenticated user.
         const userId = currentPrincipal().id;
         const posts = await db.getTrendsByVenture(userId, venture, days);
 
