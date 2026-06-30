@@ -7,6 +7,17 @@ const FRUSTRATION_KEYWORDS = [
   'complaint', 'terrible', 'awful', 'hate', 'worst', 'regret', 'waste',
 ];
 
+interface RedditPost {
+  id: string;
+  title: string;
+  author?: { name: string };
+  score: number;
+  num_comments: number;
+  url: string;
+  selftext?: string;
+  created_utc: number;
+}
+
 export interface RedditSearchResult {
   post_id: string;
   title: string;
@@ -42,30 +53,29 @@ export class RedditClient {
 
     const timeWindow = this.convertDaysToTimeParam(timeWindowDays ?? 7);
     // sort 'top' by engagement (upvotes + comments), which is the primary ranking metric for market research
-    const postsIterable = await sr.search({
+    const postsIterable = (await sr.search({
       query: searchQuery,
       sort: 'top',
       time: timeWindow,
-    } as any);
+    } as any)) as unknown as AsyncIterable<RedditPost>;
 
     const posts: RedditSearchResult[] = [];
     let count = 0;
-    // ponytail: snoowrap types have circular reference issues with async iteration, suppress with 'as any'
-    for await (const post of postsIterable as any) {
+    for await (const post of postsIterable) {
       if (count >= limit) break;
-      const author = (post as any).author && typeof (post as any).author === 'object' && 'name' in (post as any).author
-        ? ((post as any).author as { name: string }).name
+      const author = post.author && typeof post.author === 'object' && 'name' in post.author
+        ? post.author.name
         : '[deleted]';
       posts.push({
-        post_id: (post as any).id,
-        title: (post as any).title,
+        post_id: post.id,
+        title: post.title,
         author,
-        score: (post as any).score,
-        num_comments: (post as any).num_comments,
-        url: (post as any).url,
-        text_content: ((post as any).selftext || undefined) as string | undefined,
-        created_utc: (post as any).created_utc,
-        sentiment: this.detectSentiment((post as any).title, (post as any).selftext) ?? undefined,
+        score: post.score,
+        num_comments: post.num_comments,
+        url: post.url,
+        text_content: (post.selftext || undefined) as string | undefined,
+        created_utc: post.created_utc,
+        sentiment: this.detectSentiment(post.title, post.selftext) ?? undefined,
       });
       count++;
     }
@@ -74,26 +84,25 @@ export class RedditClient {
 
   async getNewPosts(subredditName: string, limit: number = 30): Promise<RedditSearchResult[]> {
     const sr = this.reddit.getSubreddit(subredditName);
-    const postsIterable = await sr.getNew();
+    const postsIterable = (await sr.getNew()) as unknown as AsyncIterable<RedditPost>;
 
     const posts: RedditSearchResult[] = [];
     let count = 0;
-    // ponytail: snoowrap types have circular reference issues with async iteration, suppress with 'as any'
-    for await (const post of postsIterable as any) {
+    for await (const post of postsIterable) {
       if (count >= limit) break;
-      const author = (post as any).author && typeof (post as any).author === 'object' && 'name' in (post as any).author
-        ? ((post as any).author as { name: string }).name
+      const author = post.author && typeof post.author === 'object' && 'name' in post.author
+        ? post.author.name
         : '[deleted]';
       posts.push({
-        post_id: (post as any).id,
-        title: (post as any).title,
+        post_id: post.id,
+        title: post.title,
         author,
-        score: (post as any).score,
-        num_comments: (post as any).num_comments,
-        url: (post as any).url,
-        text_content: ((post as any).selftext || undefined) as string | undefined,
-        created_utc: (post as any).created_utc,
-        sentiment: this.detectSentiment((post as any).title, (post as any).selftext) ?? undefined,
+        score: post.score,
+        num_comments: post.num_comments,
+        url: post.url,
+        text_content: (post.selftext || undefined) as string | undefined,
+        created_utc: post.created_utc,
+        sentiment: this.detectSentiment(post.title, post.selftext) ?? undefined,
       });
       count++;
     }

@@ -140,7 +140,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
             num_comments: post.num_comments,
             url: post.url,
             text_content: post.text_content ?? undefined,
-            sentiment: post.sentiment ?? undefined,
+            sentiment: post.sentiment ?? null,
             keywords,
             created_utc: post.created_utc,
           });
