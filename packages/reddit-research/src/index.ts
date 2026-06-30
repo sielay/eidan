@@ -40,7 +40,6 @@ export const plugin: MatbotPluginSpec = {
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
     if (!url) {
-      console.error('[reddit-research] EIDAN_DATABASE_URL not set, plugin disabled');
       return;
     }
 
@@ -75,8 +74,6 @@ export const plugin: MatbotPluginSpec = {
         },
       ],
     });
-
-    console.log('[reddit-research] plugin loaded');
   },
   async teardown() {
     if (db) await db.close();

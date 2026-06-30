@@ -37,7 +37,7 @@ export class RedditClient {
     const opts: ConstructorParameters<typeof Snoowrap>[0] = {
       clientId,
       clientSecret,
-      userAgent: 'Eidan-Reddit-Research (+https://github.com/sielay/eidan)',
+      userAgent: process.env['REDDIT_USER_AGENT'] ?? 'Eidan-Reddit-Research (+https://github.com/sielay/eidan)',
     };
 
     if (refreshToken) {

@@ -34,6 +34,7 @@ export class RedditDb {
     this.pool = new Pool({ connectionString: connectionUrl });
   }
 
+  // For single post insertion only. Use savePosts for bulk operations to avoid N+1 queries.
   async savePost(userId: string, post: Omit<RedditPost, 'id' | 'fetched_at'>): Promise<RedditPost> {
     const result = await this.pool.query(
       `insert into eidan.reddit_posts (user_id, post_id, subreddit, title, author, score, num_comments, url, text_content, sentiment, keywords, created_utc)

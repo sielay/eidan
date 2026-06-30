@@ -2,6 +2,14 @@
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
+declare module '@matatbread/matbot-plugin-api' {
+  interface ToolContext {
+    vault?: {
+      resolve(placeholder: string): Promise<string | undefined>;
+    };
+  }
+}
+
 export async function getSecret(ctx: ToolContext, name: string, required = false): Promise<string | undefined> {
   try {
     return await ctx.vault.resolve(`\${${name}}`);
