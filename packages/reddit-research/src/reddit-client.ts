@@ -35,18 +35,18 @@ export class RedditClient {
   private reddit: Snoowrap;
 
   constructor(clientId: string, clientSecret: string, refreshToken?: string | undefined, instanceId: string = randomUUID()) {
-    const sanitizedInstanceId = instanceId.replace(/[^a-zA-Z0-9-_.]/g, '');
-    const opts = {
+    const sanitizedInstanceId = instanceId.replace(/[^a-zA-Z0-9\-_.]/g, '');
+    const opts: ConstructorParameters<typeof Snoowrap>[0] = {
       clientId,
       clientSecret,
       userAgent: `Eidan-Reddit-Research/0.1 (Instance:${sanitizedInstanceId}; +https://github.com/sielay/eidan)`,
-    } as Record<string, string>;
+    };
 
     if (refreshToken) {
       opts.refreshToken = refreshToken;
     }
 
-    this.reddit = new Snoowrap(opts as unknown as ConstructorParameters<typeof Snoowrap>[0]);
+    this.reddit = new Snoowrap(opts);
   }
 
   async searchSubreddit(subredditName: string, keywords: string[], limit: number = 50, timeWindowDays?: number): Promise<RedditSearchResult[]> {
@@ -119,7 +119,7 @@ export class RedditClient {
   private detectSentiment(title: string, content?: string): string | undefined {
     // ponytail: simple keyword-based sentiment classification without negation handling.
     // Known limitation: context-insensitive, so 'overcame a difficult challenge' scores as frustration.
-    // For production use, consider a rule-based system (e.g., handle negation) or ML model.
+    // TODO: improve with negation handling (e.g., "not frustrated") or a rule-based/ML approach for future iterations.
     const text = `${title} ${content || ''}`.toLowerCase();
     const frustrationCount = FRUSTRATION_KEYWORDS.filter((kw) => text.includes(kw)).length;
 
