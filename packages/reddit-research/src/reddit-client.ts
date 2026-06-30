@@ -33,11 +33,11 @@ export interface RedditSearchResult {
 export class RedditClient {
   private reddit: Snoowrap;
 
-  constructor(clientId: string, clientSecret: string, refreshToken?: string | undefined) {
+  constructor(clientId: string, clientSecret: string, refreshToken?: string | undefined, instanceId: string = 'default') {
     const opts = {
       clientId,
       clientSecret,
-      userAgent: 'Eidan-Reddit-Research/0.1 (+https://github.com/sielay/eidan)',
+      userAgent: `Eidan-Reddit-Research/0.1 (Instance:${instanceId}; +https://github.com/sielay/eidan)`,
     } as Record<string, string>;
 
     if (refreshToken) {
@@ -57,7 +57,7 @@ export class RedditClient {
       query: searchQuery,
       sort: 'top',
       time: timeWindow,
-    } as any)) as unknown as AsyncIterable<RedditPost>;
+    })) as any;
 
     const posts: RedditSearchResult[] = [];
     let count = 0;
@@ -84,7 +84,7 @@ export class RedditClient {
 
   async getNewPosts(subredditName: string, limit: number = 30): Promise<RedditSearchResult[]> {
     const sr = this.reddit.getSubreddit(subredditName);
-    const postsIterable = (await sr.getNew()) as unknown as AsyncIterable<RedditPost>;
+    const postsIterable = (await sr.getNew()) as any;
 
     const posts: RedditSearchResult[] = [];
     let count = 0;

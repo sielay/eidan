@@ -48,9 +48,9 @@ export class RedditDb {
         post.score,
         post.num_comments,
         post.url,
-        post.text_content || null,
-        post.sentiment || null,
-        post.keywords || [],
+        post.text_content ?? null,
+        post.sentiment ?? null,
+        post.keywords && post.keywords.length > 0 ? post.keywords : null,
         post.created_utc,
       ],
     );

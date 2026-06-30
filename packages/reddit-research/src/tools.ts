@@ -72,15 +72,16 @@ const GENERATE_REPORT_SCHEMA = {
 };
 
 async function getRedditClient(ctx: ToolContext): Promise<RedditClient | { error: string }> {
-  const clientId = await getSecret(ctx, 'REDDIT_CLIENT_ID');
-  const clientSecret = await getSecret(ctx, 'REDDIT_CLIENT_SECRET');
-  const refreshToken = await getSecret(ctx, 'REDDIT_REFRESH_TOKEN');
+  try {
+    const clientId = await getSecret(ctx, 'REDDIT_CLIENT_ID', true);
+    const clientSecret = await getSecret(ctx, 'REDDIT_CLIENT_SECRET', true);
+    const refreshToken = await getSecret(ctx, 'REDDIT_REFRESH_TOKEN', false);
 
-  if (!clientId || !clientSecret) {
-    return { error: 'Reddit credentials not configured. Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET in vault.' };
+    return new RedditClient(clientId, clientSecret, refreshToken);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Reddit credentials not configured';
+    return { error: msg };
   }
-
-  return new RedditClient(clientId, clientSecret, refreshToken);
 }
 
 export function makeRedditTools(db: RedditDb): Tool[] {
@@ -141,7 +142,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
             url: post.url,
             text_content: post.text_content ?? undefined,
             sentiment: post.sentiment ?? null,
-            keywords,
+            keywords: keywords && keywords.length > 0 ? keywords : null,
             created_utc: post.created_utc,
           });
         }
