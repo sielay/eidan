@@ -35,10 +35,11 @@ export class RedditClient {
 
   constructor(clientId: string, clientSecret: string, refreshToken?: string | undefined, instanceId: string = 'default') {
     // instanceId should not contain sensitive/PII; callers must ensure it's a benign identifier (UUID/generic string)
+    const sanitizedInstanceId = instanceId.replace(/[^a-zA-Z0-9-_.]/g, '');
     const opts = {
       clientId,
       clientSecret,
-      userAgent: `Eidan-Reddit-Research/0.1 (Instance:${instanceId}; +https://github.com/sielay/eidan)`,
+      userAgent: `Eidan-Reddit-Research/0.1 (Instance:${sanitizedInstanceId}; +https://github.com/sielay/eidan)`,
     } as Record<string, string>;
 
     if (refreshToken) {
@@ -55,12 +56,12 @@ export class RedditClient {
     const timeWindow = this.convertDaysToTimeParam(timeWindowDays ?? 7);
     // sort 'top' by engagement (upvotes + comments), which is the primary ranking metric for market research
     // pass limit directly to Reddit API for efficient fetching
-    const postsIterable = (await sr.search({
+    const postsIterable = await sr.search({
       query: searchQuery,
       sort: 'top',
       time: timeWindow,
       limit,
-    })) as any;
+    });
 
     const posts: RedditSearchResult[] = [];
     for await (const post of postsIterable) {
@@ -85,7 +86,7 @@ export class RedditClient {
   async getNewPosts(subredditName: string, limit: number = 30): Promise<RedditSearchResult[]> {
     const sr = this.reddit.getSubreddit(subredditName);
     // pass limit directly to Reddit API for efficient fetching
-    const postsIterable = (await sr.getNew({ limit })) as any;
+    const postsIterable = await sr.getNew({ limit });
 
     const posts: RedditSearchResult[] = [];
     for await (const post of postsIterable) {

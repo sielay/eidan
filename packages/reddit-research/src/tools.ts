@@ -142,7 +142,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
             url: post.url,
             text_content: post.text_content ?? undefined,
             sentiment: post.sentiment ?? null,
-            keywords: keywords && keywords.length > 0 ? keywords : null,
+            keywords,
             created_utc: post.created_utc,
           });
         }

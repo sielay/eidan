@@ -50,7 +50,7 @@ export class RedditDb {
         post.url,
         post.text_content ?? null,
         post.sentiment ?? null,
-        post.keywords && post.keywords.length > 0 ? post.keywords : null,
+        post.keywords,
         post.created_utc,
       ],
     );
