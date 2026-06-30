@@ -37,7 +37,7 @@ export class RedditClient {
     const opts: ConstructorParameters<typeof Snoowrap>[0] = {
       clientId,
       clientSecret,
-      userAgent: process.env['REDDIT_USER_AGENT'] ?? 'Eidan-Reddit-Research (+https://github.com/sielay/eidan)',
+      userAgent: process.env['REDDIT_USER_AGENT'] ?? 'Eidan-Reddit-Research/0.1.0 (+https://github.com/sielay/eidan)',
     };
 
     if (refreshToken) {
@@ -52,13 +52,13 @@ export class RedditClient {
     const searchQuery = keywords.join(' OR ');
 
     const timeWindow = this.convertDaysToTimeParam(timeWindowDays ?? 7);
-    // sort 'top' by engagement (upvotes + comments), which is the primary ranking metric for market research
-    // pass limit directly to Reddit API for efficient fetching
+    // fetch more posts to ensure we can rank by explicit engagement (score + comments)
+    const internalLimit = Math.max(limit * 2, 100);
     const postsIterable = await sr.search({
       query: searchQuery,
       sort: 'top',
       time: timeWindow,
-      limit,
+      limit: internalLimit,
     });
 
     const posts: RedditSearchResult[] = [];
@@ -78,7 +78,9 @@ export class RedditClient {
         sentiment: this.detectSentiment(post.title, post.selftext) ?? null,
       });
     }
-    return posts;
+    // sort by engagement metric (upvotes + comments) and return top results
+    posts.sort((a, b) => (b.score + b.num_comments) - (a.score + a.num_comments));
+    return posts.slice(0, limit);
   }
 
   async getNewPosts(subredditName: string, limit: number = 30): Promise<RedditSearchResult[]> {

@@ -110,7 +110,7 @@ export class RedditDb {
        where user_id = $1 and subreddit = $2
        and created_utc > extract(epoch from now()) - ($3 * 86400)
        and deleted_at is null
-       order by created_utc desc
+       order by score + num_comments desc
        limit $4`,
       [userId, subreddit, days, limit],
     );
