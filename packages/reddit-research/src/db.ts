@@ -36,8 +36,8 @@ export class RedditDb {
     const result = await this.pool.query(
       `insert into eidan.reddit_posts (user_id, post_id, subreddit, title, author, score, num_comments, url, text_content, sentiment, keywords, created_utc)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       on conflict (user_id, post_id) where deleted_at is null do update
-       set score = excluded.score, num_comments = excluded.num_comments, updated_at = now()
+       on conflict (user_id, post_id) do update
+       set score = excluded.score, num_comments = excluded.num_comments, updated_at = now(), deleted_at = null
        returning *`,
       [
         userId,
@@ -110,8 +110,8 @@ export class RedditDb {
     const result = await this.pool.query(
       `insert into eidan.reddit_ventures (user_id, venture, subreddit, keywords, sentiment_keywords)
        values ($1, $2, $3, $4, $5)
-       on conflict (user_id, venture, subreddit) where deleted_at is null do update
-       set keywords = excluded.keywords, sentiment_keywords = excluded.sentiment_keywords, updated_at = now()
+       on conflict (user_id, venture, subreddit) do update
+       set keywords = excluded.keywords, sentiment_keywords = excluded.sentiment_keywords, updated_at = now(), deleted_at = null
        returning id, venture, subreddit, keywords, sentiment_keywords`,
       [userId, venture, subreddit, keywords || [], sentimentKeywords || []],
     );
