@@ -64,7 +64,8 @@ export class RedditDb {
     limit: number = 50,
   ): Promise<RedditPost[]> {
     const result = await this.pool.query(
-      `select * from eidan.reddit_posts
+      `select id, post_id, subreddit, title, author, score, num_comments, url, text_content, sentiment, keywords, created_utc, fetched_at
+       from eidan.reddit_posts
        where user_id = $1 and subreddit = $2 and created_utc > extract(epoch from now()) - ($3 * 86400)
        and deleted_at is null
        order by created_utc desc
@@ -76,7 +77,8 @@ export class RedditDb {
 
   async getTrendsByVenture(userId: string, venture: string, days: number = 7): Promise<RedditPost[]> {
     const result = await this.pool.query(
-      `select p.* from eidan.reddit_posts p
+      `select p.id, p.post_id, p.subreddit, p.title, p.author, p.score, p.num_comments, p.url, p.text_content, p.sentiment, p.keywords, p.created_utc, p.fetched_at
+       from eidan.reddit_posts p
        where p.user_id = $1
        and p.subreddit in (
          select subreddit from eidan.reddit_ventures
@@ -113,7 +115,8 @@ export class RedditDb {
        on conflict (user_id, venture, subreddit) do update
        set keywords = excluded.keywords, sentiment_keywords = excluded.sentiment_keywords, updated_at = now(), deleted_at = null
        returning id, venture, subreddit, keywords, sentiment_keywords`,
-      [userId, venture, subreddit, keywords || [], sentimentKeywords || []],
+      // pg driver safely handles array serialization. Keywords from config are pre-validated; array elements are strings.
+      [userId, venture, subreddit, keywords ?? [], sentimentKeywords ?? []],
     );
     return result.rows[0];
   }
