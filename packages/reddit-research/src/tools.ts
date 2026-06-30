@@ -100,6 +100,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
 
         const subreddit = String(args.subreddit ?? '').trim();
         const keywords = Array.isArray(args.keywords) ? args.keywords : [];
+        const timeWindow = args.time_window ?? 7;
         const limit = args.limit ?? 30;
 
         if (!subreddit) {
@@ -120,7 +121,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
         const client = clientRes;
         let results;
         try {
-          results = await client.searchSubreddit(subreddit, keywords, limit);
+          results = await client.searchSubreddit(subreddit, keywords, limit, timeWindow);
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Failed to search Reddit';
           yield { type: 'error', message: msg };
@@ -295,7 +296,8 @@ export function makeRedditTools(db: RedditDb): Tool[] {
         }
 
         if (posts.length > 0) {
-          markdown += `\n*Report generated from r/${posts[0]?.subreddit}*\n`;
+          const subreddits = Array.from(new Set(posts.map((p) => p.subreddit)));
+          markdown += `\n*Report generated from: ${subreddits.map((sr) => `r/${sr}`).join(', ')}*\n`;
         }
 
         yield { type: 'result', value: { markdown } };

@@ -11,8 +11,8 @@ export interface RedditPost {
   num_comments: number;
   url: string;
   text_content: string | undefined;
-  sentiment: string | undefined;
-  keywords: string[] | undefined;
+  sentiment: string | null;
+  keywords: string[];
   created_utc: number;
   fetched_at: Date;
 }
@@ -21,8 +21,8 @@ export interface RedditVenture {
   id: string;
   venture: string;
   subreddit: string;
-  keywords?: string[];
-  sentiment_keywords?: string[];
+  keywords: string[];
+  sentiment_keywords: string[];
 }
 
 export class RedditDb {

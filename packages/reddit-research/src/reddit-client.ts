@@ -36,14 +36,16 @@ export class RedditClient {
     this.reddit = new Snoowrap(opts as unknown as ConstructorParameters<typeof Snoowrap>[0]);
   }
 
-  async searchSubreddit(subredditName: string, keywords: string[], limit: number = 50): Promise<RedditSearchResult[]> {
+  async searchSubreddit(subredditName: string, keywords: string[], limit: number = 50, timeWindowDays?: number): Promise<RedditSearchResult[]> {
     const sr = this.reddit.getSubreddit(subredditName);
     const searchQuery = keywords.join(' OR ');
 
+    const timeWindow = this.convertDaysToTimeParam(timeWindowDays ?? 7);
+    // sort 'top' by engagement (upvotes + comments), which is the primary ranking metric for market research
     const postsIterable = await sr.search({
       query: searchQuery,
       sort: 'top',
-      time: 'year',
+      time: timeWindow,
     } as any);
 
     const posts: RedditSearchResult[] = [];
@@ -96,6 +98,14 @@ export class RedditClient {
       count++;
     }
     return posts;
+  }
+
+  private convertDaysToTimeParam(days: number): 'day' | 'week' | 'month' | 'year' | 'all' {
+    if (days <= 1) return 'day';
+    if (days <= 7) return 'week';
+    if (days <= 30) return 'month';
+    if (days <= 365) return 'year';
+    return 'all';
   }
 
   private detectSentiment(title: string, content?: string): string | undefined {
