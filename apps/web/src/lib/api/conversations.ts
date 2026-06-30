@@ -90,6 +90,8 @@ export interface ConversationSummary {
   created_at: string;
   updated_at: string;
   starred: boolean;
+  /** Folder this conversation lives in (eidan.conversations.folder_id); null = root / unfiled. */
+  folder_id?: string | null;
 }
 
 // A conversation is unread if it changed since you last opened it (an agent posting re-marks it).
@@ -121,6 +123,8 @@ export interface ListConversationsOpts {
   kind?: "all" | "agents" | "chats";
   /** Filter to conversations carrying this label (metadata.tags). */
   tag?: string;
+  /** Filter by folder: a folder id, or "none" for unfiled. Omit for all. */
+  folder?: string;
 }
 
 // Bulk add/remove labels on conversations (the select-bar Tag action). Stored in metadata.tags.
@@ -146,6 +150,7 @@ export async function listConversations(
   if (opts.q && opts.q.trim()) qs.set("q", opts.q.trim());
   if (opts.kind && opts.kind !== "all") qs.set("kind", opts.kind);
   if (opts.tag && opts.tag.trim()) qs.set("tag", opts.tag.trim());
+  if (opts.folder && opts.folder.trim()) qs.set("folder", opts.folder.trim());
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const res = await authFetch(`/api/conversations${suffix}`, {
     method: "GET",
@@ -291,4 +296,17 @@ export async function toggleConversationStar(
     );
   }
   return (await res.json()) as StarConversationResponse;
+}
+
+/** Move a conversation into a folder (or to root with `null`). */
+export async function moveConversationToFolder(
+  conversationId: string,
+  folderId: string | null,
+): Promise<void> {
+  const res = await authFetch(`/api/conversations/${conversationId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ folder_id: folderId }),
+  });
+  if (!res.ok) throw new Error(`PATCH /api/conversations/${conversationId} returned ${res.status}`);
 }
