@@ -6,6 +6,11 @@ import { RedditClient } from './reddit-client.js';
 import { getSecret } from './vault.js';
 import { getEngagement } from './engagement.js';
 
+function getMatchedKeywords(keywords: string[], title: string, content: string | null): string[] {
+  const text = `${title} ${content || ''}`.toLowerCase();
+  return keywords.filter((kw) => text.includes(kw.toLowerCase()));
+}
+
 const SEARCH_REDDIT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -142,7 +147,7 @@ export function makeRedditTools(db: RedditDb): Tool[] {
           url: post.url,
           text_content: post.text_content,
           sentiment: post.sentiment,
-          keywords,
+          keywords: getMatchedKeywords(keywords, post.title, post.text_content),
           created_utc: post.created_utc,
         })));
 
