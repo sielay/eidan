@@ -4,7 +4,7 @@ Search Reddit for market trends and pain points. Agents can discover what users 
 
 ## Setup
 
-1. **Create a Reddit app** at https://reddit.com/prefs/apps:
+1. **Create a Reddit app** at https://developers.reddit.com/app-registration:
    - Create a "script" app (not a web app)
    - Note the client ID and client secret
 

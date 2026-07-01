@@ -57,7 +57,7 @@ export const plugin: MatbotPluginSpec = {
           label: 'Reddit App Client ID',
           secret: true,
           required: true,
-          help: 'OAuth app client ID from reddit.com/prefs/apps (create an app)',
+          help: 'OAuth app client ID — register an app at https://developers.reddit.com/app-registration',
         },
         {
           name: 'REDDIT_CLIENT_SECRET',
