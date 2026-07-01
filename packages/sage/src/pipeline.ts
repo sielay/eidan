@@ -148,6 +148,10 @@ export async function runInitialPipeline(deps: PipelineDeps, job: PipelineJob): 
       await notify(`⏳ ${jobRef}: workspace for stack \`${job.stack}\` is busy (a peer holds the lease) — re-queuing`, 'warn');
       return { status: 'requeue', error: 'workspace lease busy' };
     }
+    // The base actually used — may differ from cfg.defaultBase when the target repo lacks that branch
+    // (e.g. a non-eidan repo with no `next-release`); the PR must target this, not the requested base.
+    const effectiveBase = prepared.baseRef ?? base;
+    if (effectiveBase !== base) await notify(`ℹ️ ${jobRef}: \`${base}\` not in ${ownerRepo}; using its default \`${effectiveBase}\` as the base`);
 
     // 2. The ONLY LLM step: code the change. A per-job model override (job targeting) wins over
     //    the node's configured default; provider is N/A here (sage shells the local `claude` CLI).
@@ -194,7 +198,7 @@ export async function runInitialPipeline(deps: PipelineDeps, job: PipelineJob): 
         host: job.host,
         ownerRepo,
         head: branch,
-        base,
+        base: effectiveBase,
         title: job.title,
         body: prBody(job.title, job.goal, job.jobId, extractOpenQuestions(coding.finalText)),
       });
@@ -205,7 +209,7 @@ export async function runInitialPipeline(deps: PipelineDeps, job: PipelineJob): 
     }
 
     await seedCursor(db, {
-      host: job.host, repo: ownerRepo, prNumber: opened.number, headRef: branch, baseRef: base,
+      host: job.host, repo: ownerRepo, prNumber: opened.number, headRef: branch, baseRef: effectiveBase,
       stack: job.stack, cwd: prepared.path, taskPrompt: codingPrompt(job.owner, job.repo, job.title, job.goal),
       nodeId: cfg.nodeId, lastCommitSha: sha, userId: job.userId,
     });
