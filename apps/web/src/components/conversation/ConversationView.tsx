@@ -22,6 +22,7 @@ import { CostCounter } from "./CostCounter";
 import { LlmCallTrace } from "./LlmCallTrace";
 import { listConversationLlmCalls } from "@/lib/api/llm-calls";
 import type { MsgStats } from "./Message";
+import { ContextMeter } from "./ContextMeter";
 import { Thread } from "./Thread";
 
 /**
@@ -339,6 +340,18 @@ export function ConversationView({
     streamingAssistant,
   });
 
+  // Context fullness for the meter: the largest turn's input context (prompt + cache-read tokens, which
+  // still occupy the window). Context grows over a conversation, so the max ≈ the latest turn.
+  const ctx = React.useMemo(() => {
+    let used = 0;
+    let model: string | null = null;
+    for (const s of llmStats.values()) {
+      const u = s.input + s.cacheRead;
+      if (u > used) { used = u; model = s.model; }
+    }
+    return { used, model };
+  }, [llmStats]);
+
   return (
     <div className="chat-screen">
       <header className="chat-head">
@@ -402,6 +415,10 @@ export function ConversationView({
             />
           </div>
         ) : null}
+      </div>
+
+      <div className="flex justify-end px-1 pb-0.5">
+        <ContextMeter used={ctx.used} model={ctx.model} />
       </div>
 
       <Composer
