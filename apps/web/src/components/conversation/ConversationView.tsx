@@ -58,6 +58,8 @@ export function ConversationView({
   const { config, user, loading } = useAuth();
   const router = useRouter();
   const [forking, setForking] = React.useState(false);
+  const abortRef = React.useRef<AbortController | null>(null);
+  const stopTurn = React.useCallback(() => { abortRef.current?.abort(); }, []);
 
   const [history, setHistory] = React.useState<MessageRow[] | null>(null);
   const [historyError, setHistoryError] = React.useState<string | null>(null);
@@ -195,10 +197,16 @@ export function ConversationView({
         prev ?? { text: "", interrupted: false, toolCalls: [] };
 
       let completed = false;
+      // Abortable so a wedged/never-ending turn can be stopped from the UI (the composer is disabled
+      // while a turn is in flight, so a stuck turn would otherwise lock the conversation — this is the
+      // "prompts vanishing on long turns" recovery). Aborting throws into the catch → cleanup below.
+      const ac = new AbortController();
+      abortRef.current = ac;
       try {
         for await (const event of streamTurn({
           conversationId,
           text,
+          signal: ac.signal,
           ...(provider ? { provider } : {}),
           ...(attachments && attachments.length ? { attachments } : {}),
           ...(compare && compare.length >= 2 ? { compare } : {}),
@@ -465,6 +473,16 @@ export function ConversationView({
       </div>
 
       <div className="flex items-center justify-end gap-3 px-1 pb-0.5">
+        {inFlight ? (
+          <button
+            type="button"
+            onClick={stopTurn}
+            title="Stop this turn (recover a stuck/long-running response)"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+          >
+            ■ Stop
+          </button>
+        ) : null}
         {messages.length > 1 ? (
           <button
             type="button"
