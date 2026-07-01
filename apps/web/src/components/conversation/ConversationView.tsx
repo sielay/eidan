@@ -341,8 +341,9 @@ export function ConversationView({
   });
 
   // Context fullness for the meter: the largest turn's input context (prompt + cache-read tokens, which
-  // still occupy the window). Context grows over a conversation, so the max ≈ the latest turn.
-  const ctx = React.useMemo(() => {
+  // still occupy the window). Context grows over a conversation, so the max ≈ the latest turn. Plain
+  // computation (not a hook) — this runs after the component's early returns.
+  const ctx = ((): { used: number; model: string | null } => {
     let used = 0;
     let model: string | null = null;
     for (const s of llmStats.values()) {
@@ -350,7 +351,7 @@ export function ConversationView({
       if (u > used) { used = u; model = s.model; }
     }
     return { used, model };
-  }, [llmStats]);
+  })();
 
   return (
     <div className="chat-screen">
