@@ -22,6 +22,8 @@ export const CORE_PLUGINS = [
   // integrations: read-through mail / calendar / drive / gmail over the operator's vault-sealed
   // accounts, each with its own admin screen.
   "imap", "ical", "google", "gdrive",
+  // reddit-research: market trends and pain points across ventures
+  "reddit-research",
   // matbot engine tool plugins (vendored submodule) enabled by default — general, dependency-free
   // capabilities: a file scratchpad, web requests, human-in-the-loop prompts, detached sub-turns.
   "workspace", "http", "ask-user", "ask-user-fallback", "background",
