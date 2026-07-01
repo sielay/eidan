@@ -25,6 +25,8 @@ export interface RedditVenture {
   subreddit: string;
   keywords: string[];
   sentiment_keywords: string[];
+  created_at: Date;
+  updated_at: Date;
 }
 
 export class RedditDb {
@@ -136,7 +138,7 @@ export class RedditDb {
 
   async getVentures(userId: string): Promise<RedditVenture[]> {
     const result = await this.pool.query(
-      `select id, venture, subreddit, keywords, sentiment_keywords from eidan.reddit_ventures
+      `select id, user_id, venture, subreddit, keywords, sentiment_keywords, created_at, updated_at from eidan.reddit_ventures
        where user_id = $1 and deleted_at is null`,
       [userId],
     );
@@ -155,7 +157,7 @@ export class RedditDb {
        values ($1, $2, $3, $4, $5)
        on conflict (user_id, venture, subreddit) do update
        set keywords = excluded.keywords, sentiment_keywords = excluded.sentiment_keywords, updated_at = now(), deleted_at = null
-       returning id, user_id, venture, subreddit, keywords, sentiment_keywords`,
+       returning id, user_id, venture, subreddit, keywords, sentiment_keywords, created_at, updated_at`,
       // Null/undefined keyword params are explicitly converted to empty arrays; database always stores arrays (never null).
       [userId, venture, subreddit, keywords ?? [], sentimentKeywords ?? []],
     );

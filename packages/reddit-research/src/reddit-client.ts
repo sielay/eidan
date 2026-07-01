@@ -50,8 +50,9 @@ export class RedditClient {
     this.clientSecret = clientSecret;
     this.refreshToken = refreshToken;
     const custom = process.env['REDDIT_USER_AGENT'];
-    // Sanitize a custom user-agent: reject newlines / over-length that could be a header-injection vector.
-    this.userAgent = custom && /^[\w\-.+()/ :]+$/.test(custom) && custom.length <= 128
+    // Sanitize a custom user-agent: reject newlines / spaces / over-length that could be a header-injection vector.
+    // Allow only alphanumerics, dots, dashes, slashes, plus, parens (typical user-agent format).
+    this.userAgent = custom && /^[\w.+()/+-]+$/.test(custom) && custom.length <= 100
       ? custom
       : 'Eidan-Reddit-Research/0.1.0 (+https://github.com/sielay/eidan)';
   }
@@ -90,6 +91,8 @@ export class RedditClient {
     const data = (await resp.json()) as { data?: { children?: Array<{ data?: Record<string, unknown> }> } };
     return (data.data?.children ?? []).map((c) => {
       const p = c.data ?? {};
+      // Coerce all fields to their expected types; Reddit normally returns strings for non-numeric fields,
+      // but [deleted] posts and some edge cases may have null or unexpected types. Default to safe fallbacks.
       return {
         id: String(p['id'] ?? ''),
         title: String(p['title'] ?? ''),
@@ -145,13 +148,13 @@ export class RedditClient {
 
   private detectSentiment(title: string, content?: string): string | undefined {
     // Simple keyword-based sentiment classification. Known limitation: context-insensitive, so
-    // 'overcame a difficult challenge' scores as frustration. Basic negation check for 'help'.
+    // 'overcame a difficult challenge' scores as frustration. Extended negation patterns for common cases.
     const text = `${title} ${content || ''}`.toLowerCase();
     const frustrationCount = FRUSTRATION_KEYWORDS.filter((kw) => text.includes(kw)).length;
 
     if (frustrationCount >= 2) return 'frustration';
     if (frustrationCount === 1 && text.includes('help')) {
-      const hasNegation = /(?:not|don't|didn't|can't|won't|no)\s+\w*help/.test(text);
+      const hasNegation = /(?:not|don't|didn't|can't|won't|no|doesn't|didn't)\s+\w*help/.test(text);
       if (!hasNegation) return 'seeking_help';
     }
     if (text.includes('love') || text.includes('great') || text.includes('amazing')) return 'positive';
