@@ -7,6 +7,7 @@ import { Check, ChevronDown, Cpu, GitFork, Loader2, Mic, MoreVertical, Paperclip
 import { isTranscribeAvailable, transcribeAudio } from "@/lib/api/transcribe";
 import type { ProviderOption } from "@/lib/models";
 import type { OpenRouterModel } from "@/lib/api/admin";
+import { VendorModelPicker } from "@/components/agents/ModelPicker";
 import { useTextareaMentions } from "./useTextareaMentions";
 
 // Filter the OpenRouter catalogue by a query against id/name; capped so a 300+ list stays a menu.
@@ -170,11 +171,16 @@ function ComposerMoreModelMenu({
   onClose: () => void;
 }): React.ReactElement {
   const [modelOpen, setModelOpen] = React.useState(false);
-  const [search, setSearch] = React.useState("");
   const current = providers.find((p) => p.name === provider);
   const label = provider ? (current?.name ?? provider) : "Default";
-  const hits = filterCatalog(catalog, search);
-  const pickModel = (value: string): void => { onChange(value); setModelOpen(false); setSearch(""); onClose(); };
+  const pickModel = (value: string): void => { onChange(value); setModelOpen(false); onClose(); };
+  // Reuse the agents' VendorModelPicker for the full-catalogue cascade. It works in (provider, model)
+  // pairs while chat sends a single token, so hold local state and translate on a concrete pick. The
+  // configured providers (native claude/haiku) stay as quick radios above, so their native routing —
+  // not the OpenRouter-synthesised slug — is preserved.
+  const [vp, setVp] = React.useState<{ provider: string; model: string }>(() =>
+    provider.includes("/") ? { provider: "openrouter", model: provider } : { provider: "", model: "" },
+  );
 
   if (modelOpen) {
     return (
@@ -219,36 +225,20 @@ function ComposerMoreModelMenu({
             </button>
           ))}
           {catalog && catalog.length > 0 ? (
-            <>
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={`Search ${catalog.length} models…`}
-                aria-label="Search all models"
-                className="composer__more-model-search"
-                style={{ width: "calc(100% - 16px)", margin: "4px 8px", padding: "4px 8px", fontSize: "var(--fs-13, 13px)", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, padding: "8px", borderTop: "1px solid var(--border)" }}>
+              <span className="composer__more-model-hint" style={{ width: "100%" }}>Any model (OpenRouter)</span>
+              <VendorModelPicker
+                models={catalog}
+                provider={vp.provider}
+                model={vp.model}
+                onChange={(p, m) => {
+                  setVp({ provider: p, model: m });
+                  if (p === "openrouter" && m) pickModel(m);            // an OpenRouter slug becomes the turn token
+                  else if (p === "ollama" && m) pickModel("ollama");    // chat can't carry a custom ollama model → use the configured provider
+                  else if (p === "") { onChange(""); setModelOpen(false); onClose(); } // node default
+                }}
               />
-              {hits.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  role="menuitemradio"
-                  className="composer__more-model-opt"
-                  aria-checked={m.id === provider}
-                  onClick={() => pickModel(m.id)}
-                  title={m.id}
-                  style={{ alignItems: "flex-start" }}
-                >
-                  <Check className={"i i-sm composer__more-model-tick" + (m.id === provider ? " is-on" : "")} aria-hidden style={{ marginTop: 2 }} />
-                  <span style={{ display: "flex", flexDirection: "column", minWidth: 0, gap: 1 }}>
-                    <span style={{ whiteSpace: "normal", lineHeight: 1.25 }}>{m.name}</span>
-                    {modelMeta(m) ? <span className="composer__more-model-hint" style={{ fontVariantNumeric: "tabular-nums" }}>{modelMeta(m)}</span> : null}
-                  </span>
-                </button>
-              ))}
-              {search.trim() && hits.length === 0 ? <div className="composer__more-model-hint" style={{ padding: "4px 12px" }}>No models match “{search.trim()}”.</div> : null}
-            </>
+            </div>
           ) : null}
         </div>
       </div>
