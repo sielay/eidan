@@ -758,7 +758,7 @@ export async function handleRest(
       // Enrich agent-origin conversations with their agent + the trigger that fired this thread, so the
       // chat header can show "🤖 <agent> · <why it ran>" instead of leaving you guessing.
       const r = await withPrincipal(principal, (q) => q(
-        `select c.id, c.title, c.created_at, c.updated_at, c.starred,
+        `select c.id, c.title, c.created_at, c.updated_at, c.starred, c.folder_id,
                 c.metadata->>'origin' as origin,
                 coalesce(a.name, c.metadata->>'agent_name') as agent_name,
                 r.agent_id as agent_id, r.detail as run_detail,
@@ -770,10 +770,11 @@ export async function handleRest(
            left join eidan.agents a on a.id = r.agent_id
           where c.id=$1 and c.user_id=$2 and c.deleted_at is null`,
         [id, uid]));
-      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown; origin?: string; agent_name?: string; agent_id?: string; run_detail?: string; trigger_type?: string; trigger_config?: Record<string, unknown> } | undefined;
+      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown; folder_id?: unknown; origin?: string; agent_name?: string; agent_id?: string; run_detail?: string; trigger_type?: string; trigger_config?: Record<string, unknown> } | undefined;
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
       json(res, 200, {
         id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
+        folder_id: row.folder_id ? String(row.folder_id) : null,
         origin: row.origin ?? null, agent_name: row.agent_name ?? null, agent_id: row.agent_id ?? null,
         trigger_type: row.trigger_type ?? null, trigger_desc: triggerDesc(row.trigger_type, row.trigger_config), run_detail: row.run_detail ?? null,
       }, cors);

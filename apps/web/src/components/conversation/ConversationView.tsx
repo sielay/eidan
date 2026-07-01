@@ -2,12 +2,15 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   fetchConversation,
   fetchConversationMessages,
   markConversationRead,
+  createConversation,
+  moveConversationToFolder,
   type MessageRow,
 } from "@/lib/api/conversations";
 import { streamTurn, answerPrompt, type AskField } from "@/lib/api/turn";
@@ -53,6 +56,8 @@ export function ConversationView({
   conversationId: string;
 }): React.ReactElement {
   const { config, user, loading } = useAuth();
+  const router = useRouter();
+  const [forking, setForking] = React.useState(false);
 
   const [history, setHistory] = React.useState<MessageRow[] | null>(null);
   const [historyError, setHistoryError] = React.useState<string | null>(null);
@@ -298,6 +303,47 @@ export function ConversationView({
     );
   }, [inFlight, onSubmit]);
 
+  // Summarise & continue: when a thread gets long (heavy on context/tokens), distil it into a brief and
+  // spin up a fresh conversation IN THE SAME FOLDER seeded with that brief — so you keep the thread of
+  // thought but reset the context window. Orchestrated client-side over the normal turn/create/move
+  // endpoints; both helper turns run silently (their text isn't streamed into this view).
+  const summariseAndFork = React.useCallback(async () => {
+    if (forking || inFlight) return;
+    setForking(true);
+    try {
+      let summary = "";
+      for await (const ev of streamTurn({
+        conversationId,
+        text: "Summarise our conversation so far into a concise continuation brief for a fresh thread: the goal, the key decisions and facts established, the current state, and the open next steps. Output ONLY the brief in markdown, no preamble.",
+        ...(provider ? { provider } : {}),
+      })) {
+        if (ev.kind === "text") summary += ev.delta;
+      }
+      summary = summary.trim();
+      if (!summary) throw new Error("could not generate a summary");
+
+      let folderId: string | null = null;
+      try { folderId = (await fetchConversation(conversationId)).folder_id ?? null; } catch { /* place at root */ }
+
+      const created = await createConversation(`${title ?? "Chat"} (continued)`);
+      const newId = created.id;
+      if (folderId) { try { await moveConversationToFolder(newId, folderId); } catch { /* leave unfiled */ } }
+
+      // Seed the fresh thread with the brief (drain the stream; the ack lands as the first exchange).
+      for await (const _ of streamTurn({
+        conversationId: newId,
+        text: `This thread continues a previous conversation. Continuation brief:\n\n${summary}\n\n---\nReply only with "Ready to continue where we left off." and wait for my next message.`,
+        ...(provider ? { provider } : {}),
+      })) { void _; }
+
+      router.push(`/c/${newId}`);
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : "summarise & continue failed");
+    } finally {
+      setForking(false);
+    }
+  }, [forking, inFlight, conversationId, provider, title, router]);
+
   // Settle a parked ask_user prompt. Clear it optimistically (the form vanishes immediately); the
   // turn's open SSE stream delivers whatever the agent does next once the engine unblocks the tool.
   const respondToPrompt = React.useCallback(
@@ -418,7 +464,18 @@ export function ConversationView({
         ) : null}
       </div>
 
-      <div className="flex justify-end px-1 pb-0.5">
+      <div className="flex items-center justify-end gap-3 px-1 pb-0.5">
+        {messages.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => void summariseAndFork()}
+            disabled={forking || inFlight}
+            title="Summarise this conversation and continue in a fresh thread (same folder) to reset the context window"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+          >
+            {forking ? "Summarising…" : "⑂ Summarise & continue"}
+          </button>
+        ) : null}
         <ContextMeter used={ctx.used} model={ctx.model} />
       </div>
 
