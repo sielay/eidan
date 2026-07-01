@@ -50,9 +50,9 @@ export class RedditClient {
     this.clientSecret = clientSecret;
     this.refreshToken = refreshToken;
     const custom = process.env['REDDIT_USER_AGENT'];
-    // Sanitize a custom user-agent: reject newlines / spaces / over-length that could be a header-injection vector.
-    // Allow only alphanumerics, dots, dashes, slashes, plus, parens (typical user-agent format).
-    this.userAgent = custom && /^[\w.+()/+-]+$/.test(custom) && custom.length <= 100
+    // Strict user-agent validation: allow only safe chars (alphanumerics, dot, dash, slash, parens, plus).
+    // Reject spaces and other chars that could enable header injection. Max 75 chars (conservative).
+    this.userAgent = custom && /^[a-zA-Z0-9._/()+-]+$/.test(custom) && custom.length <= 75
       ? custom
       : 'Eidan-Reddit-Research/0.1.0 (+https://github.com/sielay/eidan)';
   }
