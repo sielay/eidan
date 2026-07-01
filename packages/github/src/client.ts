@@ -205,6 +205,27 @@ export class GitHubClient {
     }
   }
 
+  // List a directory's entries. The contents API returns an ARRAY for a directory (and a single
+  // object for a file), so this is how you enumerate a tree the read_file/search tools can't browse.
+  // Non-recursive: one level; call again on a subdir path to descend.
+  async listDir(
+    repo: string,
+    path?: string,
+    ref?: string,
+  ): Promise<{ ok: boolean; path?: string; entries?: Array<{ name: string; path: string; type: string; size: number }>; error?: string }> {
+    if (!repo) return { ok: false, error: 'repo is required' };
+    const p = (path ?? '').replace(/^\/+|\/+$/g, '');
+    const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    const result = await this.request<Array<{ name?: string; path?: string; type?: string; size?: number }>>(`/repos/${repo}/contents/${p}${query}`);
+    if (!result.ok) return { ok: false, error: result.error ?? 'failed to list directory' };
+    const data = result.data;
+    if (!Array.isArray(data)) return { ok: false, error: `"${p || '/'}" is a file, not a directory — use github_read_file` };
+    const entries = data
+      .map((e) => ({ name: String(e.name ?? ''), path: String(e.path ?? ''), type: String(e.type ?? ''), size: Number(e.size ?? 0) }))
+      .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1));
+    return { ok: true, path: p || '/', entries };
+  }
+
   // List issues for a repo (paginated).
   async listIssues(
     repo: string,

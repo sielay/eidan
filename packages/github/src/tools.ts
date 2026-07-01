@@ -56,6 +56,18 @@ const READ_FILE_SCHEMA = {
   },
 };
 
+const LIST_DIR_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['repo'],
+  properties: {
+    repo: { type: 'string', description: 'Repository (owner/name).' },
+    path: { type: 'string', description: 'Directory path in the repo (omit or "" for the repo root).' },
+    ref: { type: 'string', description: 'Optional branch, tag, or commit SHA (default: default branch).' },
+    account: ACCOUNT_PROP.account,
+  },
+};
+
 const ISSUES_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -252,6 +264,25 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
     },
   };
 
+  const githubListDirTool: Tool = {
+    name: 'github_list_dir',
+    description:
+      'List a directory in a GitHub repo (one level: files + subdirs with name, path, type, size). This is how you BROWSE a repo tree — github_read_file reads one known file, this enumerates a folder. Pass `path` to descend (omit for the repo root). Use `account` to pick which connected account.',
+    inputSchema: LIST_DIR_SCHEMA,
+    executor: {
+      async *execute(input: unknown, ctx: ToolContext) {
+        const args = (input ?? {}) as { repo?: string; path?: string; ref?: string; account?: string };
+        const repo = String(args.repo ?? '').trim();
+        if (!repo) { yield { type: 'error', message: 'repo is required' }; return; }
+        const { client, error } = await resolveClient(ctx, store, seal, args.account, { repo });
+        if (!client) { yield { type: 'error', message: error ?? 'Failed to create GitHub client' }; return; }
+        const result = await client.listDir(repo, args.path ? String(args.path) : undefined, args.ref ? String(args.ref) : undefined);
+        if (!result.ok) { yield { type: 'error', message: result.error ?? 'Failed to list directory' }; return; }
+        yield { type: 'result', value: { path: result.path, count: result.entries?.length ?? 0, entries: result.entries } };
+      },
+    },
+  };
+
   const githubListIssuesTool: Tool = {
     name: 'github_list_issues',
     description: 'List issues for a GitHub repo. Use `account` to pick which connected account. Returns issue number, title, state, URL, body, author, and created date.',
@@ -370,6 +401,7 @@ export function makeGitHubTools(store: AccountStore | null, seal?: SealFn): Tool
     githubReposTool,
     githubRepoTool,
     githubReadFileTool,
+    githubListDirTool,
     githubListIssuesTool,
     githubCreateIssueTool,
     githubListPRsTool,
