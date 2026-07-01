@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // eidan `reddit-research` plugin: search Reddit for market trends and pain points across ventures.
 // Agents can call search_reddit, get_trends, and generate_report to extract insights from Reddit.
-// Credentials: REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET (snoowrap app-only OAuth)
+// Credentials: REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET (Reddit app-only OAuth; optional REDDIT_REFRESH_TOKEN).
 import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { RedditDb } from './db.js';
@@ -35,7 +35,7 @@ export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
     description:
-      'Reddit research tool: search subreddits for market trends and pain points, cache results, and generate reports (search_reddit, get_trends, generate_report). Requires snoowrap OAuth credentials.',
+      'Reddit research tool: search subreddits for market trends and pain points, cache results, and generate reports (search_reddit, get_trends, generate_report). Requires Reddit OAuth credentials (client id/secret).',
   },
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];

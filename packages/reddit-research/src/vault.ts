@@ -2,14 +2,8 @@
 import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 
-declare module '@matatbread/matbot-plugin-api' {
-  interface ToolContext {
-    vault?: {
-      resolve(placeholder: string): Promise<string | undefined>;
-    };
-  }
-}
-
+// ctx.vault is matbot's canonical Vault (resolve() returns the secret or throws MissingSecretError). Do
+// NOT re-declare it here — an augmentation with a different shape conflicts with the real runtime type.
 export async function getSecret(ctx: ToolContext, name: string, required = false): Promise<string | undefined> {
   try {
     return await ctx.vault.resolve(`\${${name}}`);

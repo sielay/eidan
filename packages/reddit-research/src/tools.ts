@@ -83,6 +83,7 @@ async function getRedditClient(ctx: ToolContext): Promise<RedditClient | { error
     const clientSecret = await getSecret(ctx, 'REDDIT_CLIENT_SECRET', true);
     const refreshToken = await getSecret(ctx, 'REDDIT_REFRESH_TOKEN', false);
 
+    if (!clientId || !clientSecret) return { error: 'Reddit credentials not configured (REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET)' };
     return new RedditClient(clientId, clientSecret, refreshToken);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Reddit credentials not configured';
