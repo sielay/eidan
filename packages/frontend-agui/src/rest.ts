@@ -566,6 +566,64 @@ export async function handleRest(
     return true;
   }
 
+  // /api/folders — conversation folders: create / rename / delete / star / move (nest). User-scoped;
+  // every query filters by user_id explicitly (same guard the conversation routes use).
+  if (parts[0] === 'api' && parts[1] === 'folders') {
+    const fid = parts[2];
+    if (parts.length === 2 && method === 'GET') {
+      const r = await withPrincipal(principal, (q) => q(
+        `select id, name, parent_id, starred, sort_order, created_at, updated_at
+           from eidan.conversation_folders where user_id=$1 and deleted_at is null
+          order by starred desc, sort_order, lower(name)`, [uid]));
+      json(res, 200, { folders: r.rows.map((row) => ({
+        id: String(row.id), name: (row as { name?: unknown }).name ?? '',
+        parent_id: (row as { parent_id?: unknown }).parent_id ? String((row as { parent_id: unknown }).parent_id) : null,
+        starred: (row as { starred?: unknown }).starred === true, sort_order: Number((row as { sort_order?: unknown }).sort_order ?? 0),
+        created_at: iso(row.created_at), updated_at: iso(row.updated_at),
+      })) }, cors);
+      return true;
+    }
+    if (parts.length === 2 && method === 'POST') {
+      let b: { name?: unknown; parent_id?: unknown } = {};
+      try { b = parseJsonBody(await readTextBody(req, 16 * 1024)) as typeof b; } catch { json(res, 400, { error: 'invalid JSON' }, cors); return true; }
+      const name = typeof b.name === 'string' ? b.name.trim() : '';
+      if (!name) { json(res, 400, { error: 'name is required' }, cors); return true; }
+      const parentId = typeof b.parent_id === 'string' && b.parent_id ? b.parent_id : null;
+      const r = await withPrincipal(principal, (q) => q(
+        `insert into eidan.conversation_folders (user_id, name, parent_id) values ($1,$2,$3)
+         returning id, name, parent_id, starred, sort_order`, [uid, name, parentId]));
+      const row = r.rows[0]!;
+      json(res, 200, { folder: { id: String(row.id), name: row.name, parent_id: row.parent_id ? String(row.parent_id) : null, starred: row.starred === true, sort_order: Number(row.sort_order ?? 0) } }, cors);
+      return true;
+    }
+    if (fid && method === 'PATCH') {
+      let b: Record<string, unknown> = {};
+      try { b = parseJsonBody(await readTextBody(req, 16 * 1024)) as Record<string, unknown>; } catch { json(res, 400, { error: 'invalid JSON' }, cors); return true; }
+      const updates: string[] = ['updated_at=now()']; const vals: unknown[] = [fid, uid]; let p = 3;
+      if ('name' in b) { if (typeof b.name !== 'string' || !b.name.trim()) { json(res, 400, { error: 'name must be a non-empty string' }, cors); return true; } vals.push(b.name.trim()); updates.push(`name=$${p++}`); }
+      if ('starred' in b) { if (typeof b.starred !== 'boolean') { json(res, 400, { error: 'starred must be a boolean' }, cors); return true; } vals.push(b.starred); updates.push(`starred=$${p++}`); }
+      if ('sort_order' in b) { const n = Number(b.sort_order); if (!Number.isFinite(n)) { json(res, 400, { error: 'sort_order must be a number' }, cors); return true; } vals.push(Math.trunc(n)); updates.push(`sort_order=$${p++}`); }
+      if ('parent_id' in b) { const pv = b.parent_id; if (pv !== null && typeof pv !== 'string') { json(res, 400, { error: 'parent_id must be a string or null' }, cors); return true; } if (pv === fid) { json(res, 400, { error: 'a folder cannot be its own parent' }, cors); return true; } vals.push(pv ?? null); updates.push(`parent_id=$${p++}`); }
+      const r = await withPrincipal(principal, (q) => q(
+        `update eidan.conversation_folders set ${updates.join(', ')} where id=$1 and user_id=$2 and deleted_at is null
+         returning id, name, parent_id, starred, sort_order`, vals));
+      const row = r.rows[0]; if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
+      json(res, 200, { folder: { id: String(row.id), name: row.name, parent_id: row.parent_id ? String(row.parent_id) : null, starred: row.starred === true, sort_order: Number(row.sort_order ?? 0) } }, cors);
+      return true;
+    }
+    if (fid && method === 'DELETE') {
+      await withPrincipal(principal, async (q) => {
+        // Reparent child folders to this folder's parent so the tree never orphans, unfile its
+        // conversations (folder_id -> null), then soft-delete the folder.
+        await q(`update eidan.conversation_folders c set parent_id = (select parent_id from eidan.conversation_folders where id=$1 and user_id=$2), updated_at=now() where c.parent_id=$1 and c.user_id=$2 and c.deleted_at is null`, [fid, uid]);
+        await q(`update eidan.conversations set folder_id=null, updated_at=now() where folder_id=$1 and user_id=$2`, [fid, uid]);
+        await q(`update eidan.conversation_folders set deleted_at=now(), updated_at=now() where id=$1 and user_id=$2`, [fid, uid]);
+      });
+      json(res, 200, { ok: true }, cors);
+      return true;
+    }
+  }
+
   // /api/conversations
   if (parts.length === 2 && parts[0] === 'api' && parts[1] === 'conversations') {
     if (method === 'GET') {
@@ -588,6 +646,10 @@ export async function handleRest(
       if (search) { vals.push(`%${search}%`); conds.push(`(title ilike $${vals.length} or metadata->>'agent_name' ilike $${vals.length})`); }
       const tag = (qp.get('tag') ?? '').trim();
       if (tag) { vals.push(JSON.stringify([tag])); conds.push(`coalesce(metadata->'tags','[]'::jsonb) @> $${vals.length}::jsonb`); }
+      // `folder`: a folder id shows that folder's chats; 'none'/'root' shows unfiled; absent = all.
+      const folder = (qp.get('folder') ?? '').trim();
+      if (folder === 'none' || folder === 'root') conds.push('folder_id is null');
+      else if (folder) { vals.push(folder); conds.push(`folder_id = $${vals.length}`); }
       if (before) {
         // When using keyset pagination with 'before' cursor, 'before_starred' must be provided and valid.
         // This ensures consistent pagination across the (starred DESC, updated_at DESC) sort order.
@@ -614,7 +676,7 @@ export async function handleRest(
                   metadata->>'origin' as origin, metadata->>'agent_name' as agent_name,
                   coalesce(metadata->'tags', '[]'::jsonb) as tags,
                   metadata->>'last_read_at' as last_read_at,
-                  created_at, updated_at, starred
+                  created_at, updated_at, starred, folder_id
              from eidan.conversations
             where ${conds.join(' and ')}
             order by starred desc, coalesce(updated_at, created_at) desc limit $${vals.length}`,
@@ -632,6 +694,7 @@ export async function handleRest(
           tags: Array.isArray((row as { tags?: unknown }).tags) ? ((row as { tags: unknown[] }).tags).map(String) : [],
           last_read_at: (row as { last_read_at?: unknown }).last_read_at ? iso((row as { last_read_at: unknown }).last_read_at) : null,
           created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
+          folder_id: (row as { folder_id?: unknown }).folder_id ? String((row as { folder_id: unknown }).folder_id) : null,
         })),
         next_before: nextBefore,
         next_before_starred: nextBeforeStarred,
@@ -695,7 +758,7 @@ export async function handleRest(
       // Enrich agent-origin conversations with their agent + the trigger that fired this thread, so the
       // chat header can show "🤖 <agent> · <why it ran>" instead of leaving you guessing.
       const r = await withPrincipal(principal, (q) => q(
-        `select c.id, c.title, c.created_at, c.updated_at, c.starred,
+        `select c.id, c.title, c.created_at, c.updated_at, c.starred, c.folder_id,
                 c.metadata->>'origin' as origin,
                 coalesce(a.name, c.metadata->>'agent_name') as agent_name,
                 r.agent_id as agent_id, r.detail as run_detail,
@@ -707,10 +770,11 @@ export async function handleRest(
            left join eidan.agents a on a.id = r.agent_id
           where c.id=$1 and c.user_id=$2 and c.deleted_at is null`,
         [id, uid]));
-      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown; origin?: string; agent_name?: string; agent_id?: string; run_detail?: string; trigger_type?: string; trigger_config?: Record<string, unknown> } | undefined;
+      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown; folder_id?: unknown; origin?: string; agent_name?: string; agent_id?: string; run_detail?: string; trigger_type?: string; trigger_config?: Record<string, unknown> } | undefined;
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
       json(res, 200, {
         id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
+        folder_id: row.folder_id ? String(row.folder_id) : null,
         origin: row.origin ?? null, agent_name: row.agent_name ?? null, agent_id: row.agent_id ?? null,
         trigger_type: row.trigger_type ?? null, trigger_desc: triggerDesc(row.trigger_type, row.trigger_config), run_detail: row.run_detail ?? null,
       }, cors);
@@ -755,6 +819,13 @@ export async function handleRest(
         if (typeof starredVal !== 'boolean') { json(res, 400, { error: 'starred must be a boolean' }, cors); return true; }
         vals.push(starredVal);
         updates.push(`starred=$${paramIdx}`);
+        paramIdx++;
+      }
+      if ('folder_id' in bodyObj) {
+        const f = bodyObj.folder_id;
+        if (f !== null && typeof f !== 'string') { json(res, 400, { error: 'folder_id must be a string or null' }, cors); return true; }
+        vals.push(f ?? null);
+        updates.push(`folder_id=$${paramIdx}`);
         paramIdx++;
       }
       let row: { id?: unknown; title?: unknown; starred?: unknown; updated_at?: unknown } | undefined;

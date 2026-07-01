@@ -22,9 +22,12 @@ import {
   updateConversationTitle,
   toggleConversationStar,
   tagConversations,
+  moveConversationToFolder,
   isUnread,
   type ConversationSummary,
 } from "@/lib/api/conversations";
+import { listFolders, type Folder } from "@/lib/api/folders";
+import { FoldersBar, type FolderFilter } from "./FoldersBar";
 import { cn } from "@/lib/utils";
 
 const FILTER_LABEL: Record<ThreadKindFilter, string> = {
@@ -87,6 +90,16 @@ export function ConversationList(): React.ReactElement {
   const [debounced, setDebounced] = React.useState("");
   const [tagFilter, setTagFilter] = React.useState<string | null>(null);
 
+  // Folders: the list of the user's folders + the currently-selected filter (folder id | "none" | null).
+  const [folders, setFolders] = React.useState<Folder[]>([]);
+  const [folderFilter, setFolderFilter] = React.useState<FolderFilter>(null);
+  const reloadFolders = React.useCallback(() => {
+    if (!config || !user) return;
+    void listFolders().then(setFolders).catch(() => undefined);
+  }, [config, user]);
+  React.useEffect(() => { reloadFolders(); }, [reloadFolders]);
+  const folderArg = folderFilter === null ? {} : { folder: folderFilter };
+
   React.useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 250);
     return () => clearTimeout(t);
@@ -102,7 +115,7 @@ export function ConversationList(): React.ReactElement {
     setNextBeforeStarred(null);
     (async () => {
       try {
-        const { conversations, nextBefore, nextBeforeStarred } = await listConversations({ limit: PAGE, kind: filter, q: debounced, ...(tagFilter ? { tag: tagFilter } : {}) });
+        const { conversations, nextBefore, nextBeforeStarred } = await listConversations({ limit: PAGE, kind: filter, q: debounced, ...(tagFilter ? { tag: tagFilter } : {}), ...folderArg });
         if (cancelled) return;
         setItems(conversations);
         setNextBefore(nextBefore);
@@ -113,7 +126,7 @@ export function ConversationList(): React.ReactElement {
       }
     })();
     return () => { cancelled = true; };
-  }, [config, user, filter, debounced, tagFilter]);
+  }, [config, user, filter, debounced, tagFilter, folderFilter]);
 
   const onRowStarChange = React.useCallback(
     (rowId: string, nextStarred: boolean, updatedAt: string) => {
@@ -143,18 +156,34 @@ export function ConversationList(): React.ReactElement {
     [],
   );
 
+  // A row moved to a folder: update its folder_id, and drop it from view if a folder filter is active
+  // and it no longer matches (it went elsewhere).
+  const onRowMoved = React.useCallback(
+    (rowId: string, folderId: string | null) => {
+      setItems((prev) => {
+        if (prev === null) return prev;
+        const matchesFilter =
+          folderFilter === null ||
+          (folderFilter === "none" ? folderId === null : folderId === folderFilter);
+        if (!matchesFilter) return prev.filter((r) => r.id !== rowId);
+        return prev.map((r) => (r.id === rowId ? { ...r, folder_id: folderId } : r));
+      });
+    },
+    [folderFilter],
+  );
+
   const loadMore = React.useCallback(async () => {
     if (loadingMore || !nextBefore || !config) return;
     setLoadingMore(true);
     try {
-      const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore, beforeStarred: nextBeforeStarred, ...(tagFilter ? { tag: tagFilter } : {}) });
+      const page = await listConversations({ limit: PAGE, kind: filter, q: debounced, before: nextBefore, beforeStarred: nextBeforeStarred, ...(tagFilter ? { tag: tagFilter } : {}), ...folderArg });
       setItems((prev) => [...(prev ?? []), ...page.conversations]);
       setNextBefore(page.nextBefore);
       setNextBeforeStarred(page.nextBeforeStarred);
     } catch { /* keep what we have; the next scroll-into-view retries */ } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, nextBefore, nextBeforeStarred, config, filter, debounced, tagFilter]);
+  }, [loadingMore, nextBefore, nextBeforeStarred, config, filter, debounced, tagFilter, folderFilter]);
 
   // Infinite scroll. The observer is created ONCE and calls the latest loadMore via a ref — putting
   // loadMore in the effect deps would re-create the observer on every loadingMore/nextBefore change,
@@ -323,6 +352,8 @@ export function ConversationList(): React.ReactElement {
         </div>
       ) : null}
 
+      <FoldersBar folders={folders} selected={folderFilter} onSelect={setFolderFilter} onChanged={reloadFolders} />
+
       {error !== null ? (
         <p className="rounded-md border border-dashed border-border bg-background/60 p-3 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error}
@@ -382,6 +413,8 @@ export function ConversationList(): React.ReactElement {
                   onTitleChange={(next) => onRowTitleChange(row.id, next)}
                   onStarChange={(next, updatedAt) => onRowStarChange(row.id, next, updatedAt)}
                   onDeleted={() => onRowDeleted(row.id)}
+                  folders={folders}
+                  onMoved={(folderId) => onRowMoved(row.id, folderId)}
                 />
               </li>
             ))}
@@ -404,6 +437,8 @@ function ConversationRow({
   onTitleChange,
   onStarChange,
   onDeleted,
+  folders,
+  onMoved,
 }: {
   row: ConversationSummary;
   active: boolean;
@@ -413,6 +448,8 @@ function ConversationRow({
   onTitleChange: (next: string | null) => void;
   onStarChange: (next: boolean, updatedAt: string) => void;
   onDeleted: () => void;
+  folders: Folder[];
+  onMoved: (folderId: string | null) => void;
 }): React.ReactElement {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
@@ -514,6 +551,12 @@ function ConversationRow({
       setBusy(null);
     }
   }, [busy, onDeleted, row.id]);
+
+  const onMove = React.useCallback(async (folderId: string | null) => {
+    setMenuOpen(false);
+    try { await moveConversationToFolder(row.id, folderId); onMoved(folderId); }
+    catch (err) { console.error("Failed to move conversation:", err instanceof Error ? err.message : String(err)); }
+  }, [row.id, onMoved]);
 
   if (editing) {
     return (
@@ -675,10 +718,28 @@ function ConversationRow({
               <RefreshCw className="h-3 w-3" />
               Regenerate title
             </button>
+            {folders.length > 0 || row.folder_id ? (
+              <div className="border-t border-border py-1">
+                <p className="px-3 pb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">Move to</p>
+                <div className="max-h-40 overflow-y-auto">
+                  {row.folder_id ? (
+                    <button type="button" role="menuitem" onClick={() => void onMove(null)} className="flex w-full items-center gap-2 px-3 py-1 text-xs hover:bg-accent hover:text-accent-foreground">
+                      <span className="text-muted-foreground">↩</span> Unfiled
+                    </button>
+                  ) : null}
+                  {folders.filter((f) => f.id !== row.folder_id).map((f) => (
+                    <button key={f.id} type="button" role="menuitem" onClick={() => void onMove(f.id)} className="flex w-full items-center gap-2 px-3 py-1 text-xs hover:bg-accent hover:text-accent-foreground">
+                      <span className="text-muted-foreground">▸</span> <span className="truncate">{f.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <button
               type="button"
               role="menuitem"
               onClick={() => void onDelete()}
+              style={{ borderTop: "1px solid var(--border)" }}
               className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
             >
               <Trash2 className="h-3 w-3" />

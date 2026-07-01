@@ -213,6 +213,31 @@ export interface PreparedWorkspace {
   stack: string;
   nodeId: string;
   headSha: string;
+  // The base branch actually used (initial-work mode only). May differ from the requested base when
+  // the configured base (an eidan convention like `next-release`) doesn't exist in the target repo —
+  // then it falls back to that repo's default branch. The caller MUST open the PR against this.
+  baseRef?: string;
+}
+
+// Resolve the base branch to actually build off in `repoDir`: the requested one if the repo has it,
+// otherwise the repo's real default branch (the configured base, e.g. `next-release`, is eidan-only
+// and doesn't exist in other repos — cross-repo delegation must not assume it).
+async function resolveBaseRef(repoDir: string, requested: string): Promise<string> {
+  const has = async (r: string): Promise<boolean> =>
+    (await git(['rev-parse', '--verify', '--quiet', `origin/${r}`], { cwd: repoDir })).exitCode === 0;
+  if (await has(requested)) return requested;
+  await git(['remote', 'set-head', 'origin', '--auto'], { cwd: repoDir }).catch(() => undefined);
+  const head = await git(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], { cwd: repoDir });
+  const def = head.exitCode === 0 ? head.stdout.trim().replace(/^refs\/remotes\/origin\//, '') : '';
+  if (def && (await has(def))) {
+    console.warn(`[sage/git] base '${requested}' absent in ${repoDir} — using repo default '${def}'`);
+    return def;
+  }
+  for (const c of ['main', 'master']) if (await has(c)) {
+    console.warn(`[sage/git] base '${requested}' absent — falling back to '${c}'`);
+    return c;
+  }
+  return requested; // give up — the checkout will fail with a clear "invalid reference" error
 }
 
 export type PatResolver = (opts: { host: string; ownerRepo: string; scope: 'read' | 'write' }) => string | null;
@@ -239,13 +264,17 @@ export async function preparePrWorkspace(
   const leaseToken = await acquireLease(db, { repoId, lockKey, nodeId: opts.nodeId });
   if (leaseToken === null) return null;
 
-  const startPoint = opts.baseRef !== undefined ? `origin/${opts.baseRef}` : `origin/${opts.headRef}`;
   let path: string;
   let basePath: string | null = null;
+  // Resolved after the clone exists (below): the configured base if the repo has it, else the repo's
+  // default branch. Stays undefined in iteration mode (baseRef omitted → check out the PR branch tip).
+  let effectiveBase = opts.baseRef;
   try {
     if (worktrees) {
       basePath = await ensureClone(baseClonePath(opts.host, opts.owner, opts.repo),
         { host: opts.host, owner: opts.owner, repo: opts.repo, token });
+      if (opts.baseRef !== undefined) effectiveBase = await resolveBaseRef(basePath, opts.baseRef);
+      const startPoint = effectiveBase !== undefined ? `origin/${effectiveBase}` : `origin/${opts.headRef}`;
       path = worktreePath(opts.host, opts.owner, opts.repo, opts.headRef);
       // Clear any leftover worktree at this path (a crashed prior run) before attaching a fresh one.
       await git(['worktree', 'remove', '--force', path], { cwd: basePath }).catch(() => undefined);
@@ -255,21 +284,23 @@ export async function preparePrWorkspace(
       if (add.exitCode !== 0) {
         throw new GitError(`git.exit_${add.exitCode}`, `worktree add ${opts.headRef} from ${startPoint} failed: ${add.stderr.slice(0, 300)}`);
       }
-      if (opts.baseRef !== undefined) {
+      if (effectiveBase !== undefined) {
         // Local <base> branch (shared ref in the base clone) for the critic + `gh pr create --base`.
-        const synced = await git(['branch', '-f', opts.baseRef, `origin/${opts.baseRef}`], { cwd: basePath });
-        if (synced.exitCode !== 0) console.warn(`[sage/git] could not sync local base ${opts.baseRef}: ${synced.stderr.slice(0, 200)}`);
+        const synced = await git(['branch', '-f', effectiveBase, `origin/${effectiveBase}`], { cwd: basePath });
+        if (synced.exitCode !== 0) console.warn(`[sage/git] could not sync local base ${effectiveBase}: ${synced.stderr.slice(0, 200)}`);
       }
     } else {
       path = await ensureClone(legacyWorkspacePath(opts.host, opts.owner, opts.repo, opts.stack),
         { host: opts.host, owner: opts.owner, repo: opts.repo, token });
+      if (opts.baseRef !== undefined) effectiveBase = await resolveBaseRef(path, opts.baseRef);
+      const startPoint = effectiveBase !== undefined ? `origin/${effectiveBase}` : `origin/${opts.headRef}`;
       const checkout = await git(['checkout', '-B', opts.headRef, startPoint], { cwd: path });
       if (checkout.exitCode !== 0) {
         throw new GitError(`git.exit_${checkout.exitCode}`, `could not check out ${opts.headRef} from ${startPoint}: ${checkout.stderr.slice(0, 300)}`);
       }
-      if (opts.baseRef !== undefined) {
-        const synced = await git(['branch', '-f', opts.baseRef, `origin/${opts.baseRef}`], { cwd: path });
-        if (synced.exitCode !== 0) console.warn(`[sage/git] could not sync local base ${opts.baseRef}: ${synced.stderr.slice(0, 200)}`);
+      if (effectiveBase !== undefined) {
+        const synced = await git(['branch', '-f', effectiveBase, `origin/${effectiveBase}`], { cwd: path });
+        if (synced.exitCode !== 0) console.warn(`[sage/git] could not sync local base ${effectiveBase}: ${synced.stderr.slice(0, 200)}`);
       }
     }
   } catch (e) {
@@ -281,7 +312,7 @@ export async function preparePrWorkspace(
   const head = await git(['rev-parse', 'HEAD'], { cwd: path });
   const headSha = head.exitCode === 0 ? head.stdout.trim() : 'unknown';
 
-  return { path, basePath, repoId, lockKey, leaseToken, host: opts.host, owner: opts.owner, repo: opts.repo, stack: opts.stack, nodeId: opts.nodeId, headSha };
+  return { path, basePath, repoId, lockKey, leaseToken, host: opts.host, owner: opts.owner, repo: opts.repo, stack: opts.stack, nodeId: opts.nodeId, headSha, ...(effectiveBase !== undefined ? { baseRef: effectiveBase } : {}) };
 }
 
 // Release a prepared workspace: drop the per-job worktree (worktree mode) then the lease. Safe to

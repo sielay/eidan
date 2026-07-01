@@ -36,6 +36,20 @@ const HIDDEN_PROVIDERS = new Set([
   "skills-classifier",
 ]);
 
+// Approximate context-window size (tokens) for a model, matched by substring. Used by the chat
+// context meter to show how full the window is. Conservative defaults; refine as models change.
+export function contextWindowFor(model: string | null | undefined): number {
+  const m = (model ?? "").toLowerCase();
+  if (!m) return 200_000;
+  if (m.includes("[1m]") || m.includes("-1m") || m.includes("1m")) return 1_000_000;
+  if (m.includes("gemini")) return 1_000_000;
+  if (m.includes("claude") || m.includes("sonnet") || m.includes("haiku") || m.includes("opus")) return 200_000;
+  if (m.includes("gpt-4o") || m.includes("gpt-4.1") || m.includes("o1") || m.includes("o3")) return 128_000;
+  if (m.includes("deepseek")) return 64_000;
+  if (m.includes("llama") || m.includes("qwen") || m.includes("mistral")) return 32_000;
+  return 200_000;
+}
+
 const KEY_DEFAULT = "eidan.provider.default";
 const keyFor = (conversationId: string): string => `eidan.provider.${conversationId}`;
 

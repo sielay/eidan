@@ -6,6 +6,30 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-07-01
+
+### Added
+
+- **Conversation folders.** Organise chats into folders — create / rename / delete / star / move (with
+  nesting), a folder filter in the sidebar (All / Unfiled / per-folder), and a "Move to" action in each
+  chat's menu. (Conversation starring already existed.)
+- **Context-window meter.** A small green/amber/red bar above the composer shows how full the model's
+  context window is for the conversation (largest turn's input + cache-read tokens over the model's window).
+- **Summarise & continue.** One click distils a long thread into a continuation brief and opens a fresh
+  conversation IN THE SAME FOLDER seeded with it — you keep the thread of thought but reset the context
+  window.
+- **`github_list_dir` tool.** Browse a repo directory tree (name / path / type / size, one level; `path`
+  to descend). The github tools could read a known file but not enumerate a folder.
+- **Stop button.** Abort a wedged or long-running in-flight turn to re-enable the composer (the turn
+  stream is now abortable), instead of the conversation locking up.
+
+### Fixed
+
+- **Sage cross-repo delegation.** Jobs against a repo without the node's configured base branch (e.g.
+  `sielay/potem`, which has no `next-release`) failed at `worktree add`. Sage now resolves the target
+  repo's real base — the requested branch if present, else the repo's default (`origin/HEAD` → `main`) —
+  and opens the PR against it.
+
 ## [0.15.0] — 2026-06-30
 
 ### Added
