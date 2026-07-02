@@ -7,7 +7,8 @@ import { Check, ChevronDown, Cpu, GitFork, Loader2, Mic, MoreVertical, Paperclip
 import { isTranscribeAvailable, transcribeAudio } from "@/lib/api/transcribe";
 import type { ProviderOption } from "@/lib/models";
 import type { OpenRouterModel } from "@/lib/api/admin";
-import { VendorModelPicker } from "@/components/agents/ModelPicker";
+import { ModelPickerModal } from "@/components/agents/ModelPickerModal";
+import { mergeModels } from "@/lib/model-registry";
 import { useTextareaMentions } from "./useTextareaMentions";
 
 // Filter the OpenRouter catalogue by a query against id/name; capped so a 300+ list stays a menu.
@@ -78,6 +79,9 @@ function ComposerMoreMenu({
   micBusy: boolean;
 }): React.ReactElement {
   const [open, setOpen] = React.useState(false);
+  // The big "Choose a model" popup (same component agents use), opened from the model submenu.
+  const [modelModal, setModelModal] = React.useState(false);
+  const modalModels = React.useMemo(() => mergeModels(catalog ?? []), [catalog]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -147,10 +151,25 @@ function ComposerMoreMenu({
               </button>
             ) : null}
             {onProviderChange && ((providers && providers.length > 0) || (catalog && catalog.length > 0)) ? (
-              <ComposerMoreModelMenu provider={provider} providers={providers ?? []} catalog={catalog} onChange={onProviderChange} onClose={() => setOpen(false)} />
+              <ComposerMoreModelMenu
+                provider={provider}
+                providers={providers ?? []}
+                catalog={catalog}
+                onChange={onProviderChange}
+                onClose={() => setOpen(false)}
+                onBrowseAll={catalog && catalog.length > 0 ? () => { setOpen(false); setModelModal(true); } : undefined}
+              />
             ) : null}
           </div>
         </>
+      ) : null}
+      {modelModal ? (
+        <ModelPickerModal
+          models={modalModels}
+          currentModel={provider}
+          onSelect={(modelId) => { onProviderChange?.(modelId); setModelModal(false); }}
+          onClose={() => setModelModal(false)}
+        />
       ) : null}
     </div>
   );
@@ -163,24 +182,19 @@ function ComposerMoreModelMenu({
   catalog,
   onChange,
   onClose,
+  onBrowseAll,
 }: {
   provider: string;
   providers: ProviderOption[];
   catalog?: OpenRouterModel[];
   onChange: (p: string) => void;
   onClose: () => void;
+  onBrowseAll?: (() => void) | undefined;
 }): React.ReactElement {
   const [modelOpen, setModelOpen] = React.useState(false);
   const current = providers.find((p) => p.name === provider);
   const label = provider ? (current?.name ?? provider) : "Default";
   const pickModel = (value: string): void => { onChange(value); setModelOpen(false); onClose(); };
-  // Reuse the agents' VendorModelPicker for the full-catalogue cascade. It works in (provider, model)
-  // pairs while chat sends a single token, so hold local state and translate on a concrete pick. The
-  // configured providers (native claude/haiku) stay as quick radios above, so their native routing —
-  // not the OpenRouter-synthesised slug — is preserved.
-  const [vp, setVp] = React.useState<{ provider: string; model: string }>(() =>
-    provider.includes("/") ? { provider: "openrouter", model: provider } : { provider: "", model: "" },
-  );
 
   if (modelOpen) {
     return (
@@ -224,21 +238,18 @@ function ComposerMoreModelMenu({
               <span className="composer__more-model-hint">{p.model}</span>
             </button>
           ))}
-          {catalog && catalog.length > 0 ? (
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, padding: "8px", borderTop: "1px solid var(--border)" }}>
-              <span className="composer__more-model-hint" style={{ width: "100%" }}>Any model (OpenRouter)</span>
-              <VendorModelPicker
-                models={catalog}
-                provider={vp.provider}
-                model={vp.model}
-                onChange={(p, m) => {
-                  setVp({ provider: p, model: m });
-                  if (p === "openrouter" && m) pickModel(m);            // an OpenRouter slug becomes the turn token
-                  else if (p === "ollama" && m) pickModel("ollama");    // chat can't carry a custom ollama model → use the configured provider
-                  else if (p === "") { onChange(""); setModelOpen(false); onClose(); } // node default
-                }}
-              />
-            </div>
+          {onBrowseAll ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="composer__more-model-opt"
+              style={{ borderTop: "1px solid var(--border)", fontWeight: 500 }}
+              onClick={() => { setModelOpen(false); onBrowseAll(); }}
+            >
+              <Cpu className="i i-sm" aria-hidden />
+              <span>Browse all models…</span>
+              <span className="composer__more-model-hint">full catalogue</span>
+            </button>
           ) : null}
         </div>
       </div>
