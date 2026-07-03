@@ -682,8 +682,10 @@ export async function handleRest(
           vals,
         ),
       );
-      // ponytail: participant_count uses COUNT(DISTINCT role) which is O(messages) per conversation.
-      // If performance degrades with large message volumes, denormalize into eidan.conversations or materialize.
+      // ponytail: participant_count subquery scans all messages per conversation (O(messages) per conv).
+      // substring() is evaluated at DB layer, not after fetching full content (PostgreSQL optimizes this).
+      // If list performance degrades with 1000+ messages per conversation, cache participant_count in
+      // eidan.conversations as a denormalized column, or use a materialized view keyed by conversation_id.
       const rows = r.rows;
       const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
@@ -695,6 +697,7 @@ export async function handleRest(
           const agentName = (row as { agent_name?: unknown }).agent_name as string | null | undefined;
           const baseTitle = (row as { title?: unknown }).title as string | null | undefined;
           // Synthesize agent title: if agent-origin, prepend sanitized [agent_name] with fallback to agent_name or nothing.
+          // API contract: `title` is synthesized; `raw_title` is the original database value for clients that need it.
           let title: string;
           if (origin === 'agent') {
             title = buildAgentTitle(agentName, baseTitle);
@@ -770,8 +773,9 @@ export async function handleRest(
     const sub = parts[3];
 
     if (sub === undefined && method === 'GET') {
-      // Fetch full conversation details: metadata, agent/trigger info, and message count.
+      // Fetch full conversation details: metadata, agent/trigger info, and participant count.
       // This endpoint is called when a user clicks into a conversation to display the chat header.
+      // participant_count scans all messages per conversation; acceptable for single-fetch context.
       const r = await withPrincipal(principal, (q) => q(
         `select c.id, c.title, c.created_at, c.updated_at, c.starred, c.folder_id,
                 c.metadata->>'origin' as origin,
