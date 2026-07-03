@@ -9,7 +9,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
   },
   "dependencies": {
     "@matatbread/matbot-core": "link:../../external/matbot/packages/core/runner",

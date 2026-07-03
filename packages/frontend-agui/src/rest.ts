@@ -9,6 +9,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { MatbotServices, Principal, Session, MessageContent } from '@matatbread/matbot-plugin-api';
 import { getRegisteredPlugins } from '@matatbread/matbot-core';
 import { withPrincipal } from './db.js';
+import { buildAgentTitle } from './agent-title.js';
 
 // Structural view of the gdrive plugin's GoogleDrive service (registered under that key; no hard dep).
 interface DriveEntryRest { id: string; name: string; mimeType: string }
@@ -684,15 +685,6 @@ export async function handleRest(
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
       // starred is NOT NULL in schema, so it is always present when a row exists
       const nextBeforeStarred = rows.length === limit && last ? last.starred : null;
-      // Sanitize agent name: replicate the original SQL logic for robust edge case handling
-      const sanitizeAgentName = (name: string | null | undefined): string => {
-        if (!name) return 'agent';
-        const normalized = name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '');
-        return normalized || 'agent';
-      };
       json(res, 200, {
         conversations: rows.map((row) => {
           const origin = (row as { origin?: unknown }).origin as string | null | undefined;
@@ -701,9 +693,7 @@ export async function handleRest(
           // Synthesize agent title: if agent-origin, prepend sanitized [agent_name] with fallback to agent_name or nothing.
           let title: string | null;
           if (origin === 'agent') {
-            const sanitized = sanitizeAgentName(agentName);
-            const suffix = baseTitle || agentName;
-            title = suffix ? `[${sanitized}] ${suffix}` : `[${sanitized}]`;
+            title = buildAgentTitle(agentName, baseTitle);
           } else {
             title = baseTitle ?? null;
           }
