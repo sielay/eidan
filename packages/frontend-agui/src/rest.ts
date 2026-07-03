@@ -682,6 +682,8 @@ export async function handleRest(
           vals,
         ),
       );
+      // ponytail: participant_count uses COUNT(DISTINCT role) which is O(messages) per conversation.
+      // If performance degrades with large message volumes, denormalize into eidan.conversations or materialize.
       const rows = r.rows;
       const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
@@ -700,7 +702,7 @@ export async function handleRest(
             title = baseTitle ?? '';
           }
           return {
-            id: row.id, title, origin: origin ?? null, agent_name: agentName ?? null,
+            id: row.id, title, raw_title: baseTitle ?? null, origin: origin ?? null, agent_name: agentName ?? null,
             tags: Array.isArray((row as { tags?: unknown }).tags) ? ((row as { tags: unknown[] }).tags).map(String) : [],
             last_read_at: (row as { last_read_at?: unknown }).last_read_at ? iso((row as { last_read_at: unknown }).last_read_at) : null,
             created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
