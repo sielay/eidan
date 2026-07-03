@@ -698,10 +698,15 @@ export async function handleRest(
           const origin = (row as { origin?: unknown }).origin as string | null | undefined;
           const agentName = (row as { agent_name?: unknown }).agent_name as string | null | undefined;
           const baseTitle = (row as { title?: unknown }).title as string | null | undefined;
-          // Synthesize agent title: if agent-origin, prepend sanitized [agent_name]
-          const title = origin === 'agent'
-            ? `[${sanitizeAgentName(agentName)}] ${baseTitle || agentName || ''}`
-            : (baseTitle ?? null);
+          // Synthesize agent title: if agent-origin, prepend sanitized [agent_name] with fallback to agent_name or nothing.
+          let title: string | null;
+          if (origin === 'agent') {
+            const sanitized = sanitizeAgentName(agentName);
+            const suffix = baseTitle || agentName;
+            title = suffix ? `[${sanitized}] ${suffix}` : `[${sanitized}]`;
+          } else {
+            title = baseTitle ?? null;
+          }
           return {
             id: row.id, title, origin: origin ?? null, agent_name: agentName ?? null,
             tags: Array.isArray((row as { tags?: unknown }).tags) ? ((row as { tags: unknown[] }).tags).map(String) : [],
