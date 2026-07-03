@@ -668,11 +668,7 @@ export async function handleRest(
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
         q(
-          `select id,
-                  case when metadata->>'origin' = 'agent'
-                       then '[' || coalesce(nullif(btrim(lower(regexp_replace(coalesce(metadata->>'agent_name','agent'), '[^a-z0-9]+', '-', 'gi')), '-'), ''), 'agent') || '] '
-                            || coalesce(title, metadata->>'agent_name', '')
-                       else title end as title,
+          `select id, title,
                   metadata->>'origin' as origin, metadata->>'agent_name' as agent_name,
                   coalesce(metadata->'tags', '[]'::jsonb) as tags,
                   metadata->>'last_read_at' as last_read_at,
@@ -689,13 +685,22 @@ export async function handleRest(
       // starred is NOT NULL in schema, so it is always present when a row exists
       const nextBeforeStarred = rows.length === limit && last ? last.starred : null;
       json(res, 200, {
-        conversations: rows.map((row) => ({
-          id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
-          tags: Array.isArray((row as { tags?: unknown }).tags) ? ((row as { tags: unknown[] }).tags).map(String) : [],
-          last_read_at: (row as { last_read_at?: unknown }).last_read_at ? iso((row as { last_read_at: unknown }).last_read_at) : null,
-          created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
-          folder_id: (row as { folder_id?: unknown }).folder_id ? String((row as { folder_id: unknown }).folder_id) : null,
-        })),
+        conversations: rows.map((row) => {
+          const origin = (row as { origin?: unknown }).origin as string | null | undefined;
+          const agentName = (row as { agent_name?: unknown }).agent_name as string | null | undefined;
+          const baseTitle = (row as { title?: unknown }).title as string | null | undefined;
+          // Synthesize agent title: if agent-origin, prepend [agent_name] (or 'agent' as fallback)
+          const title = origin === 'agent'
+            ? `[${agentName || 'agent'}] ${baseTitle || agentName || 'agent'}`
+            : (baseTitle ?? null);
+          return {
+            id: row.id, title, origin: origin ?? null, agent_name: agentName ?? null,
+            tags: Array.isArray((row as { tags?: unknown }).tags) ? ((row as { tags: unknown[] }).tags).map(String) : [],
+            last_read_at: (row as { last_read_at?: unknown }).last_read_at ? iso((row as { last_read_at: unknown }).last_read_at) : null,
+            created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
+            folder_id: (row as { folder_id?: unknown }).folder_id ? String((row as { folder_id: unknown }).folder_id) : null,
+          };
+        }),
         next_before: nextBefore,
         next_before_starred: nextBeforeStarred,
       }, cors);
