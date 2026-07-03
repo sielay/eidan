@@ -684,14 +684,23 @@ export async function handleRest(
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
       // starred is NOT NULL in schema, so it is always present when a row exists
       const nextBeforeStarred = rows.length === limit && last ? last.starred : null;
+      // Sanitize agent name: replicate the original SQL logic for robust edge case handling
+      const sanitizeAgentName = (name: string | null | undefined): string => {
+        if (!name) return 'agent';
+        const normalized = name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '');
+        return normalized || 'agent';
+      };
       json(res, 200, {
         conversations: rows.map((row) => {
           const origin = (row as { origin?: unknown }).origin as string | null | undefined;
           const agentName = (row as { agent_name?: unknown }).agent_name as string | null | undefined;
           const baseTitle = (row as { title?: unknown }).title as string | null | undefined;
-          // Synthesize agent title: if agent-origin, prepend [agent_name] (or 'agent' as fallback)
+          // Synthesize agent title: if agent-origin, prepend sanitized [agent_name]
           const title = origin === 'agent'
-            ? `[${agentName || 'agent'}] ${baseTitle || agentName || 'agent'}`
+            ? `[${sanitizeAgentName(agentName)}] ${baseTitle || agentName || ''}`
             : (baseTitle ?? null);
           return {
             id: row.id, title, origin: origin ?? null, agent_name: agentName ?? null,
