@@ -57,7 +57,7 @@ describe('sanitizeAgentName', () => {
   it('handles unicode and non-ASCII characters', () => {
     assert.strictEqual(sanitizeAgentName('café'), 'caf');
     assert.strictEqual(sanitizeAgentName('日本語'), 'agent');
-    assert.strictEqual(sanitizeAgentName('hello-café-world'), 'hello-world');
+    assert.strictEqual(sanitizeAgentName('hello-café-world'), 'hello-caf-world');
   });
 
   it('handles leading/trailing spaces and special chars', () => {

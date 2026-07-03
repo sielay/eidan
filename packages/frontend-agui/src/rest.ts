@@ -691,11 +691,11 @@ export async function handleRest(
           const agentName = (row as { agent_name?: unknown }).agent_name as string | null | undefined;
           const baseTitle = (row as { title?: unknown }).title as string | null | undefined;
           // Synthesize agent title: if agent-origin, prepend sanitized [agent_name] with fallback to agent_name or nothing.
-          let title: string | null;
+          let title: string;
           if (origin === 'agent') {
             title = buildAgentTitle(agentName, baseTitle);
           } else {
-            title = baseTitle ?? null;
+            title = baseTitle ?? '';
           }
           return {
             id: row.id, title, origin: origin ?? null, agent_name: agentName ?? null,
