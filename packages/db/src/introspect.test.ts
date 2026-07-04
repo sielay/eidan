@@ -123,22 +123,12 @@ test('introspection with filtered results', () => {
 
   function matchesPattern(tableName: string, patterns: string[]): boolean {
     if (patterns.length === 0) return true;
+    // Convert a shell glob to a regex in ONE pass: escape regex metacharacters, and map the glob
+    // wildcards `*`→`.*` and `?`→`.`. A single replace (vs the old shell→LIKE→regex chain that
+    // un-escaped backslashes produced by an earlier step) avoids re-processing produced characters
+    // — the js/double-escaping trap CodeQL flagged.
     return patterns.some(p => {
-      // Convert shell pattern to SQL LIKE pattern (with ESCAPE '\')
-      const sqlPattern = p
-        .replace(/\\/g, '\\\\')
-        .replace(/%/g, '\\%')
-        .replace(/_/g, '\\_')
-        .replace(/\*/g, '%')
-        .replace(/\?/g, '_');
-      // Simulate SQL LIKE matching with ESCAPE '\' (simplified regex conversion)
-      // \% → escaped %, \_ → escaped _, % → any, _ → single char
-      const regexPattern = sqlPattern
-        .replace(/\\\\/g, '\\')  // unescape doubled backslashes
-        .replace(/\\%/g, '%')    // \% → literal %
-        .replace(/\\\_/g, '_')   // \_ → literal _
-        .replace(/%/g, '.*')     // % → any
-        .replace(/_/g, '.');     // _ → single char
+      const regexPattern = p.replace(/[.*+?^${}()|[\]\\]/g, (m) => (m === '*' ? '.*' : m === '?' ? '.' : `\\${m}`));
       return new RegExp(`^${regexPattern}$`).test(tableName);
     });
   }
