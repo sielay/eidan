@@ -21,12 +21,19 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Guides',
-      items: ['guides/capture-with-the-journal', 'guides/build-an-agent', 'guides/deploy'],
+      items: [
+        'guides/talk-to-eidan',
+        'guides/capture-with-the-journal',
+        'guides/build-an-agent',
+        'guides/connect-your-accounts',
+        'guides/delegate-to-sage',
+        'guides/deploy',
+      ],
     },
     {
       type: 'category',
       label: 'Reference',
-      items: ['reference/plugins', 'reference/configuration'],
+      items: ['reference/plugins', 'reference/interop', 'reference/configuration'],
     },
     {
       type: 'category',
