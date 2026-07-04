@@ -29,6 +29,8 @@ docker compose up -d          # → http://localhost:3001
 Open **http://localhost:3001** and sign in with the magic link. Update later with
 `docker compose pull && docker compose up -d` — your data is the Postgres volume.
 
+{/* TODO(screenshot): the web UI right after first sign-in (localhost:3001). */}
+
 ## Option B — the setup wizard
 
 From a clone, the interactive wizard walks you through applying migrations, adding a target,
