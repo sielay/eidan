@@ -1,0 +1,23 @@
+/* eidan docs theme — indigo accent to match the product + landing (#4f46e5). */
+:root {
+  --ifm-color-primary: #4f46e5;
+  --ifm-color-primary-dark: #4338ca;
+  --ifm-color-primary-darker: #3f33bf;
+  --ifm-color-primary-darkest: #342a9d;
+  --ifm-color-primary-light: #635bea;
+  --ifm-color-primary-lighter: #6f67ec;
+  --ifm-color-primary-lightest: #8b84f0;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #8b9bff;
+  --ifm-color-primary-dark: #6f83ff;
+  --ifm-color-primary-darker: #6176ff;
+  --ifm-color-primary-darkest: #3a55ff;
+  --ifm-color-primary-light: #a7b3ff;
+  --ifm-color-primary-lighter: #b5bfff;
+  --ifm-color-primary-lightest: #dfe4ff;
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.1);
+}
