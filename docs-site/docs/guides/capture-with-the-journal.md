@@ -8,6 +8,8 @@ title: Capture with the journal
 The **journal** is a front door to your memory with no lock: drop a note — typed or spoken — and the
 agent categorises it, logs it structurally, and routes it.
 
+{/* TODO(screenshot): the /p/journal panel — the drop-a-note box + the date-grouped browse list. */}
+
 ## Drop a note
 
 From the web chat or Telegram (voice notes are transcribed first), just say what happened:

@@ -15,6 +15,9 @@ a server, or a cloud host, and you reach it from a web app, a terminal, or strai
 It's a *finished agent, not a box of parts*: a working assistant out of the box, with optional
 free bundles — **Sage** (coding), **Charles** (business), **Charlotte** (lifestyle) — layered on top.
 
+{/* TODO(screenshot): hero — the eidan web chat with the memory sidebar. Drop the image in
+    static/img/screenshots/ and replace this comment with e.g. ![eidan chat](/img/screenshots/chat.png) */}
+
 ## Why eidan is different
 
 - **It genuinely remembers.** Your events, notes, decisions and context live in a relational

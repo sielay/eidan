@@ -21,7 +21,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Guides',
-      items: ['guides/capture-with-the-journal', 'guides/build-an-agent'],
+      items: ['guides/capture-with-the-journal', 'guides/build-an-agent', 'guides/deploy'],
     },
     {
       type: 'category',
