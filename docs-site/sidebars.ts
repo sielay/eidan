@@ -17,7 +17,12 @@ const sidebars: SidebarsConfig = {
       label: 'Concepts',
       items: ['concepts'],
     },
-    { type: 'doc', id: 'bundles', label: 'Bundles' },
+    {
+      type: 'category',
+      label: 'Bundles',
+      link: { type: 'doc', id: 'bundles' },
+      items: ['bundles/sage', 'bundles/charles', 'bundles/charlotte'],
+    },
     {
       type: 'category',
       label: 'Guides',
