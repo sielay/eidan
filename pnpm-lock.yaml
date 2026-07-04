@@ -547,6 +547,25 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/journal:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/llm-calls:
     dependencies:
       '@matatbread/matbot-plugin-api':
@@ -638,6 +657,25 @@ importers:
       isolated-vm:
         specifier: ^6.1.2
         version: 6.1.2
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/reddit-research:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
       pg:
         specifier: ^8.13.1
         version: 8.22.0

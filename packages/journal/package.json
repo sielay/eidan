@@ -1,0 +1,52 @@
+{
+  "name": "@eidandev/journal",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "Journal — drop a text/voice note; it is categorised, logged structurally (plugin_journal.*) under an editable direction prompt, and routed: bug/task entries open a sage code job, and scheduled planning agents read the journal to draft blog/journey content.",
+  "matbotRuntime": [
+    "node"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "journal.css",
+      "routes": [
+        { "path": "/", "component": "Journal.tsx" }
+      ],
+      "api": [
+        { "path": "/api/journal", "handler": "api/route.ts" },
+        { "path": "/api/journal/direction", "handler": "api/direction.ts" }
+      ],
+      "nav": {
+        "group": "Plan",
+        "sections": [
+          {
+            "id": "journal",
+            "label": "Journal",
+            "icon": "analytics",
+            "href": "/p/journal",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}

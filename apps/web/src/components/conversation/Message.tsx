@@ -236,7 +236,15 @@ function ForkDisclosure({ legs }: { legs: Array<{ model: string; text: string; t
   );
 }
 
-function MarkdownBody({ content }: { content: string }): React.ReactElement {
+// The agent runner prepends a machine-readable "[AGENT CONTEXT] {...} [END AGENT CONTEXT]" block
+// (time/timezone/session ids) to an agent turn's message — vital for the model, pure noise for a human
+// reading the thread. Strip it from the DISPLAY only; the stored content the agent consumes is untouched.
+function stripAgentContext(content: string): string {
+  return content.replace(/\[AGENT CONTEXT\][\s\S]*?\[END AGENT CONTEXT\]\s*/g, "").trimStart();
+}
+
+function MarkdownBody({ content: rawContent }: { content: string }): React.ReactElement {
+  const content = stripAgentContext(rawContent);
   return (
     <div
       className={cn(

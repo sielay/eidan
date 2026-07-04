@@ -9,6 +9,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { MatbotServices, Principal, Session, MessageContent } from '@matatbread/matbot-plugin-api';
 import { getRegisteredPlugins } from '@matatbread/matbot-core';
 import { withPrincipal } from './db.js';
+import { buildAgentTitle } from './agent-title.js';
 
 // Structural view of the gdrive plugin's GoogleDrive service (registered under that key; no hard dep).
 interface DriveEntryRest { id: string; name: string; mimeType: string }
@@ -668,34 +669,51 @@ export async function handleRest(
       vals.push(limit);
       const r = await withPrincipal(principal, (q) =>
         q(
-          `select id,
-                  case when metadata->>'origin' = 'agent'
-                       then '[' || coalesce(nullif(btrim(lower(regexp_replace(coalesce(metadata->>'agent_name','agent'), '[^a-z0-9]+', '-', 'gi')), '-'), ''), 'agent') || '] '
-                            || coalesce(title, metadata->>'agent_name', '')
-                       else title end as title,
-                  metadata->>'origin' as origin, metadata->>'agent_name' as agent_name,
-                  coalesce(metadata->'tags', '[]'::jsonb) as tags,
-                  metadata->>'last_read_at' as last_read_at,
-                  created_at, updated_at, starred, folder_id
-             from eidan.conversations
+          `select c.id, c.title,
+                  c.metadata->>'origin' as origin, c.metadata->>'agent_name' as agent_name,
+                  coalesce(c.metadata->'tags', '[]'::jsonb) as tags,
+                  c.metadata->>'last_read_at' as last_read_at,
+                  c.created_at, c.updated_at, c.starred, c.folder_id,
+                  (select count(distinct role) from eidan.messages m where m.conversation_id = c.id and m.deleted_at is null and role <> 'marker') as participant_count,
+                  (select substring(coalesce(m.content, ''), 1, 200) from eidan.messages m where m.conversation_id = c.id and m.deleted_at is null and m.role <> 'marker' order by m.created_at desc limit 1) as last_message_preview
+             from eidan.conversations c
             where ${conds.join(' and ')}
-            order by starred desc, coalesce(updated_at, created_at) desc limit $${vals.length}`,
+            order by c.starred desc, coalesce(c.updated_at, c.created_at) desc limit $${vals.length}`,
           vals,
         ),
       );
+      // ponytail: participant_count subquery scans all messages per conversation (O(messages) per conv).
+      // substring() is evaluated at DB layer, not after fetching full content (PostgreSQL optimizes this).
+      // If list performance degrades with 1000+ messages per conversation, cache participant_count in
+      // eidan.conversations as a denormalized column, or use a materialized view keyed by conversation_id.
       const rows = r.rows;
       const last = rows[rows.length - 1] as { updated_at?: unknown; created_at?: unknown; starred: boolean } | undefined;
       const nextBefore = rows.length === limit && last ? iso(last.updated_at ?? last.created_at) : null;
       // starred is NOT NULL in schema, so it is always present when a row exists
       const nextBeforeStarred = rows.length === limit && last ? last.starred : null;
       json(res, 200, {
-        conversations: rows.map((row) => ({
-          id: row.id, title: row.title ?? null, origin: row.origin ?? null, agent_name: row.agent_name ?? null,
-          tags: Array.isArray((row as { tags?: unknown }).tags) ? ((row as { tags: unknown[] }).tags).map(String) : [],
-          last_read_at: (row as { last_read_at?: unknown }).last_read_at ? iso((row as { last_read_at: unknown }).last_read_at) : null,
-          created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
-          folder_id: (row as { folder_id?: unknown }).folder_id ? String((row as { folder_id: unknown }).folder_id) : null,
-        })),
+        conversations: rows.map((row) => {
+          const origin = (row as { origin?: unknown }).origin as string | null | undefined;
+          const agentName = (row as { agent_name?: unknown }).agent_name as string | null | undefined;
+          const baseTitle = (row as { title?: unknown }).title as string | null | undefined;
+          // Synthesize agent title: if agent-origin, prepend sanitized [agent_name] with fallback to agent_name or nothing.
+          // API contract: `title` is synthesized; `raw_title` is the original database value for clients that need it.
+          let title: string;
+          if (origin === 'agent') {
+            title = buildAgentTitle(agentName, baseTitle);
+          } else {
+            title = baseTitle ?? '';
+          }
+          return {
+            id: row.id, title, raw_title: baseTitle ?? null, origin: origin ?? null, agent_name: agentName ?? null,
+            tags: Array.isArray((row as { tags?: unknown }).tags) ? ((row as { tags: unknown[] }).tags).map(String) : [],
+            last_read_at: (row as { last_read_at?: unknown }).last_read_at ? iso((row as { last_read_at: unknown }).last_read_at) : null,
+            created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
+            folder_id: (row as { folder_id?: unknown }).folder_id ? String((row as { folder_id: unknown }).folder_id) : null,
+            participant_count: Number((row as { participant_count?: unknown }).participant_count ?? 0),
+            last_message_preview: (row as { last_message_preview?: unknown }).last_message_preview as string | null,
+          };
+        }),
         next_before: nextBefore,
         next_before_starred: nextBeforeStarred,
       }, cors);
@@ -755,14 +773,16 @@ export async function handleRest(
     const sub = parts[3];
 
     if (sub === undefined && method === 'GET') {
-      // Enrich agent-origin conversations with their agent + the trigger that fired this thread, so the
-      // chat header can show "🤖 <agent> · <why it ran>" instead of leaving you guessing.
+      // Fetch full conversation details: metadata, agent/trigger info, and participant count.
+      // This endpoint is called when a user clicks into a conversation to display the chat header.
+      // participant_count scans all messages per conversation; acceptable for single-fetch context.
       const r = await withPrincipal(principal, (q) => q(
         `select c.id, c.title, c.created_at, c.updated_at, c.starred, c.folder_id,
                 c.metadata->>'origin' as origin,
                 coalesce(a.name, c.metadata->>'agent_name') as agent_name,
                 r.agent_id as agent_id, r.detail as run_detail,
-                t.type as trigger_type, t.config as trigger_config
+                t.type as trigger_type, t.config as trigger_config,
+                (select count(distinct role) from eidan.messages m where m.conversation_id = c.id and m.deleted_at is null and role <> 'marker') as participant_count
            from eidan.conversations c
            left join lateral (select agent_id, trigger_id, detail from eidan.agent_runs
                                where conversation_id = c.id order by created_at asc limit 1) r on true
@@ -770,13 +790,23 @@ export async function handleRest(
            left join eidan.agents a on a.id = r.agent_id
           where c.id=$1 and c.user_id=$2 and c.deleted_at is null`,
         [id, uid]));
-      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown; folder_id?: unknown; origin?: string; agent_name?: string; agent_id?: string; run_detail?: string; trigger_type?: string; trigger_config?: Record<string, unknown> } | undefined;
+      const row = r.rows[0] as { id: string; title: unknown; created_at: unknown; updated_at: unknown; starred: unknown; folder_id?: unknown; origin?: string; agent_name?: string; agent_id?: string; run_detail?: string; trigger_type?: string; trigger_config?: Record<string, unknown>; participant_count?: unknown } | undefined;
       if (!row) { json(res, 404, { error: 'not found' }, cors); return true; }
+      const origin = row.origin as string | null | undefined;
+      const agentName = row.agent_name as string | null | undefined;
+      const baseTitle = row.title as string | null | undefined;
+      let title: string;
+      if (origin === 'agent') {
+        title = buildAgentTitle(agentName, baseTitle);
+      } else {
+        title = baseTitle ?? '';
+      }
       json(res, 200, {
-        id: row.id, title: row.title ?? null, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
+        id: row.id, title, created_at: iso(row.created_at), updated_at: iso(row.updated_at), starred: row.starred === true,
         folder_id: row.folder_id ? String(row.folder_id) : null,
-        origin: row.origin ?? null, agent_name: row.agent_name ?? null, agent_id: row.agent_id ?? null,
+        origin: origin ?? null, agent_name: agentName ?? null, agent_id: row.agent_id ?? null,
         trigger_type: row.trigger_type ?? null, trigger_desc: triggerDesc(row.trigger_type, row.trigger_config), run_detail: row.run_detail ?? null,
+        participant_count: Number((row as { participant_count?: unknown }).participant_count ?? 0),
       }, cors);
       return true;
     }

@@ -80,6 +80,16 @@ function openRouterBase(services: MatbotServices): string | undefined {
   return undefined;
 }
 
+// A configured provider that hits Anthropic natively (api.anthropic.com). Used to keep Anthropic
+// models on the Anthropic account — with prompt caching + native billing — instead of routing them
+// through OpenRouter (0% cache, pricier) just because they were picked as an `anthropic/…` slug.
+function anthropicNativeBase(services: MatbotServices): string | undefined {
+  for (const [name, cfg] of services.providers) {
+    if (typeof cfg.endpoint === 'string' && cfg.endpoint.includes('api.anthropic.com')) return name;
+  }
+  return undefined;
+}
+
 function synthProvider(services: MatbotServices, baseProvider: string, model: string): string {
   const synthName = `${baseProvider}::${model}`;
   if (!services.providers.has(synthName)) {
@@ -98,6 +108,13 @@ function synthProvider(services: MatbotServices, baseProvider: string, model: st
 function resolveModelToken(services: MatbotServices, token: string | undefined): string | null | undefined {
   if (!token) return null;
   if (services.providers.get(token)) return token;
+  // Anthropic models go to the NATIVE Anthropic account, not OpenRouter — so sonnet/opus/haiku cache
+  // and bill on the Anthropic plan even when picked as an `anthropic/claude-…` catalogue slug. Map the
+  // slug to the native model id (`anthropic/claude-opus-4.8` → `claude-opus-4-8`) on the native base.
+  if (token.startsWith('anthropic/')) {
+    const nativeBase = anthropicNativeBase(services);
+    if (nativeBase) return synthProvider(services, nativeBase, token.slice('anthropic/'.length).replace(/\./g, '-'));
+  }
   const base = openRouterBase(services);
   if (!base) return undefined;
   return synthProvider(services, base, token);
