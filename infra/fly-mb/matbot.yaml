@@ -9,6 +9,7 @@ plugins:
   - ./packages/memory
   - ./external/matbot/packages/plugins/tool-store
   - ./packages/decisions
+  - ./packages/journal
   - ./packages/auth
   - ./packages/notify
   - ./packages/jobs
@@ -18,15 +19,16 @@ plugins:
   - ./packages/secrets-api
   - ./packages/procedures
   - ./packages/escalations
-  - ./packages/ask-user-fallback
   - ./packages/agents
+  - ./packages/frontend-telegram
   - ./packages/imap
   - ./packages/ical
   - ./packages/google
   - ./packages/gdrive
-  - ./external/matbot/packages/plugins/workspace
+  - ./packages/reddit-research
   - ./external/matbot/packages/plugins/http
   - ./external/matbot/packages/plugins/ask-user
+  - ./packages/ask-user-fallback
   - ./external/matbot/packages/plugins/background
   - ./external/matbot/packages/plugins/skills
   - ./external/matbot/packages/plugins/cognition
@@ -59,6 +61,8 @@ providers:
     model: anthropic/claude-sonnet-4.6
     credentials:
       apiKey: ${OPENROUTER_API_KEY}
+    parameters:
+      promptCaching: true
   deepseek:
     module: ./external/matbot/packages/plugins/providers/openai-compat
     endpoint: https://openrouter.ai/api/v1/chat/completions
@@ -72,11 +76,11 @@ providers:
     credentials:
       apiKey: ${OPENROUTER_API_KEY}
   openrouter-haiku:
-    module: ./external/matbot/packages/plugins/providers/openai-compat
-    endpoint: https://openrouter.ai/api/v1/chat/completions
-    model: anthropic/claude-haiku-4.5
+    module: ./external/matbot/packages/plugins/providers/anthropic
+    endpoint: https://api.anthropic.com
+    model: claude-haiku-4-5-20251001
     credentials:
-      apiKey: ${OPENROUTER_API_KEY}
+      apiKey: ${ANTHROPIC_API_KEY}
   skills-classifier:
     module: ./external/matbot/packages/plugins/providers/openai-compat
     endpoint: https://openrouter.ai/api/v1/chat/completions
