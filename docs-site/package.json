@@ -1,0 +1,33 @@
+{
+  "name": "eidan-docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "eidan documentation site (Docusaurus). Deploys to docs.eidan.dev. Not a pnpm-workspace member — it manages its own install.",
+  "scripts": {
+    "docusaurus": "docusaurus",
+    "start": "docusaurus start",
+    "build": "docusaurus build",
+    "serve": "docusaurus serve",
+    "clear": "docusaurus clear",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@docusaurus/core": "^3.10.0",
+    "@docusaurus/preset-classic": "^3.10.0",
+    "@easyops-cn/docusaurus-search-local": "^0.44.5",
+    "@mdx-js/react": "^3.0.0",
+    "clsx": "^2.1.0",
+    "prism-react-renderer": "^2.3.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@docusaurus/module-type-aliases": "^3.10.0",
+    "@docusaurus/tsconfig": "^3.10.0",
+    "@docusaurus/types": "^3.10.0",
+    "typescript": "~5.5.2"
+  },
+  "engines": {
+    "node": ">=18.0"
+  }
+}
