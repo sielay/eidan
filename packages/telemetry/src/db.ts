@@ -44,12 +44,13 @@ export class Db {
 
   // Mark nodes offline if last_seen is older than thresholdMs.
   // thresholdMs is guaranteed to be positive by calculateStaleThreshold.
-  // Uses PostgreSQL-specific make_interval; equivalent logic: now() - last_seen > thresholdMs.
+  // make_interval has no `milliseconds` parameter (only years..secs) — passing it 42883s on every
+  // sweep. `secs` is double precision, so ms/1000 gives the right (fractional-second) interval.
   async markStaleOffline(thresholdMs: number): Promise<void> {
     await this.pool.query(
       `update eidan.node_heartbeats
        set status = 'offline', updated_at = now()
-       where status = 'online' and last_seen < now() - make_interval(milliseconds => $1)`,
+       where status = 'online' and last_seen < now() - make_interval(secs => $1::double precision / 1000)`,
       [Math.floor(thresholdMs)],
     );
   }
