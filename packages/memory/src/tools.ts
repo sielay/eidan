@@ -55,6 +55,169 @@ export function recallTool(mem: EidanMemory): Tool {
   };
 }
 
+export function knowledgeCaptureWorkflowTool(mem: EidanMemory): Tool {
+  return {
+    name: 'knowledge_capture_workflow',
+    description:
+      'Multi-step workflow to capture learning transcripts into the knowledge catalogue. ' +
+      'Accepts transcript text or summary, extracts key concepts (auto), prompts for tags (ventures/goals/issues/personal/topics), ' +
+      'and stores the entry. Use this to catalogue videos, articles, emails, or chat summaries against your ventures and goals.',
+    inputSchema: {
+      type: 'object',
+      required: ['title', 'content', 'source'],
+      additionalProperties: false,
+      properties: {
+        title: { type: 'string', description: 'Short title for this knowledge (e.g., "Delegation best practices from Loom video").' },
+        content: { type: 'string', description: 'Full transcript, summary, or key points from the source.' },
+        source: {
+          type: 'string',
+          enum: ['youtube', 'article', 'email', 'chat', 'transcript', 'manual', 'imported', 'other'],
+          description: 'Where this learning came from.',
+        },
+        source_url: { type: 'string', description: 'Optional link to the source.' },
+        key_concepts: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional: extracted bullet points. If omitted, AI will suggest them.',
+        },
+        tags: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            ventures: { type: 'array', items: { type: 'string' }, description: 'Venture ids/slugs (e.g., ["eidan", "mathbuns"]).' },
+            goals: { type: 'array', items: { type: 'string' }, description: 'Goal names or ids.' },
+            issues: { type: 'array', items: { type: 'string' }, description: 'Problem areas (e.g., ["delegation", "pricing"]).' },
+            personal: { type: 'array', items: { type: 'string' }, description: 'Skills, health, family areas.' },
+            topics: { type: 'array', items: { type: 'string' }, description: 'Free-form topic keywords.' },
+          },
+          description: 'Tags that link this knowledge to your ventures, goals, and life context.',
+        },
+      },
+    },
+    executor: {
+      async *execute(input) {
+        const {
+          title,
+          content,
+          source,
+          source_url,
+          key_concepts,
+          tags,
+        } = input as {
+          title: string;
+          content: string;
+          source: string;
+          source_url?: string;
+          key_concepts?: string[];
+          tags?: Record<string, string[]>;
+        };
+
+        if (!title?.trim()) { yield { type: 'error', message: 'title is required' }; return; }
+        if (!content?.trim()) { yield { type: 'error', message: 'content is required' }; return; }
+
+        const id = await mem.catalogueCapture({
+          title,
+          content,
+          source,
+          source_url,
+          key_concepts,
+          tags: tags as any,
+        });
+
+        yield {
+          type: 'result',
+          value: {
+            id,
+            captured: true,
+            message: `Captured "${title}" to knowledge catalogue. Status: raw → review and tag further if needed.`,
+          },
+        };
+      },
+    },
+  };
+}
+
+export function knowledgeRecallTool(mem: EidanMemory): Tool {
+  return {
+    name: 'knowledge_recall',
+    description:
+      'Proactively recall relevant knowledge from the catalogue by ventures, goals, issues, or free-text query. ' +
+      'Returns top entries ranked by tag match and recency. Use this to surface prior learnings when the operator mentions a venture, goal, or problem.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        ventures: { type: 'array', items: { type: 'string' }, description: 'Venture slugs to recall knowledge for.' },
+        goals: { type: 'array', items: { type: 'string' }, description: 'Goals to recall knowledge for.' },
+        issues: { type: 'array', items: { type: 'string' }, description: 'Issue tags to recall knowledge for.' },
+        personal: { type: 'array', items: { type: 'string' }, description: 'Personal domain tags.' },
+        topics: { type: 'array', items: { type: 'string' }, description: 'Topic keywords.' },
+        query: { type: 'string', description: 'Optional: free-text search query (combined with tags).' },
+        limit: { type: 'number', description: 'Max results (default 5, max 50).' },
+      },
+    },
+    executor: {
+      async *execute(input) {
+        const opts = input as {
+          ventures?: string[];
+          goals?: string[];
+          issues?: string[];
+          personal?: string[];
+          topics?: string[];
+          query?: string;
+          limit?: number;
+        };
+
+        const entries = await mem.catalogueRecall(opts);
+
+        if (!entries.length) {
+          yield { type: 'result', value: { entries: [], message: 'No matching knowledge found in catalogue.' } };
+          return;
+        }
+
+        yield {
+          type: 'result',
+          value: {
+            entries,
+            count: entries.length,
+            message: `Recalled ${entries.length} knowledge entry/entries from catalogue.`,
+          },
+        };
+      },
+    },
+  };
+}
+
+export function knowledgeCatalogueListTool(mem: EidanMemory): Tool {
+  return {
+    name: 'knowledge_catalogue_list',
+    description: 'List recent captured knowledge by status (raw, catalogued, or archived). Use to review and curate your catalogue.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        status: { type: 'string', enum: ['raw', 'catalogued', 'archived'], description: 'Filter by status (default: raw).' },
+        limit: { type: 'number', description: 'Max entries (default 50, max 200).' },
+      },
+    },
+    executor: {
+      async *execute(input) {
+        const opts = input as { status?: string; limit?: number };
+        const entries = await mem.catalogueList(opts);
+
+        yield {
+          type: 'result',
+          value: {
+            entries,
+            count: entries.length,
+            message: `Listed ${entries.length} knowledge entries.`,
+          },
+        };
+      },
+    },
+  };
+}
+
 // Conversation housekeeping, agent-facing (the tool half of the UI's "delete a conversation" — the
 // user asked for both "by user or by agent if agent called that tool"). Principal-scoped via the same
 // RLS transaction helper, so an agent can only ever see/delete its owner's conversations. Soft-delete
