@@ -88,25 +88,16 @@ export async function listRecent(cfg: ImapConfig, mailbox: string, limit: number
 
 function parseSearchQuery(query: string): Record<string, unknown> {
   // Parse query like "to:user@x.com OR subject:test OR body:foo OR plain text"
-  // Returns a SearchObject suitable for imapflow's search() method
-  // Note: OR operators are parsed explicitly; spaces in plain text are treated as literal phrases, not AND operators.
-  // Input validation: prefixed terms with empty values return empty criteria and are filtered out.
+  // Handles AND operators with higher precedence than OR.
+  // Returns a SearchObject suitable for imapflow's search() method.
 
   const trimmedQuery = query.trim();
   if (!trimmedQuery) {
-    // Empty query: return empty criteria (no results)
     return {};
   }
 
-  // Split by OR operator (case-insensitive) and filter empty terms
-  const orTerms: string[] = [];
-  for (const term of trimmedQuery.split(/\s+OR\s+/i)) {
-    const t = term.trim();
-    if (t) orTerms.push(t);
-  }
-
   // Helper to convert a single search term to a SearchObject.
-  // Returns empty object {} for invalid/empty terms, which are filtered out in OR processing.
+  // Returns empty object {} for invalid/empty terms.
   const parseTerm = (term: string): Record<string, unknown> => {
     if (term.startsWith('to:')) {
       const value = term.slice(3).trim();
@@ -127,34 +118,45 @@ function parseSearchQuery(query: string): Record<string, unknown> {
       const value = term.slice(5).trim();
       return value ? { body: value } : {};
     } else {
-      // Default: search in all text (literal phrase, if empty return empty criteria)
-      return term.trim() ? { text: term } : {};
+      // Default: search in message body (literal phrase, if empty return empty criteria)
+      return term.trim() ? { body: term } : {};
     }
   };
 
-  if (orTerms.length === 1) {
-    // Single term: parse and return it (empty criteria would be caught here)
-    const term = orTerms[0];
-    if (!term) return {};
-    const criteria = parseTerm(term);
-    return Object.keys(criteria).length > 0 ? criteria : {};
-  }
-
-  // Multiple OR terms: build OR array, filtering out empty criteria
+  // Split by OR operator (lower precedence) first
+  const orClauses = trimmedQuery.split(/\s+OR\s+/i);
   const orCriteria: Record<string, unknown>[] = [];
-  for (const term of orTerms) {
-    const criteria = parseTerm(term);
-    if (Object.keys(criteria).length > 0) {
-      orCriteria.push(criteria);
+
+  for (const clause of orClauses) {
+    // Split each OR clause by AND operators (higher precedence)
+    const andTerms = clause.split(/\s+AND\s+/i);
+    const andCriteria: Record<string, unknown>[] = [];
+
+    for (const term of andTerms) {
+      const t = term.trim();
+      if (t) {
+        const criteria = parseTerm(t);
+        if (Object.keys(criteria).length > 0) {
+          andCriteria.push(criteria);
+        }
+      }
+    }
+
+    // Combine AND criteria: multiple criteria in IMAP are ANDed by default
+    if (andCriteria.length === 1) {
+      orCriteria.push(andCriteria[0]);
+    } else if (andCriteria.length > 1) {
+      orCriteria.push(Object.assign({}, ...andCriteria));
     }
   }
 
-  // If all terms were empty/invalid, return empty result (no matches)
   if (orCriteria.length === 0) {
     return {};
+  } else if (orCriteria.length === 1) {
+    return orCriteria[0];
+  } else {
+    return { or: orCriteria };
   }
-
-  return { or: orCriteria };
 }
 
 export async function search(cfg: ImapConfig, query: string, mailbox: string, limit: number): Promise<MailSummary[]> {
