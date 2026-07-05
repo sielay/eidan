@@ -94,8 +94,8 @@ function parseSearchQuery(query: string): Record<string, unknown> {
 
   const trimmedQuery = query.trim();
   if (!trimmedQuery) {
-    // Empty query: match all messages
-    return { all: true };
+    // Empty query: return empty criteria (no results)
+    return {};
   }
 
   // Split by OR operator (case-insensitive) and filter empty terms
@@ -135,9 +135,9 @@ function parseSearchQuery(query: string): Record<string, unknown> {
   if (orTerms.length === 1) {
     // Single term: parse and return it (empty criteria would be caught here)
     const term = orTerms[0];
-    if (!term) return { all: true };
+    if (!term) return {};
     const criteria = parseTerm(term);
-    return Object.keys(criteria).length > 0 ? criteria : { all: true };
+    return Object.keys(criteria).length > 0 ? criteria : {};
   }
 
   // Multiple OR terms: build OR array, filtering out empty criteria
@@ -161,6 +161,10 @@ export async function search(cfg: ImapConfig, query: string, mailbox: string, li
   return withClient(cfg, async (client) => {
     await client.mailboxOpen(mailbox, { readOnly: true });
     const searchCriteria = parseSearchQuery(query);
+    // Empty criteria (invalid/empty search terms) returns no results
+    if (Object.keys(searchCriteria).length === 0) {
+      return [];
+    }
     const uids = await client.search(searchCriteria, { uid: true });
     if (!uids || uids.length === 0) return [];
     const newest = [...uids].sort((a, b) => b - a).slice(0, limit);
