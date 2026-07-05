@@ -199,7 +199,7 @@ export function makeGmailTools(store: AccountStore | null, seal?: SealFn): Tool[
           return;
         }
         const client = new GmailClient(token);
-        const msgs = await client.listRecent(Number(args.limit) || 20, query);
+        const msgs = await client.search(query, Number(args.limit) || 20);
         yield {
           type: 'result',
           value: {
