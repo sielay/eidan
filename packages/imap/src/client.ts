@@ -89,6 +89,7 @@ export async function listRecent(cfg: ImapConfig, mailbox: string, limit: number
 function parseSearchQuery(query: string): Record<string, unknown> {
   // Parse query like "to:user@x.com OR subject:test OR body:foo OR plain text"
   // Returns a SearchObject suitable for imapflow's search() method
+  // Note: OR operators are parsed explicitly; AND operators within plain text terms are delegated to the IMAP server.
 
   const trimmedQuery = query.trim();
   if (!trimmedQuery) {
@@ -106,20 +107,26 @@ function parseSearchQuery(query: string): Record<string, unknown> {
   // Helper to convert a single search term to a SearchObject
   const parseTerm = (term: string): Record<string, unknown> => {
     if (term.startsWith('to:')) {
-      return { to: term.slice(3).trim() };
+      const value = term.slice(3).trim();
+      return value ? { to: value } : { all: true };
     } else if (term.startsWith('from:')) {
-      return { from: term.slice(5).trim() };
+      const value = term.slice(5).trim();
+      return value ? { from: value } : { all: true };
     } else if (term.startsWith('subject:')) {
-      return { subject: term.slice(8).trim() };
+      const value = term.slice(8).trim();
+      return value ? { subject: value } : { all: true };
     } else if (term.startsWith('cc:')) {
-      return { cc: term.slice(3).trim() };
+      const value = term.slice(3).trim();
+      return value ? { cc: value } : { all: true };
     } else if (term.startsWith('bcc:')) {
-      return { bcc: term.slice(4).trim() };
+      const value = term.slice(4).trim();
+      return value ? { bcc: value } : { all: true };
     } else if (term.startsWith('body:')) {
-      return { body: term.slice(5).trim() };
+      const value = term.slice(5).trim();
+      return value ? { body: value } : { all: true };
     } else {
-      // Default: search in all text
-      return { text: term };
+      // Default: search in all text (if empty, match all)
+      return term.trim() ? { text: term } : { all: true };
     }
   };
 
