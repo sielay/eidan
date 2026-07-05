@@ -25,6 +25,18 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Workflows',
+      link: { type: 'doc', id: 'workflows' },
+      items: [
+        'workflows/content',
+        'workflows/sage',
+        'workflows/agents',
+        'workflows/reasoning',
+        'workflows/rethinking',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Guides',
       items: [
         'guides/talk-to-eidan',
