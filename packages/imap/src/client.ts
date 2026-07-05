@@ -96,31 +96,56 @@ function parseSearchQuery(query: string): Record<string, unknown> {
     return {};
   }
 
+  // Validate and sanitize search term value to prevent resource exhaustion.
+  const validateValue = (value: string): string | null => {
+    if (!value || value.length === 0) return null;
+    // Limit search term length to prevent DoS (typical IMAP servers have limits)
+    if (value.length > 1000) return null;
+    return value;
+  };
+
   // Helper to convert a single search term to a SearchObject.
   // Returns empty object {} for invalid/empty terms.
   const parseTerm = (term: string): Record<string, unknown> => {
     if (term.startsWith('to:')) {
-      const value = term.slice(3).trim();
+      const value = validateValue(term.slice(3).trim());
       return value ? { to: value } : {};
     } else if (term.startsWith('from:')) {
-      const value = term.slice(5).trim();
+      const value = validateValue(term.slice(5).trim());
       return value ? { from: value } : {};
     } else if (term.startsWith('subject:')) {
-      const value = term.slice(8).trim();
+      const value = validateValue(term.slice(8).trim());
       return value ? { subject: value } : {};
     } else if (term.startsWith('cc:')) {
-      const value = term.slice(3).trim();
+      const value = validateValue(term.slice(3).trim());
       return value ? { cc: value } : {};
     } else if (term.startsWith('bcc:')) {
-      const value = term.slice(4).trim();
+      const value = validateValue(term.slice(4).trim());
       return value ? { bcc: value } : {};
     } else if (term.startsWith('body:')) {
-      const value = term.slice(5).trim();
+      const value = validateValue(term.slice(5).trim());
       return value ? { body: value } : {};
     } else {
-      // Default: search in message body (literal phrase, if empty return empty criteria)
-      return term.trim() ? { body: term } : {};
+      // Default: search text in both headers and body for broader matching
+      const value = validateValue(term.trim());
+      return value ? { text: value } : {};
     }
+  };
+
+  // Helper to merge AND criteria objects, combining values for duplicate keys.
+  const mergeAndCriteria = (criteria: Record<string, unknown>[]): Record<string, unknown> => {
+    const result: Record<string, unknown> = {};
+    for (const item of criteria) {
+      for (const [key, value] of Object.entries(item)) {
+        if (key in result && typeof result[key] === 'string' && typeof value === 'string') {
+          // Combine multiple values for the same field by space-separating them
+          result[key] = `${result[key]} ${value}`;
+        } else {
+          result[key] = value;
+        }
+      }
+    }
+    return result;
   };
 
   // Split by OR operator (lower precedence) first
@@ -142,18 +167,16 @@ function parseSearchQuery(query: string): Record<string, unknown> {
       }
     }
 
-    // Combine AND criteria: multiple criteria in IMAP are ANDed by default
-    if (andCriteria.length === 1) {
-      orCriteria.push(andCriteria[0]);
-    } else if (andCriteria.length > 1) {
-      orCriteria.push(Object.assign({}, ...andCriteria));
+    // Combine AND criteria: merge objects, and if duplicate keys exist, combine their values
+    if (andCriteria.length > 0) {
+      orCriteria.push(mergeAndCriteria(andCriteria));
     }
   }
 
   if (orCriteria.length === 0) {
     return {};
   } else if (orCriteria.length === 1) {
-    return orCriteria[0];
+    return orCriteria[0]!;
   } else {
     return { or: orCriteria };
   }
