@@ -7,6 +7,7 @@ import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { imageGenerateTool } from './image-tool.js';
 import { ContentDb } from './db.js';
 import { buildBrandTool } from './brand-tool.js';
+import { buildWorkflowTool } from './workflow-tool.js';
 
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
@@ -23,7 +24,8 @@ export const plugin: MatbotPluginSpec = {
       const db = new ContentDb(url);
       await db.ensureSchema();
       services.tools.register(buildBrandTool(db));
-      console.log('[content] registered image_generate + brand_kit');
+      services.tools.register(buildWorkflowTool(db));
+      console.log('[content] registered image_generate + brand_kit + content_workflow');
     } else {
       console.log('[content] registered image_generate (brand_kit disabled: no EIDAN_DATABASE_URL)');
     }
