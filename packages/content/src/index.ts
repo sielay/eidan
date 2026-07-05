@@ -5,16 +5,27 @@ import type { MatbotPluginSpec, MatbotServices } from '@matatbread/matbot-plugin
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 
 import { imageGenerateTool } from './image-tool.js';
+import { ContentDb } from './db.js';
+import { buildBrandTool } from './brand-tool.js';
 
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
     description:
-      'Content media tools: image_generate (OpenAI gpt-image-1 → downloadable, card-linkable artifacts). ' +
-      'Home for the content-workflow engine.',
+      'Content media tools: image_generate (OpenAI gpt-image-1 → downloadable, card-linkable artifacts) ' +
+      'and brand_kit (per-scope voice/style that grounds generation). Home for the content-workflow engine.',
   },
   async setup(services: MatbotServices) {
     services.tools.register(imageGenerateTool());
-    console.log('[content] registered image_generate');
+
+    const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
+    if (url) {
+      const db = new ContentDb(url);
+      await db.ensureSchema();
+      services.tools.register(buildBrandTool(db));
+      console.log('[content] registered image_generate + brand_kit');
+    } else {
+      console.log('[content] registered image_generate (brand_kit disabled: no EIDAN_DATABASE_URL)');
+    }
   },
 };
