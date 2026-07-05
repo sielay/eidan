@@ -18,7 +18,7 @@ const config: Config = {
   projectName: 'eidan',
 
   onBrokenLinks: 'throw',
-  markdown: { hooks: { onBrokenMarkdownLinks: 'warn' } },
+  markdown: { mermaid: true, hooks: { onBrokenMarkdownLinks: 'warn' } },
 
   i18n: { defaultLocale: 'en', locales: ['en'] },
 
@@ -38,6 +38,7 @@ const config: Config = {
   ],
 
   themes: [
+    '@docusaurus/theme-mermaid',
     [
       '@easyops-cn/docusaurus-search-local',
       {
