@@ -41,6 +41,7 @@ const ORDER = ["open", "doing", "done"];
 const REF_KINDS: Array<[string, string]> = [
   ["asset", "Asset"], ["venture", "Venture"], ["job", "Job"], ["agent", "Agent"],
   ["domain", "Domain"], ["social_account", "Social account"], ["url", "URL"], ["note", "Note"],
+  ["conversation", "Conversation"], ["artifact", "Artifact"],
 ];
 
 const S = {
