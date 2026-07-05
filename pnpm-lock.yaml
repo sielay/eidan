@@ -942,6 +942,19 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/tool-failure-handler:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/tool-guard:
     dependencies:
       '@matatbread/matbot-plugin-api':
