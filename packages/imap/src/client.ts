@@ -89,7 +89,8 @@ export async function listRecent(cfg: ImapConfig, mailbox: string, limit: number
 function parseSearchQuery(query: string): Record<string, unknown> {
   // Parse query like "to:user@x.com OR subject:test OR body:foo OR plain text"
   // Returns a SearchObject suitable for imapflow's search() method
-  // Note: OR operators are parsed explicitly; AND operators within plain text terms are delegated to the IMAP server.
+  // Note: OR operators are parsed explicitly; spaces in plain text are treated as literal phrases, not AND operators.
+  // Input validation: prefixed terms with empty values return empty criteria and are filtered out.
 
   const trimmedQuery = query.trim();
   if (!trimmedQuery) {
@@ -104,42 +105,53 @@ function parseSearchQuery(query: string): Record<string, unknown> {
     if (t) orTerms.push(t);
   }
 
-  // Helper to convert a single search term to a SearchObject
+  // Helper to convert a single search term to a SearchObject.
+  // Returns empty object {} for invalid/empty terms, which are filtered out in OR processing.
   const parseTerm = (term: string): Record<string, unknown> => {
     if (term.startsWith('to:')) {
       const value = term.slice(3).trim();
-      return value ? { to: value } : { all: true };
+      return value ? { to: value } : {};
     } else if (term.startsWith('from:')) {
       const value = term.slice(5).trim();
-      return value ? { from: value } : { all: true };
+      return value ? { from: value } : {};
     } else if (term.startsWith('subject:')) {
       const value = term.slice(8).trim();
-      return value ? { subject: value } : { all: true };
+      return value ? { subject: value } : {};
     } else if (term.startsWith('cc:')) {
       const value = term.slice(3).trim();
-      return value ? { cc: value } : { all: true };
+      return value ? { cc: value } : {};
     } else if (term.startsWith('bcc:')) {
       const value = term.slice(4).trim();
-      return value ? { bcc: value } : { all: true };
+      return value ? { bcc: value } : {};
     } else if (term.startsWith('body:')) {
       const value = term.slice(5).trim();
-      return value ? { body: value } : { all: true };
+      return value ? { body: value } : {};
     } else {
-      // Default: search in all text (if empty, match all)
-      return term.trim() ? { text: term } : { all: true };
+      // Default: search in all text (literal phrase, if empty return empty criteria)
+      return term.trim() ? { text: term } : {};
     }
   };
 
   if (orTerms.length === 1) {
-    // Single term: return it directly
+    // Single term: parse and return it (empty criteria would be caught here)
     const term = orTerms[0];
-    return term ? parseTerm(term) : { all: true };
+    if (!term) return { all: true };
+    const criteria = parseTerm(term);
+    return Object.keys(criteria).length > 0 ? criteria : { all: true };
   }
 
-  // Multiple OR terms: use the 'or' property with array of SearchObject
+  // Multiple OR terms: build OR array, filtering out empty criteria
   const orCriteria: Record<string, unknown>[] = [];
   for (const term of orTerms) {
-    orCriteria.push(parseTerm(term));
+    const criteria = parseTerm(term);
+    if (Object.keys(criteria).length > 0) {
+      orCriteria.push(criteria);
+    }
+  }
+
+  // If all terms were empty/invalid, return empty result (no matches)
+  if (orCriteria.length === 0) {
+    return {};
   }
 
   return { or: orCriteria };
