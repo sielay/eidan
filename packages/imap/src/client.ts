@@ -86,10 +86,62 @@ export async function listRecent(cfg: ImapConfig, mailbox: string, limit: number
   });
 }
 
+function parseSearchQuery(query: string): Record<string, unknown> {
+  // Parse query like "to:user@x.com OR subject:test OR body:foo OR plain text"
+  // Returns an object suitable for imapflow's search() method
+
+  // Split by OR operator (case-insensitive)
+  const orTerms = query.split(/\s+OR\s+/i);
+
+  // Parse each term into search criteria
+  const orCriteria: Array<Record<string, string>> = [];
+
+  for (const term of orTerms) {
+    const trimmed = term.trim();
+    if (!trimmed) continue;
+
+    const criteria: Record<string, string> = {};
+
+    // Check for field prefixes
+    if (trimmed.startsWith('to:')) {
+      criteria.to = trimmed.slice(3).trim();
+    } else if (trimmed.startsWith('from:')) {
+      criteria.from = trimmed.slice(5).trim();
+    } else if (trimmed.startsWith('subject:')) {
+      criteria.subject = trimmed.slice(8).trim();
+    } else if (trimmed.startsWith('cc:')) {
+      criteria.cc = trimmed.slice(3).trim();
+    } else if (trimmed.startsWith('bcc:')) {
+      criteria.bcc = trimmed.slice(4).trim();
+    } else if (trimmed.startsWith('body:')) {
+      criteria.body = trimmed.slice(5).trim();
+    } else {
+      // Default: search in all text
+      criteria.text = trimmed;
+    }
+
+    orCriteria.push(criteria);
+  }
+
+  // If we have multiple OR terms, use the 'or' array syntax
+  if (orCriteria.length > 1) {
+    return { or: orCriteria };
+  }
+
+  // Single term: return it directly
+  if (orCriteria.length === 1) {
+    return orCriteria[0];
+  }
+
+  // Empty query: search all
+  return { text: '' };
+}
+
 export async function search(cfg: ImapConfig, query: string, mailbox: string, limit: number): Promise<MailSummary[]> {
   return withClient(cfg, async (client) => {
     await client.mailboxOpen(mailbox, { readOnly: true });
-    const uids = await client.search({ text: query }, { uid: true });
+    const searchCriteria = parseSearchQuery(query);
+    const uids = await client.search(searchCriteria, { uid: true });
     if (!uids || uids.length === 0) return [];
     const newest = [...uids].sort((a, b) => b - a).slice(0, limit);
     const out: MailSummary[] = [];
