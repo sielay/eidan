@@ -88,53 +88,54 @@ export async function listRecent(cfg: ImapConfig, mailbox: string, limit: number
 
 function parseSearchQuery(query: string): Record<string, unknown> {
   // Parse query like "to:user@x.com OR subject:test OR body:foo OR plain text"
-  // Returns an object suitable for imapflow's search() method
+  // Returns a SearchObject suitable for imapflow's search() method
 
-  // Split by OR operator (case-insensitive)
-  const orTerms = query.split(/\s+OR\s+/i);
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    // Empty query: match all messages
+    return { all: true };
+  }
 
-  // Parse each term into search criteria
-  const orCriteria: Array<Record<string, string>> = [];
+  // Split by OR operator (case-insensitive) and filter empty terms
+  const orTerms: string[] = [];
+  for (const term of trimmedQuery.split(/\s+OR\s+/i)) {
+    const t = term.trim();
+    if (t) orTerms.push(t);
+  }
 
-  for (const term of orTerms) {
-    const trimmed = term.trim();
-    if (!trimmed) continue;
-
-    const criteria: Record<string, string> = {};
-
-    // Check for field prefixes
-    if (trimmed.startsWith('to:')) {
-      criteria.to = trimmed.slice(3).trim();
-    } else if (trimmed.startsWith('from:')) {
-      criteria.from = trimmed.slice(5).trim();
-    } else if (trimmed.startsWith('subject:')) {
-      criteria.subject = trimmed.slice(8).trim();
-    } else if (trimmed.startsWith('cc:')) {
-      criteria.cc = trimmed.slice(3).trim();
-    } else if (trimmed.startsWith('bcc:')) {
-      criteria.bcc = trimmed.slice(4).trim();
-    } else if (trimmed.startsWith('body:')) {
-      criteria.body = trimmed.slice(5).trim();
+  // Helper to convert a single search term to a SearchObject
+  const parseTerm = (term: string): Record<string, unknown> => {
+    if (term.startsWith('to:')) {
+      return { to: term.slice(3).trim() };
+    } else if (term.startsWith('from:')) {
+      return { from: term.slice(5).trim() };
+    } else if (term.startsWith('subject:')) {
+      return { subject: term.slice(8).trim() };
+    } else if (term.startsWith('cc:')) {
+      return { cc: term.slice(3).trim() };
+    } else if (term.startsWith('bcc:')) {
+      return { bcc: term.slice(4).trim() };
+    } else if (term.startsWith('body:')) {
+      return { body: term.slice(5).trim() };
     } else {
       // Default: search in all text
-      criteria.text = trimmed;
+      return { text: term };
     }
+  };
 
-    orCriteria.push(criteria);
+  if (orTerms.length === 1) {
+    // Single term: return it directly
+    const term = orTerms[0];
+    return term ? parseTerm(term) : { all: true };
   }
 
-  // If we have multiple OR terms, use the 'or' array syntax
-  if (orCriteria.length > 1) {
-    return { or: orCriteria };
+  // Multiple OR terms: use the 'or' property with array of SearchObject
+  const orCriteria: Record<string, unknown>[] = [];
+  for (const term of orTerms) {
+    orCriteria.push(parseTerm(term));
   }
 
-  // Single term: return it directly
-  if (orCriteria.length === 1) {
-    return orCriteria[0];
-  }
-
-  // Empty query: search all
-  return { text: '' };
+  return { or: orCriteria };
 }
 
 export async function search(cfg: ImapConfig, query: string, mailbox: string, limit: number): Promise<MailSummary[]> {
