@@ -52,11 +52,11 @@ test('hook handler passes through non-error results', async () => {
   const original = process.env['EIDAN_TOOL_FAILURE_DETECTION'];
   try {
     process.env['EIDAN_TOOL_FAILURE_DETECTION'] = '1';
-    let handler: ((ctx: unknown) => unknown) | undefined;
+    let handler: ((ctx: unknown) => Promise<unknown>) | undefined;
     const mockServices = {
       hooks: {
         register: (cfg: unknown) => {
-          const c = cfg as { handler?: (ctx: unknown) => unknown };
+          const c = cfg as { handler?: (ctx: unknown) => Promise<unknown> };
           handler = c.handler;
         },
       },
@@ -65,7 +65,7 @@ test('hook handler passes through non-error results', async () => {
     assert(handler);
 
     const ctx = { isError: false, result: 'success' };
-    const result = handler(ctx);
+    const result = await handler(ctx);
     assert.strictEqual(result, undefined, 'non-errors should pass through');
   } finally {
     if (original) {
