@@ -112,9 +112,9 @@ export class EidanMemory {
   }): Promise<CatalogueEntry[]> {
     return this.db.withPrincipalTx(async (q) => {
       const limit = Math.min(opts.limit ?? 5, 50);
-      const params: unknown[] = ['archived'];
+      const params: unknown[] = [];
       const tagConditions: string[] = [];
-      let paramIdx = 2;
+      let paramIdx = 1;
 
       if (opts.ventures?.length) {
         tagConditions.push(`kc.tags->'ventures' ?| $${paramIdx}::text[]`);
@@ -142,7 +142,7 @@ export class EidanMemory {
         paramIdx++;
       }
 
-      let where = 'kc.deleted_at is null and kc.status != $1';
+      let where = `kc.deleted_at is null and kc.status = 'catalogued'`;
       if (tagConditions.length) {
         where += ' and (' + tagConditions.join(' or ') + ')';
       }

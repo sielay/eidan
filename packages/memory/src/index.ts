@@ -75,9 +75,10 @@ export const plugin: MatbotPluginSpec = {
             .join(' ')
             .toLowerCase();
 
-          // Simple keyword detection: if the message contains words like "venture", "goal", "problem", etc.
+          // Keyword detection with word boundaries to avoid false positives.
           const keywords = ['venture', 'goal', 'objective', 'problem', 'challenge', 'issue', 'delegation', 'pricing', 'marketing'];
-          if (!keywords.some((kw) => text.includes(kw))) return null;
+          const wordBoundaryRegex = new RegExp(`\\b(${keywords.join('|')})\\b`);
+          if (!wordBoundaryRegex.test(text)) return null;
 
           // Surface relevant knowledge entries from the catalogue.
           const entries = await mem.catalogueRecall({ limit: 3, query: text });

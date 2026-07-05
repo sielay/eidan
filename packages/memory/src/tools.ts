@@ -121,7 +121,13 @@ export function knowledgeCaptureWorkflowTool(mem: EidanMemory): Tool {
           source,
           source_url,
           key_concepts,
-          tags: tags as any,
+          tags: {
+            ventures: tags?.ventures,
+            goals: tags?.goals,
+            issues: tags?.issues,
+            personal: tags?.personal,
+            topics: tags?.topics,
+          },
         });
 
         yield {
