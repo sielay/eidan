@@ -76,7 +76,8 @@ export const plugin: MatbotPluginSpec = {
             .toLowerCase();
 
           // Keyword detection with word boundaries to avoid false positives.
-          const keywords = ['venture', 'goal', 'objective', 'problem', 'challenge', 'issue', 'delegation', 'pricing', 'marketing'];
+          // Expanded list includes common synonyms and problem areas.
+          const keywords = ['venture', 'goal', 'objective', 'problem', 'challenge', 'issue', 'delegation', 'pricing', 'marketing', 'strategy', 'roadmap', 'learning', 'insight', 'lesson', 'best practice', 'workflow', 'process', 'skill', 'expertise', 'growth', 'improvement', 'scaling', 'revenue', 'customer', 'team'];
           const wordBoundaryRegex = new RegExp(`\\b(${keywords.join('|')})\\b`);
           if (!wordBoundaryRegex.test(text)) return null;
 

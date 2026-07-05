@@ -108,6 +108,7 @@ export class EidanMemory {
     personal?: string[];
     topics?: string[];
     query?: string;
+    status?: 'raw' | 'catalogued' | 'archived';
     limit?: number;
   }): Promise<CatalogueEntry[]> {
     return this.db.withPrincipalTx(async (q) => {
@@ -142,7 +143,12 @@ export class EidanMemory {
         paramIdx++;
       }
 
-      let where = `kc.deleted_at is null and kc.status = 'catalogued'`;
+      let where = 'kc.deleted_at is null';
+      if (opts.status) {
+        where += ` and kc.status = $${paramIdx}`;
+        params.push(opts.status);
+        paramIdx++;
+      }
       if (tagConditions.length) {
         where += ' and (' + tagConditions.join(' or ') + ')';
       }
@@ -170,14 +176,16 @@ export class EidanMemory {
   async catalogueList(opts?: { status?: string; limit?: number }): Promise<CatalogueEntry[]> {
     return this.db.withPrincipalTx(async (q) => {
       const limit = Math.min(opts?.limit ?? 50, 200);
-      const status = opts?.status ?? 'raw';
+      const status = opts?.status;
+      const whereClause = status ? 'where deleted_at is null and status = $1' : 'where deleted_at is null';
+      const params = status ? [status, limit] : [limit];
       const r = await q(
         `select id, title, content, source, source_url, date_captured, tags, key_concepts, status
          from eidan.knowledge_catalogue
-         where deleted_at is null and status = $1
+         ${whereClause}
          order by date_captured desc
-         limit $2`,
-        [status, limit],
+         limit $${status ? 2 : 1}`,
+        params,
       );
       return (r.rows as CatalogueEntry[]);
     });

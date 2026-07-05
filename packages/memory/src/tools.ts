@@ -202,7 +202,7 @@ export function knowledgeCatalogueListTool(mem: EidanMemory): Tool {
       type: 'object',
       additionalProperties: false,
       properties: {
-        status: { type: 'string', enum: ['raw', 'catalogued', 'archived'], description: 'Filter by status (default: raw).' },
+        status: { type: 'string', enum: ['raw', 'catalogued', 'archived'], description: 'Filter by status (default: all statuses).' },
         limit: { type: 'number', description: 'Max entries (default 50, max 200).' },
       },
     },
