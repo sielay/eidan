@@ -170,5 +170,47 @@ export function makeGmailTools(store: AccountStore | null, seal?: SealFn): Tool[
     },
   };
 
-  return [gmailListRecentTool, gmailReadTool];
+  const gmailSearchTool: Tool = {
+    name: 'gmail_search',
+    description:
+      'Search Gmail messages by query (from:, subject:, is:, etc.) and list results (id, from, subject, date, snippet). ' +
+      "Supports Gmail search operators like 'from:alice', 'subject:password', 'is:unread'. Use `account` to pick which connected Gmail account.",
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        query: { type: 'string', minLength: 1, description: 'Gmail search query, e.g. "from:alice is:unread subject:invoice".' },
+        limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max messages to return (default 20).' },
+        ...ACCOUNT_PROP,
+      },
+      required: ['query'],
+    },
+    executor: {
+      async *execute(input, ctx) {
+        const args = (input ?? {}) as { query?: string; limit?: number; account?: string };
+        const query = String(args.query ?? '').trim();
+        if (!query) {
+          yield { type: 'error', message: 'query is required' };
+          return;
+        }
+        const { token, error } = await resolveAccessTokenFor(ctx, store, seal, args.account);
+        if (!token) {
+          yield { type: 'error', message: error ?? 'Failed to resolve Google access token' };
+          return;
+        }
+        const client = new GmailClient(token);
+        const msgs = await client.listRecent(Number(args.limit) || 20, query);
+        yield {
+          type: 'result',
+          value: {
+            query,
+            messages: msgs,
+            count: msgs.length,
+          },
+        };
+      },
+    },
+  };
+
+  return [gmailListRecentTool, gmailReadTool, gmailSearchTool];
 }
