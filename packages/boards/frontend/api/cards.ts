@@ -74,7 +74,9 @@ export async function PUT(req: NextRequest): Promise<Response> {
   if (!sess) return new Response("unauthorized", { status: 401 });
   let body: Record<string, unknown>;
   try { body = (await req.json()) as Record<string, unknown>; } catch { return Response.json({ error: "invalid JSON body" }, { status: 400 }); }
-  const id = typeof body["id"] === "string" ? body["id"].trim() : "";
+  // Extract id from URL path: /api/boards/cards/[id]
+  const pathSegments = req.nextUrl.pathname.split("/");
+  const id = pathSegments[pathSegments.length - 1]?.trim() ?? "";
   if (!id) return Response.json({ error: "id is required" }, { status: 400 });
 
   const sets: string[] = [];

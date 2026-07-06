@@ -188,7 +188,7 @@ export function BoardsPanel({ scopeKind = null, scopeId = null, basePath, lanes 
     setBusy(true);
     setCards((xs) => xs.map((x) => (x.id === card.id ? { ...x, status: next } : x)));
     try {
-      const r = await authFetch(`/api/boards/cards`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: card.id, status: next }) });
+      const r = await authFetch(`/api/boards/cards/${card.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: next }) });
       if (!r.ok) throw new Error();
     } catch { await loadCards(activeBoard); } finally { setBusy(false); }
   }
@@ -341,7 +341,7 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
 
   async function saveLabels(next: string[]): Promise<void> {
     setLabels(next);
-    await authFetch(`/api/boards/cards`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: card.id, labels: next }) });
+    await authFetch(`/api/boards/cards/${card.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ labels: next }) });
     onChanged();
   }
 
@@ -349,7 +349,7 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
     if (!title.trim() || !dirty) return;
     setSavingCard(true);
     try {
-      await authFetch(`/api/boards/cards`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: card.id, title: title.trim(), body: body.trim(), due_date: dueDate || null }) });
+      await authFetch(`/api/boards/cards/${card.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: title.trim(), body: body.trim(), due_date: dueDate || null }) });
       onChanged();
     } finally { setSavingCard(false); }
   }

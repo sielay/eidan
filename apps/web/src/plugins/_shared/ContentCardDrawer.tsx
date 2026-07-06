@@ -119,6 +119,18 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
 
   React.useEffect(() => { void load(); }, [load]);
 
+  const getFileName = (asset: CardAsset): string => {
+    return asset.metadata?.fileName ? String(asset.metadata.fileName) : asset.ref_id;
+  };
+
+  const getDownloadUrl = (refId: string): string => {
+    return `/api/files/${encodeURIComponent(refId)}/download`;
+  };
+
+  const getPreviewUrl = (refId: string): string => {
+    return `/api/files/${encodeURIComponent(refId)}/preview`;
+  };
+
   const approveAsset = async (assetId: string): Promise<void> => {
     try {
       await authFetch(`/api/content/cards/${cardId}/assets/${assetId}`, {
@@ -148,13 +160,22 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
   return (
     <div style={{ flex: 1 }}>
       <div className="screen-sub" style={{ fontWeight: 600, marginBottom: "var(--s2)" }}>Generated Images</div>
-      {assets.length === 0 ? (
-        <p className="screen-sub" style={{ margin: 0 }}>No assets yet.</p>
+      {assets.filter((a) => a.ref_kind === "image").length === 0 ? (
+        <p className="screen-sub" style={{ margin: 0 }}>No images yet.</p>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--s2)" }}>
           {assets.filter((a) => a.ref_kind === "image").map((a) => (
             <div key={a.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-sm)", overflow: "hidden" }}>
-              <div style={{ aspectRatio: "1", background: "var(--surface-2, #f5f5f5)" }} />
+              <img
+                src={getPreviewUrl(a.ref_id)}
+                alt="asset preview"
+                style={{ aspectRatio: "1", width: "100%", objectFit: "cover", background: "var(--surface-2, #f5f5f5)" }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                  (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden");
+                }}
+              />
+              <div style={{ aspectRatio: "1", background: "var(--surface-2, #f5f5f5)", display: "none" }} className="hidden" />
               <div style={{ padding: "var(--s2)", display: "flex", gap: "var(--s1)" }}>
                 <button
                   className={`btn ${a.approval_state === "approved" ? "btn--primary" : "btn--ghost"}`}
@@ -178,8 +199,16 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--s2)" }}>
           {assets.filter((a) => a.ref_kind !== "image").map((a) => (
             <div key={a.id} style={{ padding: "var(--s2)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: "var(--fs-13)" }}>{a.ref_id}</span>
-              <button className="btn btn--ghost" style={{ padding: "2px 6px" }}>↓</button>
+              <span style={{ fontSize: "var(--fs-13)" }}>{getFileName(a)}</span>
+              <a
+                href={getDownloadUrl(a.ref_id)}
+                download
+                className="btn btn--ghost"
+                style={{ padding: "2px 6px", textDecoration: "none" }}
+                title="Download file"
+              >
+                ↓
+              </a>
             </div>
           ))}
         </div>
@@ -280,17 +309,38 @@ function ChatTab({ cardId }: { cardId: string }): React.ReactElement {
   );
 }
 
-function RightRail({ card, onFork, onChanged }: { card: Card; onFork: () => void; onChanged: () => void }): React.ReactElement {
+function RightRail({ card, channels, onFork, onChanged }: { card: Card; channels: string[]; onFork: () => void; onChanged: () => void }): React.ReactElement {
   const [schedule, setSchedule] = React.useState(card.publish_at ? new Date(card.publish_at).toISOString().slice(0, 16) : "");
   const [forking, setForking] = React.useState(false);
+  const [events, setEvents] = React.useState<CardEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    const loadEvents = async () => {
+      setEventsLoading(true);
+      try {
+        const r = await authFetch(`/api/boards/cards/events?card=${encodeURIComponent(card.id)}`);
+        const j = (await r.json()) as { events?: CardEvent[] };
+        setEvents(j.events ?? []);
+      } finally {
+        setEventsLoading(false);
+      }
+    };
+    void loadEvents();
+  }, [card.id]);
 
   const saveSchedule = async (time: string): Promise<void> => {
     if (!time) return;
     try {
+      const plan = channels.map((ch) => ({
+        channel: ch,
+        status: "pending",
+        created_at: new Date().toISOString(),
+      }));
       await authFetch(`/api/content/cards/${card.id}/schedule`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ publish_at: new Date(time).toISOString(), frozen_plan: [] }),
+        body: JSON.stringify({ publish_at: new Date(time).toISOString(), frozen_plan: plan }),
       });
       onChanged();
     } catch (e) {
@@ -301,10 +351,11 @@ function RightRail({ card, onFork, onChanged }: { card: Card; onFork: () => void
   const createFork = async (): Promise<void> => {
     setForking(true);
     try {
+      const forkTitle = `${card.title} (variant)`;
       await authFetch(`/api/content/cards/${card.id}/fork`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "(variant)" }),
+        body: JSON.stringify({ title: forkTitle }),
       });
       onChanged();
       setForking(false);
@@ -337,7 +388,20 @@ function RightRail({ card, onFork, onChanged }: { card: Card; onFork: () => void
 
       <div>
         <div className="screen-sub" style={{ fontWeight: 600, margin: 0, marginBottom: "var(--s2)" }}>Activity</div>
-        <p className="screen-sub" style={{ margin: 0, fontSize: "var(--fs-12)" }}>Card created • {card.status} stage</p>
+        {eventsLoading ? (
+          <p className="screen-sub" style={{ margin: 0, fontSize: "var(--fs-12)" }}>Loading…</p>
+        ) : events.length === 0 ? (
+          <p className="screen-sub" style={{ margin: 0, fontSize: "var(--fs-12)" }}>No activity yet.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--s1)", fontSize: "var(--fs-12)" }}>
+            {events.slice(0, 5).map((e) => (
+              <div key={e.id} style={{ paddingBottom: "var(--s1)", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ fontWeight: 500 }}>{e.kind === "status" ? `Advanced to ${e.body}` : e.kind === "comment" ? "Commented" : e.kind}</div>
+                <div style={{ fontSize: "var(--fs-11)", color: "var(--muted)" }}>{new Date(e.created_at).toLocaleString()}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -352,7 +416,11 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
     if (!GATES[card.status]) return;
     setBusy(true);
     try {
-      await authFetch(`/api/content/cards/${card.id}/gate-advance`, { method: "POST" });
+      await authFetch(`/api/content/cards/${card.id}/gate-advance`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
       onChanged();
     } catch (e) {
       console.error("Failed to advance gate:", e);
@@ -363,10 +431,10 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
     const next = channels.includes(ch) ? channels.filter((x) => x !== ch) : [...channels, ch];
     setChannels(next);
     try {
-      await authFetch(`/api/boards/cards`, {
+      await authFetch(`/api/boards/cards/${card.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: card.id, channels: next }),
+        body: JSON.stringify({ channels: next }),
       });
     } catch (e) {
       console.error("Failed to update channels:", e);
@@ -411,7 +479,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
           {tab === "chat" && <ChatTab cardId={card.id} />}
           {tab === "assets" && <AssetsTab cardId={card.id} />}
           {tab === "copy" && <CopyTab cardId={card.id} channels={channels} />}
-          <RightRail card={card} onFork={onChanged} onChanged={onChanged} />
+          <RightRail card={card} channels={channels} onFork={onChanged} onChanged={onChanged} />
         </div>
       </div>
     </div>
