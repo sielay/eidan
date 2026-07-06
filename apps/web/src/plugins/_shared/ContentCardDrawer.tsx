@@ -112,6 +112,7 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
   const [assets, setAssets] = React.useState<CardAsset[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [imageErrors, setImageErrors] = React.useState<Record<string, true>>({});
+  const [uploading, setUploading] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -162,6 +163,26 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
     }
   };
 
+  const handleUpload = async (files: FileList): Promise<void> => {
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        await authFetch(`/api/content/cards/${cardId}/assets/upload`, {
+          method: "POST",
+          body: fd,
+        });
+      }
+      await load();
+    } catch (e) {
+      console.error("Upload failed:", e);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const images = assets.filter((a) => a.ref_kind === "image");
   const files = assets.filter((a) => a.ref_kind !== "image");
 
@@ -169,9 +190,15 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
     <div style={{ flex: 1 }}>
       <div className="screen-sub" style={{ fontWeight: 600, marginBottom: "var(--s2)" }}>Generated Images</div>
       {images.length === 0 ? (
-        <p className="screen-sub" style={{ margin: 0 }}>No images yet.</p>
+        <div style={{ textAlign: "center", padding: "var(--s3)", border: "2px dashed var(--border)", borderRadius: "var(--r-sm)", marginBottom: "var(--s3)" }}>
+          <p className="screen-sub" style={{ margin: 0, marginBottom: "var(--s2)" }}>No assets yet</p>
+          <div style={{ display: "flex", gap: "var(--s2)", justifyContent: "center" }}>
+            <button className="btn btn--ghost">Generate</button>
+            <button className="btn btn--ghost">Upload</button>
+          </div>
+        </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--s2)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--s2)", marginBottom: "var(--s3)" }}>
           {images.map((a) => (
             <div key={a.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-sm)", overflow: "hidden" }}>
               {!imageErrors[a.id] ? (
@@ -200,7 +227,25 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
           ))}
         </div>
       )}
-      <div className="screen-sub" style={{ fontWeight: 600, marginTop: "var(--s3)", marginBottom: "var(--s2)" }}>Files</div>
+
+      <div style={{ border: "2px dashed var(--border)", borderRadius: "var(--r-sm)", padding: "var(--s3)", textAlign: "center", marginBottom: "var(--s3)" }}>
+        <input
+          type="file"
+          multiple
+          onChange={(e) => void handleUpload(e.currentTarget.files ?? new FileList())}
+          disabled={uploading}
+          style={{ display: "none" }}
+          id={`file-input-${cardId}`}
+        />
+        <label htmlFor={`file-input-${cardId}`} style={{ cursor: uploading ? "not-allowed" : "pointer" }}>
+          <p className="screen-sub" style={{ margin: 0, marginBottom: "var(--s2)" }}>Drop files here or browse</p>
+          <button className="btn btn--ghost" disabled={uploading} onClick={() => document.getElementById(`file-input-${cardId}`)?.click()}>
+            {uploading ? "Uploading…" : "Select files"}
+          </button>
+        </label>
+      </div>
+
+      <div className="screen-sub" style={{ fontWeight: 600, marginBottom: "var(--s2)" }}>Files</div>
       {files.length === 0 ? (
         <p className="screen-sub" style={{ margin: 0 }}>No files yet.</p>
       ) : (
@@ -225,17 +270,24 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
   );
 }
 
+interface CopyVarWithResource extends CardCopy {
+  linked_resource?: { type: string; label: string } | null;
+}
+
 function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): React.ReactElement {
-  const [copies, setCopies] = React.useState<Record<string, CardCopy>>({});
+  const [copies, setCopies] = React.useState<Record<string, CopyVarWithResource>>({});
   const [loading, setLoading] = React.useState(false);
   const [editing, setEditing] = React.useState<string | null>(null);
+  const [linkingResource, setLinkingResource] = React.useState<string | null>(null);
+  const [resourceType, setResourceType] = React.useState("pdf");
+  const [resourceLabel, setResourceLabel] = React.useState("");
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
       const r = await authFetch(`/api/content/cards/${cardId}/copy`);
-      const j = (await r.json()) as { copies?: CardCopy[] };
-      const map: Record<string, CardCopy> = {};
+      const j = (await r.json()) as { copies?: CopyVarWithResource[] };
+      const map: Record<string, CopyVarWithResource> = {};
       for (const c of j.copies ?? []) map[c.channel] = c;
       setCopies(map);
     } finally { setLoading(false); }
@@ -257,6 +309,22 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
     }
   };
 
+  const linkResource = async (channel: string): Promise<void> => {
+    if (!resourceLabel.trim()) return;
+    try {
+      await authFetch(`/api/content/cards/${cardId}/copy/${channel}/resource`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: resourceType, label: resourceLabel.trim() }),
+      });
+      setLinkingResource(null);
+      setResourceLabel("");
+      await load();
+    } catch (e) {
+      console.error("Failed to link resource:", e);
+    }
+  };
+
   return (
     <div style={{ flex: 1 }}>
       {channels.length === 0 ? (
@@ -275,7 +343,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
                   <>
                     <RichMarkdownEditor
                       value={copy?.body ?? ""}
-                      onChange={(v) => setCopies((x) => ({ ...x, [ch]: { ...(x[ch] || { id: "new", channel: ch, state: "draft" }), body: v } as CardCopy }))}
+                      onChange={(v) => setCopies((x) => ({ ...x, [ch]: { ...(x[ch] || { id: "new", channel: ch, state: "draft" }), body: v } as CopyVarWithResource }))}
                       minRows={4}
                       placeholder="Write your copy here…"
                     />
@@ -291,10 +359,38 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
                   </>
                 ) : (
                   <>
-                    <p style={{ margin: 0, fontSize: "var(--fs-14)" }}>{copy?.body || "(empty)"}</p>
-                    <button className="btn btn--ghost" onClick={() => setEditing(ch)} style={{ marginTop: "var(--s2)" }}>
-                      Edit
-                    </button>
+                    <p style={{ margin: 0, marginBottom: "var(--s2)", fontSize: "var(--fs-14)" }}>{copy?.body || "(empty)"}</p>
+                    <div style={{ display: "flex", gap: "var(--s1)", marginBottom: "var(--s2)" }}>
+                      <button className="btn btn--ghost" onClick={() => setEditing(ch)}>
+                        Edit
+                      </button>
+                    </div>
+                    {copy?.linked_resource ? (
+                      <div style={{ padding: "var(--s1)", background: "var(--surface-2, rgba(120,120,140,.04))", borderRadius: "var(--r-sm)", fontSize: "var(--fs-12)", marginBottom: "var(--s2)" }}>
+                        <span style={{ fontWeight: 500 }}>📎 Linked:</span> {copy.linked_resource.label} ({copy.linked_resource.type})
+                      </div>
+                    ) : null}
+                    {linkingResource === ch ? (
+                      <div style={{ display: "flex", gap: "var(--s1)" }}>
+                        <select className="input" value={resourceType} onChange={(e) => setResourceType(e.target.value)} style={{ flex: 0, minWidth: 80 }}>
+                          <option value="pdf">PDF</option>
+                          <option value="mailing_list">Mailing List</option>
+                          <option value="form">Form</option>
+                        </select>
+                        <input
+                          className="input"
+                          placeholder="Resource label…"
+                          value={resourceLabel}
+                          onChange={(e) => setResourceLabel(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") void linkResource(ch); }}
+                          style={{ flex: 1 }}
+                        />
+                        <button className="btn btn--primary" onClick={() => void linkResource(ch)} style={{ minWidth: 50 }}>Link</button>
+                        <button className="btn btn--ghost" onClick={() => { setLinkingResource(null); setResourceLabel(""); }} style={{ minWidth: 50 }}>✕</button>
+                      </div>
+                    ) : (
+                      <button className="btn btn--ghost" style={{ fontSize: "var(--fs-12)" }} onClick={() => setLinkingResource(ch)}>+ Link a resource</button>
+                    )}
                   </>
                 )}
               </div>
@@ -307,11 +403,42 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
 }
 
 function ChatTab({ cardId }: { cardId: string }): React.ReactElement {
-  // TODO: Integrate with actual chat API and conversation UI.
+  const [creatingConversation, setCreatingConversation] = React.useState(false);
+
+  const createConversation = async (): Promise<void> => {
+    setCreatingConversation(true);
+    try {
+      const r = await authFetch(`/api/content/cards/${cardId}/conversation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (r.ok) {
+        window.location.reload();
+      }
+    } catch (e) {
+      console.error("Failed to create conversation:", e);
+    } finally {
+      setCreatingConversation(false);
+    }
+  };
+
   return (
-    <div style={{ flex: 1 }}>
-      <p className="screen-sub">Chat integration — bind a conversation to work assets & drafts here.</p>
-      <p style={{ fontSize: "var(--fs-13)", color: "var(--muted)" }}>Connection: {cardId.slice(0, 8)}…</p>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "var(--s4)" }}>
+      <div style={{ maxWidth: 300 }}>
+        <p className="screen-sub" style={{ fontSize: "var(--fs-14)", marginBottom: "var(--s2)" }}>
+          This card doesn't have a linked conversation yet.
+        </p>
+        <p style={{ fontSize: "var(--fs-13)", color: "var(--muted)", marginBottom: "var(--s3)" }}>
+          Create a conversation to brainstorm ideas, generate assets, and draft copy in context.
+        </p>
+        <button className="btn btn--primary" disabled={creatingConversation} onClick={() => void createConversation()}>
+          {creatingConversation ? "Creating…" : "Start conversation"}
+        </button>
+        <p style={{ fontSize: "var(--fs-11)", color: "var(--muted)", marginTop: "var(--s2)" }}>
+          (Full chat UI integration coming soon)
+        </p>
+      </div>
     </div>
   );
 }
@@ -355,23 +482,75 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
     }
   };
 
+  const unfreeze = async (): Promise<void> => {
+    try {
+      await authFetch(`/api/content/cards/${card.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "distribution" }),
+      });
+      onChanged();
+    } catch (e) {
+      console.error("Unfreeze failed:", e);
+    }
+  };
+
+  const frozenPlan = card.frozen_data?.distribution?.plan ?? null;
+
   return (
     <div style={S.rail}>
       <div>
         <div className="screen-sub" style={{ fontWeight: 600, margin: 0, marginBottom: "var(--s2)" }}>Schedule</div>
         {card.status === "scheduled" ? (
-          <p style={{ margin: 0, fontSize: "var(--fs-13)" }}>Frozen: {card.publish_at ? new Date(card.publish_at).toLocaleString() : "—"}</p>
+          <>
+            <p style={{ margin: 0, marginBottom: "var(--s2)", fontSize: "var(--fs-13)" }}>When the time is met, the system executes:</p>
+            {frozenPlan && Array.isArray(frozenPlan) ? (
+              <div style={{ fontSize: "var(--fs-12)", marginBottom: "var(--s2)" }}>
+                {frozenPlan.map((item: { channel?: string; action?: string; status?: string }, i: number) => (
+                  <div key={i} style={{ padding: "var(--s1)", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>{item.action || `Step ${i + 1}`}</span>
+                    <span style={{ fontSize: "var(--fs-11)", color: item.status === "complete" ? "var(--good)" : item.status === "failed" ? "var(--alert)" : "var(--muted)" }}>
+                      {item.status === "complete" ? "✓" : item.status === "failed" ? "✗" : "⊙"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div style={{ display: "flex", gap: "var(--s1)" }}>
+              <button className="btn btn--ghost" style={{ flex: 1 }} onClick={() => void saveSchedule(schedule)}>Reschedule</button>
+              <button className="btn btn--ghost" style={{ flex: 1 }} onClick={() => void unfreeze()}>Unfreeze</button>
+            </div>
+          </>
+        ) : card.status === "published" ? (
+          <>
+            <p style={{ margin: 0, marginBottom: "var(--s2)", fontSize: "var(--fs-13)" }}>Executed on {card.publish_at ? new Date(card.publish_at).toLocaleString() : "—"}</p>
+            {frozenPlan && Array.isArray(frozenPlan) ? (
+              <div style={{ fontSize: "var(--fs-12)" }}>
+                {frozenPlan.map((item: { channel?: string; action?: string; status?: string; result?: string }, i: number) => (
+                  <div key={i} style={{ padding: "var(--s1)", borderBottom: "1px solid var(--border)", borderLeft: item.status === "complete" ? "3px solid var(--good)" : item.status === "failed" ? "3px solid var(--alert)" : "3px solid var(--muted)", paddingLeft: "calc(var(--s1) - 3px)" }}>
+                    <div style={{ fontWeight: 500 }}>{item.action || `Step ${i + 1}`}</div>
+                    {item.result ? <div style={{ fontSize: "var(--fs-11)", color: "var(--muted)", marginTop: "2px" }}>{item.result}</div> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </>
         ) : card.status === "distribution" ? (
           <div style={{ display: "flex", gap: "var(--s1)" }}>
-            <input type="datetime-local" value={schedule} onChange={(e) => setSchedule(e.target.value)} style={{ flex: 1 }} />
+            <input type="datetime-local" value={schedule} onChange={(e) => setSchedule(e.target.value)} style={{ flex: 1, fontSize: "var(--fs-13)" }} />
             <button className="btn btn--ghost" onClick={() => void saveSchedule(schedule)} style={{ minWidth: 40 }}>✓</button>
           </div>
         ) : null}
       </div>
 
       <div>
+        <div className="screen-sub" style={{ fontWeight: 600, margin: 0, marginBottom: "var(--s2)" }}>Linked Resources</div>
+        <p className="screen-sub" style={{ margin: 0, fontSize: "var(--fs-12)" }}>Resources are linked per channel in the Copy tab.</p>
+      </div>
+
+      <div>
         <div className="screen-sub" style={{ fontWeight: 600, margin: 0, marginBottom: "var(--s2)" }}>Actions</div>
-        <button className="btn btn--ghost" style={{ width: "100%", justifyContent: "flex-start" }} disabled={forking} onClick={() => void onFork()}>
+        <button className="btn btn--ghost" style={{ width: "100%", justifyContent: "flex-start", fontSize: "var(--fs-13)" }} disabled={forking} onClick={() => void onFork()}>
           + Fork variant
         </button>
       </div>
