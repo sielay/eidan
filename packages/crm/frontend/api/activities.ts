@@ -56,7 +56,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: 'invalid JSON body' }, { status: 400 });
   }
 
-  const { venture_id, kind, description, deal_id, contact_id } = body;
+  const { venture_id, kind, body: activityBody, deal_id, contact_id } = body;
   if (!venture_id || !kind) return Response.json({ error: 'venture_id and kind required' }, { status: 400 });
 
   const payload = await withUser(sess.userId, async (c) => {
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       `insert into plugin_crm.activities (user_id, venture_id, kind, body, deal_id, contact_id, occurred_at)
        values ($1, $2, $3, $4, $5, $6, now())
        returning id, kind, body, deal_id, contact_id, occurred_at, created_at`,
-      [sess.userId, venture_id, kind, description || null, deal_id || null, contact_id || null],
+      [sess.userId, venture_id, kind, activityBody || null, deal_id || null, contact_id || null],
     );
     return r.rows[0] || { error: 'Failed to log activity' };
   });

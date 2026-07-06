@@ -7,11 +7,11 @@ import { authFetch } from '@/lib/auth';
 
 const DEFAULT_STAGES = ['lead', 'qualified', 'proposal', 'won', 'lost'];
 const STAGE_COLORS: Record<string, string> = {
-  lead: '--surface',
-  qualified: '--surface-2',
+  lead: 'var(--surface)',
+  qualified: 'var(--surface-2)',
   proposal: 'var(--accent)',
   won: 'var(--accent)',
-  lost: '--surface-2',
+  lost: 'var(--surface-2)',
 };
 
 interface Deal {
@@ -547,6 +547,7 @@ export default function Crm() {
         .timeline__row {
           display: flex;
           gap: var(--s2);
+          align-items: flex-start;
         }
 
         .timeline__dot {
@@ -555,7 +556,7 @@ export default function Crm() {
           height: 8px;
           border-radius: var(--r-full);
           background: var(--accent);
-          margin-top: 6px;
+          margin-top: 4px;
         }
 
         .timeline__title {

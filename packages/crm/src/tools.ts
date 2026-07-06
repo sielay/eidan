@@ -6,7 +6,7 @@ import type { CrmDb, Q } from './db.js';
 const CONTACT_CREATE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
-    venture_id: { type: 'string', description: 'Venture ID (UUID).', minLength: 1 },
+    venture_id: { type: 'string', description: 'Venture ID (UUID).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     name: { type: 'string', description: 'Contact name.', minLength: 1 },
     email: { type: 'string', description: 'Email address (optional).' },
     phone: { type: 'string', description: 'Phone number (optional).' },
@@ -51,12 +51,12 @@ const CONTACT_LIST_SCHEMA: JSONSchema = {
 const DEAL_CREATE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
-    venture_id: { type: 'string', description: 'Venture ID.', minLength: 1 },
+    venture_id: { type: 'string', description: 'Venture ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     name: { type: 'string', description: 'Deal name.', minLength: 1 },
     contact_id: { type: 'string', description: 'Associated contact ID (optional).' },
-    value_cents: { type: 'integer', description: 'Value in cents (default 0).' },
-    currency: { type: 'string', description: 'Currency code (default GBP).' },
-    stage: { type: 'string', description: 'Pipeline stage (e.g., lead, qualified, proposal, won, lost).', minLength: 1 },
+    value_cents: { type: 'integer', description: 'Value in cents (default 0).', minimum: 0 },
+    currency: { type: 'string', description: 'Currency code (default GBP).', enum: ['GBP', 'USD', 'EUR'] },
+    stage: { type: 'string', description: 'Pipeline stage.', enum: ['lead', 'qualified', 'proposal', 'won', 'lost'] },
   },
   required: ['venture_id', 'name', 'stage'],
   additionalProperties: false,
@@ -65,12 +65,12 @@ const DEAL_CREATE_SCHEMA: JSONSchema = {
 const DEAL_UPDATE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
-    deal_id: { type: 'string', description: 'Deal ID.', minLength: 1 },
+    deal_id: { type: 'string', description: 'Deal ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     name: { type: 'string', description: 'Deal name.' },
-    value_cents: { type: 'integer', description: 'Value in cents.' },
-    currency: { type: 'string', description: 'Currency code.' },
-    stage: { type: 'string', description: 'Pipeline stage.' },
-    contact_id: { type: 'string', description: 'Associated contact (null to unlink).' },
+    value_cents: { type: 'integer', description: 'Value in cents.', minimum: 0 },
+    currency: { type: 'string', description: 'Currency code.', enum: ['GBP', 'USD', 'EUR'] },
+    stage: { type: 'string', description: 'Pipeline stage.', enum: ['lead', 'qualified', 'proposal', 'won', 'lost'] },
+    contact_id: { type: ['string', 'null'], description: 'Associated contact (null to unlink).' },
     expected_close: { type: 'string', description: 'Expected close date (YYYY-MM-DD).' },
   },
   required: ['deal_id'],
@@ -80,9 +80,9 @@ const DEAL_UPDATE_SCHEMA: JSONSchema = {
 const DEAL_MOVE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
-    deal_id: { type: 'string', description: 'Deal ID.', minLength: 1 },
-    stage: { type: 'string', description: 'New stage.', minLength: 1 },
-    position: { type: 'integer', description: 'Position within stage (optional).' },
+    deal_id: { type: 'string', description: 'Deal ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+    stage: { type: 'string', description: 'New stage.', enum: ['lead', 'qualified', 'proposal', 'won', 'lost'] },
+    position: { type: 'integer', description: 'Position within stage (optional).', minimum: 0 },
   },
   required: ['deal_id', 'stage'],
   additionalProperties: false,
@@ -109,9 +109,9 @@ const DEAL_LIST_SCHEMA: JSONSchema = {
 const ACTIVITY_LOG_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
-    venture_id: { type: 'string', description: 'Venture ID.', minLength: 1 },
+    venture_id: { type: 'string', description: 'Venture ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     kind: { type: 'string', enum: ['call', 'email', 'note', 'meeting', 'stage_change'], description: 'Activity kind.' },
-    body: { type: 'string', description: 'Activity description or body.' },
+    body: { type: ['string', 'null'], description: 'Activity description or body.' },
     deal_id: { type: 'string', description: 'Associated deal (optional).' },
     contact_id: { type: 'string', description: 'Associated contact (optional).' },
   },
@@ -311,9 +311,9 @@ export function buildCrmTools(db: CrmDb): Tool[] {
 
             const r = await q(
               `update ${db.schema}.deals set stage = $1, position = $2, updated_at = now()
-               where id = $3 and user_id = $4 and deleted_at is null
+               where id = $3 and user_id = $4 and venture_id = $5 and deleted_at is null
                returning id, name, stage, value_cents, currency, updated_at`,
-              [stage, position || 0, deal_id, userId],
+              [stage, position || 0, deal_id, userId, ventureId],
             );
             if (r.rows[0]) {
               await q(
