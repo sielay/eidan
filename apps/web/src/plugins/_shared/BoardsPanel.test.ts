@@ -1,21 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { refToUrl } from './BoardsPanel';
 
-// URL conversion logic extracted and tested inline.
-function refToUrl(kind: string, id: string | null, label: string | null): string | null {
-  if (!id && !label) return null;
-  if (kind === "url") return label || id || null;
-  if (kind === "conversation") return id ? `/c/${id}` : null;
-  if (kind === "venture") return id ? `/p/ventures/${id}` : null;
-  if (kind === "social_account" || kind === "social_post") {
-    if (id?.startsWith("at://")) {
-      const match = id.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
-      if (match) return `https://bsky.app/profile/${match[1]}/post/${match[2]}`;
-    }
-  }
-  return null;
-}
 
 describe('Card reference URL conversion', () => {
   it('converts Bluesky at:// URI to web URL', () => {

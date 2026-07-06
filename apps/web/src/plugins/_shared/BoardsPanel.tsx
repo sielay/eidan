@@ -29,7 +29,7 @@ const REF_KINDS: Array<[string, string]> = [
 ];
 
 // Convert platform URIs to web URLs where possible (e.g., Bluesky at:// → bsky.app)
-function refToUrl(kind: string, id: string | null, label: string | null): string | null {
+export function refToUrl(kind: string, id: string | null, label: string | null): string | null {
   if (!id && !label) return null;
   if (kind === "url") return label || id || null;
   if (kind === "conversation") return id ? `/c/${id}` : null;
