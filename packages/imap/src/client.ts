@@ -24,6 +24,10 @@ type SearchCriteria = Record<string, string | boolean | number | SearchCriteria[
 // or an array of objects for OR conditions.
 type ParsedSearchCriteria = SearchCriteria | SearchCriteria[];
 
+// SearchObject is the proper type for imapflow's search() method input.
+// This ensures type safety and clarity when building search criteria.
+type SearchObject = Record<string, string | boolean | number | SearchObject[] | Record<string, SearchObject[]>>;
+
 export interface MailSummary {
   uid: string;
   from: string;
@@ -94,7 +98,7 @@ export async function listRecent(cfg: ImapConfig, mailbox: string, limit: number
   });
 }
 
-function parseSearchQuery(query: string): ParsedSearchCriteria {
+function parseSearchQuery(query: string): SearchObject | SearchObject[] {
   // Parse query like "to:user@x.com OR subject:test OR body:foo OR plain text"
   // Handles AND operators with higher precedence than OR.
   // Returns a SearchCriteria object or array of SearchCriteria objects
@@ -105,58 +109,53 @@ function parseSearchQuery(query: string): ParsedSearchCriteria {
     return {};
   }
 
-  // Escape and quote IMAP search values per RFC 3501 § 6.4.4.
-  // Quoted strings in IMAP require escaping backslashes and quotes.
-  // We wrap values in quotes and escape the necessary characters to ensure
-  // they are treated as literal strings and prevent injection.
-  const escapeImapValue = (value: string): string => {
-    // Escape backslashes first, then quotes (both must be escaped in quoted strings)
-    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    // Wrap in quotes to ensure the entire value is treated as a literal string
-    return `"${escaped}"`;
-  };
-
   // Validate and sanitize search term value to prevent resource exhaustion.
+  // Returns the raw value (unquoted) — imapflow handles RFC 3501 quoting and escaping.
   const validateValue = (value: string): string | null => {
-    if (!value || value.length === 0) return null;
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length === 0) return null;
     // Limit search term length to prevent DoS (typical IMAP servers have limits)
-    if (value.length > 1000) return null;
-    return escapeImapValue(value);
+    if (trimmed.length > 1000) return null;
+    return trimmed;
   };
 
   // Helper to convert a single search term to a SearchObject.
   // Returns empty object {} for invalid/empty terms.
   const parseTerm = (term: string): Record<string, unknown> => {
     if (term.startsWith('to:')) {
-      const value = validateValue(term.slice(3).trim());
+      const value = validateValue(term.slice(3));
       if (value === null) return {};
       return { to: value };
-    } else if (term.startsWith('from:')) {
-      const value = validateValue(term.slice(5).trim());
+    }
+    if (term.startsWith('from:')) {
+      const value = validateValue(term.slice(5));
       if (value === null) return {};
       return { from: value };
-    } else if (term.startsWith('subject:')) {
-      const value = validateValue(term.slice(8).trim());
+    }
+    if (term.startsWith('subject:')) {
+      const value = validateValue(term.slice(8));
       if (value === null) return {};
       return { subject: value };
-    } else if (term.startsWith('cc:')) {
-      const value = validateValue(term.slice(3).trim());
+    }
+    if (term.startsWith('cc:')) {
+      const value = validateValue(term.slice(3));
       if (value === null) return {};
       return { cc: value };
-    } else if (term.startsWith('bcc:')) {
-      const value = validateValue(term.slice(4).trim());
+    }
+    if (term.startsWith('bcc:')) {
+      const value = validateValue(term.slice(4));
       if (value === null) return {};
       return { bcc: value };
-    } else if (term.startsWith('body:')) {
-      const value = validateValue(term.slice(5).trim());
+    }
+    if (term.startsWith('body:')) {
+      const value = validateValue(term.slice(5));
       if (value === null) return {};
       return { body: value };
-    } else {
-      // Default: search text in both headers and body for broader matching
-      const value = validateValue(term.trim());
-      if (value === null) return {};
-      return { text: value };
     }
+    // Default: search text in both headers and body for broader matching
+    const value = validateValue(term);
+    if (value === null) return {};
+    return { text: value };
   };
 
   // Helper to merge AND criteria: multiple criteria on the same field must use `and` array.
@@ -236,8 +235,8 @@ export async function search(cfg: ImapConfig, query: string, mailbox: string, li
     ) {
       return [];
     }
-    // searchCriteria is ParsedSearchCriteria, which is compatible with imapflow's search input
-    const uids = await client.search(searchCriteria as Parameters<typeof client.search>[0]);
+    // searchCriteria is a SearchObject or SearchObject[], which imapflow accepts directly
+    const uids = await client.search(searchCriteria as SearchObject | SearchObject[]);
     if (!uids || uids.length === 0) return [];
     const newest = [...uids].sort((a, b) => b - a).slice(0, limit);
     const out: MailSummary[] = [];
