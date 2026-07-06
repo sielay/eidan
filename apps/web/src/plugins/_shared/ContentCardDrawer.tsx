@@ -62,9 +62,9 @@ function GateStrip({ card, onAdvance }: { card: Card; onAdvance: () => void }): 
           className="btn btn--primary"
           style={{ marginLeft: "auto", minWidth: "auto" }}
           disabled={advancing}
-          onClick={() => {
+          onClick={async () => {
             setAdvancing(true);
-            onAdvance();
+            await onAdvance();
             setAdvancing(false);
           }}
         >
@@ -120,21 +120,29 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
   React.useEffect(() => { void load(); }, [load]);
 
   const approveAsset = async (assetId: string): Promise<void> => {
-    await authFetch(`/api/content/cards/${cardId}/assets/${assetId}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ approval_state: "approved" }),
-    });
-    await load();
+    try {
+      await authFetch(`/api/content/cards/${cardId}/assets/${assetId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ approval_state: "approved" }),
+      });
+      await load();
+    } catch (e) {
+      console.error("Failed to approve asset:", e);
+    }
   };
 
   const rejectAsset = async (assetId: string): Promise<void> => {
-    await authFetch(`/api/content/cards/${cardId}/assets/${assetId}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ approval_state: "rejected" }),
-    });
-    await load();
+    try {
+      await authFetch(`/api/content/cards/${cardId}/assets/${assetId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ approval_state: "rejected" }),
+      });
+      await load();
+    } catch (e) {
+      console.error("Failed to reject asset:", e);
+    }
   };
 
   return (
@@ -199,13 +207,17 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
   React.useEffect(() => { void load(); }, [load]);
 
   const save = async (channel: string, body: string): Promise<void> => {
-    await authFetch(`/api/content/cards/${cardId}/copy`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ channel, body }),
-    });
-    setEditing(null);
-    await load();
+    try {
+      await authFetch(`/api/content/cards/${cardId}/copy`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ channel, body }),
+      });
+      setEditing(null);
+      await load();
+    } catch (e) {
+      console.error("Failed to save copy:", e);
+    }
   };
 
   return (
@@ -342,18 +354,24 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
     try {
       await authFetch(`/api/content/cards/${card.id}/gate-advance`, { method: "POST" });
       onChanged();
+    } catch (e) {
+      console.error("Failed to advance gate:", e);
     } finally { setBusy(false); }
   };
 
   const toggleChannel = async (ch: string): Promise<void> => {
     const next = channels.includes(ch) ? channels.filter((x) => x !== ch) : [...channels, ch];
     setChannels(next);
-    // TODO: Ensure backend validates channels against canonical CHANNELS list for security.
-    await authFetch(`/api/boards/cards`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: card.id, channels: next }),
-    });
+    try {
+      await authFetch(`/api/boards/cards`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: card.id, channels: next }),
+      });
+    } catch (e) {
+      console.error("Failed to update channels:", e);
+      setChannels(channels);
+    }
   };
 
   const stageColors: Record<string, string> = {
