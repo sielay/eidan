@@ -42,10 +42,10 @@ export class EidanMemory {
 
   async searchKnowledge(query: string, limit = 10): Promise<KnowledgeHit[]> {
     return this.db.withPrincipalTx(async (q) => {
-      // Richer recall: websearch_to_tsquery natively supports quoted phrases, OR, and -term negation.
+      // Use plainto_tsquery (standard PostgreSQL) instead of websearch_to_tsquery for portability.
       const r = await q(
         `with q as (
-           select nullif(websearch_to_tsquery('english', $1)::text, '')::tsquery as tq
+           select nullif(plainto_tsquery('english', $1)::text, '')::tsquery as tq
          )
          select k.id, k.skill, k.title, k.body, ts_rank(k.body_tsv, q.tq) as rank
            from eidan.knowledge k, q
@@ -154,7 +154,7 @@ export class EidanMemory {
       }
 
       if (opts.query) {
-        where += ` and to_tsvector('english', kc.title || ' ' || kc.content) @@ websearch_to_tsquery('english', $${paramIdx})`;
+        where += ` and to_tsvector('english', kc.title || ' ' || kc.content) @@ plainto_tsquery('english', $${paramIdx})`;
         params.push(opts.query);
         paramIdx++;
       }

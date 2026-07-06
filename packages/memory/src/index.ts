@@ -57,7 +57,8 @@ export const plugin: MatbotPluginSpec = {
       },
     });
 
-    // Proactive knowledge recall: when operator mentions ventures/goals/issues, surface relevant learnings.
+    // Proactive knowledge recall: for each user message, attempt to surface relevant learnings.
+    // The full-text search naturally filters to relevant results; we show nothing if no matches are found.
     if (process.env['EIDAN_KNOWLEDGE_PROACTIVE_RECALL'] !== '0') {
       services.hooks.register({
         on: 'screen',
@@ -67,21 +68,15 @@ export const plugin: MatbotPluginSpec = {
           const last = msgs[msgs.length - 1] as { role?: string; content?: unknown[] } | undefined;
           if (last?.role !== 'user') return;
 
-          // Extract mentioned keywords (ventures, goals, issues) from the user's message.
+          // Extract user message text for full-text query.
           const lastContent = last.content ?? [];
           const text = lastContent
             .filter((b) => typeof b === 'object' && b !== null && (b as Record<string, unknown>).type === 'text')
             .map((b) => (b as Record<string, unknown>).text ?? '')
-            .join(' ')
-            .toLowerCase();
+            .join(' ');
 
-          // Keyword detection with word boundaries to avoid false positives.
-          // Expanded list includes common synonyms and problem areas.
-          const keywords = ['venture', 'goal', 'objective', 'problem', 'challenge', 'issue', 'delegation', 'pricing', 'marketing', 'strategy', 'roadmap', 'learning', 'insight', 'lesson', 'best practice', 'workflow', 'process', 'skill', 'expertise', 'growth', 'improvement', 'scaling', 'revenue', 'customer', 'team'];
-          const wordBoundaryRegex = new RegExp(`\\b(${keywords.join('|')})\\b`);
-          if (!wordBoundaryRegex.test(text)) return null;
-
-          // Surface relevant knowledge entries from the catalogue.
+          // Always attempt catalogue recall; the full-text search filters to relevant entries.
+          // Empty results (no matches) are suppressed automatically below.
           const entries = await mem.catalogueRecall({ limit: 3, query: text });
           if (!entries.length) return null;
 
