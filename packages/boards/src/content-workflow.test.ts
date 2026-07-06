@@ -14,8 +14,8 @@ const GATES: Record<string, { label: string; nextStage: string }> = {
 
 const STAGES = ["concept", "assets", "copy", "distribution", "scheduled", "published"];
 
-// Helper: simulate gate advance (freeze current stage data and transition + log activity).
-function advanceGate(card: {
+// Card type for testing that includes stage-specific properties.
+type TestCard = {
   status: string;
   frozen_data?: Record<string, unknown>;
   title: string;
@@ -25,7 +25,10 @@ function advanceGate(card: {
   approved_assets?: string[];
   copy_drafts?: Record<string, unknown>;
   resources?: unknown[];
-}): {
+};
+
+// Helper: simulate gate advance (freeze current stage data and transition + log activity).
+function advanceGate(card: TestCard): {
   status: string;
   frozen_data: Record<string, any>;
   activity: { kind: string; body: string; timestamp: string };
@@ -41,12 +44,12 @@ function advanceGate(card: {
     stageData.conversation_id = card.conversation_id;
     stageData.title = card.title;
   } else if (card.status === "assets") {
-    stageData.approved_assets = (card as any).approved_assets ?? [];
+    stageData.approved_assets = card.approved_assets ?? [];
   } else if (card.status === "copy") {
-    stageData.copy_drafts = (card as any).copy_drafts ?? {};
+    stageData.copy_drafts = card.copy_drafts ?? {};
   } else if (card.status === "distribution") {
     stageData.channels = card.channels ?? [];
-    stageData.resources = (card as any).resources ?? [];
+    stageData.resources = card.resources ?? [];
   }
 
   return {
@@ -77,27 +80,28 @@ describe("Content Workflow — Gate Advance", () => {
   });
 
   it("should advance through all stages and accumulate frozen data", () => {
-    let card = { id: "test-card-2", board_id: "board-1", status: "concept", frozen_data: {}, title: "Campaign", conversation_id: "conv-123", approved_assets: [], copy_drafts: {}, channels: [] };
+    let card: TestCard = { status: "concept", frozen_data: {}, title: "Campaign", conversation_id: "conv-123", approved_assets: [], copy_drafts: {}, channels: [] };
 
     for (let i = 0; i < STAGES.length - 2; i++) {
-      card = advanceGate(card as any) as any;
+      const result = advanceGate(card);
+      card = { ...card, status: result.status, frozen_data: result.frozen_data, approved_assets: [], copy_drafts: {}, resources: [] };
       assert.ok(STAGES.includes(card.status), `Stage ${card.status} is valid`);
     }
 
     assert.strictEqual(card.status, "scheduled");
-    assert.ok((card as any).frozen_data.concept !== undefined);
-    assert.ok((card as any).frozen_data.assets !== undefined);
-    assert.ok((card as any).frozen_data.copy !== undefined);
+    assert.ok(card.frozen_data.concept !== undefined);
+    assert.ok(card.frozen_data.assets !== undefined);
+    assert.ok(card.frozen_data.copy !== undefined);
   });
 
   it("should not allow advancing from published stage", () => {
-    const card = { status: "published", frozen_data: {}, title: "Done" };
-    assert.throws(() => advanceGate(card as any), /Cannot advance from published/);
+    const card: TestCard = { status: "published", frozen_data: {}, title: "Done" };
+    assert.throws(() => advanceGate(card), /Cannot advance from published/);
   });
 
   it("should freeze stage-specific output for assets stage", () => {
-    const card = { id: "test-card-3", board_id: "board-1", status: "assets", frozen_data: {}, title: "Campaign", approved_assets: ["img-1", "img-2"] };
-    const result = advanceGate(card as any);
+    const card: TestCard = { status: "assets", frozen_data: {}, title: "Campaign", approved_assets: ["img-1", "img-2"] };
+    const result = advanceGate(card);
 
     assert.ok(result.frozen_data.assets !== undefined);
     assert.deepStrictEqual(result.frozen_data.assets.approved_assets, ["img-1", "img-2"]);

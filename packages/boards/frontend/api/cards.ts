@@ -104,6 +104,18 @@ export async function PUT(req: NextRequest): Promise<Response> {
     vals.push(JSON.stringify(channels));
     sets.push(`channels = $${vals.length}::jsonb`);
   }
+  if (typeof body["conversation_id"] === "string" || body["conversation_id"] === null) {
+    vals.push(body["conversation_id"]); sets.push(`conversation_id = $${vals.length}`);
+  }
+  if (typeof body["parent_card_id"] === "string" || body["parent_card_id"] === null) {
+    vals.push(body["parent_card_id"]); sets.push(`parent_card_id = $${vals.length}`);
+  }
+  if (typeof body["publish_at"] === "string" || body["publish_at"] === null) {
+    vals.push(body["publish_at"]); sets.push(`publish_at = $${vals.length}`);
+  }
+  if (typeof body["frozen_data"] === "object" && body["frozen_data"] !== null) {
+    vals.push(JSON.stringify(body["frozen_data"])); sets.push(`frozen_data = $${vals.length}::jsonb`);
+  }
   if (!sets.length) return Response.json({ error: "nothing to update" }, { status: 400 });
 
   const card = await withUser(sess.userId, async (c) => {

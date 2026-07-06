@@ -9,22 +9,65 @@ export type PluginRoute = { plugin: string; path: string; load: PluginLoad };
 export type PluginSlotEntry = { plugin: string; slot: string; load: PluginLoad };
 
 export const pluginRoutes: PluginRoute[] = [
-  { plugin: "journal", path: "/", load: () => import("@/plugins/journal/Journal") },
+  { plugin: "boards", path: "/", load: () => import("@/plugins/boards/Boards") },
+  { plugin: "boards", path: "/*", load: () => import("@/plugins/boards/Boards") },
+  { plugin: "charles-domains", path: "/", load: () => import("@/plugins/charles-domains/Domains") },
   { plugin: "content", path: "/", load: () => import("@/plugins/content/Content") },
   { plugin: "content", path: "/*", load: () => import("@/plugins/content/Content") },
-  { plugin: "imap", path: "/", load: () => import("@/plugins/imap/Accounts") },
-  { plugin: "ical", path: "/", load: () => import("@/plugins/ical/Calendars") },
+  { plugin: "db", path: "/", load: () => import("@/plugins/db/Connections") },
+  { plugin: "finance-xero", path: "/", load: () => import("@/plugins/finance-xero/Connections") },
+  { plugin: "finance-xero", path: "/callback", load: () => import("@/plugins/finance-xero/Callback") },
+  { plugin: "fs", path: "/", load: () => import("@/plugins/fs/FileBrowser") },
+  { plugin: "github", path: "/", load: () => import("@/plugins/github/Connections") },
+  { plugin: "glue", path: "/", load: () => import("@/plugins/glue/Setup") },
   { plugin: "google", path: "/", load: () => import("@/plugins/google/Connections") },
-  { plugin: "google", path: "/callback", load: () => import("@/plugins/google/Callback") }
+  { plugin: "google", path: "/callback", load: () => import("@/plugins/google/Callback") },
+  { plugin: "ical", path: "/", load: () => import("@/plugins/ical/Calendars") },
+  { plugin: "imap", path: "/", load: () => import("@/plugins/imap/Accounts") },
+  { plugin: "journal", path: "/", load: () => import("@/plugins/journal/Journal") },
+  { plugin: "logs", path: "/", load: () => import("@/plugins/logs/Sources") },
+  { plugin: "social-bluesky", path: "/", load: () => import("@/plugins/social-bluesky/Connections") },
+  { plugin: "social-facebook", path: "/", load: () => import("@/plugins/social-facebook/Connections") },
+  { plugin: "social-facebook", path: "/callback", load: () => import("@/plugins/social-facebook/Callback") },
+  { plugin: "social-instagram", path: "/", load: () => import("@/plugins/social-instagram/Connections") },
+  { plugin: "social-instagram", path: "/callback", load: () => import("@/plugins/social-instagram/Callback") },
+  { plugin: "social-linkedin", path: "/", load: () => import("@/plugins/social-linkedin/Connections") },
+  { plugin: "social-linkedin", path: "/callback", load: () => import("@/plugins/social-linkedin/Callback") },
+  { plugin: "social-mastodon", path: "/", load: () => import("@/plugins/social-mastodon/Connections") },
+  { plugin: "social-mastodon", path: "/callback", load: () => import("@/plugins/social-mastodon/Callback") },
+  { plugin: "social-threads", path: "/", load: () => import("@/plugins/social-threads/Connections") },
+  { plugin: "social-threads", path: "/callback", load: () => import("@/plugins/social-threads/Callback") },
+  { plugin: "social-x", path: "/", load: () => import("@/plugins/social-x/Connections") },
+  { plugin: "social-x", path: "/callback", load: () => import("@/plugins/social-x/Callback") },
+  { plugin: "social-youtube", path: "/", load: () => import("@/plugins/social-youtube/Connections") },
+  { plugin: "social-youtube", path: "/callback", load: () => import("@/plugins/social-youtube/Callback") },
+  { plugin: "ventures", path: "/*", load: () => import("@/plugins/ventures/Ventures") }
 ];
 
 export const pluginSlots: PluginSlotEntry[] = [
 ];
 
 export const pluginNav: NavContribution[] = [
-  {"bundle":"journal","group":"Plan","sections":[{"id":"journal","label":"Journal","icon":"analytics","href":"/p/journal","mobileHome":null}]},
+  {"bundle":"boards","group":"Plan","sections":[{"id":"boards","label":"Planner","icon":"analytics","href":"/p/boards","mobileHome":null}]},
+  {"bundle":"charles-domains","group":"Charles · business","sections":[{"id":"domains","label":"Domains","icon":"link","href":"/p/charles-domains","mobileHome":null}]},
   {"bundle":"content","group":"Plan","sections":[{"id":"content","label":"Content","icon":"analytics","href":"/p/content","mobileHome":null}]},
-  {"bundle":"imap","group":"Integrations","sections":[{"id":"mail","label":"Mail","icon":"mail","href":"/p/imap","mobileHome":5}]},
+  {"bundle":"db","group":"Integrations","sections":[{"id":"databases","label":"Databases","icon":"database","href":"/p/db","mobileHome":6}]},
+  {"bundle":"finance-xero","group":"Integrations","sections":[{"id":"xero","label":"Xero","icon":"receipt","href":"/p/finance-xero","mobileHome":6}]},
+  {"bundle":"fs","group":"Files","sections":[{"id":"fs","label":"Files","icon":"link","href":"/p/fs","mobileHome":null}]},
+  {"bundle":"github","group":"Integrations","sections":[{"id":"github","label":"GitHub","icon":"link","href":"/p/github","mobileHome":null}]},
+  {"bundle":"glue","group":"Integrations","sections":[{"id":"glue","label":"Glue marketing","icon":"share","href":"/p/glue","mobileHome":null}]},
+  {"bundle":"google","group":"Integrations","sections":[{"id":"gmail","label":"Google","icon":"mail","href":"/p/google","mobileHome":5}]},
   {"bundle":"ical","group":"Integrations","sections":[{"id":"calendars","label":"Calendars","icon":"calendar","href":"/p/ical","mobileHome":4}]},
-  {"bundle":"google","group":"Integrations","sections":[{"id":"gmail","label":"Google","icon":"mail","href":"/p/google","mobileHome":5}]}
+  {"bundle":"imap","group":"Integrations","sections":[{"id":"mail","label":"Mail","icon":"mail","href":"/p/imap","mobileHome":5}]},
+  {"bundle":"journal","group":"Plan","sections":[{"id":"journal","label":"Journal","icon":"analytics","href":"/p/journal","mobileHome":null}]},
+  {"bundle":"logs","group":"Integrations","sections":[{"id":"logs","label":"Logs","icon":"scroll-text","href":"/p/logs","mobileHome":7}]},
+  {"bundle":"social-bluesky","group":"Integrations","sections":[{"id":"social-bluesky","label":"Bluesky","icon":"share","href":"/p/social-bluesky","mobileHome":null}]},
+  {"bundle":"social-facebook","group":"Integrations","sections":[{"id":"social-facebook","label":"Facebook","icon":"share","href":"/p/social-facebook","mobileHome":null}]},
+  {"bundle":"social-instagram","group":"Integrations","sections":[{"id":"social-instagram","label":"Instagram","icon":"share","href":"/p/social-instagram","mobileHome":null}]},
+  {"bundle":"social-linkedin","group":"Integrations","sections":[{"id":"social-linkedin","label":"LinkedIn","icon":"share","href":"/p/social-linkedin","mobileHome":null}]},
+  {"bundle":"social-mastodon","group":"Integrations","sections":[{"id":"social-mastodon","label":"Mastodon","icon":"share","href":"/p/social-mastodon","mobileHome":null}]},
+  {"bundle":"social-threads","group":"Integrations","sections":[{"id":"social-threads","label":"Threads","icon":"share","href":"/p/social-threads","mobileHome":null}]},
+  {"bundle":"social-x","group":"Integrations","sections":[{"id":"social-x","label":"X (Twitter)","icon":"share","href":"/p/social-x","mobileHome":null}]},
+  {"bundle":"social-youtube","group":"Integrations","sections":[{"id":"social-youtube","label":"YouTube","icon":"share","href":"/p/social-youtube","mobileHome":null}]},
+  {"bundle":"ventures","group":"Business","sections":[{"id":"ventures","label":"Ventures","icon":"ventures","href":"/p/ventures","mobileHome":1}]}
 ];
