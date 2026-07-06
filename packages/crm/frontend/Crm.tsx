@@ -103,21 +103,9 @@ export default function Crm() {
 
   async function moveDeal(dealId: string, newStage: string) {
     try {
-      // Fetch current deal to get its existing stage (validates deal exists)
-      const dealsRes = await authFetch(`/api/crm/deals?venture_id=${ventureId}`);
-      const dealsData = (await dealsRes.json()) as { deals?: Deal[] };
-      const currentDeal = dealsData.deals?.find((d) => d.id === dealId);
-      if (!currentDeal) {
-        console.error('Deal not found');
-        return;
-      }
-
-      const targetCol = columns.find((c) => c.stage === newStage);
-      // Position is set to the end of the target column (added to the bottom)
-      const position = (targetCol?.count || 0);
       const res = await authFetch(`/api/crm/deals`, {
         method: 'PUT',
-        body: JSON.stringify({ deal_id: dealId, stage: newStage, position, venture_id: ventureId }),
+        body: JSON.stringify({ deal_id: dealId, stage: newStage }),
       });
       if (res.ok) {
         await loadPipeline();
@@ -161,12 +149,7 @@ export default function Crm() {
 
   function formatColumnSum(col: PipelineColumn | undefined): string {
     const { total, currency } = getColumnSum(col);
-    return new Intl.NumberFormat('en-GB', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(total / 100);
+    return formatCurrency(total, currency);
   }
 
   // Build a Map for O(1) lookup of columns by stage

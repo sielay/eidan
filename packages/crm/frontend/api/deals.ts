@@ -81,32 +81,39 @@ export async function PUT(req: NextRequest): Promise<Response> {
     return Response.json({ error: 'invalid JSON body' }, { status: 400 });
   }
 
-  const { deal_id, stage, position, venture_id } = body;
-  if (!deal_id || !stage || !venture_id) return Response.json({ error: 'deal_id, stage, and venture_id required' }, { status: 400 });
+  const { deal_id, stage } = body;
+  if (!deal_id || !stage) return Response.json({ error: 'deal_id and stage required' }, { status: 400 });
 
   // Whitelist allowed fields for update
-  const allowedFields = ['stage', 'position'];
+  const allowedFields = ['stage'];
   for (const field of Object.keys(body)) {
-    if (!['deal_id', 'venture_id', ...allowedFields].includes(field)) {
+    if (!['deal_id', ...allowedFields].includes(field)) {
       return Response.json({ error: `Field '${field}' not allowed` }, { status: 400 });
     }
   }
 
   const payload = await withUser(sess.userId, async (c) => {
     const deal = await c.query(
-      `select venture_id, stage as current_stage from plugin_crm.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
-      [deal_id, sess.userId, venture_id],
+      `select venture_id, stage as current_stage from plugin_crm.deals where id = $1 and user_id = $2 and deleted_at is null`,
+      [deal_id, sess.userId],
     );
     if (!deal.rows[0]) return { error: 'Deal not found' };
     const dealRow = deal.rows[0] as Record<string, unknown>;
     const dealVentureId = dealRow.venture_id as string;
     const currentStage = dealRow.current_stage as string;
 
+    const posRes = await c.query(
+      `select coalesce(max(position), -1) as max_pos from plugin_crm.deals where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
+      [sess.userId, dealVentureId, stage],
+    );
+    const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
+    const newPosition = maxPos + 1;
+
     const r = await c.query(
       `update plugin_crm.deals set stage = $1, position = $2, updated_at = now()
        where id = $3 and user_id = $4 and venture_id = $5 and deleted_at is null
        returning id, name, stage, value_cents, currency, updated_at`,
-      [stage, position || 0, deal_id, sess.userId, dealVentureId],
+      [stage, newPosition, deal_id, sess.userId, dealVentureId],
     );
     if (r.rows[0]) {
       await c.query(
