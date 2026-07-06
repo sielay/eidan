@@ -17,6 +17,41 @@ import { RichMarkdownEditor } from "@/components/conversation/RichMarkdownEditor
 
 interface Board { id: string; name: string; prompt?: string | null; position: number; status: string }
 interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number; due_date?: string | null; metadata?: { labels?: string[] } }
+interface CardRef { id: string; card_id: string; ref_kind: string; ref_id: string | null; ref_label: string | null }
+interface CardEvent { id: string; kind: string; body: string | null; author_kind?: string; author_id?: string | null; author_label?: string | null; created_at: string }
+
+const LANES: Array<[string, string]> = [["open", "To do"], ["doing", "Doing"], ["done", "Done"]];
+const ORDER = ["open", "doing", "done"];
+const REF_KINDS: Array<[string, string]> = [
+  ["asset", "Asset"], ["venture", "Venture"], ["job", "Job"], ["agent", "Agent"],
+  ["domain", "Domain"], ["social_account", "Social account"], ["url", "URL"], ["note", "Note"],
+  ["conversation", "Conversation"], ["artifact", "Artifact"],
+];
+
+// Convert platform URIs to web URLs where possible (e.g., Bluesky at:// → bsky.app)
+function refToUrl(kind: string, id: string | null, label: string | null): string | null {
+  if (!id && !label) return null;
+  if (kind === "url") return label || id || null;
+  if (kind === "conversation") return id ? `/c/${id}` : null;
+  if (kind === "venture") return id ? `/p/ventures/${id}` : null;
+  // Bluesky: at://<did>/app.bsky.feed.post/<rkey> → https://bsky.app/profile/<did>/post/<rkey>
+  if (kind === "social_account" || kind === "social_post") {
+    if (id?.startsWith("at://")) {
+      const match = id.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
+      if (match) return `https://bsky.app/profile/${match[1]}/post/${match[2]}`;
+    }
+  }
+  return null;
+}
+
+function refIcon(kind: string): string {
+  const icons: Record<string, string> = {
+    asset: "📦", venture: "🚀", job: "✓", agent: "🤖",
+    domain: "🌐", social_account: "📱", social_post: "🔗", url: "🔗", note: "📝",
+    conversation: "💬", artifact: "⚙️",
+  };
+  return icons[kind] ?? "🔗";
+}
 
 // Deterministic pastel colour per label name (no palette table needed).
 function labelHue(name: string): number {
@@ -33,16 +68,50 @@ function LabelChip({ name, onRemove }: { name: string; onRemove?: () => void }):
     </span>
   );
 }
-interface CardRef { id: string; card_id: string; ref_kind: string; ref_id: string | null; ref_label: string | null }
-interface CardEvent { id: string; kind: string; body: string | null; author_kind?: string; author_id?: string | null; author_label?: string | null; created_at: string }
 
-const LANES: Array<[string, string]> = [["open", "To do"], ["doing", "Doing"], ["done", "Done"]];
-const ORDER = ["open", "doing", "done"];
-const REF_KINDS: Array<[string, string]> = [
-  ["asset", "Asset"], ["venture", "Venture"], ["job", "Job"], ["agent", "Agent"],
-  ["domain", "Domain"], ["social_account", "Social account"], ["url", "URL"], ["note", "Note"],
-  ["conversation", "Conversation"], ["artifact", "Artifact"],
-];
+function RefChip({ ref, onRemove }: { ref: CardRef; onRemove: () => void }): React.ReactElement {
+  const url = refToUrl(ref.ref_kind, ref.ref_id, ref.ref_label);
+  const kindLabel = REF_KINDS.find(([v]) => v === ref.ref_kind)?.[1] ?? ref.ref_kind;
+  const icon = refIcon(ref.ref_kind);
+  const label = ref.ref_label || ref.ref_id || "(unlabelled)";
+
+  const content = (
+    <>
+      <span>{icon}</span>
+      <span>{label}</span>
+    </>
+  );
+
+  const chipStyle = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    fontSize: "var(--fs-13)",
+    padding: "4px 8px",
+    borderRadius: 6,
+    border: "1px solid var(--border)",
+    background: url ? "var(--surface-2, rgba(120,120,140,.08))" : "var(--surface-1, rgba(120,120,140,.04))",
+    color: url ? "var(--accent-link, var(--accent))" : "var(--text)",
+    cursor: url ? "pointer" : "default",
+    textDecoration: "none",
+    whiteSpace: "nowrap" as const,
+  };
+
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {url ? (
+        <a href={url} target={url.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer" style={chipStyle} title={`${kindLabel}${ref.ref_id ? ` · ${ref.ref_id}` : ""}`}>
+          {content}
+        </a>
+      ) : (
+        <span style={chipStyle} title={`${kindLabel}${ref.ref_id ? ` · ${ref.ref_id}` : ""}`}>
+          {content}
+        </span>
+      )}
+      <button style={{ border: "none", background: "none", cursor: "pointer", color: "var(--muted)", padding: 0, lineHeight: 1, fontSize: "var(--fs-13)" }} onClick={(e) => { e.stopPropagation(); onRemove(); }} title="Remove">×</button>
+    </div>
+  );
+}
 
 const S = {
   tabs: { display: "flex", flexWrap: "wrap" as const, alignItems: "center", gap: "var(--s2)", margin: "var(--s3) 0" },
@@ -426,15 +495,9 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
         <div>
           <div className="screen-sub" style={{ marginTop: 0, fontWeight: 600 }}>Linked to</div>
           {refs.length === 0 ? <p className="screen-sub" style={{ margin: "4px 0" }}>Nothing linked yet.</p> : (
-            <div className="loglist">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: "var(--s2)" }}>
               {refs.map((r) => (
-                <div className="logrow" key={r.id}>
-                  <span className="logrow__main">
-                    <span className="logrow__primary">{r.ref_label || r.ref_id || "(unlabelled)"}</span>
-                    <span className="logrow__meta">{kindLabel(r.ref_kind)}{r.ref_id && r.ref_label ? ` · ${r.ref_id}` : ""}</span>
-                  </span>
-                  <button style={S.btn} disabled={busy} title="Remove" onClick={() => void removeRef(r.id)}>×</button>
-                </div>
+                <RefChip key={r.id} ref={r} onRemove={() => void removeRef(r.id)} />
               ))}
             </div>
           )}
