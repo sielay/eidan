@@ -11,7 +11,7 @@ import { authFetch } from "@/lib/auth";
 import { Avatar } from "@/plugins/_shared/Avatar";
 import { RichMarkdownEditor } from "@/components/conversation/RichMarkdownEditor";
 
-interface Card { id: string; board_id: string; title: string; body: string | null; status: string; metadata?: Record<string, unknown>; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown> }
+interface Card { id: string; board_id: string; title: string; body: string | null; status: string; metadata?: Record<string, unknown>; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown>; ref_count?: number; due_date?: string | null }
 interface CardEvent { id: string; kind: string; body: string | null; author_kind?: string; author_id?: string | null; author_label?: string | null; created_at: string }
 interface CardAsset { id: string; ref_id: string; ref_kind: string; approval_state: string; metadata?: Record<string, unknown> }
 interface CardCopy { id: string; channel: string; body: string | null; state: string }
@@ -316,9 +316,8 @@ function ChatTab({ cardId }: { cardId: string }): React.ReactElement {
   );
 }
 
-function RightRail({ card, channels, onFork, onChanged }: { card: Card; channels: string[]; onFork: () => void; onChanged: () => void }): React.ReactElement {
+function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card; channels: string[]; forking: boolean; onFork: () => void; onChanged: () => void }): React.ReactElement {
   const [schedule, setSchedule] = React.useState(card.publish_at ? new Date(card.publish_at).toISOString().slice(0, 16) : "");
-  const [forking, setForking] = React.useState(false);
   const [events, setEvents] = React.useState<CardEvent[]>([]);
   const [eventsLoading, setEventsLoading] = React.useState(false);
 
@@ -356,29 +355,6 @@ function RightRail({ card, channels, onFork, onChanged }: { card: Card; channels
     }
   };
 
-  const createFork = async (): Promise<void> => {
-    setForking(true);
-    try {
-      const forkTitle = `${card.title} (variant)`;
-      await authFetch(`/api/content/cards/${card.id}/fork`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: forkTitle,
-          body: card.body,
-          channels: channels,
-          board_id: card.board_id,
-          parent_card_id: card.id,
-        }),
-      });
-      onChanged();
-      setForking(false);
-    } catch (e) {
-      console.error("Fork failed:", e);
-      setForking(false);
-    }
-  };
-
   return (
     <div style={S.rail}>
       <div>
@@ -395,7 +371,7 @@ function RightRail({ card, channels, onFork, onChanged }: { card: Card; channels
 
       <div>
         <div className="screen-sub" style={{ fontWeight: 600, margin: 0, marginBottom: "var(--s2)" }}>Actions</div>
-        <button className="btn btn--ghost" style={{ width: "100%", justifyContent: "flex-start" }} disabled={forking} onClick={() => void createFork()}>
+        <button className="btn btn--ghost" style={{ width: "100%", justifyContent: "flex-start" }} disabled={forking} onClick={() => void onFork()}>
           + Fork variant
         </button>
       </div>
@@ -431,6 +407,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
   const [tab, setTab] = React.useState<"chat" | "assets" | "copy">("chat");
   const [channels, setChannels] = React.useState<string[]>(card.channels ?? []);
   const [busy, setBusy] = React.useState(false);
+  const [forking, setForking] = React.useState(false);
 
   const advanceGate = async (): Promise<void> => {
     if (!GATES[card.status]) return;
@@ -459,6 +436,30 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
     } catch (e) {
       console.error("Failed to update channels:", e);
       setChannels(channels);
+    }
+  };
+
+  const createFork = async (): Promise<void> => {
+    setForking(true);
+    try {
+      const forkTitle = `${card.title} (variant)`;
+      await authFetch(`/api/content/cards/${card.id}/fork`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: forkTitle,
+          body: card.body,
+          channels: channels,
+          board_id: card.board_id,
+          parent_card_id: card.id,
+          status: "concept",
+        }),
+      });
+      onChanged();
+    } catch (e) {
+      console.error("Fork failed:", e);
+    } finally {
+      setForking(false);
     }
   };
 
@@ -499,7 +500,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
           {tab === "chat" && <ChatTab cardId={card.id} />}
           {tab === "assets" && <AssetsTab cardId={card.id} />}
           {tab === "copy" && <CopyTab cardId={card.id} channels={channels} />}
-          <RightRail card={card} channels={channels} onFork={onChanged} onChanged={onChanged} />
+          <RightRail card={card} channels={channels} forking={forking} onFork={createFork} onChanged={onChanged} />
         </div>
       </div>
     </div>

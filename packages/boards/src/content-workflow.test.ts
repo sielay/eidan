@@ -59,7 +59,7 @@ function advanceGate(card: {
 // Test gate advance: verify that advancing freezes stage output and logs activity.
 describe("Content Workflow — Gate Advance", () => {
   it("should advance from concept to assets and freeze concept data", () => {
-    const card = { id: "test-card-1", status: "concept", frozen_data: {}, title: "Test Campaign", conversation_id: "conv-123" };
+    const card = { id: "test-card-1", board_id: "board-1", status: "concept", frozen_data: {}, title: "Test Campaign", conversation_id: "conv-123" };
     const result = advanceGate(card);
 
     assert.strictEqual(result.status, "assets");
@@ -73,7 +73,7 @@ describe("Content Workflow — Gate Advance", () => {
   });
 
   it("should advance through all stages and accumulate frozen data", () => {
-    let card = { status: "concept", frozen_data: {}, title: "Campaign", conversation_id: "conv-123", metadata: { approved_assets: [], copy_drafts: {}, channels: [] } };
+    let card = { id: "test-card-2", board_id: "board-1", status: "concept", frozen_data: {}, title: "Campaign", conversation_id: "conv-123", metadata: { approved_assets: [], copy_drafts: {}, channels: [] } };
 
     for (let i = 0; i < STAGES.length - 2; i++) {
       card = advanceGate(card as any) as any;
@@ -92,7 +92,7 @@ describe("Content Workflow — Gate Advance", () => {
   });
 
   it("should freeze stage-specific output for assets stage", () => {
-    const card = { status: "assets", frozen_data: {}, title: "Campaign", metadata: { approved_assets: ["img-1", "img-2"] } };
+    const card = { id: "test-card-3", board_id: "board-1", status: "assets", frozen_data: {}, title: "Campaign", metadata: { approved_assets: ["img-1", "img-2"] } };
     const result = advanceGate(card as any);
 
     assert.ok(result.frozen_data.assets !== undefined);
