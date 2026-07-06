@@ -35,11 +35,15 @@ export function refToUrl(kind: string, id: string | null, label: string | null):
   if (kind === "conversation") return id ? `/c/${id}` : null;
   if (kind === "venture") return id ? `/p/ventures/${id}` : null;
   // Bluesky: at://<did>/app.bsky.feed.post/<rkey> → https://bsky.app/profile/<did>/post/<rkey>
-  if (kind === "social_account" || kind === "social_post") {
+  if (kind === "social_post") {
     if (id?.startsWith("at://")) {
       const match = id.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
       if (match) return `https://bsky.app/profile/${match[1]}/post/${match[2]}`;
     }
+  }
+  if (kind === "social_account") {
+    // Bluesky account: DID or handle → profile URL
+    if (id) return `https://bsky.app/profile/${id}`;
   }
   return null;
 }
