@@ -924,9 +924,9 @@ function BrandEditor({ ventureId }: { ventureId: string }): React.ReactElement {
   );
 }
 
-// The content-workflow board columns (mirror the shipped linkedin-carousel stages) — a content board
-// tracks pieces through Concept → Assets → Copy → Review, not the default To do/Doing/Done.
-const CONTENT_LANES: Array<[string, string]> = [["concept", "Concept"], ["assets", "Assets"], ["copy", "Copy"], ["review", "Review"], ["published", "Published"]];
+// The content-workflow board columns — 6 canonical stages for the content system.
+// Concept → Assets → Copy → Distribution → Scheduled → Published.
+const CONTENT_LANES: Array<[string, string]> = [["concept", "Concept"], ["assets", "Assets"], ["copy", "Copy"], ["distribution", "Distribution"], ["scheduled", "Scheduled"], ["published", "Published"]];
 
 function ContentTab({ venture }: { venture: Venture }): React.ReactElement {
   return (
