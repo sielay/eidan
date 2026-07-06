@@ -2,7 +2,7 @@
 // /api/boards/cards — cards on a board. Surface B (Next-reads-Postgres), owner-scoped.
 //   GET    ?board=<id>                       → { cards }   (each with ref_count)
 //   POST   { board_id, title, body? }        → { ok, card }
-//   PUT    { id, title?, body?, status? }     → { ok, card }   (status change logs an event)
+//   PUT    /[id] { title?, body?, status? }  → { ok, card }   (status change logs an event)
 //   DELETE ?id=<id>                          → { ok }       (archive)
 import type { NextRequest } from "next/server";
 
