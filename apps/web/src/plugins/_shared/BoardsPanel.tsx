@@ -478,7 +478,7 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
         <div>
           <div className="screen-sub" style={{ marginTop: 0, fontWeight: 600 }}>Labels</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: "var(--s2)" }}>
-            {labels.map((l) => <LabelChip key={l} name={l} onRemove={() => void saveLabels(labels.filter((x) => x !== l))} />)}
+            {labels.map((l) => <LabelChip key={l} name={l} onRemove={() => saveLabels(labels.filter((x) => x !== l))} />)}
             <input
               className="input"
               style={{ width: 130, padding: "2px var(--s2)", fontSize: "var(--fs-13)" }}
@@ -501,7 +501,7 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
           {refs.length === 0 ? <p className="screen-sub" style={{ margin: "4px 0" }}>Nothing linked yet.</p> : (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: "var(--s2)" }}>
               {refs.map((r) => (
-                <RefChip key={r.id} ref={r} onRemove={() => void removeRef(r.id)} />
+                <RefChip key={r.id} ref={r} onRemove={() => removeRef(r.id)} />
               ))}
             </div>
           )}
