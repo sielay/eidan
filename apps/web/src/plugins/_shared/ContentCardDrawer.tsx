@@ -65,8 +65,11 @@ function GateStrip({ card, onAdvance }: { card: Card; onAdvance: () => void }): 
           disabled={advancing}
           onClick={async () => {
             setAdvancing(true);
-            await onAdvance();
-            setAdvancing(false);
+            try {
+              await onAdvance();
+            } finally {
+              setAdvancing(false);
+            }
           }}
         >
           {gate.label}
@@ -364,6 +367,7 @@ function RightRail({ card, channels, onFork, onChanged }: { card: Card; channels
           title: forkTitle,
           body: card.body,
           channels: channels,
+          board_id: card.board_id,
           parent_card_id: card.id,
         }),
       });
@@ -463,7 +467,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
     assets: "var(--good)",
     copy: "var(--info)",
     distribution: "var(--warn)",
-    scheduled: "var(--warn)",
+    scheduled: "var(--info)",
     published: "var(--good)",
   };
 

@@ -45,11 +45,9 @@ function advanceGate(card: {
     stageData.resources = card.metadata?.resources ?? [];
   }
 
-  frozen[card.status] = stageData;
-
   return {
     status: gate.nextStage,
-    frozen_data: frozen,
+    frozen_data: { ...frozen, [card.status]: stageData },
     activity: {
       kind: "status",
       body: gate.nextStage,
