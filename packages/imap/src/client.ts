@@ -97,19 +97,23 @@ export async function listRecent(cfg: ImapConfig, mailbox: string, limit: number
 function parseSearchQuery(query: string): ParsedSearchCriteria {
   // Parse query like "to:user@x.com OR subject:test OR body:foo OR plain text"
   // Handles AND operators with higher precedence than OR.
-  // Returns a SearchObject suitable for imapflow's search() method.
+  // Returns a SearchCriteria object or array of SearchCriteria objects
+  // suitable for imapflow's search() method.
 
   const trimmedQuery = query.trim();
   if (!trimmedQuery) {
     return {};
   }
 
-  // Escape IMAP special characters per RFC 3501 § 6.4.4.
-  // imapflow's search() handles quoting and protocol formatting; we just escape
-  // literal backslashes and quotes that appear within the search value.
+  // Escape and quote IMAP search values per RFC 3501 § 6.4.4.
+  // Quoted strings in IMAP require escaping backslashes and quotes.
+  // We wrap values in quotes and escape the necessary characters to ensure
+  // they are treated as literal strings and prevent injection.
   const escapeImapValue = (value: string): string => {
-    // Escape backslashes first, then quotes (both must be escaped in literal strings)
-    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    // Escape backslashes first, then quotes (both must be escaped in quoted strings)
+    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    // Wrap in quotes to ensure the entire value is treated as a literal string
+    return `"${escaped}"`;
   };
 
   // Validate and sanitize search term value to prevent resource exhaustion.
@@ -232,6 +236,7 @@ export async function search(cfg: ImapConfig, query: string, mailbox: string, li
     ) {
       return [];
     }
+    // searchCriteria is ParsedSearchCriteria, which is compatible with imapflow's search input
     const uids = await client.search(searchCriteria as Parameters<typeof client.search>[0]);
     if (!uids || uids.length === 0) return [];
     const newest = [...uids].sort((a, b) => b - a).slice(0, limit);
