@@ -9,11 +9,11 @@ import type { NextRequest } from "next/server";
 import { verifyBearer } from "@/server/auth";
 import { withUser } from "@/server/db";
 
-interface CardRow { id: string; board_id: string; title: string; body: string | null; status: string; position: number; metadata?: Record<string, unknown>; due_date?: string | null; ref_count?: number }
+interface CardRow { id: string; board_id: string; title: string; body: string | null; status: string; position: number; metadata?: Record<string, unknown>; due_date?: string | null; ref_count?: number; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown> }
 // Boards can define their own columns (a content board runs concept→…→published, not open/doing/done).
 // 'archived' is always the soft-delete tombstone regardless of a board's lanes.
-const STATUSES = ["open", "doing", "done", "concept", "assets", "copy", "review", "published", "archived"];
-const COLS = "id, board_id, title, body, status, position, metadata, due_date";
+const STATUSES = ["open", "doing", "done", "concept", "assets", "copy", "distribution", "scheduled", "published", "archived"];
+const COLS = "id, board_id, title, body, status, position, metadata, due_date, conversation_id, parent_card_id, channels, publish_at, frozen_data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +27,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const cards = await withUser(sess.userId, async (c) => {
     const r = await c.query(
       `select k.id, k.board_id, k.title, k.body, k.status, k.position, k.metadata, k.due_date,
+              k.conversation_id, k.parent_card_id, k.channels, k.publish_at, k.frozen_data,
               (select count(*)::int from plugin_boards.card_refs r where r.card_id = k.id) as ref_count
          from plugin_boards.cards k
         where k.user_id = $1 and k.board_id = $2 and k.status <> 'archived'
@@ -91,6 +92,12 @@ export async function PUT(req: NextRequest): Promise<Response> {
     const labels = [...new Set((body["labels"] as unknown[]).map((l) => String(l).trim()).filter(Boolean))];
     vals.push(JSON.stringify(labels));
     sets.push(`metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{labels}', $${vals.length}::jsonb, true)`);
+  }
+  if (Array.isArray(body["channels"])) {
+    // Content workflow channels (linkedin, x, etc.)
+    const channels = [...new Set((body["channels"] as unknown[]).map((c) => String(c).trim()).filter(Boolean))];
+    vals.push(JSON.stringify(channels));
+    sets.push(`channels = $${vals.length}::jsonb`);
   }
   if (!sets.length) return Response.json({ error: "nothing to update" }, { status: 400 });
 
