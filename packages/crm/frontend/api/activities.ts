@@ -22,6 +22,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const dealId = req.nextUrl.searchParams.get('deal_id');
   const contactId = req.nextUrl.searchParams.get('contact_id');
   const ventureId = req.nextUrl.searchParams.get('venture_id');
+  if (!ventureId) return Response.json({ error: 'venture_id required' }, { status: 400 });
   if (!dealId && !contactId) return Response.json({ error: 'deal_id or contact_id required' }, { status: 400 });
 
   const payload = await withUser(sess.userId, async (c) => {

@@ -165,18 +165,18 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             );
             return r.rows[0] || { error: 'Failed to create contact' };
           } else if (action === 'update') {
-            const { contact_id, name, email, phone, company, role } = input as Record<string, unknown>;
+            const { contact_id } = input as Record<string, unknown>;
             const ALLOWED_FIELDS = ['name', 'email', 'phone', 'company', 'role'];
             for (const field of Object.keys(input)) {
-              if (!ALLOWED_FIELDS.includes(field) && field !== 'contact_id') {
+              if (!ALLOWED_FIELDS.includes(field) && field !== 'contact_id' && field !== 'action') {
                 return { error: `Field '${field}' not allowed` };
               }
             }
             const updates: string[] = [];
             const values: unknown[] = [contact_id, userId];
             let paramIdx = 3;
-            const allowedFields: Record<string, unknown> = { name, email, phone, company, role };
-            for (const [field, value] of Object.entries(allowedFields)) {
+            for (const field of ALLOWED_FIELDS) {
+              const value = (input as Record<string, unknown>)[field];
               if (value !== undefined) {
                 updates.push(`${field} = $${paramIdx}`);
                 values.push(value);
@@ -245,20 +245,23 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             );
             return r.rows[0] || { error: 'Failed to create deal' };
           } else if (action === 'update') {
-            const { deal_id, name, value_cents, currency, stage, contact_id, expected_close } = input as Record<string, unknown>;
+            const { deal_id } = input as Record<string, unknown>;
             const ALLOWED_FIELDS = ['name', 'value_cents', 'currency', 'stage', 'contact_id', 'expected_close'];
             for (const field of Object.keys(input)) {
-              if (!ALLOWED_FIELDS.includes(field) && field !== 'deal_id') {
+              if (!ALLOWED_FIELDS.includes(field) && field !== 'deal_id' && field !== 'action') {
                 return { error: `Field '${field}' not allowed` };
               }
             }
             const updates: string[] = [];
             const values: unknown[] = [deal_id, userId];
             let paramIdx = 3;
-            const allowedFields: Record<string, unknown> = { name, value_cents, currency, stage, contact_id, expected_close };
-            for (const [field, value] of Object.entries(allowedFields)) {
+            for (const field of ALLOWED_FIELDS) {
+              const value = (input as Record<string, unknown>)[field];
               if (value !== undefined) {
-                const finalValue = (field === 'contact_id' || field === 'expected_close') ? (value || null) : value;
+                let finalValue = value;
+                if (field === 'contact_id' || field === 'expected_close') {
+                  finalValue = value === null ? null : value;
+                }
                 updates.push(`${field} = $${paramIdx}`);
                 values.push(finalValue);
                 paramIdx++;

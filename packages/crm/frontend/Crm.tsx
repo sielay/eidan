@@ -59,6 +59,7 @@ export default function Crm() {
   const [selectedDeal, setSelectedDeal] = useState<string | null>(null);
   const [dealActivities, setDealActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [newDealStage, setNewDealStage] = useState<string | null>(null);
 
   const ventureId = params.get('venture_id') || '';
 
@@ -118,6 +119,19 @@ export default function Crm() {
     }
   }
 
+  function getColumnSum(col: PipelineColumn | undefined): { total: number; currency: string } {
+    if (!col || col.deals.length === 0) return { total: 0, currency: 'GBP' };
+    const byC = new Map<string, number>();
+    for (const deal of col.deals) {
+      byC.set(deal.currency, (byC.get(deal.currency) || 0) + deal.value_cents);
+    }
+    if (byC.size === 1) {
+      const [currency, total] = Array.from(byC.entries())[0];
+      return { total, currency };
+    }
+    return { total: col.total_cents, currency: 'GBP' };
+  }
+
   function formatCurrency(cents: number, currency: string): string {
     return new Intl.NumberFormat('en-GB', {
       style: 'currency',
@@ -141,20 +155,14 @@ export default function Crm() {
     return date.toLocaleDateString();
   }
 
-  function getColumnCurrency(col: PipelineColumn | undefined): string {
-    if (!col || col.deals.length === 0) return 'GBP';
-    return col.deals[0].currency;
-  }
-
   function formatColumnSum(col: PipelineColumn | undefined): string {
-    const cents = col?.total_cents ?? 0;
-    const currency = getColumnCurrency(col);
+    const { total, currency } = getColumnSum(col);
     return new Intl.NumberFormat('en-GB', {
       style: 'currency',
       currency,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(cents / 100);
+    }).format(total / 100);
   }
 
   // Build a Map for O(1) lookup of columns by stage
@@ -212,26 +220,49 @@ export default function Crm() {
                           <span className="--font-num">{formatCurrency(deal.value_cents, deal.currency)}</span>
                         </div>
                         <div className="dealcard__actions">
-                          {stage !== DEFAULT_STAGES[DEFAULT_STAGES.length - 1] && (
-                            <button
-                              className="dealcard__arrow"
-                              aria-label="Move deal to next stage"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const stageIdx = DEFAULT_STAGES.indexOf(stage);
-                                if (stageIdx > -1 && stageIdx + 1 < DEFAULT_STAGES.length) {
-                                  moveDeal(deal.id, DEFAULT_STAGES[stageIdx + 1]);
-                                }
-                              }}
-                            >
-                              →
-                            </button>
+                          {stage && (
+                            <>
+                              {DEFAULT_STAGES.indexOf(stage) > 0 && (
+                                <button
+                                  className="dealcard__arrow"
+                                  aria-label="Move deal to previous stage"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const stageIdx = DEFAULT_STAGES.indexOf(stage);
+                                    if (stageIdx > 0) {
+                                      moveDeal(deal.id, DEFAULT_STAGES[stageIdx - 1]);
+                                    }
+                                  }}
+                                >
+                                  ←
+                                </button>
+                              )}
+                              {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && (
+                                <button
+                                  className="dealcard__arrow"
+                                  aria-label="Move deal to next stage"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const stageIdx = DEFAULT_STAGES.indexOf(stage);
+                                    if (stageIdx > -1 && stageIdx + 1 < DEFAULT_STAGES.length) {
+                                      moveDeal(deal.id, DEFAULT_STAGES[stageIdx + 1]);
+                                    }
+                                  }}
+                                >
+                                  →
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
                     ))}
                   </div>
-                  <button className="kancol__add" aria-label={`Add deal to ${stage} stage`}>
+                  <button
+                    className="kancol__add"
+                    aria-label={`Add deal to ${stage} stage`}
+                    onClick={() => setNewDealStage(stage)}
+                  >
                     + Add deal
                   </button>
                 </div>

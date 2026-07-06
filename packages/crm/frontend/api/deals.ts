@@ -82,7 +82,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
   }
 
   const { deal_id, stage, position, venture_id } = body;
-  if (!deal_id || !stage) return Response.json({ error: 'deal_id and stage required' }, { status: 400 });
+  if (!deal_id || !stage || !venture_id) return Response.json({ error: 'deal_id, stage, and venture_id required' }, { status: 400 });
 
   // Whitelist allowed fields for update
   const allowedFields = ['stage', 'position'];
@@ -94,18 +94,17 @@ export async function PUT(req: NextRequest): Promise<Response> {
 
   const payload = await withUser(sess.userId, async (c) => {
     const deal = await c.query(
-      `select venture_id from plugin_crm.deals where id = $1 and user_id = $2 and deleted_at is null`,
-      [deal_id, sess.userId],
+      `select venture_id from plugin_crm.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
+      [deal_id, sess.userId, venture_id],
     );
     if (!deal.rows[0]) return { error: 'Deal not found' };
     const dealVentureId = (deal.rows[0] as Record<string, unknown>).venture_id as string;
-    if (venture_id && dealVentureId !== venture_id) return { error: 'Venture mismatch' };
 
     const r = await c.query(
       `update plugin_crm.deals set stage = $1, position = $2, updated_at = now()
-       where id = $3 and user_id = $4 and deleted_at is null
+       where id = $3 and user_id = $4 and venture_id = $5 and deleted_at is null
        returning id, name, stage, value_cents, currency, updated_at`,
-      [stage, position || 0, deal_id, sess.userId],
+      [stage, position || 0, deal_id, sess.userId, dealVentureId],
     );
     if (r.rows[0]) {
       await c.query(
