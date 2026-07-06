@@ -16,6 +16,10 @@ export interface ImapConfig {
   pass: string;
 }
 
+// SearchCriteria matches imapflow's search() input: a single criteria object,
+// an array of objects (for OR), or nested AND/OR structures.
+type SearchCriteria = Record<string, string | boolean | number | SearchCriteria[] | Record<string, SearchCriteria[]>>;
+
 export interface MailSummary {
   uid: string;
   from: string;
@@ -86,7 +90,7 @@ export async function listRecent(cfg: ImapConfig, mailbox: string, limit: number
   });
 }
 
-function parseSearchQuery(query: string): unknown {
+function parseSearchQuery(query: string): SearchCriteria | SearchCriteria[] {
   // Parse query like "to:user@x.com OR subject:test OR body:foo OR plain text"
   // Handles AND operators with higher precedence than OR.
   // Returns a SearchObject suitable for imapflow's search() method.
@@ -96,9 +100,13 @@ function parseSearchQuery(query: string): unknown {
     return {};
   }
 
-  // Escape IMAP special characters (quotes and backslashes) to prevent injection.
+  // Escape IMAP special characters: backslashes, quotes, and ensure proper quoting.
+  // RFC 3501 § 6.4.4 requires atoms to be unquoted, but quoted strings must have
+  // internal backslashes and quotes escaped. We quote all search values for consistency.
   const escapeImapValue = (value: string): string => {
-    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    // Always quote the value to handle spaces and special characters safely
+    return `"${escaped}"`;
   };
 
   // Validate and sanitize search term value to prevent resource exhaustion.
@@ -114,56 +122,63 @@ function parseSearchQuery(query: string): unknown {
   const parseTerm = (term: string): Record<string, unknown> => {
     if (term.startsWith('to:')) {
       const value = validateValue(term.slice(3).trim());
-      return value ? { to: value } : {};
+      if (!value) return {};
+      return { to: value };
     } else if (term.startsWith('from:')) {
       const value = validateValue(term.slice(5).trim());
-      return value ? { from: value } : {};
+      if (!value) return {};
+      return { from: value };
     } else if (term.startsWith('subject:')) {
       const value = validateValue(term.slice(8).trim());
-      return value ? { subject: value } : {};
+      if (!value) return {};
+      return { subject: value };
     } else if (term.startsWith('cc:')) {
       const value = validateValue(term.slice(3).trim());
-      return value ? { cc: value } : {};
+      if (!value) return {};
+      return { cc: value };
     } else if (term.startsWith('bcc:')) {
       const value = validateValue(term.slice(4).trim());
-      return value ? { bcc: value } : {};
+      if (!value) return {};
+      return { bcc: value };
     } else if (term.startsWith('body:')) {
       const value = validateValue(term.slice(5).trim());
-      return value ? { body: value } : {};
+      if (!value) return {};
+      return { body: value };
     } else {
       // Default: search text in both headers and body for broader matching
       const value = validateValue(term.trim());
-      return value ? { text: value } : {};
+      if (!value) return {};
+      return { text: value };
     }
   };
 
-  // Helper to merge AND criteria objects: if all criteria have distinct keys, merge into one object.
-  // If there are duplicate keys, wrap in an AND array structure for proper IMAP semantics.
-  const mergeAndCriteria = (criteria: Record<string, unknown>[]): Record<string, unknown> | { and: Record<string, unknown>[] } => {
+  // Helper to merge AND criteria: multiple criteria on the same field must use `and` array.
+  // Different fields can be merged into a single object (implicit AND).
+  const mergeAndCriteria = (criteria: Record<string, unknown>[]): Record<string, unknown> => {
     if (criteria.length === 0) return {};
     if (criteria.length === 1) return criteria[0]!;
 
-    // Check if merging creates duplicate keys
-    const allKeys = new Set<string>();
+    // Check for duplicate keys — if the same field appears in multiple criteria,
+    // we must use imapflow's `and` array structure to avoid overwriting.
     const keyCount = new Map<string, number>();
     for (const item of criteria) {
       for (const key of Object.keys(item)) {
-        allKeys.add(key);
         keyCount.set(key, (keyCount.get(key) ?? 0) + 1);
       }
     }
 
-    // If any key appears multiple times, use AND array structure
-    if (Array.from(keyCount.values()).some((count) => count > 1)) {
+    // If any field key appears in multiple criteria, use AND array structure
+    const hasDuplicateKeys = Array.from(keyCount.values()).some((count) => count > 1);
+    if (hasDuplicateKeys) {
       return { and: criteria };
     }
 
-    // Otherwise, merge all criteria into single object (different keys are implicitly ANDed)
-    const result: Record<string, unknown> = {};
+    // Merge distinct keys into a single object (implicit AND in IMAP)
+    const merged: Record<string, unknown> = {};
     for (const item of criteria) {
-      Object.assign(result, item);
+      Object.assign(merged, item);
     }
-    return result;
+    return merged;
   };
 
   // Split by OR operator (lower precedence) first
@@ -210,11 +225,11 @@ export async function search(cfg: ImapConfig, query: string, mailbox: string, li
     if (
       typeof searchCriteria === 'object' &&
       !Array.isArray(searchCriteria) &&
-      Object.keys(searchCriteria as Record<string, unknown>).length === 0
+      Object.keys(searchCriteria).length === 0
     ) {
       return [];
     }
-    const uids = await client.search(searchCriteria as any, { uid: true });
+    const uids = await client.search(searchCriteria);
     if (!uids || uids.length === 0) return [];
     const newest = [...uids].sort((a, b) => b - a).slice(0, limit);
     const out: MailSummary[] = [];
