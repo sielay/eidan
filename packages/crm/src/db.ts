@@ -93,6 +93,9 @@ export class CrmDb {
         create index if not exists idx_crm_activities_contact on ${this.schema}.activities (contact_id)
       `);
       await c.query(`
+        create index if not exists idx_crm_activities_user on ${this.schema}.activities (user_id, venture_id)
+      `);
+      await c.query(`
         create index if not exists idx_crm_activities_occurred on ${this.schema}.activities (user_id, occurred_at desc)
       `);
     } finally {

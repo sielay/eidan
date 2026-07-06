@@ -307,7 +307,7 @@ export function buildCrmTools(db: CrmDb): Tool[] {
               [deal_id, userId],
             );
             if (!deal.rows[0]) return { error: 'Deal not found' };
-            const ventureId = (deal.rows[0] as Record<string, unknown>).venture_id;
+            const ventureId = (deal.rows[0] as Record<string, unknown>).venture_id as string;
 
             const r = await q(
               `update ${db.schema}.deals set stage = $1, position = $2, updated_at = now()

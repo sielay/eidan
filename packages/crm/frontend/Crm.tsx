@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth';
 
@@ -166,7 +166,7 @@ export default function Crm() {
   }
 
   // Build a Map for O(1) lookup of columns by stage
-  const columnMap = new Map(columns.map((c) => [c.stage, c]));
+  const columnMap = useMemo(() => new Map(columns.map((c) => [c.stage, c])), [columns]);
 
   if (loading) return <div className="screen-head">Loading...</div>;
 
@@ -220,39 +220,35 @@ export default function Crm() {
                           <span className="--font-num">{formatCurrency(deal.value_cents, deal.currency)}</span>
                         </div>
                         <div className="dealcard__actions">
-                          {stage && (
-                            <>
-                              {DEFAULT_STAGES.indexOf(stage) > 0 && (
-                                <button
-                                  className="dealcard__arrow"
-                                  aria-label="Move deal to previous stage"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const stageIdx = DEFAULT_STAGES.indexOf(stage);
-                                    if (stageIdx > 0) {
-                                      moveDeal(deal.id, DEFAULT_STAGES[stageIdx - 1]);
-                                    }
-                                  }}
-                                >
-                                  ←
-                                </button>
-                              )}
-                              {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && (
-                                <button
-                                  className="dealcard__arrow"
-                                  aria-label="Move deal to next stage"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const stageIdx = DEFAULT_STAGES.indexOf(stage);
-                                    if (stageIdx > -1 && stageIdx + 1 < DEFAULT_STAGES.length) {
-                                      moveDeal(deal.id, DEFAULT_STAGES[stageIdx + 1]);
-                                    }
-                                  }}
-                                >
-                                  →
-                                </button>
-                              )}
-                            </>
+                          {DEFAULT_STAGES.indexOf(stage) > 0 && (
+                            <button
+                              className="dealcard__arrow"
+                              aria-label="Move deal to previous stage"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const stageIdx = DEFAULT_STAGES.indexOf(stage);
+                                if (stageIdx > 0) {
+                                  moveDeal(deal.id, DEFAULT_STAGES[stageIdx - 1]);
+                                }
+                              }}
+                            >
+                              ←
+                            </button>
+                          )}
+                          {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && (
+                            <button
+                              className="dealcard__arrow"
+                              aria-label="Move deal to next stage"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const stageIdx = DEFAULT_STAGES.indexOf(stage);
+                                if (stageIdx + 1 < DEFAULT_STAGES.length) {
+                                  moveDeal(deal.id, DEFAULT_STAGES[stageIdx + 1]);
+                                }
+                              }}
+                            >
+                              →
+                            </button>
                           )}
                         </div>
                       </div>
