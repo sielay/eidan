@@ -9,6 +9,7 @@
 import * as React from "react";
 import { authFetch } from "@/lib/auth";
 import { Avatar } from "@/plugins/_shared/Avatar";
+import { RichMarkdownEditor } from "@/components/conversation/RichMarkdownEditor";
 
 interface Card { id: string; board_id: string; title: string; body: string | null; status: string; metadata?: Record<string, unknown>; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown> }
 interface CardEvent { id: string; kind: string; body: string | null; author_kind?: string; author_id?: string | null; author_label?: string | null; created_at: string }
@@ -107,6 +108,7 @@ function ChannelChips({ channels, onToggle }: { channels: string[]; onToggle: (c
 function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
   const [assets, setAssets] = React.useState<CardAsset[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [imageErrors, setImageErrors] = React.useState<Record<string, true>>({});
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -157,25 +159,28 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
     }
   };
 
+  const images = assets.filter((a) => a.ref_kind === "image");
+  const files = assets.filter((a) => a.ref_kind !== "image");
+
   return (
     <div style={{ flex: 1 }}>
       <div className="screen-sub" style={{ fontWeight: 600, marginBottom: "var(--s2)" }}>Generated Images</div>
-      {assets.filter((a) => a.ref_kind === "image").length === 0 ? (
+      {images.length === 0 ? (
         <p className="screen-sub" style={{ margin: 0 }}>No images yet.</p>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--s2)" }}>
-          {assets.filter((a) => a.ref_kind === "image").map((a) => (
+          {images.map((a) => (
             <div key={a.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-sm)", overflow: "hidden" }}>
-              <img
-                src={getPreviewUrl(a.ref_id)}
-                alt="asset preview"
-                style={{ aspectRatio: "1", width: "100%", objectFit: "cover", background: "var(--surface-2, #f5f5f5)" }}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                  (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden");
-                }}
-              />
-              <div style={{ aspectRatio: "1", background: "var(--surface-2, #f5f5f5)", display: "none" }} className="hidden" />
+              {!imageErrors[a.id] ? (
+                <img
+                  src={getPreviewUrl(a.ref_id)}
+                  alt="asset preview"
+                  style={{ aspectRatio: "1", width: "100%", objectFit: "cover", background: "var(--surface-2, #f5f5f5)" }}
+                  onError={() => setImageErrors((s) => ({ ...s, [a.id]: true }))}
+                />
+              ) : (
+                <div style={{ aspectRatio: "1", background: "var(--surface-2, #f5f5f5)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: "var(--fs-13)" }}>No preview</div>
+              )}
               <div style={{ padding: "var(--s2)", display: "flex", gap: "var(--s1)" }}>
                 <button
                   className={`btn ${a.approval_state === "approved" ? "btn--primary" : "btn--ghost"}`}
@@ -193,11 +198,11 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
         </div>
       )}
       <div className="screen-sub" style={{ fontWeight: 600, marginTop: "var(--s3)", marginBottom: "var(--s2)" }}>Files</div>
-      {assets.filter((a) => a.ref_kind !== "image").length === 0 ? (
+      {files.length === 0 ? (
         <p className="screen-sub" style={{ margin: 0 }}>No files yet.</p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--s2)" }}>
-          {assets.filter((a) => a.ref_kind !== "image").map((a) => (
+          {files.map((a) => (
             <div key={a.id} style={{ padding: "var(--s2)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: "var(--fs-13)" }}>{getFileName(a)}</span>
               <a
@@ -265,11 +270,10 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
                 </div>
                 {editing === ch ? (
                   <>
-                    <textarea
-                      className="input"
+                    <RichMarkdownEditor
                       value={copy?.body ?? ""}
-                      onChange={(e) => setCopies((x) => ({ ...x, [ch]: { ...(x[ch] || { id: "new", channel: ch, state: "draft" }), body: e.target.value } as CardCopy }))}
-                      style={{ width: "100%", minHeight: 80, resize: "vertical" }}
+                      onChange={(v) => setCopies((x) => ({ ...x, [ch]: { ...(x[ch] || { id: "new", channel: ch, state: "draft" }), body: v } as CardCopy }))}
+                      minRows={4}
                       placeholder="Write your copy here…"
                     />
                     <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s2)" }}>
@@ -332,15 +336,16 @@ function RightRail({ card, channels, onFork, onChanged }: { card: Card; channels
   const saveSchedule = async (time: string): Promise<void> => {
     if (!time) return;
     try {
+      const dt = new Date(time);
       const plan = channels.map((ch) => ({
         channel: ch,
+        action: ch === "pdf" ? "Create the lead magnet in Glue" : `Post the carousel on ${ch}`,
         status: "pending",
-        created_at: new Date().toISOString(),
       }));
       await authFetch(`/api/content/cards/${card.id}/schedule`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ publish_at: new Date(time).toISOString(), frozen_plan: plan }),
+        body: JSON.stringify({ publish_at: dt.toISOString(), frozen_plan: plan }),
       });
       onChanged();
     } catch (e) {
@@ -355,7 +360,12 @@ function RightRail({ card, channels, onFork, onChanged }: { card: Card; channels
       await authFetch(`/api/content/cards/${card.id}/fork`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: forkTitle }),
+        body: JSON.stringify({
+          title: forkTitle,
+          body: card.body,
+          channels: channels,
+          parent_card_id: card.id,
+        }),
       });
       onChanged();
       setForking(false);
@@ -393,13 +403,19 @@ function RightRail({ card, channels, onFork, onChanged }: { card: Card; channels
         ) : events.length === 0 ? (
           <p className="screen-sub" style={{ margin: 0, fontSize: "var(--fs-12)" }}>No activity yet.</p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--s1)", fontSize: "var(--fs-12)" }}>
-            {events.slice(0, 5).map((e) => (
-              <div key={e.id} style={{ paddingBottom: "var(--s1)", borderBottom: "1px solid var(--border)" }}>
-                <div style={{ fontWeight: 500 }}>{e.kind === "status" ? `Advanced to ${e.body}` : e.kind === "comment" ? "Commented" : e.kind}</div>
-                <div style={{ fontSize: "var(--fs-11)", color: "var(--muted)" }}>{new Date(e.created_at).toLocaleString()}</div>
-              </div>
-            ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--s1)", fontSize: "var(--fs-12)", maxHeight: 300, overflowY: "auto" }}>
+            {events.map((e) => {
+              const author = e.author_label || e.author_kind || "System";
+              const description = e.kind === "status" ? `Advanced to ${e.body}` : e.kind === "asset_approved" ? `Approved asset` : e.kind === "asset_rejected" ? `Rejected asset` : e.kind === "comment" ? `Commented` : e.body || e.kind;
+              return (
+                <div key={e.id} style={{ paddingBottom: "var(--s1)", borderBottom: "1px solid var(--border)" }}>
+                  <div style={{ fontWeight: 500 }}>{description}</div>
+                  <div style={{ fontSize: "var(--fs-11)", color: "var(--muted)" }}>
+                    {author} · {new Date(e.created_at).toLocaleString()}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

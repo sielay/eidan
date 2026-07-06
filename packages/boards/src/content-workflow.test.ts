@@ -14,43 +14,78 @@ const GATES: Record<string, { label: string; nextStage: string }> = {
 
 const STAGES = ["concept", "assets", "copy", "distribution", "scheduled", "published"];
 
-// Helper: simulate gate advance (freeze current stage data and transition).
-function advanceGate(card: { status: string; frozen_data?: Record<string, unknown>; title: string }): { status: string; frozen_data: Record<string, unknown> } {
+// Helper: simulate gate advance (freeze current stage data and transition + log activity).
+function advanceGate(card: {
+  status: string;
+  frozen_data?: Record<string, unknown>;
+  title: string;
+  conversation_id?: string | null;
+  metadata?: Record<string, unknown>;
+}): {
+  status: string;
+  frozen_data: Record<string, unknown>;
+  activity: { kind: string; body: string; timestamp: string };
+} {
   const gate = GATES[card.status];
   if (!gate) throw new Error(`Cannot advance from ${card.status}`);
 
   const frozen = card.frozen_data ?? {};
-  frozen[card.status] = { title: card.title, timestamp: new Date().toISOString() };
+  const stageData: Record<string, unknown> = { timestamp: new Date().toISOString() };
+
+  // Freeze stage-specific output per the task requirements.
+  if (card.status === "concept") {
+    stageData.conversation_id = card.conversation_id;
+    stageData.title = card.title;
+  } else if (card.status === "assets") {
+    stageData.approved_assets = card.metadata?.approved_assets ?? [];
+  } else if (card.status === "copy") {
+    stageData.copy_drafts = card.metadata?.copy_drafts ?? {};
+  } else if (card.status === "distribution") {
+    stageData.channels = card.metadata?.channels ?? [];
+    stageData.resources = card.metadata?.resources ?? [];
+  }
+
+  frozen[card.status] = stageData;
 
   return {
     status: gate.nextStage,
     frozen_data: frozen,
+    activity: {
+      kind: "status",
+      body: gate.nextStage,
+      timestamp: new Date().toISOString(),
+    },
   };
 }
 
 // Test gate advance: verify that advancing freezes stage output and logs activity.
 describe("Content Workflow — Gate Advance", () => {
   it("should advance from concept to assets and freeze concept data", () => {
-    const card = { id: "test-card-1", status: "concept", frozen_data: {}, title: "Test Campaign" };
+    const card = { id: "test-card-1", status: "concept", frozen_data: {}, title: "Test Campaign", conversation_id: "conv-123" };
     const result = advanceGate(card);
 
     assert.strictEqual(result.status, "assets");
     assert.ok(result.frozen_data.concept !== undefined);
     assert.strictEqual(result.frozen_data.concept.title, "Test Campaign");
+    assert.strictEqual(result.frozen_data.concept.conversation_id, "conv-123");
     assert.strictEqual(typeof result.frozen_data.concept.timestamp, "string");
+    assert.ok(result.activity);
+    assert.strictEqual(result.activity.kind, "status");
+    assert.strictEqual(result.activity.body, "assets");
   });
 
   it("should advance through all stages and accumulate frozen data", () => {
-    let card = { status: "concept", frozen_data: {}, title: "Campaign" };
+    let card = { status: "concept", frozen_data: {}, title: "Campaign", conversation_id: "conv-123", metadata: { approved_assets: [], copy_drafts: {}, channels: [] } };
 
-    for (let i = 0; i < STAGES.length - 2; i++) { // concept → assets → copy → distribution → scheduled
-      card = advanceGate(card as any);
+    for (let i = 0; i < STAGES.length - 2; i++) {
+      card = advanceGate(card as any) as any;
       assert.ok(STAGES.includes(card.status), `Stage ${card.status} is valid`);
     }
 
     assert.strictEqual(card.status, "scheduled");
     assert.ok(card.frozen_data.concept !== undefined);
     assert.ok(card.frozen_data.assets !== undefined);
+    assert.ok(card.frozen_data.copy !== undefined);
   });
 
   it("should not allow advancing from published stage", () => {
@@ -58,12 +93,23 @@ describe("Content Workflow — Gate Advance", () => {
     assert.throws(() => advanceGate(card as any), /Cannot advance from published/);
   });
 
-  it("should preserve metadata during frozen data creation", () => {
-    const card = { status: "concept", frozen_data: {}, title: "Test", metadata: { labels: ["urgent"] } };
+  it("should freeze stage-specific output for assets stage", () => {
+    const card = { status: "assets", frozen_data: {}, title: "Campaign", metadata: { approved_assets: ["img-1", "img-2"] } };
     const result = advanceGate(card as any);
 
-    assert.ok(result.frozen_data.concept !== undefined);
-    assert.strictEqual(typeof result.frozen_data.concept.timestamp, "string");
+    assert.ok(result.frozen_data.assets !== undefined);
+    assert.deepStrictEqual(result.frozen_data.assets.approved_assets, ["img-1", "img-2"]);
+    assert.strictEqual(typeof result.frozen_data.assets.timestamp, "string");
+  });
+
+  it("should log activity on gate advance", () => {
+    const card = { status: "concept", frozen_data: {}, title: "Test" };
+    const result = advanceGate(card);
+
+    assert.ok(result.activity);
+    assert.strictEqual(result.activity.kind, "status");
+    assert.strictEqual(result.activity.body, "assets");
+    assert.strictEqual(typeof result.activity.timestamp, "string");
   });
 });
 
