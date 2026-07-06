@@ -105,12 +105,11 @@ function parseSearchQuery(query: string): ParsedSearchCriteria {
   }
 
   // Escape IMAP special characters per RFC 3501 § 6.4.4.
-  // Quoted strings must have backslashes and quotes escaped.
-  // We always quote search values to safely handle spaces and special characters.
+  // imapflow's search() handles quoting and protocol formatting; we just escape
+  // literal backslashes and quotes that appear within the search value.
   const escapeImapValue = (value: string): string => {
-    // Escape backslashes first, then quotes
-    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    return `"${escaped}"`;
+    // Escape backslashes first, then quotes (both must be escaped in literal strings)
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   };
 
   // Validate and sanitize search term value to prevent resource exhaustion.
@@ -233,7 +232,7 @@ export async function search(cfg: ImapConfig, query: string, mailbox: string, li
     ) {
       return [];
     }
-    const uids = await client.search(searchCriteria);
+    const uids = await client.search(searchCriteria as Parameters<typeof client.search>[0]);
     if (!uids || uids.length === 0) return [];
     const newest = [...uids].sort((a, b) => b - a).slice(0, limit);
     const out: MailSummary[] = [];
