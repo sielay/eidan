@@ -94,11 +94,13 @@ export async function PUT(req: NextRequest): Promise<Response> {
 
   const payload = await withUser(sess.userId, async (c) => {
     const deal = await c.query(
-      `select venture_id from plugin_crm.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
+      `select venture_id, stage as current_stage from plugin_crm.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
       [deal_id, sess.userId, venture_id],
     );
     if (!deal.rows[0]) return { error: 'Deal not found' };
-    const dealVentureId = (deal.rows[0] as Record<string, unknown>).venture_id as string;
+    const dealRow = deal.rows[0] as Record<string, unknown>;
+    const dealVentureId = dealRow.venture_id as string;
+    const currentStage = dealRow.current_stage as string;
 
     const r = await c.query(
       `update plugin_crm.deals set stage = $1, position = $2, updated_at = now()
@@ -110,7 +112,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
       await c.query(
         `insert into plugin_crm.activities (user_id, venture_id, deal_id, kind, body, occurred_at)
          values ($1, $2, $3, $4, $5, now())`,
-        [sess.userId, dealVentureId, deal_id, 'stage_change', `Moved to ${stage}`],
+        [sess.userId, dealVentureId, deal_id, 'stage_change', `Moved from ${currentStage} to ${stage}`],
       );
     }
     return r.rows[0] || { error: 'Failed to move deal' };

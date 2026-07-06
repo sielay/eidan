@@ -6,13 +6,6 @@ import { useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth';
 
 const DEFAULT_STAGES = ['lead', 'qualified', 'proposal', 'won', 'lost'];
-const STAGE_COLORS: Record<string, string> = {
-  lead: 'var(--surface)',
-  qualified: 'var(--surface-2)',
-  proposal: 'var(--accent)',
-  won: 'var(--accent)',
-  lost: 'var(--surface-2)',
-};
 
 interface Deal {
   id: string;
@@ -59,7 +52,6 @@ export default function Crm() {
   const [selectedDeal, setSelectedDeal] = useState<string | null>(null);
   const [dealActivities, setDealActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newDealStage, setNewDealStage] = useState<string | null>(null);
 
   const ventureId = params.get('venture_id') || '';
 
@@ -68,6 +60,12 @@ export default function Crm() {
     loadPipeline();
     if (view === 'contacts') loadContacts();
   }, [ventureId, view]);
+
+  useEffect(() => {
+    if (view === 'contacts') {
+      setSelectedDeal(null);
+    }
+  }, [view]);
 
   async function loadPipeline() {
     if (!ventureId) return;
@@ -120,16 +118,10 @@ export default function Crm() {
   }
 
   function getColumnSum(col: PipelineColumn | undefined): { total: number; currency: string } {
-    if (!col || col.deals.length === 0) return { total: 0, currency: 'GBP' };
-    const byC = new Map<string, number>();
-    for (const deal of col.deals) {
-      byC.set(deal.currency, (byC.get(deal.currency) || 0) + deal.value_cents);
-    }
-    if (byC.size === 1) {
-      const [currency, total] = Array.from(byC.entries())[0];
-      return { total, currency };
-    }
-    return { total: col.total_cents, currency: 'GBP' };
+    if (!col || col.count === 0) return { total: 0, currency: 'GBP' };
+    // Infer currency from first deal in column (assumes same currency per stage)
+    const firstDeal = col.deals[0];
+    return { total: col.total_cents, currency: firstDeal?.currency || 'GBP' };
   }
 
   function formatCurrency(cents: number, currency: string): string {
@@ -145,6 +137,7 @@ export default function Crm() {
     const date = new Date(dateStr);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
+    if (diff < 0) return 'in the future';
     const mins = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
@@ -152,7 +145,7 @@ export default function Crm() {
     if (mins < 60) return `${mins} min${mins !== 1 ? 's' : ''} ago`;
     if (hours < 24) return `${hours} hr${hours !== 1 ? 's' : ''} ago`;
     if (days < 7) return `${days} day${days !== 1 ? 's' : ''} ago`;
-    return date.toLocaleDateString();
+    return date.toLocaleDateString('en-GB');
   }
 
   function formatColumnSum(col: PipelineColumn | undefined): string {
@@ -216,49 +209,48 @@ export default function Crm() {
                         <div className="dealcard__name">{deal.name}</div>
                         <div className="dealcard__meta">
                           {deal.contact_name && <span>{deal.contact_name}</span>}
+                          {deal.contact_name && deal.company && <span>, </span>}
                           {deal.company && <span>{deal.company}</span>}
                           <span className="--font-num">{formatCurrency(deal.value_cents, deal.currency)}</span>
                         </div>
-                        <div className="dealcard__actions">
-                          {DEFAULT_STAGES.indexOf(stage) > 0 && (
-                            <button
-                              className="dealcard__arrow"
-                              aria-label="Move deal to previous stage"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const stageIdx = DEFAULT_STAGES.indexOf(stage);
-                                if (stageIdx > 0) {
-                                  moveDeal(deal.id, DEFAULT_STAGES[stageIdx - 1]);
-                                }
-                              }}
-                            >
-                              ←
-                            </button>
-                          )}
-                          {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && (
-                            <button
-                              className="dealcard__arrow"
-                              aria-label="Move deal to next stage"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const stageIdx = DEFAULT_STAGES.indexOf(stage);
-                                if (stageIdx + 1 < DEFAULT_STAGES.length) {
-                                  moveDeal(deal.id, DEFAULT_STAGES[stageIdx + 1]);
-                                }
-                              }}
-                            >
-                              →
-                            </button>
-                          )}
-                        </div>
+                        {stage !== 'won' && stage !== 'lost' && (
+                          <div className="dealcard__actions">
+                            {DEFAULT_STAGES.indexOf(stage) > 0 && (
+                              <button
+                                className="dealcard__arrow"
+                                aria-label="Move deal to previous stage"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const stageIdx = DEFAULT_STAGES.indexOf(stage);
+                                  if (stageIdx > 0) {
+                                    moveDeal(deal.id, DEFAULT_STAGES[stageIdx - 1]);
+                                  }
+                                }}
+                              >
+                                ←
+                              </button>
+                            )}
+                            {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && (
+                              <button
+                                className="dealcard__arrow"
+                                aria-label="Move deal to next stage"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const stageIdx = DEFAULT_STAGES.indexOf(stage);
+                                  if (stageIdx + 1 < DEFAULT_STAGES.length) {
+                                    moveDeal(deal.id, DEFAULT_STAGES[stageIdx + 1]);
+                                  }
+                                }}
+                              >
+                                →
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
-                  <button
-                    className="kancol__add"
-                    aria-label={`Add deal to ${stage} stage`}
-                    onClick={() => setNewDealStage(stage)}
-                  >
+                  <button className="kancol__add" aria-label={`Add deal to ${stage} stage`}>
                     + Add deal
                   </button>
                 </div>
@@ -279,13 +271,12 @@ export default function Crm() {
                   <p className="ctxpanel__empty">No activities yet</p>
                 ) : (
                   dealActivities.map((activity) => {
-                    const title = activity.kind === 'stage_change' && activity.body ? activity.body : activity.kind;
+                    const title = activity.body || activity.kind.charAt(0).toUpperCase() + activity.kind.slice(1);
                     return (
                       <div key={activity.id} className="timeline__row">
                         <div className="timeline__dot"></div>
                         <div>
                           <div className="timeline__title">{title}</div>
-                          {activity.kind !== 'stage_change' && activity.body && <div className="timeline__meta">{activity.body}</div>}
                           <div className="timeline__meta">{formatTime(activity.occurred_at)}</div>
                         </div>
                       </div>
@@ -311,7 +302,9 @@ export default function Crm() {
                     <div className="contact-name">{contact.name}</div>
                     <div className="contact-meta">
                       {contact.company && <span>{contact.company}</span>}
+                      {contact.company && contact.role && <span>, </span>}
                       {contact.role && <span>{contact.role}</span>}
+                      {(contact.company || contact.role) && contact.email && <span>, </span>}
                       {contact.email && <span>{contact.email}</span>}
                     </div>
                   </div>
@@ -349,8 +342,6 @@ export default function Crm() {
           display: flex;
           gap: var(--s1);
           border-bottom: 1px solid var(--border);
-          margin: 0 -var(--s3);
-          margin-bottom: -var(--s3);
           padding: 0 var(--s3);
         }
 
@@ -389,6 +380,12 @@ export default function Crm() {
           flex: 1;
         }
 
+        @media (max-width: 768px) {
+          .kanban {
+            scroll-snap-type: x mandatory;
+          }
+        }
+
         .kancol {
           flex: 0 0 300px;
           display: flex;
@@ -397,6 +394,13 @@ export default function Crm() {
           border-radius: var(--r-md);
           border: 1px solid var(--border);
           overflow: hidden;
+        }
+
+        @media (max-width: 768px) {
+          .kancol {
+            flex: 0 0 80%;
+            scroll-snap-align: start;
+          }
         }
 
         .kancol__head {
@@ -505,6 +509,14 @@ export default function Crm() {
           border: 1px solid var(--border);
           border-radius: var(--r-md);
           overflow: hidden;
+          min-width: 280px;
+          max-width: 400px;
+        }
+
+        @media (max-width: 1024px) {
+          .ctxpanel {
+            flex: 0 0 280px;
+          }
         }
 
         .ctxpanel__head {
@@ -556,13 +568,12 @@ export default function Crm() {
           height: 8px;
           border-radius: var(--r-full);
           background: var(--accent);
-          margin-top: 4px;
+          margin-top: 6px;
         }
 
         .timeline__title {
           font-size: var(--fs-13);
           font-weight: 500;
-          text-transform: capitalize;
         }
 
         .timeline__meta {

@@ -16,6 +16,6 @@ CREATE TABLE plugin_crm.contacts (
     deleted_at  timestamptz
 );
 
-CREATE INDEX idx_crm_contacts_user ON plugin_crm.contacts (user_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_crm_contacts_venture ON plugin_crm.contacts (venture_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_crm_contacts_email ON plugin_crm.contacts (user_id, email) WHERE deleted_at IS NULL AND email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_user ON plugin_crm.contacts (user_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_venture ON plugin_crm.contacts (venture_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_email ON plugin_crm.contacts (user_id, email) WHERE deleted_at IS NULL AND email IS NOT NULL;

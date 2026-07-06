@@ -18,7 +18,7 @@ CREATE TABLE plugin_crm.deals (
     deleted_at      timestamptz
 );
 
-CREATE INDEX idx_crm_deals_user ON plugin_crm.deals (user_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_crm_deals_venture ON plugin_crm.deals (venture_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_crm_deals_stage ON plugin_crm.deals (venture_id, stage) WHERE deleted_at IS NULL;
-CREATE INDEX idx_crm_deals_contact ON plugin_crm.deals (contact_id) WHERE deleted_at IS NULL AND contact_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_crm_deals_user ON plugin_crm.deals (user_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_crm_deals_venture ON plugin_crm.deals (venture_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_crm_deals_stage ON plugin_crm.deals (venture_id, stage) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_crm_deals_contact ON plugin_crm.deals (contact_id) WHERE deleted_at IS NULL AND contact_id IS NOT NULL;

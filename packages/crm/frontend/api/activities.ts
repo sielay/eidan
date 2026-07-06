@@ -33,7 +33,8 @@ export async function GET(req: NextRequest): Promise<Response> {
     if (dealId) {
       query += ` and deal_id = $${params.length + 1}`;
       params.push(dealId);
-    } else if (contactId) {
+    }
+    if (contactId) {
       query += ` and contact_id = $${params.length + 1}`;
       params.push(contactId);
     }

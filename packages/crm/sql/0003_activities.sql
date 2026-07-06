@@ -15,7 +15,7 @@ CREATE TABLE plugin_crm.activities (
     CONSTRAINT crm_activities_kind_chk CHECK (kind IN ('call', 'email', 'note', 'meeting', 'stage_change'))
 );
 
-CREATE INDEX idx_crm_activities_user ON plugin_crm.activities (user_id);
-CREATE INDEX idx_crm_activities_deal ON plugin_crm.activities (deal_id);
-CREATE INDEX idx_crm_activities_contact ON plugin_crm.activities (contact_id);
-CREATE INDEX idx_crm_activities_occurred ON plugin_crm.activities (user_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_crm_activities_user ON plugin_crm.activities (user_id, venture_id);
+CREATE INDEX IF NOT EXISTS idx_crm_activities_deal ON plugin_crm.activities (deal_id);
+CREATE INDEX IF NOT EXISTS idx_crm_activities_contact ON plugin_crm.activities (contact_id);
+CREATE INDEX IF NOT EXISTS idx_crm_activities_occurred ON plugin_crm.activities (user_id, venture_id, occurred_at DESC);

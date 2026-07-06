@@ -40,6 +40,9 @@ export class CrmDb {
       await c.query(`
         create index if not exists idx_crm_contacts_venture on ${this.schema}.contacts (venture_id) where deleted_at is null
       `);
+      await c.query(`
+        create index if not exists idx_crm_contacts_email on ${this.schema}.contacts (user_id, email) where deleted_at is null
+      `);
 
       await c.query(`
         create table if not exists ${this.schema}.deals (
@@ -96,7 +99,34 @@ export class CrmDb {
         create index if not exists idx_crm_activities_user on ${this.schema}.activities (user_id, venture_id)
       `);
       await c.query(`
-        create index if not exists idx_crm_activities_occurred on ${this.schema}.activities (user_id, occurred_at desc)
+        create index if not exists idx_crm_activities_occurred on ${this.schema}.activities (user_id, venture_id, occurred_at desc)
+      `);
+
+      await c.query(`
+        create or replace function ${this.schema}.update_timestamp() returns trigger as $$
+        begin
+          new.updated_at = now();
+          return new;
+        end;
+        $$ language plpgsql
+      `);
+
+      await c.query(`
+        drop trigger if exists ${this.schema}_contacts_update_timestamp on ${this.schema}.contacts
+      `);
+
+      await c.query(`
+        create trigger ${this.schema}_contacts_update_timestamp before update on ${this.schema}.contacts
+        for each row execute function ${this.schema}.update_timestamp()
+      `);
+
+      await c.query(`
+        drop trigger if exists ${this.schema}_deals_update_timestamp on ${this.schema}.deals
+      `);
+
+      await c.query(`
+        create trigger ${this.schema}_deals_update_timestamp before update on ${this.schema}.deals
+        for each row execute function ${this.schema}.update_timestamp()
       `);
     } finally {
       c.release();

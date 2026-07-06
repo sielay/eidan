@@ -20,7 +20,7 @@ const CONTACT_CREATE_SCHEMA: JSONSchema = {
 const CONTACT_UPDATE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
-    contact_id: { type: 'string', description: 'Contact ID to update.', minLength: 1 },
+    contact_id: { type: 'string', description: 'Contact ID to update.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     name: { type: 'string', description: 'Contact name.' },
     email: { type: 'string', description: 'Email address.' },
     phone: { type: 'string', description: 'Phone number.' },
@@ -34,7 +34,7 @@ const CONTACT_UPDATE_SCHEMA: JSONSchema = {
 const CONTACT_GET_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
-    contact_id: { type: 'string', description: 'Contact ID.' },
+    contact_id: { type: 'string', description: 'Contact ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
   },
   required: ['contact_id'],
   additionalProperties: false,
@@ -53,7 +53,7 @@ const DEAL_CREATE_SCHEMA: JSONSchema = {
   properties: {
     venture_id: { type: 'string', description: 'Venture ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     name: { type: 'string', description: 'Deal name.', minLength: 1 },
-    contact_id: { type: 'string', description: 'Associated contact ID (optional).' },
+    contact_id: { type: ['string', 'null'], description: 'Associated contact ID (optional).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     value_cents: { type: 'integer', description: 'Value in cents (default 0).', minimum: 0 },
     currency: { type: 'string', description: 'Currency code (default GBP).', enum: ['GBP', 'USD', 'EUR'] },
     stage: { type: 'string', description: 'Pipeline stage.', enum: ['lead', 'qualified', 'proposal', 'won', 'lost'] },
@@ -70,7 +70,7 @@ const DEAL_UPDATE_SCHEMA: JSONSchema = {
     value_cents: { type: 'integer', description: 'Value in cents.', minimum: 0 },
     currency: { type: 'string', description: 'Currency code.', enum: ['GBP', 'USD', 'EUR'] },
     stage: { type: 'string', description: 'Pipeline stage.', enum: ['lead', 'qualified', 'proposal', 'won', 'lost'] },
-    contact_id: { type: ['string', 'null'], description: 'Associated contact (null to unlink).' },
+    contact_id: { type: ['string', 'null'], description: 'Associated contact (null to unlink).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     expected_close: { type: 'string', description: 'Expected close date (YYYY-MM-DD).' },
   },
   required: ['deal_id'],
@@ -91,7 +91,7 @@ const DEAL_MOVE_SCHEMA: JSONSchema = {
 const DEAL_GET_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
-    deal_id: { type: 'string', description: 'Deal ID.' },
+    deal_id: { type: 'string', description: 'Deal ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
   },
   required: ['deal_id'],
   additionalProperties: false,
@@ -112,8 +112,8 @@ const ACTIVITY_LOG_SCHEMA: JSONSchema = {
     venture_id: { type: 'string', description: 'Venture ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     kind: { type: 'string', enum: ['call', 'email', 'note', 'meeting', 'stage_change'], description: 'Activity kind.' },
     body: { type: ['string', 'null'], description: 'Activity description or body.' },
-    deal_id: { type: 'string', description: 'Associated deal (optional).' },
-    contact_id: { type: 'string', description: 'Associated contact (optional).' },
+    deal_id: { type: ['string', 'null'], description: 'Associated deal (optional).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+    contact_id: { type: ['string', 'null'], description: 'Associated contact (optional).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
   },
   required: ['venture_id', 'kind'],
   additionalProperties: false,
@@ -122,9 +122,9 @@ const ACTIVITY_LOG_SCHEMA: JSONSchema = {
 const ACTIVITY_LIST_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
-    venture_id: { type: 'string', description: 'Venture ID.', minLength: 1 },
-    deal_id: { type: 'string', description: 'Filter by deal ID.' },
-    contact_id: { type: 'string', description: 'Filter by contact ID.' },
+    venture_id: { type: 'string', description: 'Venture ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+    deal_id: { type: ['string', 'null'], description: 'Filter by deal ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+    contact_id: { type: ['string', 'null'], description: 'Filter by contact ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
   },
   required: ['venture_id'],
   additionalProperties: false,
