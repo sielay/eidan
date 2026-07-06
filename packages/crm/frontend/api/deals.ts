@@ -84,6 +84,14 @@ export async function PUT(req: NextRequest): Promise<Response> {
   const { deal_id, stage, position, venture_id } = body;
   if (!deal_id || !stage) return Response.json({ error: 'deal_id and stage required' }, { status: 400 });
 
+  // Whitelist allowed fields for update
+  const allowedFields = ['stage', 'position'];
+  for (const field of Object.keys(body)) {
+    if (!['deal_id', 'venture_id', ...allowedFields].includes(field)) {
+      return Response.json({ error: `Field '${field}' not allowed` }, { status: 400 });
+    }
+  }
+
   const payload = await withUser(sess.userId, async (c) => {
     const deal = await c.query(
       `select venture_id from plugin_crm.deals where id = $1 and user_id = $2 and deleted_at is null`,

@@ -118,15 +118,13 @@ export default function Crm() {
     }
   }
 
-  function formatCurrency(cents: number, currency: string) {
-    const amount = (cents / 100).toFixed(2);
-    if (currency === 'GBP') return `£${amount}`;
-    return `${amount} ${currency}`;
-  }
-
-  function getCurrencySymbol(currency: string) {
-    if (currency === 'GBP') return '£';
-    return currency;
+  function formatCurrency(cents: number, currency: string): string {
+    return new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(cents / 100);
   }
 
   function formatTime(dateStr: string) {
@@ -142,6 +140,25 @@ export default function Crm() {
     if (days < 7) return `${days} day${days !== 1 ? 's' : ''} ago`;
     return date.toLocaleDateString();
   }
+
+  function getColumnCurrency(col: PipelineColumn | undefined): string {
+    if (!col || col.deals.length === 0) return 'GBP';
+    return col.deals[0].currency;
+  }
+
+  function formatColumnSum(col: PipelineColumn | undefined): string {
+    const cents = col?.total_cents ?? 0;
+    const currency = getColumnCurrency(col);
+    return new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(cents / 100);
+  }
+
+  // Build a Map for O(1) lookup of columns by stage
+  const columnMap = new Map(columns.map((c) => [c.stage, c]));
 
   if (loading) return <div className="screen-head">Loading...</div>;
 
@@ -169,16 +186,13 @@ export default function Crm() {
         <div className="crm-pipeline">
           <div className="kanban">
             {DEFAULT_STAGES.map((stage) => {
-              const col = columns.find((c) => c.stage === stage);
+              const col = columnMap.get(stage);
               return (
                 <div key={stage} className="kancol">
                   <div className="kancol__head">
                     <div className="kancol__name">{stage}</div>
                     <div className="kancol__sum">
-                      {col
-                        ? `${getCurrencySymbol(col.deals[0]?.currency || 'GBP')}${(col.total_cents / 100).toFixed(2)}`
-                        : `${getCurrencySymbol('GBP')}0.00`}{' '}
-                      ({col?.count || 0})
+                      {formatColumnSum(col)} ({col?.count || 0})
                     </div>
                   </div>
                   <div className="kancol__deals">

@@ -166,6 +166,12 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             return r.rows[0] || { error: 'Failed to create contact' };
           } else if (action === 'update') {
             const { contact_id, name, email, phone, company, role } = input as Record<string, unknown>;
+            const ALLOWED_FIELDS = ['name', 'email', 'phone', 'company', 'role'];
+            for (const field of Object.keys(input)) {
+              if (!ALLOWED_FIELDS.includes(field) && field !== 'contact_id') {
+                return { error: `Field '${field}' not allowed` };
+              }
+            }
             const updates: string[] = [];
             const values: unknown[] = [contact_id, userId];
             let paramIdx = 3;
@@ -240,6 +246,12 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             return r.rows[0] || { error: 'Failed to create deal' };
           } else if (action === 'update') {
             const { deal_id, name, value_cents, currency, stage, contact_id, expected_close } = input as Record<string, unknown>;
+            const ALLOWED_FIELDS = ['name', 'value_cents', 'currency', 'stage', 'contact_id', 'expected_close'];
+            for (const field of Object.keys(input)) {
+              if (!ALLOWED_FIELDS.includes(field) && field !== 'deal_id') {
+                return { error: `Field '${field}' not allowed` };
+              }
+            }
             const updates: string[] = [];
             const values: unknown[] = [deal_id, userId];
             let paramIdx = 3;
@@ -345,11 +357,11 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             let query = `select id, kind, body, deal_id, contact_id, occurred_at from ${db.schema}.activities where user_id = $1 and venture_id = $2`;
             const params: unknown[] = [userId, venture_id];
             if (deal_id) {
-              query += ` and deal_id = $${params.length + 1} and exists (select 1 from ${db.schema}.deals d where d.id = $${params.length + 1} and d.user_id = $1)`;
+              query += ` and deal_id = $${params.length + 1}`;
               params.push(deal_id);
             }
             if (contact_id) {
-              query += ` and contact_id = $${params.length + 1} and exists (select 1 from ${db.schema}.contacts c where c.id = $${params.length + 1} and c.user_id = $1)`;
+              query += ` and contact_id = $${params.length + 1}`;
               params.push(contact_id);
             }
             query += ` order by occurred_at desc`;

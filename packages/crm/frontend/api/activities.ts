@@ -30,10 +30,10 @@ export async function GET(req: NextRequest): Promise<Response> {
                   where user_id = $1 and venture_id = $2`;
     const params: unknown[] = [sess.userId, ventureId];
     if (dealId) {
-      query += ` and deal_id = $${params.length + 1} and exists (select 1 from plugin_crm.deals d where d.id = $${params.length + 1} and d.user_id = $1)`;
+      query += ` and deal_id = $${params.length + 1}`;
       params.push(dealId);
     } else if (contactId) {
-      query += ` and contact_id = $${params.length + 1} and exists (select 1 from plugin_crm.contacts ct where ct.id = $${params.length + 1} and ct.user_id = $1)`;
+      query += ` and contact_id = $${params.length + 1}`;
       params.push(contactId);
     }
     query += ` order by occurred_at desc`;
