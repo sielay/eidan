@@ -20,6 +20,10 @@ export interface ImapConfig {
 // an array of objects (for OR), or nested AND/OR structures.
 type SearchCriteria = Record<string, string | boolean | number | SearchCriteria[] | Record<string, SearchCriteria[]>>;
 
+// ParsedSearchCriteria is the result of parseSearchQuery: either a single object
+// or an array of objects for OR conditions.
+type ParsedSearchCriteria = SearchCriteria | SearchCriteria[];
+
 export interface MailSummary {
   uid: string;
   from: string;
@@ -90,7 +94,7 @@ export async function listRecent(cfg: ImapConfig, mailbox: string, limit: number
   });
 }
 
-function parseSearchQuery(query: string): SearchCriteria | SearchCriteria[] {
+function parseSearchQuery(query: string): ParsedSearchCriteria {
   // Parse query like "to:user@x.com OR subject:test OR body:foo OR plain text"
   // Handles AND operators with higher precedence than OR.
   // Returns a SearchObject suitable for imapflow's search() method.
@@ -100,12 +104,12 @@ function parseSearchQuery(query: string): SearchCriteria | SearchCriteria[] {
     return {};
   }
 
-  // Escape IMAP special characters: backslashes, quotes, and ensure proper quoting.
-  // RFC 3501 § 6.4.4 requires atoms to be unquoted, but quoted strings must have
-  // internal backslashes and quotes escaped. We quote all search values for consistency.
+  // Escape IMAP special characters per RFC 3501 § 6.4.4.
+  // Quoted strings must have backslashes and quotes escaped.
+  // We always quote search values to safely handle spaces and special characters.
   const escapeImapValue = (value: string): string => {
+    // Escape backslashes first, then quotes
     const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    // Always quote the value to handle spaces and special characters safely
     return `"${escaped}"`;
   };
 
@@ -122,32 +126,32 @@ function parseSearchQuery(query: string): SearchCriteria | SearchCriteria[] {
   const parseTerm = (term: string): Record<string, unknown> => {
     if (term.startsWith('to:')) {
       const value = validateValue(term.slice(3).trim());
-      if (!value) return {};
+      if (value === null) return {};
       return { to: value };
     } else if (term.startsWith('from:')) {
       const value = validateValue(term.slice(5).trim());
-      if (!value) return {};
+      if (value === null) return {};
       return { from: value };
     } else if (term.startsWith('subject:')) {
       const value = validateValue(term.slice(8).trim());
-      if (!value) return {};
+      if (value === null) return {};
       return { subject: value };
     } else if (term.startsWith('cc:')) {
       const value = validateValue(term.slice(3).trim());
-      if (!value) return {};
+      if (value === null) return {};
       return { cc: value };
     } else if (term.startsWith('bcc:')) {
       const value = validateValue(term.slice(4).trim());
-      if (!value) return {};
+      if (value === null) return {};
       return { bcc: value };
     } else if (term.startsWith('body:')) {
       const value = validateValue(term.slice(5).trim());
-      if (!value) return {};
+      if (value === null) return {};
       return { body: value };
     } else {
       // Default: search text in both headers and body for broader matching
       const value = validateValue(term.trim());
-      if (!value) return {};
+      if (value === null) return {};
       return { text: value };
     }
   };
