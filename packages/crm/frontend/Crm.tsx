@@ -103,7 +103,17 @@ export default function Crm() {
 
   async function moveDeal(dealId: string, newStage: string) {
     try {
+      // Fetch current deal to get its existing stage (validates deal exists)
+      const dealsRes = await authFetch(`/api/crm/deals?venture_id=${ventureId}`);
+      const dealsData = (await dealsRes.json()) as { deals?: Deal[] };
+      const currentDeal = dealsData.deals?.find((d) => d.id === dealId);
+      if (!currentDeal) {
+        console.error('Deal not found');
+        return;
+      }
+
       const targetCol = columns.find((c) => c.stage === newStage);
+      // Position is set to the end of the target column (added to the bottom)
       const position = (targetCol?.count || 0);
       const res = await authFetch(`/api/crm/deals`, {
         method: 'PUT',
@@ -119,7 +129,8 @@ export default function Crm() {
 
   function getColumnSum(col: PipelineColumn | undefined): { total: number; currency: string } {
     if (!col || col.count === 0) return { total: 0, currency: 'GBP' };
-    // Infer currency from first deal in column (assumes same currency per stage)
+    // Infer currency from first deal in column. Assumes all deals within a stage have the same currency;
+    // if mixed currencies exist, the sum may be misleading and should be broken down by currency.
     const firstDeal = col.deals[0];
     return { total: col.total_cents, currency: firstDeal?.currency || 'GBP' };
   }

@@ -303,11 +303,12 @@ export function buildCrmTools(db: CrmDb): Tool[] {
           } else if (action === 'move') {
             const { deal_id, stage, position } = input as Record<string, unknown>;
             const deal = await q(
-              `select venture_id from ${db.schema}.deals where id = $1 and user_id = $2 and deleted_at is null`,
+              `select venture_id, stage as current_stage from ${db.schema}.deals where id = $1 and user_id = $2 and deleted_at is null`,
               [deal_id, userId],
             );
             if (!deal.rows[0]) return { error: 'Deal not found' };
             const ventureId = (deal.rows[0] as Record<string, unknown>).venture_id as string;
+            const currentStage = (deal.rows[0] as Record<string, unknown>).current_stage as string;
 
             const r = await q(
               `update ${db.schema}.deals set stage = $1, position = $2, updated_at = now()
@@ -319,7 +320,7 @@ export function buildCrmTools(db: CrmDb): Tool[] {
               await q(
                 `insert into ${db.schema}.activities (user_id, venture_id, deal_id, kind, body, occurred_at)
                  values ($1, $2, $3, $4, $5, now())`,
-                [userId, ventureId, deal_id, 'stage_change', `Moved to ${stage}`],
+                [userId, ventureId, deal_id, 'stage_change', `Moved from ${currentStage} to ${stage}`],
               );
             }
             return r.rows[0] || { error: 'Failed to move deal' };
