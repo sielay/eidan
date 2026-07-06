@@ -11,10 +11,24 @@ describe('Card reference URL conversion', () => {
     assert.equal(result, "https://bsky.app/profile/did:plc:z72i7hdynmk6r22z27h6tvvrjmQ/post/3la4et2xvs2");
   });
 
-  it('handles Bluesky social_account kind', () => {
-    const uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789";
-    const result = refToUrl("social_account", uri, null);
-    assert.equal(result, "https://bsky.app/profile/did:plc:abc123/post/xyz789");
+  it('converts Bluesky DID to social_account profile URL', () => {
+    const result = refToUrl("social_account", "did:plc:abc123def456", null);
+    assert.equal(result, "https://bsky.app/profile/did:plc:abc123def456");
+  });
+
+  it('converts Bluesky handle (without @) to profile URL', () => {
+    const result = refToUrl("social_account", "sielay.bsky.social", null);
+    assert.equal(result, "https://bsky.app/profile/sielay.bsky.social");
+  });
+
+  it('converts Bluesky handle (with @) to profile URL', () => {
+    const result = refToUrl("social_account", "@sielay.bsky.social", null);
+    assert.equal(result, "https://bsky.app/profile/sielay.bsky.social");
+  });
+
+  it('converts Mastodon handle to profile URL', () => {
+    const result = refToUrl("social_account", "user@mastodon.social", null);
+    assert.equal(result, "https://mastodon.social/@user");
   });
 
   it('leaves non-at:// social refs as null', () => {

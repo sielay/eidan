@@ -42,8 +42,19 @@ export function refToUrl(kind: string, id: string | null, label: string | null):
     }
   }
   if (kind === "social_account") {
-    // Bluesky account: DID or handle → profile URL
-    if (id) return `https://bsky.app/profile/${id}`;
+    if (!id) return null;
+    // Bluesky DID → profile URL
+    if (id.startsWith("did:plc:")) return `https://bsky.app/profile/${id}`;
+    // Bluesky handle (with or without @) → profile URL
+    if (id.includes(".bsky")) {
+      const handle = id.replace(/^@/, "");
+      return `https://bsky.app/profile/${handle}`;
+    }
+    // Mastodon user@instance → profile URL
+    if (id.includes("@") && !id.startsWith("@")) {
+      const [user, domain] = id.split("@");
+      if (domain && user) return `https://${domain}/@${user}`;
+    }
   }
   return null;
 }
