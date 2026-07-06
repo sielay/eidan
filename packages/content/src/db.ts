@@ -6,7 +6,20 @@
 import pg from 'pg';
 import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 
+import { scopeChain, mergeBrandLayers, parseScope, type BrandFields } from './scope.js';
+
 type Q = (text: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount: number | null }>;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The resolved brand for a scope: the exact-scope `layer` you edit, the merged `effective` brand that
+// generation actually uses, and the `chain` of scopes that fed the merge (most-general first).
+export interface ResolvedBrand {
+  scope: string;
+  layer: BrandKit | null;
+  effective: BrandFields;
+  chain: string[];
+}
 
 export interface BrandKit {
   scope: string;
@@ -106,6 +119,60 @@ export class ContentDb {
       const r = await q(`select scope from ${this.schema}.brand_kits where user_id = $1 order by scope`, [uid]);
       return (r.rows as Array<{ scope: string }>).map((x) => x.scope);
     });
+  }
+
+  // Fetch several scopes at once (for a cascade). Returns only the scopes that exist, in a map.
+  async getBrands(scopes: string[]): Promise<Map<string, BrandKit>> {
+    const uid = this.uid();
+    const out = new Map<string, BrandKit>();
+    if (!uid || !scopes.length) return out;
+    return this.tx(async (q) => {
+      const r = await q(
+        `select scope, voice, styleguide, language, reference_images, updated_at
+           from ${this.schema}.brand_kits where user_id = $1 and scope = any($2)`,
+        [uid, scopes],
+      );
+      for (const row of r.rows) { const kit = this.row(row); out.set(kit.scope, kit); }
+      return out;
+    });
+  }
+
+  // Walk the venture parent chain (root → … → the target venture), owner-scoped. Cross-schema read of
+  // plugin_ventures — read-only, guarded: a non-uuid scope (slug) or a missing ventures plugin yields
+  // just [ventureId], so the cascade degrades to default → this-venture rather than erroring.
+  async ventureAncestry(ventureId: string): Promise<string[]> {
+    const uid = this.uid();
+    if (!uid || !ventureId || !UUID_RE.test(ventureId)) return ventureId ? [ventureId] : [];
+    try {
+      return await this.tx(async (q) => {
+        const r = await q(
+          `with recursive up as (
+             select id, parent_id, 0 as depth from plugin_ventures.ventures
+               where id = $2 and user_id = $1 and status = 'active'
+             union all
+             select v.id, v.parent_id, up.depth + 1 from plugin_ventures.ventures v
+               join up on v.id = up.parent_id where v.user_id = $1 and v.status = 'active'
+           )
+           select id from up order by depth desc`,
+          [uid, ventureId],
+        );
+        const ids = (r.rows as Array<{ id: string }>).map((x) => x.id);
+        return ids.length ? ids : [ventureId];
+      });
+    } catch {
+      return [ventureId]; // plugin_ventures absent (undefined_table) or unreadable — degrade gracefully
+    }
+  }
+
+  // Resolve the effective brand for a scope: layer (exact) + effective (merged cascade) + the chain.
+  async resolveBrand(scope: string): Promise<ResolvedBrand> {
+    const parts = parseScope(scope);
+    const ancestry = parts.kind === 'default' ? [] : await this.ventureAncestry(parts.ventureId ?? '');
+    const chain = scopeChain(scope, ancestry);
+    const kits = await this.getBrands(chain);
+    const layers = chain.map((s) => kits.get(s)).filter((k): k is BrandKit => !!k);
+    const effective = mergeBrandLayers(layers);
+    return { scope, layer: kits.get(scope) ?? null, effective, chain };
   }
 
   // Read-modify-write so a partial patch only touches the fields it names.

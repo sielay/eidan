@@ -189,10 +189,10 @@ function ident(o: Record<string, unknown> | null | undefined, k: string): string
 // the dropdown (and any other list) can indent children under their parent. The GET already returns
 // parents-before-children, but we re-derive structurally here so depth is correct even for grand-
 // children and so an orphan (a child whose parent isn't in the visible set) still shows at top level.
-// The plugin's mount point. The selected venture lives in the PATH (/p/charles-ventures/<slug>),
+// The plugin's mount point. The selected venture lives in the PATH (/p/ventures/<slug>),
 // not a query string, so a venture is a real, linkable route — breadcrumbs and the scope switcher
 // navigate by slug and back/forward work. (House rule: no query-string routing in the UI.)
-const BASE = "/p/charles-ventures";
+const BASE = "/p/ventures";
 
 interface TreeNode { v: Venture; depth: number }
 function ventureTree(ventures: Venture[]): TreeNode[] {
@@ -825,15 +825,136 @@ function ContextCard({ venture, onSaved }: { venture: Venture; onSaved: () => vo
   );
 }
 
+// ── Venture hub tabs ─────────────────────────────────────────────────────────
+const VENTURE_TABS: Array<[string, string]> = [
+  ["dashboard", "Dashboard"], ["resources", "Resources"], ["boards", "Boards"], ["content", "Content"],
+];
+function TabBar({ tab, onSelect }: { tab: string; onSelect: (t: string) => void }): React.ReactElement {
+  return (
+    <div role="tablist" aria-label="Venture sections" style={{ display: "flex", gap: "var(--s1)", borderBottom: "1px solid var(--border)", marginBottom: "var(--s4)", flexWrap: "wrap" }}>
+      {VENTURE_TABS.map(([id, label]) => {
+        const active = tab === id;
+        return (
+          <button key={id} role="tab" aria-selected={active} onClick={() => onSelect(id)}
+            style={{ background: "none", border: "none", borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent", color: active ? "var(--text)" : "var(--muted)", padding: "var(--s2) var(--s3)", cursor: "pointer", font: "inherit", fontWeight: active ? 600 : 400, marginBottom: -1 }}>
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// The channels a brand sub-scope can target (mirror of packages/content scope.ts CHANNELS).
+const CHANNELS = ["linkedin", "instagram", "x", "threads", "tiktok", "youtube", "mastodon", "bluesky", "newsletter", "blog"];
+interface BrandLayer { voice: string | null; styleguide: string | null; language: string | null; reference_images: string[] }
+
+// Per-venture brand editor. Calls the content plugin's scope-aware brand API; the cascade
+// (default → venture ancestry → this venture → channel) is resolved server-side, so blank channel
+// fields show the inherited value as a placeholder and you only fill the deltas.
+function BrandEditor({ ventureId }: { ventureId: string }): React.ReactElement {
+  const [channel, setChannel] = React.useState("");
+  const [voice, setVoice] = React.useState("");
+  const [styleguide, setStyleguide] = React.useState("");
+  const [language, setLanguage] = React.useState("");
+  const [eff, setEff] = React.useState<BrandLayer>({ voice: null, styleguide: null, language: null, reference_images: [] });
+  const [saving, setSaving] = React.useState(false);
+  const [status, setStatus] = React.useState<string | null>(null);
+  const scope = channel === "" ? `venture:${ventureId}` : `venture:${ventureId}:${channel}`;
+
+  const load = React.useCallback(async (sc: string) => {
+    setStatus(null);
+    try {
+      const r = await authFetch(`/api/content/brand?scope=${encodeURIComponent(sc)}`);
+      const j = (await r.json()) as { layer?: BrandLayer; effective?: BrandLayer };
+      const l = j.layer ?? { voice: null, styleguide: null, language: null, reference_images: [] };
+      setVoice(l.voice ?? ""); setStyleguide(l.styleguide ?? ""); setLanguage(l.language ?? "");
+      setEff(j.effective ?? { voice: null, styleguide: null, language: null, reference_images: [] });
+    } catch { /* leave as-is */ }
+  }, []);
+  React.useEffect(() => { void load(scope); }, [scope, load]);
+
+  const save = React.useCallback(async () => {
+    setSaving(true); setStatus(null);
+    try {
+      const r = await authFetch(`/api/content/brand?scope=${encodeURIComponent(scope)}`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ voice, styleguide, language }),
+      });
+      setStatus(r.ok ? "Saved." : "Could not save.");
+      if (r.ok) void load(scope);
+    } catch { setStatus("Could not save."); } finally { setSaving(false); }
+  }, [scope, voice, styleguide, language, load]);
+
+  const ph = (k: keyof BrandLayer, fallback: string): string => {
+    const v = eff[k];
+    return channel !== "" && typeof v === "string" && v.trim() ? `Inherited: ${v.trim()}` : fallback;
+  };
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card__head"><div className="card__title">Brand</div></div>
+      <p className="screen-sub" style={{ marginTop: 0 }}>
+        Grounds every generation for this venture. Pick a channel to override just the deltas — blank fields inherit.
+      </p>
+      <div className="field">
+        <label className="field__label" htmlFor="b-ch">Scope</label>
+        <select id="b-ch" className="input" value={channel} onChange={(e) => setChannel(e.target.value)}>
+          <option value="">Whole venture</option>
+          {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+      <div className="field">
+        <label className="field__label">Voice &amp; tone</label>
+        <textarea className="input" rows={2} value={voice} placeholder={ph("voice", "e.g. warm, plain-spoken, a bit contrarian; no jargon")} onChange={(e) => setVoice(e.target.value)} />
+      </div>
+      <div className="field">
+        <label className="field__label">Visual style</label>
+        <textarea className="input" rows={2} value={styleguide} placeholder={ph("styleguide", "e.g. bold sans headline, off-white bg, one accent colour")} onChange={(e) => setStyleguide(e.target.value)} />
+      </div>
+      <div className="field">
+        <label className="field__label">Language rules</label>
+        <textarea className="input" rows={2} value={language} placeholder={ph("language", "e.g. British English; say 'agent' not 'bot'; never hype")} onChange={(e) => setLanguage(e.target.value)} />
+      </div>
+      <div style={{ display: "flex", gap: "var(--s3)", alignItems: "center", marginTop: "var(--s3)" }}>
+        <button className="btn btn--primary" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</button>
+        {status ? <span className="screen-sub" style={{ margin: 0 }}>{status}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+// The content-workflow board columns (mirror the shipped linkedin-carousel stages) — a content board
+// tracks pieces through Concept → Assets → Copy → Review, not the default To do/Doing/Done.
+const CONTENT_LANES: Array<[string, string]> = [["concept", "Concept"], ["assets", "Assets"], ["copy", "Copy"], ["review", "Review"], ["published", "Published"]];
+
+function ContentTab({ venture }: { venture: Venture }): React.ReactElement {
+  return (
+    <>
+      <BrandEditor ventureId={venture.id} />
+      <div style={{ marginTop: 16 }}>
+        <BoardsPanel key={`content-${venture.id}`} scopeKind="content" scopeId={venture.id} basePath={`${BASE}/${venture.slug}/content`} lanes={CONTENT_LANES} />
+      </div>
+    </>
+  );
+}
+
 export default function VenturesScreen(): React.ReactElement {
   const router = useRouter();
   const pathname = usePathname();
   // The selected venture is the slug segment after BASE — path-based, not a query string. Null on the
-  // bare /p/charles-ventures route (we then canonicalise to the resolved venture's slug below).
+  // bare /p/ventures route (we then canonicalise to the resolved venture's slug below).
   const slug = React.useMemo(() => {
     if (!pathname || !pathname.startsWith(BASE)) return null;
     const rest = pathname.slice(BASE.length).replace(/^\/+/, "");
     return rest ? decodeURIComponent(rest.split("/")[0]) : null;
+  }, [pathname]);
+  // The active tab is the SECOND path segment (/p/ventures/<slug>/<tab>), default "dashboard". A board
+  // deep-link (/p/ventures/<slug>/boards/<boardId>) still resolves tab="boards" — BoardsPanel owns seg 3.
+  const tab = React.useMemo(() => {
+    if (!pathname || !pathname.startsWith(BASE)) return "dashboard";
+    const seg = pathname.slice(BASE.length).replace(/^\/+/, "").split("/");
+    return seg[1] || "dashboard";
   }, [pathname]);
 
   const [data, setData] = React.useState<VenturesPayload | null>(null);
@@ -854,6 +975,7 @@ export default function VenturesScreen(): React.ReactElement {
   const reload = React.useCallback(() => setReloadKey((k) => k + 1), []);
   // Navigate to a venture by slug — a real route push, so back/forward and bookmarks all work.
   const goTo = React.useCallback((s: string) => { router.push(`${BASE}/${encodeURIComponent(s)}`); }, [router]);
+  const selectTab = React.useCallback((name: string) => { if (slug) router.push(`${BASE}/${encodeURIComponent(slug)}/${name}`); }, [router, slug]);
   const openCreateTop = React.useCallback(() => { setCreateParent(null); setCreateSheet(true); }, []);
   const openCreateChild = React.useCallback((parentId: string) => { setCreateParent(parentId); setCreateSheet(true); }, []);
   const onCreated = React.useCallback((s: string) => { setCreateSheet(false); goTo(s); }, [goTo]);
@@ -983,91 +1105,103 @@ export default function VenturesScreen(): React.ReactElement {
             </button>
             <button className="btn btn--ghost" onClick={() => setMoveSheet(true)}>Move</button>
           </div>
-          <div className="grid-2">
-            <StatTile label="Linked resources" value={activeRes.length} foot={<span className="screen-sub" style={{ marginTop: 0 }}>{activeRes.length === 1 ? "account" : "accounts"} attached</span>} />
-            <StatTile
-              label="Identity"
-              value={current.legal_type ? current.legal_type.replace("_", " ") : (current.identity ? "Verified" : "—")}
-              foot={<span className="screen-sub" style={{ marginTop: 0 }}>{current.status === "active" ? "Active" : current.status}</span>}
-            />
-          </div>
+          <TabBar tab={tab} onSelect={selectTab} />
 
-          <ContextCard venture={current} onSaved={reload} />
-
-          <div className="card" style={{ marginTop: 16, paddingTop: 8, paddingBottom: 8 }}>
-            <div className="card__head" style={{ marginTop: 12 }}>
-              <div className="card__title">Linked resources</div>
-              <button className="card__action" onClick={() => setSheet(true)}>+ Attach</button>
-            </div>
-            {activeRes.length === 0 ? (
-              <p className="screen-sub" style={{ padding: "8px 0 16px" }}>No accounts attached yet — link a social account, mailing list, or analytics property.</p>
-            ) : (
-              <div className="loglist">
-                {activeRes.map((r) => {
-                  const meta = RES_META[r.kind] ?? { icon: "link", label: r.kind };
-                  return (
-                    <button className="logrow res-row" key={r.id} style={{ background: "none", border: "none", borderBottom: "1px solid var(--border)", textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => setEditRes(r)} title="Edit or detach">
-                      <span className="res-ic"><Icon name={meta.icon} /></span>
-                      <span className="logrow__main">
-                        <span className="logrow__primary">{r.label || r.external_ref || r.provider}</span>
-                        <span className="logrow__meta">{meta.label}{r.external_ref ? ` · ${r.external_ref}` : ""}{r.provider && r.provider !== "manual" ? ` · ${r.provider}` : ""}</span>
-                      </span>
-                      <span className={"pill pill--" + resTone(r.status)}><span className="pill__dot" />Connected</span>
-                      <Icon name="chevron" cls="i i-sm" />
-                    </button>
-                  );
-                })}
+          {tab === "dashboard" ? (
+            <>
+              <div className="grid-2">
+                <StatTile label="Linked resources" value={activeRes.length} foot={<span className="screen-sub" style={{ marginTop: 0 }}>{activeRes.length === 1 ? "account" : "accounts"} attached</span>} />
+                <StatTile
+                  label="Identity"
+                  value={current.legal_type ? current.legal_type.replace("_", " ") : (current.identity ? "Verified" : "—")}
+                  foot={<span className="screen-sub" style={{ marginTop: 0 }}>{current.status === "active" ? "Active" : current.status}</span>}
+                />
               </div>
-            )}
-          </div>
 
-          <BoardsPanel key={current.id} scopeKind="venture" scopeId={current.id} basePath={`${BASE}/${current.slug}`} />
+              <ContextCard venture={current} onSaved={reload} />
 
-          <div className="card" style={{ marginTop: 16 }}>
-            <div className="card__head">
-              <div className="card__title">Nested ventures</div>
-              <button className="card__action" onClick={() => openCreateChild(current.id)}>+ Add child</button>
-            </div>
-            {children.length > 0 ? (
-              <div className="loglist">
-                {children.map((v) => (
-                  <button className="logrow" key={v.id} style={{ background: "none", border: "none", borderBottom: "1px solid var(--border)", textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => goTo(v.slug)}>
-                    <span className="logrow__main">
-                      <span className="logrow__primary">{v.name}</span>
-                      <span className="logrow__meta">{v.legal_type ? v.legal_type + " · " : ""}{v.kind}</span>
-                    </span>
-                    <Icon name="chevron" cls="i i-sm" />
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="screen-sub" style={{ padding: "8px 0 16px" }}>
-                No nested ventures yet — add a project, sub-venture, or holding under {current.name}.
-              </p>
-            )}
-          </div>
-
-          <p className="screen-sub" style={{ marginTop: 16 }}>
-            Cash &amp; pipeline appear here once Books and CRM are connected.
-          </p>
-
-          <div className="card ven-danger" style={{ marginTop: 16 }}>
-            <div className="card__head"><div className="card__title">Danger zone</div></div>
-            {delErr ? <p className="screen-sub" style={{ color: "var(--alert)", marginTop: 0 }}>{delErr}</p> : null}
-            {confirmDel ? (
-              <div className="ven-danger__confirm">
-                <span className="screen-sub" style={{ margin: 0 }}>Delete <strong>{current.name}</strong> and its boards, cards &amp; linked assets? This can’t be undone.</span>
-                <div className="ven-danger__actions">
-                  <button className="btn btn--ghost" disabled={deleting} onClick={() => { setConfirmDel(false); setDelErr(null); }}>Cancel</button>
-                  <button className="btn ven-danger__btn" disabled={deleting} onClick={() => void deleteVenture()}>{deleting ? "Deleting…" : "Delete venture"}</button>
+              <div className="card" style={{ marginTop: 16 }}>
+                <div className="card__head">
+                  <div className="card__title">Sub-ventures</div>
+                  <button className="card__action" onClick={() => openCreateChild(current.id)}>+ Add child</button>
                 </div>
+                {children.length > 0 ? (
+                  <div className="loglist">
+                    {children.map((v) => (
+                      <button className="logrow" key={v.id} style={{ background: "none", border: "none", borderBottom: "1px solid var(--border)", textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => goTo(v.slug)}>
+                        <span className="logrow__main">
+                          <span className="logrow__primary">{v.name}</span>
+                          <span className="logrow__meta">{v.legal_type ? v.legal_type + " · " : ""}{v.kind}</span>
+                        </span>
+                        <Icon name="chevron" cls="i i-sm" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="screen-sub" style={{ padding: "8px 0 16px" }}>No sub-ventures yet — add a sub-venture or holding under {current.name}.</p>
+                )}
               </div>
-            ) : (
-              <button className="btn btn--ghost ven-danger__trigger" onClick={() => setConfirmDel(true)}>
-                <Icon name="x" cls="i i-sm" />Delete this venture
-              </button>
-            )}
-          </div>
+
+              <p className="screen-sub" style={{ marginTop: 16 }}>
+                Cash &amp; pipeline appear here once Books and CRM are connected.
+              </p>
+
+              <div className="card ven-danger" style={{ marginTop: 16 }}>
+                <div className="card__head"><div className="card__title">Danger zone</div></div>
+                {delErr ? <p className="screen-sub" style={{ color: "var(--alert)", marginTop: 0 }}>{delErr}</p> : null}
+                {confirmDel ? (
+                  <div className="ven-danger__confirm">
+                    <span className="screen-sub" style={{ margin: 0 }}>Delete <strong>{current.name}</strong> and its boards, cards &amp; linked assets? This can’t be undone.</span>
+                    <div className="ven-danger__actions">
+                      <button className="btn btn--ghost" disabled={deleting} onClick={() => { setConfirmDel(false); setDelErr(null); }}>Cancel</button>
+                      <button className="btn ven-danger__btn" disabled={deleting} onClick={() => void deleteVenture()}>{deleting ? "Deleting…" : "Delete venture"}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button className="btn btn--ghost ven-danger__trigger" onClick={() => setConfirmDel(true)}>
+                    <Icon name="x" cls="i i-sm" />Delete this venture
+                  </button>
+                )}
+              </div>
+            </>
+          ) : null}
+
+          {tab === "resources" ? (
+            <div className="card" style={{ marginTop: 16, paddingTop: 8, paddingBottom: 8 }}>
+              <div className="card__head" style={{ marginTop: 12 }}>
+                <div className="card__title">Linked resources</div>
+                <button className="card__action" onClick={() => setSheet(true)}>+ Attach</button>
+              </div>
+              {activeRes.length === 0 ? (
+                <p className="screen-sub" style={{ padding: "8px 0 16px" }}>No accounts attached yet — link a social account, mailing list, or analytics property.</p>
+              ) : (
+                <div className="loglist">
+                  {activeRes.map((r) => {
+                    const meta = RES_META[r.kind] ?? { icon: "link", label: r.kind };
+                    return (
+                      <button className="logrow res-row" key={r.id} style={{ background: "none", border: "none", borderBottom: "1px solid var(--border)", textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => setEditRes(r)} title="Edit or detach">
+                        <span className="res-ic"><Icon name={meta.icon} /></span>
+                        <span className="logrow__main">
+                          <span className="logrow__primary">{r.label || r.external_ref || r.provider}</span>
+                          <span className="logrow__meta">{meta.label}{r.external_ref ? ` · ${r.external_ref}` : ""}{r.provider && r.provider !== "manual" ? ` · ${r.provider}` : ""}</span>
+                        </span>
+                        <span className={"pill pill--" + resTone(r.status)}><span className="pill__dot" />Connected</span>
+                        <Icon name="chevron" cls="i i-sm" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {tab === "boards" ? (
+            <BoardsPanel key={current.id} scopeKind="venture" scopeId={current.id} basePath={`${BASE}/${current.slug}/boards`} />
+          ) : null}
+
+          {tab === "content" ? (
+            <ContentTab venture={current} />
+          ) : null}
         </div>
 
         <aside className="ven-aside">

@@ -23,18 +23,14 @@
         { "path": "/*", "component": "Content.tsx" }
       ],
       "api": [
-        { "path": "/api/content/brand", "handler": "api/brand.ts" }
+        { "path": "/api/content/brand", "handler": "api/brand.ts" },
+        { "path": "/api/content/ventures", "handler": "api/ventures.ts" },
+        { "path": "/api/content/board", "handler": "api/board.ts" }
       ],
       "nav": {
         "group": "Plan",
         "sections": [
-          {
-            "id": "content",
-            "label": "Content",
-            "icon": "analytics",
-            "href": "/p/content",
-            "mobileHome": null
-          }
+          { "id": "content", "label": "Content", "icon": "analytics", "href": "/p/content", "mobileHome": null }
         ]
       }
     }

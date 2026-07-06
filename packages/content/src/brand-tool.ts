@@ -6,15 +6,23 @@
 import type { JSONSchema, Tool } from '@matatbread/matbot-plugin-api';
 import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 
-import type { ContentDb, BrandKit, BrandPatch } from './db.js';
+import type { ContentDb, BrandPatch } from './db.js';
+import type { BrandFields } from './scope.js';
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : v == null ? '' : String(v);
 }
 
+// Resolve the effective (cascaded) brand block for a scope — what a generative stage should prepend.
+// This is the grounding entry point for generation: default → venture ancestry → channel, merged.
+export async function resolveBrandBlock(db: ContentDb, scope: string): Promise<string> {
+  const resolved = await db.resolveBrand(scope);
+  return composeBrandBlock(resolved.effective);
+}
+
 // Turn a brand kit into the prompt fragment a generative stage prepends. Empty fields are omitted, so
 // a sparse kit yields a sparse block (no "Voice: null" noise). Pure — unit-tested.
-export function composeBrandBlock(kit: BrandKit | null): string {
+export function composeBrandBlock(kit: BrandFields | null): string {
   if (!kit) return '';
   const lines: string[] = [];
   if (kit.voice && kit.voice.trim()) lines.push(`Voice & tone: ${kit.voice.trim()}`);
@@ -35,7 +43,7 @@ export function buildBrandTool(db: ContentDb): Tool {
     type: 'object',
     properties: {
       action: { type: 'string', enum: ['get', 'set', 'list'], description: 'get | set | list' },
-      scope: { type: 'string', description: "Brand scope: 'default', or a venture id/slug for a per-venture brand. Defaults to 'default'." },
+      scope: { type: 'string', description: "Brand scope: 'default' (house style), 'venture:<id>' (a venture's brand), or 'venture:<id>:<channel>' (a channel sub-brand, e.g. venture:<id>:instagram). get resolves the full cascade (default → venture ancestry → channel); set writes the exact scope. Defaults to 'default'." },
       voice: { type: 'string', description: 'set: brand voice & tone.' },
       styleguide: { type: 'string', description: 'set: visual style rules (palette, layout, imagery).' },
       language: { type: 'string', description: 'set: language / terminology do & don\'t.' },
@@ -48,9 +56,11 @@ export function buildBrandTool(db: ContentDb): Tool {
     name: 'brand_kit',
     description:
       'Read or write a brand kit — the voice, visual style, language rules, and reference images that ' +
-      'ground content generation so it stays on-brand. Scope is "default" or a venture id/slug for a ' +
-      'per-venture brand. Actions: { action: "get", scope? } | { action: "set", scope?, voice?, ' +
-      'styleguide?, language?, reference_images? } (partial — only named fields change) | { action: "list" }.',
+      'ground content generation so it stays on-brand. Scopes cascade: "default" (house style) → ' +
+      '"venture:<id>" (per-venture, inherits parent ventures) → "venture:<id>:<channel>" (channel ' +
+      'sub-brand). get returns { kit (this scope), effective (merged cascade), chain }; set edits the ' +
+      'exact scope. Actions: { action: "get", scope? } | { action: "set", scope?, voice?, styleguide?, ' +
+      'language?, reference_images? } (partial — only named fields change) | { action: "list" }.',
     inputSchema,
     executor: {
       async *execute(input) {
@@ -64,8 +74,19 @@ export function buildBrandTool(db: ContentDb): Tool {
           return yield { type: 'result', value: { scopes } };
         }
         if (action === 'get') {
-          const kit = await db.getBrand(scope);
-          return yield { type: 'result', value: { scope, kit, prompt_block: composeBrandBlock(kit) } };
+          // Resolve the cascade: the exact-scope `layer` (what a set would edit) plus the merged
+          // `effective` brand generation actually uses (default → venture ancestry → channel).
+          const resolved = await db.resolveBrand(scope);
+          return yield {
+            type: 'result',
+            value: {
+              scope,
+              kit: resolved.layer,
+              effective: resolved.effective,
+              chain: resolved.chain,
+              prompt_block: composeBrandBlock(resolved.effective),
+            },
+          };
         }
         if (action === 'set') {
           const patch: BrandPatch = {};

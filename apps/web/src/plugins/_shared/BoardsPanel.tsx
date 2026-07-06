@@ -58,7 +58,11 @@ const S = {
   drawer: { width: "min(420px, 100%)", height: "100%", overflowY: "auto" as const, background: "var(--bg, #fff)", borderLeft: "1px solid var(--border)", padding: "var(--s4)", display: "flex", flexDirection: "column" as const, gap: "var(--s3)" },
 };
 
-export function BoardsPanel({ scopeKind = null, scopeId = null, basePath }: { scopeKind?: string | null; scopeId?: string | null; basePath?: string }): React.ReactElement {
+export function BoardsPanel({ scopeKind = null, scopeId = null, basePath, lanes }: { scopeKind?: string | null; scopeId?: string | null; basePath?: string; lanes?: Array<[string, string]> }): React.ReactElement {
+  // Columns are configurable (a content-workflow board has Concept→Assets→Copy→Review, not the default
+  // To do/Doing/Done). New cards land in the first lane; move arrows walk the lane order.
+  const LANE_DEFS = lanes && lanes.length ? lanes : LANES;
+  const ORD = React.useMemo(() => LANE_DEFS.map((l) => l[0]), [LANE_DEFS]);
   const router = useRouter();
   const pathname = usePathname();
   // When a basePath is given, the active board lives in the URL (`<basePath>/<board-id>`) so each board
@@ -170,7 +174,7 @@ export function BoardsPanel({ scopeKind = null, scopeId = null, basePath }: { sc
     if (!t || !activeBoard) return;
     setBusy(true); setErr(null);
     try {
-      const r = await authFetch(`/api/boards/cards`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board_id: activeBoard, title: t }) });
+      const r = await authFetch(`/api/boards/cards`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board_id: activeBoard, title: t, status: ORD[0] }) });
       const j = (await r.json()) as { error?: string };
       if (!r.ok) throw new Error(j.error ?? "add failed");
       setTitle(""); await loadCards(activeBoard);
@@ -178,7 +182,7 @@ export function BoardsPanel({ scopeKind = null, scopeId = null, basePath }: { sc
   }
 
   async function moveCard(card: Card, dir: -1 | 1): Promise<void> {
-    const next = ORDER[ORDER.indexOf(card.status) + dir];
+    const next = ORD[ORD.indexOf(card.status) + dir];
     if (!next) return;
     setBusy(true);
     setCards((xs) => xs.map((x) => (x.id === card.id ? { ...x, status: next } : x)));
@@ -278,9 +282,9 @@ export function BoardsPanel({ scopeKind = null, scopeId = null, basePath }: { sc
         <div className="skel" style={{ height: 120 }} />
       ) : activeBoard ? (
         <div style={S.board}>
-          {LANES.map(([status, lbl]) => {
+          {LANE_DEFS.map(([status, lbl]) => {
             const lane = cards.filter((c) => c.status === status);
-            const idx = ORDER.indexOf(status);
+            const idx = ORD.indexOf(status);
             return (
               <div style={S.lane} key={status}>
                 <div style={S.laneHead}>{lbl}<span className="num">{lane.length}</span></div>
@@ -296,7 +300,7 @@ export function BoardsPanel({ scopeKind = null, scopeId = null, basePath }: { sc
                     <div style={S.cardActions}>
                       {c.ref_count ? <span className="screen-sub" style={{ margin: 0, marginRight: "auto", fontSize: "var(--fs-13)" }}>🔗 {c.ref_count}</span> : null}
                       <button style={S.btn} disabled={busy || idx === 0} title="Move left" onClick={(e) => { e.stopPropagation(); void moveCard(c, -1); }}>←</button>
-                      <button style={S.btn} disabled={busy || idx === ORDER.length - 1} title="Move right" onClick={(e) => { e.stopPropagation(); void moveCard(c, 1); }}>→</button>
+                      <button style={S.btn} disabled={busy || idx === ORD.length - 1} title="Move right" onClick={(e) => { e.stopPropagation(); void moveCard(c, 1); }}>→</button>
                       <button style={S.btn} disabled={busy} title="Archive" onClick={(e) => { e.stopPropagation(); void archiveCard(c); }}>×</button>
                     </div>
                   </div>

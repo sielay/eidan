@@ -9,6 +9,17 @@ import { ContentDb } from './db.js';
 import { buildBrandTool } from './brand-tool.js';
 import { buildWorkflowTool } from './workflow-tool.js';
 
+// Declare the OpenAI key in the eidan secrets catalog so it's fillable in Settings → Connections
+// (image_generate resolves ${OPENAI_API_KEY} from the vault at call time). Structurally re-declared
+// (matbot registry idiom) so the plugin needs no hard dep on @eidandev/vault-postgres.
+interface SecretField { name: string; label: string; secret?: boolean; required?: boolean; help?: string }
+interface SecretSection { plugin: string; title: string; fields: SecretField[] }
+declare module '@matatbread/matbot-plugin-api' {
+  interface MatbotServices {
+    EidanSecrets?: { declareSection(section: SecretSection): void };
+  }
+}
+
 export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
@@ -18,6 +29,14 @@ export const plugin: MatbotPluginSpec = {
   },
   async setup(services: MatbotServices) {
     services.tools.register(imageGenerateTool());
+
+    services.EidanSecrets?.declareSection({
+      plugin: 'content',
+      title: 'Image generation (OpenAI)',
+      fields: [
+        { name: 'OPENAI_API_KEY', label: 'OpenAI API key', secret: true, help: 'Used by image_generate (gpt-image-1). Create one at platform.openai.com → API keys.' },
+      ],
+    });
 
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
     if (url) {

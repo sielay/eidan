@@ -6,6 +6,35 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-07-06
+
+### Added
+
+- **Content planning per venture.** Each venture gains a **Content** tab (`/p/ventures/<slug>` hub, now
+  split into Dashboard / Resources / Boards / Content) with a **brand kit** editor whose voice/style/
+  language **cascade** `default → venture ancestry → channel`, so a child venture inherits its parent's
+  brand and you only override the deltas per channel.
+- **Central content board** (`/p/content`) — a cross-venture kanban with **ventures as swimlanes** and the
+  content workflow as columns (Concept → Assets → Copy → Review → Published). Each card links to its
+  venture's board and its source conversation.
+- **Content-workflow board columns.** The shared boards panel now supports **per-board columns** (a
+  `lanes` prop) instead of a fixed To do / Doing / Done, so a content board runs the content workflow.
+- **OpenAI image key in the secrets catalogue** — `OPENAI_API_KEY` is now declared by the content plugin,
+  so it's fillable in Settings → Connections (powers `image_generate`).
+- **Move a resource between ventures** — `venture_move_resource` tool + reassignment path.
+
+### Changed
+
+- **Renamed the `charles-ventures` plugin to `ventures`** (the schema was already `plugin_ventures`; the
+  URL is now `/p/ventures`). No data migration.
+
+### Fixed
+
+- **Boards on non-default columns.** New cards can name the lane they land in (content cards were created
+  as `open` and rendered in no column), and moving a card to a content lane is no longer rejected. Widened
+  the known card-status set and dropped the rigid `cards_status` CHECK so boards can define their own
+  columns.
+
 ## [0.18.0] — 2026-07-04
 
 ### Fixed

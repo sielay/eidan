@@ -71,6 +71,16 @@ const REPARENT_SCHEMA: JSONSchema = {
   additionalProperties: false,
 };
 
+const MOVE_RESOURCE_SCHEMA: JSONSchema = {
+  type: 'object',
+  properties: {
+    resource_id: { type: 'string', description: 'The resource (from venture_resources) to reassign.', minLength: 1 },
+    to: { type: 'string', description: 'Target venture by name, slug, or id.', minLength: 1 },
+  },
+  required: ['resource_id', 'to'],
+  additionalProperties: false,
+};
+
 const LIST_SCHEMA: JSONSchema = { type: 'object', properties: {}, additionalProperties: false };
 
 const ATTACH_SCHEMA: JSONSchema = {
@@ -657,6 +667,35 @@ export function buildVenturesTools(db: Db, social?: SocialConnectionsLookup): To
           const ventureId = args['venture_id'] == null ? null : str(args['venture_id']);
           const rows = await db.withPrincipalTx((q) => store.listResources(q, uid, ventureId));
           yield { type: 'result', value: { resources: rows.map(resView) } };
+        },
+      },
+    },
+    {
+      name: 'venture_move_resource',
+      description:
+        'Move a resource (social account, mailing list, analytics) to a different venture — reassign ' +
+        'which venture owns it, by resource id + target venture (name, slug, or id). Use when an ' +
+        'account was attached to the wrong venture (e.g. a child brand\'s account sitting on the ' +
+        'parent). The account/connection itself is untouched; only its venture changes, and its brand ' +
+        'cascade follows the new venture. Get resource_id from venture_resources.',
+      inputSchema: MOVE_RESOURCE_SCHEMA,
+      executor: {
+        async *execute(input) {
+          const uid = tryCurrentPrincipal()?.id;
+          if (!uid) return yield { type: 'error', message: 'no user context — ventures are owner-scoped' };
+          const args = (input ?? {}) as Record<string, unknown>;
+          const resourceId = str(args['resource_id']).trim();
+          const toRef = str(args['to']).trim();
+          if (!resourceId) return yield { type: 'error', message: 'resource_id is required' };
+          if (!toRef) return yield { type: 'error', message: 'to (target venture) is required' };
+          const result = await db.withPrincipalTx<{ row: ResourceRow | null; error?: string }>(async (q) => {
+            const target = await resolveVentureRef(q, uid, toRef);
+            if (!target) return { row: null, error: `no such venture: '${toRef}'` };
+            return { row: await store.moveResource(q, uid, resourceId, target) };
+          });
+          if (result.error) return yield { type: 'error', message: result.error };
+          if (!result.row) return yield { type: 'error', message: 'no such resource' };
+          yield { type: 'result', value: resView(result.row) };
         },
       },
     },
