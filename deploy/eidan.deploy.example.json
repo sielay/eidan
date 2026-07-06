@@ -4,7 +4,7 @@
   "//bundles-note": "Eidan's own thematic bundles live IN this repo under packages/<name> (AGPL, tracked). List them SOURCELESS — just name (+ kinds) — to include them in a target's plugin set without vendoring. Add a `path`/`git` source ONLY for your OWN external plugin repo (it gets vendored into packages/<name> at assemble time).",
   "bundles": [
     { "name": "sage", "kinds": ["code"] },
-    { "name": "charles-ventures" },
+    { "name": "ventures" },
     { "//external-example": "your own plugin from a local path or git:",
       "//name": "my-plugin", "//path": "../my-plugin", "//git": "you/my-plugin#main", "//subdir": "packages/my-plugin" }
   ],

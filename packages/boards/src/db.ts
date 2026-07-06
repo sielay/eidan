@@ -13,7 +13,11 @@ export interface Card { id: string; board_id: string; user_id: string; title: st
 export interface CardRef { id: string; card_id: string; user_id: string; ref_kind: string; ref_id: string | null; ref_label: string | null; metadata: Record<string, unknown>; created_at: Date }
 export interface CardEvent { id: string; card_id: string; user_id: string; kind: string; body: string | null; author_kind: string; author_id: string | null; author_label: string | null; metadata: Record<string, unknown>; created_at: Date }
 
-export const CARD_STATUSES = ['open', 'doing', 'done', 'archived'];
+// Boards support per-scope columns (a content board runs Concept→Assets→Copy→Review→Published, not the
+// default To do/Doing/Done — see BoardsPanel `lanes`). So `status` is not constrained at the DB level;
+// this list is the KNOWN set (default lanes + the shipped content-workflow lanes) surfaced to the agent
+// card_update tool. 'archived' is always the soft-delete tombstone regardless of a board's columns.
+export const CARD_STATUSES = ['open', 'doing', 'done', 'concept', 'assets', 'copy', 'review', 'published', 'archived'];
 export const EVENT_KINDS = ['comment', 'status', 'ref', 'system', 'note'];
 
 export class BoardsDb {
@@ -48,7 +52,7 @@ export class BoardsDb {
            user_id uuid not null,
            title text not null,
            body text,
-           status text not null default 'open' check (status in ('open','doing','done','archived')),
+           status text not null default 'open',
            position int not null default 0,
            metadata jsonb not null default '{}'::jsonb,
            due_date date,

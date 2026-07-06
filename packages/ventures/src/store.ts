@@ -288,6 +288,27 @@ export async function detachResource(q: Q, userId: string, resourceId: string): 
 }
 
 /**
+ * Move a resource to a different venture — reassign its venture_id. Owner-scoped on both the resource
+ * and (by the caller) the target venture. The account itself (the social plugin's connection) doesn't
+ * move; only which venture claims it. Returns the updated row, or null if no active resource matched.
+ */
+export async function moveResource(
+  q: Q,
+  userId: string,
+  resourceId: string,
+  newVentureId: string,
+): Promise<ResourceRow | null> {
+  const r = await q(
+    `UPDATE plugin_ventures.venture_resources
+     SET venture_id = $3, updated_at = now()
+     WHERE id = $2 AND user_id = $1 AND status = 'active'
+     RETURNING ${RES_COLS}`,
+    [userId, resourceId, newVentureId],
+  );
+  return (r.rows[0] as ResourceRow | undefined) ?? null;
+}
+
+/**
  * Fold an identity profile (e.g. a Companies House record) into a venture's metadata.identity
  * (charles#16). Merges under the `identity` key so other metadata survives. Owner-scoped;
  * returns the updated row, or null if no active venture matched.

@@ -1,5 +1,5 @@
 {
-  "name": "@eidandev/charles-ventures",
+  "name": "@eidandev/ventures",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -51,13 +51,13 @@
         }
       ],
       "nav": {
-        "group": "Charles · business",
+        "group": "Business",
         "sections": [
           {
             "id": "ventures",
             "label": "Ventures",
             "icon": "ventures",
-            "href": "/p/charles-ventures",
+            "href": "/p/ventures",
             "mobileHome": 1
           }
         ]

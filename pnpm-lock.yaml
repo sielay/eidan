@@ -160,7 +160,7 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
-  packages/charles-ventures:
+  packages/connections-kit:
     dependencies:
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
@@ -179,7 +179,7 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
-  packages/connections-kit:
+  packages/content:
     dependencies:
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api
@@ -942,6 +942,19 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/tool-failure-handler:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/tool-guard:
     dependencies:
       '@matatbread/matbot-plugin-api':
@@ -969,6 +982,25 @@ importers:
         version: 5.9.3
 
   packages/vault-postgres:
+    dependencies:
+      '@matatbread/matbot-plugin-api':
+        specifier: link:../../external/matbot/packages/core/plugin-api
+        version: link:../../external/matbot/packages/core/plugin-api
+      pg:
+        specifier: ^8.13.1
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/ventures:
     dependencies:
       '@matatbread/matbot-plugin-api':
         specifier: link:../../external/matbot/packages/core/plugin-api

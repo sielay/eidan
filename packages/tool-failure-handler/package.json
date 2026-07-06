@@ -1,0 +1,23 @@
+{
+  "name": "@eidandev/tool-failure-handler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tool failure detection & decision-making: prevents LLM hallucination on tool failures by detecting errors and using a lightweight LLM to decide recovery strategy",
+  "license": "AGPL-3.0-or-later",
+  "matbotRuntime": ["node"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.0"
+  }
+}

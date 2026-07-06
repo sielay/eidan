@@ -104,6 +104,10 @@ export class GmailClient {
     return out;
   }
 
+  async search(query: string, limit: number): Promise<GmailSummary[]> {
+    return this.listRecent(limit, query);
+  }
+
   async read(messageId: string): Promise<GmailMessage> {
     const msg = await this.json(`${GMAIL_API}/messages/${messageId}?format=full`);
     const payload = (msg['payload'] as GmailPayload | undefined) ?? {};

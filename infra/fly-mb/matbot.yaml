@@ -5,11 +5,13 @@ plugins:
   - ./packages/llm-calls
   - ./packages/telemetry
   - ./packages/tool-guard
+  - ./packages/tool-failure-handler
   - ./packages/transcribe
   - ./packages/memory
   - ./external/matbot/packages/plugins/tool-store
   - ./packages/decisions
   - ./packages/journal
+  - ./packages/content
   - ./packages/auth
   - ./packages/notify
   - ./packages/jobs
@@ -37,7 +39,7 @@ plugins:
   - ./packages/db
   - ./packages/logs
   - ./packages/charles-decks
-  - ./packages/charles-ventures
+  - ./packages/ventures
   - ./packages/charles-domains
   - ./packages/boards
   - ./packages/fs
@@ -63,6 +65,7 @@ providers:
       apiKey: ${OPENROUTER_API_KEY}
     parameters:
       promptCaching: true
+      maxTokens: 16384
   deepseek:
     module: ./external/matbot/packages/plugins/providers/openai-compat
     endpoint: https://openrouter.ai/api/v1/chat/completions
@@ -81,6 +84,8 @@ providers:
     model: claude-haiku-4-5-20251001
     credentials:
       apiKey: ${ANTHROPIC_API_KEY}
+    parameters:
+      maxTokens: 16384
   skills-classifier:
     module: ./external/matbot/packages/plugins/providers/openai-compat
     endpoint: https://openrouter.ai/api/v1/chat/completions
@@ -93,9 +98,13 @@ providers:
     model: claude-sonnet-4-6
     credentials:
       apiKey: ${ANTHROPIC_API_KEY}
+    parameters:
+      maxTokens: 16384
   haiku:
     module: ./external/matbot/packages/plugins/providers/anthropic
     endpoint: https://api.anthropic.com
     model: claude-haiku-4-5-20251001
     credentials:
       apiKey: ${ANTHROPIC_API_KEY}
+    parameters:
+      maxTokens: 16384

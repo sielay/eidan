@@ -6,6 +6,68 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-07-06
+
+### Added
+
+- **Content planning per venture.** Each venture gains a **Content** tab (`/p/ventures/<slug>` hub, now
+  split into Dashboard / Resources / Boards / Content) with a **brand kit** editor whose voice/style/
+  language **cascade** `default → venture ancestry → channel`, so a child venture inherits its parent's
+  brand and you only override the deltas per channel.
+- **Central content board** (`/p/content`) — a cross-venture kanban with **ventures as swimlanes** and the
+  content workflow as columns (Concept → Assets → Copy → Review → Published). Each card links to its
+  venture's board and its source conversation.
+- **Content-workflow board columns.** The shared boards panel now supports **per-board columns** (a
+  `lanes` prop) instead of a fixed To do / Doing / Done, so a content board runs the content workflow.
+- **OpenAI image key in the secrets catalogue** — `OPENAI_API_KEY` is now declared by the content plugin,
+  so it's fillable in Settings → Connections (powers `image_generate`).
+- **Move a resource between ventures** — `venture_move_resource` tool + reassignment path.
+
+### Changed
+
+- **Renamed the `charles-ventures` plugin to `ventures`** (the schema was already `plugin_ventures`; the
+  URL is now `/p/ventures`). No data migration.
+
+### Fixed
+
+- **Boards on non-default columns.** New cards can name the lane they land in (content cards were created
+  as `open` and rendered in no column), and moving a card to a content lane is no longer rejected. Widened
+  the known card-status set and dropped the rigid `cards_status` CHECK so boards can define their own
+  columns.
+
+## [0.18.0] — 2026-07-04
+
+### Fixed
+
+- **CodeQL `js/double-escaping` (alert #43).** The db introspection test built a regex by chaining
+  `.replace()` calls that un-escaped backslashes produced by an earlier step (a double-unescape). Replaced
+  with a single-pass shell-glob → regex conversion (escape regex metacharacters; `*`→`.*`, `?`→`.`) — same
+  match results, no re-processing of produced characters.
+
+## [0.17.0] — 2026-07-04
+
+### Added
+
+- **Journal.** Drop a text or voice note and it's categorised, logged structurally (its own
+  `plugin_journal` schema), and routed — a `bug`/`task` that names a repo opens a Sage `code` job; a
+  dev-log / content-seed is kept for the scheduled planning agents to draw on (`journal_query`). Voice
+  needs nothing extra: the transcribe plugin turns a Telegram/chat voice note into text before the turn.
+  An editable **direction prompt** (per user) governs how notes are sorted; a `/p/journal` web panel adds a
+  rich-markdown capture box, a date-grouped browse list, and the direction-prompt editor.
+- **Reddit research plugin.** Market-trend / pain-point research over Reddit (snoowrap).
+- **Chat model picker.** The chat composer now reuses the agents' `VendorModelPicker` (the full model
+  catalogue with the comparison popup), and `anthropic/*` model names route to the native Anthropic
+  provider instead of falling through.
+
+### Fixed
+
+- **Telemetry stale-node sweep (`42883`).** `markStaleOffline` called `make_interval(milliseconds => …)`,
+  but Postgres `make_interval` has no `milliseconds` parameter — so the node-liveness sweep errored on
+  *every* run. Convert ms→secs: `make_interval(secs => $1::double precision / 1000)`.
+- **Conversation list performance.** The chat list query no longer over-fetches; adds a last-message
+  preview + participant count and an index to back them.
+- The `[AGENT CONTEXT]` block is hidden from the chat display.
+
 ## [0.16.0] — 2026-07-01
 
 ### Added

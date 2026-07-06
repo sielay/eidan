@@ -17,7 +17,7 @@ import { join } from "node:path";
 // Core plugins are ALWAYS loaded, in dependency order (storage first; vault early so ${…} resolves
 // from the DB vault for later plugins).
 export const CORE_PLUGINS = [
-  "storage-postgres", "vault-postgres", "llm-calls", "telemetry", "tool-guard", "transcribe", "memory", "tool-store", "decisions", "journal", "auth", "notify", "jobs",
+  "storage-postgres", "vault-postgres", "llm-calls", "telemetry", "tool-guard", "tool-failure-handler", "transcribe", "memory", "tool-store", "decisions", "journal", "content", "auth", "notify", "jobs",
   "frontend-agui", "mcp-server", "a2a-server", "secrets-api", "procedures", "escalations", "agents", "frontend-telegram",
   // integrations: read-through mail / calendar / drive / gmail over the operator's vault-sealed
   // accounts, each with its own admin screen.
@@ -52,7 +52,7 @@ export function moduleForPlugin(name) {
 // Default provider catalogue (eidan.deploy.json `providers` overrides/extends per key). `key` is the
 // env var holding the API key (resolved on the node); null = no key (e.g. local ollama).
 export const DEFAULT_PROVIDERS = {
-  claude:     { module: "./external/matbot/packages/plugins/providers/anthropic",     endpoint: "https://api.anthropic.com", model: "claude-sonnet-4-6", key: "ANTHROPIC_API_KEY" },
+  claude:     { module: "./external/matbot/packages/plugins/providers/anthropic",     endpoint: "https://api.anthropic.com", model: "claude-sonnet-4-6", key: "ANTHROPIC_API_KEY", parameters: { maxTokens: 16384 } },
   // openai-compat posts to config.endpoint VERBATIM (its DEFAULT_ENDPOINT is a full
   // …/chat/completions URL), so every endpoint here must be the full completions path, not the
   // API base — a base URL silently 200s with the provider's HTML homepage, yielding an empty
@@ -62,7 +62,7 @@ export const DEFAULT_PROVIDERS = {
   // promptCaching: OpenRouter needs explicit cache_control breakpoints to cache Anthropic models
   // (unlike OpenAI/DeepSeek, which cache automatically); without it every call re-bills the full
   // prompt. The openai-compat adapter only emits the breakpoints when this is set.
-  openrouter: { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://openrouter.ai/api/v1/chat/completions", model: "anthropic/claude-sonnet-4.6", key: "OPENROUTER_API_KEY", parameters: { promptCaching: true } },
+  openrouter: { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://openrouter.ai/api/v1/chat/completions", model: "anthropic/claude-sonnet-4.6", key: "OPENROUTER_API_KEY", parameters: { promptCaching: true, maxTokens: 16384 } },
   grok:       { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "https://api.x.ai/v1/chat/completions", model: "grok-2", key: "XAI_API_KEY" },
   ollama:     { module: "./external/matbot/packages/plugins/providers/openai-compat", endpoint: "http://localhost:11434/v1/chat/completions", model: "llama3", key: null },
 };

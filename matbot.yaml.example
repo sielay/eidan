@@ -22,6 +22,7 @@ plugins:
   - ./packages/vault-postgres # encrypted secrets vault (register('Vault')); EidanSecrets service. Early, so ${NAME} resolves from the DB vault for all later plugins
   - ./packages/llm-calls # LLM cost ledger (eidan.llm_calls)
   - ./packages/tool-guard # caps oversized tool results before they re-enter context (EIDAN_TOOL_RESULT_MAX_CHARS, default 50k; 0 disables)
+  - ./packages/tool-failure-handler # tool failure detection & decision-making: prevents LLM hallucination on tool failures (enable with EIDAN_TOOL_FAILURE_DETECTION=1; optional EIDAN_TOOL_FAILURE_MODEL, default claude-haiku-4-5)
   - ./packages/memory # EidanMemory + remember/recall
   - ./packages/auth # WebPrincipalResolver: Bearer JWT (HS256) -> per-request Principal (RLS)
   - ./packages/notify # topic->channel routing (Slack/Telegram); dry-run unless EIDAN_NOTIFY_ROUTES

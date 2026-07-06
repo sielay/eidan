@@ -1,0 +1,10 @@
+# Docusaurus / Node build artifacts — docs-site manages its own install.
+/node_modules
+/build
+/.docusaurus
+/.cache-loader
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.vercel

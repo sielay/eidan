@@ -321,8 +321,18 @@ switch (cmd) {
       // A matbot bump can add packages (e.g. storage-base) the node's old node_modules lack.
       // `--no-optional` keeps ssh nodes (the Pi) lean: heavy optionalDependencies like gdrive's
       // tesseract.js (a WASM OCR engine) are skipped here but still install on cloud nodes (fly's
-      // Docker build runs a plain `pnpm install`). The features degrade gracefully when absent.
-      sh("ssh", [host, `cd ${dir} && pnpm install --prefer-offline --no-optional && (cd external/matbot && pnpm install --prefer-offline) && sudo systemctl restart ${service}`]);
+      // Docker build runs a plain `pnpm install`). Those optional features degrade gracefully.
+      //
+      // BUT the plugin/service contract does NOT degrade gracefully: the rsync excludes node_modules
+      // and the node's install doesn't link per-package workspace deps, so a NEWLY-added plugin lands
+      // without its `@matatbread/matbot-plugin-api` link and the engine FATAL-crashes on load — a
+      // crash loop that takes the whole node down (bit journal + reddit-research on kesha, 2026-07-05).
+      // So after install, ensure that symlink exists for every plugin that declares it.
+      const linkPluginApi =
+        `for pkg in packages/*/; do grep -q '@matatbread/matbot-plugin-api' "$pkg/package.json" 2>/dev/null || continue; ` +
+        `lp="$pkg/node_modules/@matatbread/matbot-plugin-api"; ` +
+        `[ -e "$lp" ] || { mkdir -p "$pkg/node_modules/@matatbread"; ln -sfn ../../../../external/matbot/packages/core/plugin-api "$lp"; }; done`;
+      sh("ssh", [host, `cd ${dir} && pnpm install --prefer-offline --no-optional && (cd external/matbot && pnpm install --prefer-offline) && ${linkPluginApi} && sudo systemctl restart ${service}`]);
     } else {
       throw new Error(`unknown target type "${t.type}" for "${targetName}"`);
     }

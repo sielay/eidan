@@ -16,7 +16,7 @@ export const plugin: MatbotPluginSpec = {
   },
   async setup(services: MatbotServices) {
     const url = process.env['EIDAN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
-    if (!url) throw new Error('EIDAN_DATABASE_URL (or DATABASE_URL) must be set for @eidandev/charles-ventures');
+    if (!url) throw new Error('EIDAN_DATABASE_URL (or DATABASE_URL) must be set for @eidandev/ventures');
     const db = new Db(url);
     // Pass the SocialConnections lookup (registered by the social-* plugins, if loaded) so attaching a
     // social account validates it against the live connection registry.

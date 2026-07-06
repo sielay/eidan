@@ -10,13 +10,15 @@ export type PluginSlotEntry = { plugin: string; slot: string; load: PluginLoad }
 
 export const pluginRoutes: PluginRoute[] = [
   { plugin: "journal", path: "/", load: () => import("@/plugins/journal/Journal") },
+  { plugin: "content", path: "/", load: () => import("@/plugins/content/Content") },
+  { plugin: "content", path: "/*", load: () => import("@/plugins/content/Content") },
   { plugin: "imap", path: "/", load: () => import("@/plugins/imap/Accounts") },
   { plugin: "ical", path: "/", load: () => import("@/plugins/ical/Calendars") },
   { plugin: "google", path: "/", load: () => import("@/plugins/google/Connections") },
   { plugin: "google", path: "/callback", load: () => import("@/plugins/google/Callback") },
   { plugin: "db", path: "/", load: () => import("@/plugins/db/Connections") },
   { plugin: "logs", path: "/", load: () => import("@/plugins/logs/Sources") },
-  { plugin: "charles-ventures", path: "/*", load: () => import("@/plugins/charles-ventures/Ventures") },
+  { plugin: "ventures", path: "/*", load: () => import("@/plugins/ventures/Ventures") },
   { plugin: "charles-domains", path: "/", load: () => import("@/plugins/charles-domains/Domains") },
   { plugin: "boards", path: "/", load: () => import("@/plugins/boards/Boards") },
   { plugin: "boards", path: "/*", load: () => import("@/plugins/boards/Boards") },
@@ -47,12 +49,13 @@ export const pluginSlots: PluginSlotEntry[] = [
 
 export const pluginNav: NavContribution[] = [
   {"bundle":"journal","group":"Plan","sections":[{"id":"journal","label":"Journal","icon":"analytics","href":"/p/journal","mobileHome":null}]},
+  {"bundle":"content","group":"Plan","sections":[{"id":"content","label":"Content","icon":"analytics","href":"/p/content","mobileHome":null}]},
   {"bundle":"imap","group":"Integrations","sections":[{"id":"mail","label":"Mail","icon":"mail","href":"/p/imap","mobileHome":5}]},
   {"bundle":"ical","group":"Integrations","sections":[{"id":"calendars","label":"Calendars","icon":"calendar","href":"/p/ical","mobileHome":4}]},
   {"bundle":"google","group":"Integrations","sections":[{"id":"gmail","label":"Google","icon":"mail","href":"/p/google","mobileHome":5}]},
   {"bundle":"db","group":"Integrations","sections":[{"id":"databases","label":"Databases","icon":"database","href":"/p/db","mobileHome":6}]},
   {"bundle":"logs","group":"Integrations","sections":[{"id":"logs","label":"Logs","icon":"scroll-text","href":"/p/logs","mobileHome":7}]},
-  {"bundle":"charles-ventures","group":"Charles · business","sections":[{"id":"ventures","label":"Ventures","icon":"ventures","href":"/p/charles-ventures","mobileHome":1}]},
+  {"bundle":"ventures","group":"Business","sections":[{"id":"ventures","label":"Ventures","icon":"ventures","href":"/p/ventures","mobileHome":1}]},
   {"bundle":"charles-domains","group":"Charles · business","sections":[{"id":"domains","label":"Domains","icon":"link","href":"/p/charles-domains","mobileHome":null}]},
   {"bundle":"boards","group":"Plan","sections":[{"id":"boards","label":"Planner","icon":"analytics","href":"/p/boards","mobileHome":null}]},
   {"bundle":"fs","group":"Files","sections":[{"id":"fs","label":"Files","icon":"link","href":"/p/fs","mobileHome":null}]},

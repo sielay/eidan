@@ -10,7 +10,9 @@ import { verifyBearer } from "@/server/auth";
 import { withUser } from "@/server/db";
 
 interface CardRow { id: string; board_id: string; title: string; body: string | null; status: string; position: number; metadata?: Record<string, unknown>; due_date?: string | null; ref_count?: number }
-const STATUSES = ["open", "doing", "done", "archived"];
+// Boards can define their own columns (a content board runs concept→…→published, not open/doing/done).
+// 'archived' is always the soft-delete tombstone regardless of a board's lanes.
+const STATUSES = ["open", "doing", "done", "concept", "assets", "copy", "review", "published", "archived"];
 const COLS = "id, board_id, title, body, status, position, metadata, due_date";
 
 export const runtime = "nodejs";
@@ -45,16 +47,19 @@ export async function POST(req: NextRequest): Promise<Response> {
   const title = typeof body["title"] === "string" ? body["title"].trim() : "";
   const cardBody = typeof body["body"] === "string" && body["body"].trim() ? body["body"].trim() : null;
   const dueDate = typeof body["due_date"] === "string" && body["due_date"].trim() ? body["due_date"].trim() : null;
+  // A new card may name the lane it lands in (content boards use their own columns). Without it, a card
+  // created on a non-default board falls to 'open' and renders in no column. Defaults to 'open'.
+  const status = typeof body["status"] === "string" && STATUSES.includes(body["status"]) ? body["status"] : null;
   if (!boardId) return Response.json({ error: "board_id is required" }, { status: 400 });
   if (!title) return Response.json({ error: "title is required" }, { status: 400 });
 
   const card = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `insert into plugin_boards.cards (board_id, user_id, title, body, due_date)
-       select b.id, $1, $3, $4, $5 from plugin_boards.boards b
+      `insert into plugin_boards.cards (board_id, user_id, title, body, due_date, status)
+       select b.id, $1, $3, $4, $5, coalesce($6, 'open') from plugin_boards.boards b
         where b.id = $2 and b.user_id = $1 and b.status = 'active'
        returning ${COLS}`,
-      [sess.userId, boardId, title, cardBody, dueDate],
+      [sess.userId, boardId, title, cardBody, dueDate, status],
     );
     return r.rows[0] as CardRow | undefined;
   });

@@ -11,8 +11,10 @@ export const GOOGLE_PROVIDER = 'google';
 export const googleAdapter: OAuthAdapter = {
   provider: GOOGLE_PROVIDER,
   flavor: 'oauth2',
+  tokenAuthStyle: 'body',
   scopes: GMAIL_SCOPES,
   usesRefresh: true,
+  cacheAccessToken: true,
   requireRefreshOnConnect: true,
   extraAuthParams: { access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true' },
   endpoints: () => ({ authUrl: GOOGLE_AUTH_URL, tokenUrl: GOOGLE_TOKEN_URL }),
