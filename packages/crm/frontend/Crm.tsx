@@ -94,7 +94,7 @@ export default function Crm() {
 
   async function loadDealActivities(dealId: string) {
     try {
-      const res = await authFetch(`/api/crm/activities?deal_id=${dealId}`);
+      const res = await authFetch(`/api/crm/activities?deal_id=${dealId}&venture_id=${ventureId}`);
       const data = (await res.json()) as { activities?: Activity[] };
       setDealActivities(data.activities || []);
     } catch (e) {
@@ -104,9 +104,11 @@ export default function Crm() {
 
   async function moveDeal(dealId: string, newStage: string) {
     try {
+      const targetCol = columns.find((c) => c.stage === newStage);
+      const position = (targetCol?.count || 0);
       const res = await authFetch(`/api/crm/deals`, {
         method: 'PUT',
-        body: JSON.stringify({ deal_id: dealId, stage: newStage, position: 0 }),
+        body: JSON.stringify({ deal_id: dealId, stage: newStage, position, venture_id: ventureId }),
       });
       if (res.ok) {
         await loadPipeline();
@@ -202,9 +204,9 @@ export default function Crm() {
                               aria-label="Move deal to next stage"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                const nextIdx = DEFAULT_STAGES.indexOf(stage) + 1;
-                                if (nextIdx < DEFAULT_STAGES.length) {
-                                  moveDeal(deal.id, DEFAULT_STAGES[nextIdx]);
+                                const stageIdx = DEFAULT_STAGES.indexOf(stage);
+                                if (stageIdx > -1 && stageIdx + 1 < DEFAULT_STAGES.length) {
+                                  moveDeal(deal.id, DEFAULT_STAGES[stageIdx + 1]);
                                 }
                               }}
                             >
@@ -235,16 +237,19 @@ export default function Crm() {
                 {dealActivities.length === 0 ? (
                   <p className="ctxpanel__empty">No activities yet</p>
                 ) : (
-                  dealActivities.map((activity) => (
-                    <div key={activity.id} className="timeline__row">
-                      <div className="timeline__dot"></div>
-                      <div>
-                        <div className="timeline__title">{activity.kind}</div>
-                        {activity.body && <div className="timeline__meta">{activity.body}</div>}
-                        <div className="timeline__meta">{formatTime(activity.occurred_at)}</div>
+                  dealActivities.map((activity) => {
+                    const title = activity.kind === 'stage_change' && activity.body ? activity.body : activity.kind;
+                    return (
+                      <div key={activity.id} className="timeline__row">
+                        <div className="timeline__dot"></div>
+                        <div>
+                          <div className="timeline__title">{title}</div>
+                          {activity.kind !== 'stage_change' && activity.body && <div className="timeline__meta">{activity.body}</div>}
+                          <div className="timeline__meta">{formatTime(activity.occurred_at)}</div>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>

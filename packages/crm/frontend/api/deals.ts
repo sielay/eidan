@@ -81,7 +81,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
     return Response.json({ error: 'invalid JSON body' }, { status: 400 });
   }
 
-  const { deal_id, stage, position } = body;
+  const { deal_id, stage, position, venture_id } = body;
   if (!deal_id || !stage) return Response.json({ error: 'deal_id and stage required' }, { status: 400 });
 
   const payload = await withUser(sess.userId, async (c) => {
@@ -90,7 +90,8 @@ export async function PUT(req: NextRequest): Promise<Response> {
       [deal_id, sess.userId],
     );
     if (!deal.rows[0]) return { error: 'Deal not found' };
-    const ventureId = (deal.rows[0] as Record<string, unknown>).venture_id;
+    const dealVentureId = (deal.rows[0] as Record<string, unknown>).venture_id as string;
+    if (venture_id && dealVentureId !== venture_id) return { error: 'Venture mismatch' };
 
     const r = await c.query(
       `update plugin_crm.deals set stage = $1, position = $2, updated_at = now()
@@ -102,7 +103,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
       await c.query(
         `insert into plugin_crm.activities (user_id, venture_id, deal_id, kind, body, occurred_at)
          values ($1, $2, $3, $4, $5, now())`,
-        [sess.userId, ventureId, deal_id, 'stage_change', `Moved to ${stage}`],
+        [sess.userId, dealVentureId, deal_id, 'stage_change', `Moved to ${stage}`],
       );
     }
     return r.rows[0] || { error: 'Failed to move deal' };

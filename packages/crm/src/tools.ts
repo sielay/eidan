@@ -122,9 +122,11 @@ const ACTIVITY_LOG_SCHEMA: JSONSchema = {
 const ACTIVITY_LIST_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
+    venture_id: { type: 'string', description: 'Venture ID.', minLength: 1 },
     deal_id: { type: 'string', description: 'Filter by deal ID.' },
     contact_id: { type: 'string', description: 'Filter by contact ID.' },
   },
+  required: ['venture_id'],
   additionalProperties: false,
 };
 
@@ -167,30 +169,13 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             const updates: string[] = [];
             const values: unknown[] = [contact_id, userId];
             let paramIdx = 3;
-            if (name !== undefined) {
-              updates.push(`name = $${paramIdx}`);
-              values.push(name);
-              paramIdx++;
-            }
-            if (email !== undefined) {
-              updates.push(`email = $${paramIdx}`);
-              values.push(email);
-              paramIdx++;
-            }
-            if (phone !== undefined) {
-              updates.push(`phone = $${paramIdx}`);
-              values.push(phone);
-              paramIdx++;
-            }
-            if (company !== undefined) {
-              updates.push(`company = $${paramIdx}`);
-              values.push(company);
-              paramIdx++;
-            }
-            if (role !== undefined) {
-              updates.push(`role = $${paramIdx}`);
-              values.push(role);
-              paramIdx++;
+            const allowedFields: Record<string, unknown> = { name, email, phone, company, role };
+            for (const [field, value] of Object.entries(allowedFields)) {
+              if (value !== undefined) {
+                updates.push(`${field} = $${paramIdx}`);
+                values.push(value);
+                paramIdx++;
+              }
             }
             if (updates.length === 0) return { error: 'No fields to update' };
             updates.push(`updated_at = now()`);
@@ -258,35 +243,14 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             const updates: string[] = [];
             const values: unknown[] = [deal_id, userId];
             let paramIdx = 3;
-            if (name !== undefined) {
-              updates.push(`name = $${paramIdx}`);
-              values.push(name);
-              paramIdx++;
-            }
-            if (value_cents !== undefined) {
-              updates.push(`value_cents = $${paramIdx}`);
-              values.push(value_cents);
-              paramIdx++;
-            }
-            if (currency !== undefined) {
-              updates.push(`currency = $${paramIdx}`);
-              values.push(currency);
-              paramIdx++;
-            }
-            if (stage !== undefined) {
-              updates.push(`stage = $${paramIdx}`);
-              values.push(stage);
-              paramIdx++;
-            }
-            if (contact_id !== undefined) {
-              updates.push(`contact_id = $${paramIdx}`);
-              values.push(contact_id || null);
-              paramIdx++;
-            }
-            if (expected_close !== undefined) {
-              updates.push(`expected_close = $${paramIdx}`);
-              values.push(expected_close || null);
-              paramIdx++;
+            const allowedFields: Record<string, unknown> = { name, value_cents, currency, stage, contact_id, expected_close };
+            for (const [field, value] of Object.entries(allowedFields)) {
+              if (value !== undefined) {
+                const finalValue = (field === 'contact_id' || field === 'expected_close') ? (value || null) : value;
+                updates.push(`${field} = $${paramIdx}`);
+                values.push(finalValue);
+                paramIdx++;
+              }
             }
             if (updates.length === 0) return { error: 'No fields to update' };
             updates.push(`updated_at = now()`);
@@ -377,15 +341,15 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             );
             return r.rows[0] || { error: 'Failed to log activity' };
           } else if (action === 'list') {
-            const { deal_id, contact_id } = input as Record<string, unknown>;
-            let query = `select id, kind, body, deal_id, contact_id, occurred_at from ${db.schema}.activities where user_id = $1`;
-            const params: unknown[] = [userId];
+            const { venture_id, deal_id, contact_id } = input as Record<string, unknown>;
+            let query = `select id, kind, body, deal_id, contact_id, occurred_at from ${db.schema}.activities where user_id = $1 and venture_id = $2`;
+            const params: unknown[] = [userId, venture_id];
             if (deal_id) {
-              query += ` and deal_id = $${params.length + 1}`;
+              query += ` and deal_id = $${params.length + 1} and exists (select 1 from ${db.schema}.deals d where d.id = $${params.length + 1} and d.user_id = $1)`;
               params.push(deal_id);
             }
             if (contact_id) {
-              query += ` and contact_id = $${params.length + 1}`;
+              query += ` and contact_id = $${params.length + 1} and exists (select 1 from ${db.schema}.contacts c where c.id = $${params.length + 1} and c.user_id = $1)`;
               params.push(contact_id);
             }
             query += ` order by occurred_at desc`;

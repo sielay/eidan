@@ -21,18 +21,19 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const dealId = req.nextUrl.searchParams.get('deal_id');
   const contactId = req.nextUrl.searchParams.get('contact_id');
+  const ventureId = req.nextUrl.searchParams.get('venture_id');
   if (!dealId && !contactId) return Response.json({ error: 'deal_id or contact_id required' }, { status: 400 });
 
   const payload = await withUser(sess.userId, async (c) => {
     let query = `select id, kind, body, deal_id, contact_id, occurred_at
                    from plugin_crm.activities
-                  where user_id = $1`;
-    const params: unknown[] = [sess.userId];
+                  where user_id = $1 and venture_id = $2`;
+    const params: unknown[] = [sess.userId, ventureId];
     if (dealId) {
-      query += ` and deal_id = $${params.length + 1}`;
+      query += ` and deal_id = $${params.length + 1} and exists (select 1 from plugin_crm.deals d where d.id = $${params.length + 1} and d.user_id = $1)`;
       params.push(dealId);
     } else if (contactId) {
-      query += ` and contact_id = $${params.length + 1}`;
+      query += ` and contact_id = $${params.length + 1} and exists (select 1 from plugin_crm.contacts ct where ct.id = $${params.length + 1} and ct.user_id = $1)`;
       params.push(contactId);
     }
     query += ` order by occurred_at desc`;
