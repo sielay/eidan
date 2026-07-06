@@ -117,9 +117,14 @@ export default function Crm() {
   }
 
   function formatCurrency(cents: number, currency: string) {
-    const amount = (cents / 100).toFixed(0);
+    const amount = (cents / 100).toFixed(2);
     if (currency === 'GBP') return `£${amount}`;
     return `${amount} ${currency}`;
+  }
+
+  function getCurrencySymbol(currency: string) {
+    if (currency === 'GBP') return '£';
+    return currency;
   }
 
   function formatTime(dateStr: string) {
@@ -129,9 +134,10 @@ export default function Crm() {
     const mins = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
-    if (mins < 60) return `${mins}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} min${mins !== 1 ? 's' : ''} ago`;
+    if (hours < 24) return `${hours} hr${hours !== 1 ? 's' : ''} ago`;
+    if (days < 7) return `${days} day${days !== 1 ? 's' : ''} ago`;
     return date.toLocaleDateString();
   }
 
@@ -167,7 +173,10 @@ export default function Crm() {
                   <div className="kancol__head">
                     <div className="kancol__name">{stage}</div>
                     <div className="kancol__sum">
-                      {col ? `£${(col.total_cents / 100).toFixed(0)}` : '£0'} ({col?.count || 0})
+                      {col
+                        ? `${getCurrencySymbol(col.deals[0]?.currency || 'GBP')}${(col.total_cents / 100).toFixed(2)}`
+                        : `${getCurrencySymbol('GBP')}0.00`}{' '}
+                      ({col?.count || 0})
                     </div>
                   </div>
                   <div className="kancol__deals">
@@ -190,6 +199,7 @@ export default function Crm() {
                           {stage !== DEFAULT_STAGES[DEFAULT_STAGES.length - 1] && (
                             <button
                               className="dealcard__arrow"
+                              aria-label="Move deal to next stage"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const nextIdx = DEFAULT_STAGES.indexOf(stage) + 1;
@@ -205,7 +215,9 @@ export default function Crm() {
                       </div>
                     ))}
                   </div>
-                  <button className="kancol__add">+ Add deal</button>
+                  <button className="kancol__add" aria-label={`Add deal to ${stage} stage`}>
+                    + Add deal
+                  </button>
                 </div>
               );
             })}
@@ -215,7 +227,9 @@ export default function Crm() {
             <div className="ctxpanel">
               <div className="ctxpanel__head">
                 <h3>Activity</h3>
-                <button onClick={() => setSelectedDeal(null)}>×</button>
+                <button aria-label="Close activity panel" onClick={() => setSelectedDeal(null)}>
+                  ×
+                </button>
               </div>
               <div className="timeline">
                 {dealActivities.length === 0 ? (
