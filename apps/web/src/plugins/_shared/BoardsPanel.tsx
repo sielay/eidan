@@ -57,6 +57,10 @@ function refIcon(kind: string): string {
   return icons[kind] ?? "🔗";
 }
 
+function getKindLabel(kind: string): string {
+  return REF_KINDS.find(([v]) => v === kind)?.[1] ?? kind;
+}
+
 // Deterministic pastel colour per label name (no palette table needed).
 function labelHue(name: string): number {
   let h = 0;
@@ -75,7 +79,7 @@ function LabelChip({ name, onRemove }: { name: string; onRemove?: () => void }):
 
 function RefChip({ ref, onRemove }: { ref: CardRef; onRemove: () => void }): React.ReactElement {
   const url = refToUrl(ref.ref_kind, ref.ref_id, ref.ref_label);
-  const kindLabel = REF_KINDS.find(([v]) => v === ref.ref_kind)?.[1] ?? ref.ref_kind;
+  const kindLabel = getKindLabel(ref.ref_kind);
   const icon = refIcon(ref.ref_kind);
   const label = ref.ref_label || ref.ref_id || "(unlabelled)";
 
@@ -452,8 +456,6 @@ function CardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => v
     setBusy(true);
     try { await authFetch(`/api/boards/cards/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ card_id: card.id, body: t }) }); setComment(""); await load(); } finally { setBusy(false); }
   }
-
-  const kindLabel = (k: string): string => REF_KINDS.find(([v]) => v === k)?.[1] ?? k;
 
   return (
     <div style={S.scrim} role="dialog" aria-modal="true" aria-label="Card detail" onClick={onClose}>
