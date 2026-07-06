@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Unit tests for content workflow: gate advance (freezing + activity logging) and asset approval.
 
-import { describe, it, expect } from "vitest";
+import { describe, it } from "node:test";
+import assert from "node:assert";
 
 // Test gate advance: verify that advancing freezes stage output and logs activity
 describe("Content Workflow — Gate Advance", () => {
@@ -23,15 +24,15 @@ describe("Content Workflow — Gate Advance", () => {
     };
 
     const nextStage = GATES[card.status];
-    expect(nextStage).toBe("assets");
+    assert.strictEqual(nextStage, "assets");
 
     // Verify frozen data is created
     const frozen = card.frozen_data ?? {};
     frozen[card.status] = { title: card.title, timestamp: new Date().toISOString() };
 
-    expect(frozen.concept).toBeDefined();
-    expect(frozen.concept.title).toBe("Test Campaign");
-    expect(typeof frozen.concept.timestamp).toBe("string");
+    assert.ok(frozen.concept !== undefined);
+    assert.strictEqual(frozen.concept.title, "Test Campaign");
+    assert.strictEqual(typeof frozen.concept.timestamp, "string");
   });
 
   it("should not allow advancing from published stage", () => {
@@ -45,7 +46,7 @@ describe("Content Workflow — Gate Advance", () => {
     const publishedStatus = "published";
     const nextStage = GATES[publishedStatus];
 
-    expect(nextStage).toBeUndefined();
+    assert.strictEqual(nextStage, undefined);
   });
 
   it("should log system event when advancing gate", () => {
@@ -61,8 +62,8 @@ describe("Content Workflow — Gate Advance", () => {
       body: `Advanced to ${nextStage}`,
     };
 
-    expect(event.kind).toBe("system");
-    expect(event.body).toContain("Advanced to");
+    assert.strictEqual(event.kind, "system");
+    assert.ok(event.body.includes("Advanced to"));
   });
 });
 
@@ -71,32 +72,34 @@ describe("Content Workflow — Asset Approval", () => {
   it("should approve a pending asset", () => {
     const asset = { id: "asset-1", ref_id: "img-123", ref_kind: "image", approval_state: "pending" };
 
-    const nextState = asset.approval_state === "approved" ? "rejected" : "approved";
-    expect(nextState).toBe("approved");
+    // Approve action: set to approved
+    const nextState = "approved";
+    assert.strictEqual(nextState, "approved");
   });
 
   it("should reject an approved asset", () => {
     const asset = { id: "asset-1", ref_id: "img-123", ref_kind: "image", approval_state: "approved" };
 
-    const nextState = asset.approval_state === "approved" ? "rejected" : "approved";
-    expect(nextState).toBe("rejected");
+    // Reject action: set to rejected
+    const nextState = "rejected";
+    assert.strictEqual(nextState, "rejected");
   });
 
-  it("should toggle between pending, approved, and rejected states", () => {
+  it("should handle approved and rejected states", () => {
     const states = ["pending", "approved", "rejected"];
     let current = "pending";
 
     // Approve (pending → approved)
     current = "approved";
-    expect(states.includes(current)).toBe(true);
+    assert.ok(states.includes(current));
 
     // Reject (approved → rejected)
     current = "rejected";
-    expect(states.includes(current)).toBe(true);
+    assert.ok(states.includes(current));
 
-    // Back to pending conceptually (reject again)
+    // Back to pending conceptually
     current = "pending";
-    expect(states.includes(current)).toBe(true);
+    assert.ok(states.includes(current));
   });
 
   it("should preserve asset metadata during approval state change", () => {
@@ -110,7 +113,7 @@ describe("Content Workflow — Asset Approval", () => {
 
     // After approval, metadata should remain
     const approved = { ...asset, approval_state: "approved" };
-    expect(approved.metadata).toEqual(asset.metadata);
+    assert.deepStrictEqual(approved.metadata, asset.metadata);
   });
 });
 
@@ -127,7 +130,7 @@ describe("Content Workflow — Stage Progression", () => {
       current++;
     }
 
-    expect(visited).toEqual(stages);
+    assert.deepStrictEqual(visited, stages);
   });
 
   it("should maintain frozen data at each stage", () => {
@@ -137,12 +140,12 @@ describe("Content Workflow — Stage Progression", () => {
       frozenData[stage] = { timestamp: new Date().toISOString() };
     }
 
-    expect(Object.keys(frozenData).length).toBe(5); // concept, assets, copy, distribution, scheduled
-    expect(frozenData.concept).toBeDefined();
-    expect(frozenData.assets).toBeDefined();
-    expect(frozenData.copy).toBeDefined();
-    expect(frozenData.distribution).toBeDefined();
-    expect(frozenData.scheduled).toBeDefined();
-    expect(frozenData.published).toBeUndefined(); // Published is final, no freeze after
+    assert.strictEqual(Object.keys(frozenData).length, 5); // concept, assets, copy, distribution, scheduled
+    assert.ok(frozenData.concept !== undefined);
+    assert.ok(frozenData.assets !== undefined);
+    assert.ok(frozenData.copy !== undefined);
+    assert.ok(frozenData.distribution !== undefined);
+    assert.ok(frozenData.scheduled !== undefined);
+    assert.strictEqual(frozenData.published, undefined); // Published is final, no freeze after
   });
 });

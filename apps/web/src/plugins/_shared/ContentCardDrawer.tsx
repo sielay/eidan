@@ -42,7 +42,7 @@ function GateStrip({ card, onAdvance }: { card: Card; onAdvance: () => void }): 
   const idx = stages.indexOf(card.status);
   const gate = GATES[card.status];
   const isFinal = card.status === "published" || card.status === "scheduled";
-  const advancing = React.useState(false)[1];
+  const [advancing, setAdvancing] = React.useState(false);
 
   return (
     <div style={S.gateStrip}>
@@ -62,7 +62,11 @@ function GateStrip({ card, onAdvance }: { card: Card; onAdvance: () => void }): 
           className="btn btn--primary"
           style={{ marginLeft: "auto", minWidth: "auto" }}
           disabled={advancing}
-          onClick={onAdvance}
+          onClick={() => {
+            setAdvancing(true);
+            onAdvance();
+            setAdvancing(false);
+          }}
         >
           {gate.label}
         </button>
@@ -115,11 +119,20 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
 
   React.useEffect(() => { void load(); }, [load]);
 
-  const toggleApproval = async (assetId: string, state: string): Promise<void> => {
+  const approveAsset = async (assetId: string): Promise<void> => {
     await authFetch(`/api/content/cards/${cardId}/assets/${assetId}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ approval_state: state === "approved" ? "rejected" : "approved" }),
+      body: JSON.stringify({ approval_state: "approved" }),
+    });
+    await load();
+  };
+
+  const rejectAsset = async (assetId: string): Promise<void> => {
+    await authFetch(`/api/content/cards/${cardId}/assets/${assetId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approval_state: "rejected" }),
     });
     await load();
   };
@@ -137,12 +150,12 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
               <div style={{ padding: "var(--s2)", display: "flex", gap: "var(--s1)" }}>
                 <button
                   className={`btn ${a.approval_state === "approved" ? "btn--primary" : "btn--ghost"}`}
-                  onClick={() => void toggleApproval(a.id, a.approval_state)}
+                  onClick={() => void approveAsset(a.id)}
                   style={{ flex: 1 }}
                 >
                   ✓
                 </button>
-                <button className="btn btn--ghost" onClick={() => void toggleApproval(a.id, a.approval_state)} style={{ flex: 1 }}>
+                <button className="btn btn--ghost" onClick={() => void rejectAsset(a.id)} style={{ flex: 1 }}>
                   ✗
                 </button>
               </div>
@@ -214,7 +227,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
                     <textarea
                       className="input"
                       value={copy?.body ?? ""}
-                      onChange={(e) => setCopies((x) => ({ ...x, [ch]: { ...x[ch], body: e.target.value } as CardCopy }))}
+                      onChange={(e) => setCopies((x) => ({ ...x, [ch]: { ...(x[ch] || { id: "new", channel: ch, state: "draft" }), body: e.target.value } as CardCopy }))}
                       style={{ width: "100%", minHeight: 80, resize: "vertical" }}
                       placeholder="Write your copy here…"
                     />
@@ -246,6 +259,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
 }
 
 function ChatTab({ cardId }: { cardId: string }): React.ReactElement {
+  // TODO: Integrate with actual chat API and conversation UI.
   return (
     <div style={{ flex: 1 }}>
       <p className="screen-sub">Chat integration — bind a conversation to work assets & drafts here.</p>
@@ -254,7 +268,7 @@ function ChatTab({ cardId }: { cardId: string }): React.ReactElement {
   );
 }
 
-function RightRail({ card, onScheduleChange, onFork, onChanged }: { card: Card; onScheduleChange?: (time: string) => void; onFork: () => void; onChanged: () => void }): React.ReactElement {
+function RightRail({ card, onFork, onChanged }: { card: Card; onFork: () => void; onChanged: () => void }): React.ReactElement {
   const [schedule, setSchedule] = React.useState(card.publish_at ? new Date(card.publish_at).toISOString().slice(0, 16) : "");
   const [forking, setForking] = React.useState(false);
 
@@ -334,6 +348,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
   const toggleChannel = async (ch: string): Promise<void> => {
     const next = channels.includes(ch) ? channels.filter((x) => x !== ch) : [...channels, ch];
     setChannels(next);
+    // TODO: Ensure backend validates channels against canonical CHANNELS list for security.
     await authFetch(`/api/boards/cards`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -342,12 +357,12 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
   };
 
   const stageColors: Record<string, string> = {
-    concept: "#666",
-    assets: "#0a7",
-    copy: "#00a",
-    distribution: "#a50",
-    scheduled: "#a05",
-    published: "#060",
+    concept: "var(--muted)",
+    assets: "var(--good)",
+    copy: "var(--info)",
+    distribution: "var(--warn)",
+    scheduled: "var(--warn)",
+    published: "var(--good)",
   };
 
   return (
@@ -378,7 +393,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
           {tab === "chat" && <ChatTab cardId={card.id} />}
           {tab === "assets" && <AssetsTab cardId={card.id} />}
           {tab === "copy" && <CopyTab cardId={card.id} channels={channels} />}
-          <RightRail card={card} onFork={() => {}} onChanged={onChanged} />
+          <RightRail card={card} onFork={onChanged} onChanged={onChanged} />
         </div>
       </div>
     </div>
