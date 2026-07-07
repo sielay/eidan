@@ -36,6 +36,11 @@ export interface OAuthAdapter {
   // client_id/client_secret as form fields; 'basic' sends an HTTP Basic Authorization header
   // (X / Twitter confidential clients require this).
   tokenAuthStyle?: 'body' | 'basic';
+  // OAuth param name carrying the client id. Default 'client_id' (RFC 6749); TikTok deviates and
+  // expects 'client_key' on both the authorize URL and the token endpoint.
+  clientIdParam?: string;
+  // Separator joining the authorize URL's scope list. Default ' ' (RFC 6749); TikTok uses ','.
+  scopeSeparator?: string;
   // Resolve the platform endpoints. `host` is set only for per-host (dynamic_app) providers.
   endpoints(host?: string): AdapterEndpoints;
   // Who did we just connect? Probe the platform with a fresh access token. `opts.host` is the instance

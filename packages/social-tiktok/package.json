@@ -1,0 +1,62 @@
+{
+  "name": "@eidandev/social-tiktok",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "eidan TikTok Social (matbot): read profile + list your videos, and post a video from a public URL (tiktok_get_profile, tiktok_list_videos, tiktok_post_video) via the TikTok Display + Content Posting APIs with Login Kit OAuth2 and matbot vault secrets.",
+  "matbotRuntime": [
+    "node"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ../../external/matbot/apps/cli/register.js --test src/*.test.ts"
+  },
+  "eidan": {
+    "frontend": {
+      "package": "frontend",
+      "stylesheet": "tiktok.css",
+      "routes": [
+        {
+          "path": "/",
+          "component": "Connections.tsx"
+        },
+        {
+          "path": "/callback",
+          "component": "Callback.tsx"
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/social-tiktok/accounts",
+          "handler": "api/route.ts"
+        }
+      ],
+      "nav": {
+        "group": "Integrations",
+        "sections": [
+          {
+            "id": "social-tiktok",
+            "label": "TikTok",
+            "icon": "share",
+            "href": "/p/social-tiktok",
+            "mobileHome": null
+          }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@eidandev/connections-kit": "link:../connections-kit",
+    "@matatbread/matbot-plugin-api": "link:../../external/matbot/packages/core/plugin-api",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0"
+  }
+}
