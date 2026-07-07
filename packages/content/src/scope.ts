@@ -71,11 +71,13 @@ export function scopeChain(target: string, ancestry: readonly string[]): string[
 }
 
 // The fields that cascade. Kept structural (not the db BrandKit) so this module stays pure.
+export interface BrandAsset { id: string; role: string }
 export interface BrandFields {
   voice: string | null;
   styleguide: string | null;
   language: string | null;
   reference_images: string[];
+  brand_assets: BrandAsset[];
 }
 
 function nonEmpty(v: string | null | undefined): string | null {
@@ -83,19 +85,22 @@ function nonEmpty(v: string | null | undefined): string | null {
 }
 
 // Merge brand layers in cascade order (most-general first). For each text field the last layer that
-// sets a non-empty value wins; reference_images accumulate (union, order-preserving) so a channel adds
-// to — rather than replaces — the venture's references. Absent layers are simply skipped.
+// sets a non-empty value wins; reference_images and brand_assets accumulate (union, order-preserving)
+// so a channel adds to — rather than replaces — the venture's assets. Absent layers are simply skipped.
 export function mergeBrandLayers(layers: readonly Partial<BrandFields>[]): BrandFields {
-  const out: BrandFields = { voice: null, styleguide: null, language: null, reference_images: [] };
+  const out: BrandFields = { voice: null, styleguide: null, language: null, reference_images: [], brand_assets: [] };
   const refs: string[] = [];
+  const assets: BrandAsset[] = [];
   for (const layer of layers) {
     if (!layer) continue;
     const v = nonEmpty(layer.voice); if (v) out.voice = v;
     const s = nonEmpty(layer.styleguide); if (s) out.styleguide = s;
     const l = nonEmpty(layer.language); if (l) out.language = l;
     for (const r of layer.reference_images ?? []) if (r && !refs.includes(r)) refs.push(r);
+    for (const a of layer.brand_assets ?? []) if (a.id && !assets.some((x) => x.id === a.id)) assets.push(a);
   }
   out.reference_images = refs;
+  out.brand_assets = assets;
   return out;
 }
 

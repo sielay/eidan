@@ -10,6 +10,7 @@ export interface DecisionRecord {
   title:      string;
   decision:   string;
   rationale:  string;
+  venture:    string | null;   // venture id/slug this decision is about (targeting, positioning, pricing…)
   tags:       string[];
   links:      string[];        // [[knowledge-slug]] refs or URLs — connective tissue, not burial
   status:     DecisionStatus;

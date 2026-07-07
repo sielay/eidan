@@ -313,7 +313,7 @@ export function BoardsPanel({ scopeKind = null, scopeId = null, basePath, lanes 
       ) : null}
 
       {openCard ? scopeKind === "content" ? (
-        <ContentCardDrawer card={openCard} onClose={() => setOpenCard(null)} onChanged={() => void loadCards(activeBoard)} />
+        <ContentCardDrawer cardId={openCard.id} onClose={() => setOpenCard(null)} onChanged={() => void loadCards(activeBoard)} />
       ) : (
         <CardDrawer card={openCard} onClose={() => setOpenCard(null)} onChanged={() => void loadCards(activeBoard)} />
       ) : null}

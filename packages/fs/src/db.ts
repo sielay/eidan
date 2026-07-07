@@ -94,6 +94,23 @@ export class FsDb {
     }
   }
 
+  // Operator's upload-destination preference (eidan.kv settings/fs_upload), set from the Settings UI.
+  // offload: 'auto' = big files (>= OFFLOAD_BYTES) go to object storage; 'always' = every upload; 'never'
+  // = keep everything in Postgres. direct: null = fall back to EIDAN_FS_DIRECT_UPLOAD. Missing row ⇒
+  // safe defaults, so the setting is purely additive.
+  async getUploadPrefs(): Promise<{ offload: 'auto' | 'always' | 'never'; direct: boolean | null }> {
+    try {
+      return await this.withPrincipalTx(async (q) => {
+        const r = await q("select doc from eidan.kv where namespace = 'settings' and id = 'fs_upload'");
+        const d = ((r.rows[0] as { doc?: Record<string, unknown> } | undefined)?.doc) ?? {};
+        const off = String(d['offload'] ?? 'auto');
+        const offload = (['auto', 'always', 'never'].includes(off) ? off : 'auto') as 'auto' | 'always' | 'never';
+        const direct = typeof d['direct'] === 'boolean' ? (d['direct'] as boolean) : null;
+        return { offload, direct };
+      });
+    } catch { return { offload: 'auto', direct: null }; }
+  }
+
   async listChildren(parentId: string | null): Promise<FsNode[]> {
     const p = tryCurrentPrincipal();
     if (!p) return [];

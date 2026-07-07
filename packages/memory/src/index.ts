@@ -4,7 +4,7 @@ import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { Db } from './db.js';
 import { EidanMemory } from './eidan-memory.js';
 import { EidanKnowledgeIndex } from './knowledge-index.js';
-import { rememberTool, recallTool, conversationListTool, conversationArchiveTool, knowledgeCaptureWorkflowTool, knowledgeRecallTool, knowledgeCatalogueListTool } from './tools.js';
+import { rememberTool, recallTool, conversationListTool, conversationArchiveTool, conversationSearchTool, knowledgeCaptureWorkflowTool, knowledgeRecallTool, knowledgeCatalogueListTool } from './tools.js';
 
 // Advertise EidanMemory on the service registry so other plugins (bundles) can consume the
 // relational memory surface with full type safety: services.EidanMemory?.searchKnowledge(...).
@@ -37,6 +37,8 @@ export const plugin: MatbotPluginSpec = {
     // Conversation housekeeping (agent-facing counterpart to the UI delete). RLS-scoped to the owner.
     services.tools.register(conversationListTool(db));
     services.tools.register(conversationArchiveTool(db));
+    // Cross-conversation full-text search — recover a prior discussion instead of re-deriving it.
+    services.tools.register(conversationSearchTool(mem));
 
     // Standing instructions: guide the assistant on knowledge capture + recall.
     services.hooks.register({
@@ -50,8 +52,9 @@ export const plugin: MatbotPluginSpec = {
           '- **knowledge_capture_workflow**: Save transcripts/summaries/articles with auto-extracted concepts, tagged to ventures/goals/issues',
           '- **knowledge_recall**: Proactively surface relevant learnings by venture/goal/issue/topic',
           '- **knowledge_catalogue_list**: Review and curate captured knowledge',
+          '- **conversation_search**: Full-text search ALL past conversations to recover a prior discussion/decision',
           '',
-          'When the operator mentions a venture, goal, or problem, offer to surface relevant prior learnings. When they share a learning, offer to capture it.',
+          'When the operator mentions a venture, goal, or problem, FIRST recover prior context (conversation_search + knowledge_recall + decision_search) before deriving anything new. When they share a learning, offer to capture it. When "we discussed/decided this before", search — do not re-derive.',
         ].join('\n');
         return { ephemeral: [{ type: 'text', text: instructions }] };
       },

@@ -15,7 +15,15 @@ import { withUser } from "@/server/db";
 // Next app tree, losing sibling imports — it can only import @/server/*. Mirror of packages/content/
 // {src/scope.ts, frontend/cascade.ts}; keep them in sync. Pure + small.
 const DEFAULT_SCOPE = "default";
-interface BrandFields { voice: string | null; styleguide: string | null; language: string | null; reference_images: string[] }
+interface BrandAsset { id: string; role: string }
+interface BrandFields { voice: string | null; styleguide: string | null; language: string | null; reference_images: string[]; brand_assets: BrandAsset[] }
+
+function toAssets(v: unknown): BrandAsset[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((a) => (a && typeof a === "object"
+    ? { id: String((a as Record<string, unknown>)["id"] ?? ""), role: String((a as Record<string, unknown>)["role"] ?? "") }
+    : { id: "", role: "" })).filter((a) => a.id);
+}
 interface ScopeParts { kind: "default" | "venture" | "channel"; ventureId?: string; channel?: string }
 
 function parseScope(scope: string): ScopeParts {
@@ -42,8 +50,9 @@ function scopeChain(target: string, ancestry: readonly string[]): string[] {
 }
 
 function mergeBrandLayers(layers: readonly Partial<BrandFields>[]): BrandFields {
-  const out: BrandFields = { voice: null, styleguide: null, language: null, reference_images: [] };
+  const out: BrandFields = { voice: null, styleguide: null, language: null, reference_images: [], brand_assets: [] };
   const refs: string[] = [];
+  const assets: BrandAsset[] = [];
   const ne = (v: string | null | undefined): string | null => (typeof v === "string" && v.trim() ? v : null);
   for (const layer of layers) {
     if (!layer) continue;
@@ -51,13 +60,15 @@ function mergeBrandLayers(layers: readonly Partial<BrandFields>[]): BrandFields 
     const s = ne(layer.styleguide); if (s) out.styleguide = s;
     const l = ne(layer.language); if (l) out.language = l;
     for (const r of layer.reference_images ?? []) if (r && !refs.includes(r)) refs.push(r);
+    for (const a of layer.brand_assets ?? []) if (a.id && !assets.some((x) => x.id === a.id)) assets.push(a);
   }
   out.reference_images = refs;
+  out.brand_assets = assets;
   return out;
 }
 
-interface BrandRow { scope: string; voice: string | null; styleguide: string | null; language: string | null; reference_images: unknown }
-interface Layer { scope: string; voice: string | null; styleguide: string | null; language: string | null; reference_images: string[] }
+interface BrandRow { scope: string; voice: string | null; styleguide: string | null; language: string | null; reference_images: unknown; brand_assets: unknown }
+interface Layer { scope: string; voice: string | null; styleguide: string | null; language: string | null; reference_images: string[]; brand_assets: BrandAsset[] }
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +84,7 @@ function toLayer(r: BrandRow): Layer {
     styleguide: r.styleguide,
     language: r.language,
     reference_images: Array.isArray(r.reference_images) ? r.reference_images.map(String) : [],
+    brand_assets: toAssets(r.brand_assets),
   };
 }
 
@@ -109,7 +121,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     const line = parts.kind === "default" ? [] : await ancestry(c, sess.userId, parts.ventureId ?? "");
     const chain = scopeChain(scope, line);
     const r = await c.query(
-      `select scope, voice, styleguide, language, reference_images
+      `select scope, voice, styleguide, language, reference_images, brand_assets
          from plugin_content.brand_kits where user_id = $1 and scope = any($2)`,
       [sess.userId, chain],
     );
@@ -117,7 +129,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     for (const row of r.rows as BrandRow[]) { const l = toLayer(row); byScope.set(l.scope, l); }
     const layers = chain.map((s) => byScope.get(s)).filter((l): l is Layer => !!l);
     const effective: BrandFields = mergeBrandLayers(layers);
-    const layer = byScope.get(scope) ?? { scope, voice: null, styleguide: null, language: null, reference_images: [] };
+    const layer = byScope.get(scope) ?? { scope, voice: null, styleguide: null, language: null, reference_images: [], brand_assets: [] };
     return { scope, layer, effective, chain };
   });
   return Response.json(result);
@@ -136,6 +148,21 @@ export async function PUT(req: NextRequest): Promise<Response> {
     if (typeof body[key] === "string") { vals.push((body[key] as string).trim() || null); sets.push(`${col} = $${vals.length}`); }
   };
   put("voice", "voice"); put("styleguide", "styleguide"); put("language", "language");
+  // Typed brand assets — [{ id, role }] the operator tags with meaning (Logo / Banner / Bluesky
+  // banner / Mail header …). When present, they are the source of truth: we also derive reference_images
+  // (= the asset ids) so the agent's brand block keeps working unchanged, without a second write path.
+  if (Array.isArray(body["brand_assets"])) {
+    const assets = toAssets(body["brand_assets"]);
+    vals.push(JSON.stringify(assets));
+    sets.push(`brand_assets = $${vals.length}::jsonb`);
+    vals.push(JSON.stringify(assets.map((a) => a.id)));
+    sets.push(`reference_images = $${vals.length}::jsonb`);
+  } else if (Array.isArray(body["reference_images"])) {
+    // Legacy untyped path (agent tool / older callers): set reference_images directly.
+    const imgs = (body["reference_images"] as unknown[]).map((x) => String(x).trim()).filter(Boolean);
+    vals.push(JSON.stringify(imgs));
+    sets.push(`reference_images = $${vals.length}::jsonb`);
+  }
   if (!sets.length) return Response.json({ error: "nothing to update" }, { status: 400 });
 
   const layer = await withUser(sess.userId, async (c) => {
@@ -145,7 +172,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
     );
     const r = await c.query(
       `update plugin_content.brand_kits set ${sets.join(", ")}, updated_at = now() where user_id = $1 and scope = $2
-       returning scope, voice, styleguide, language, reference_images`,
+       returning scope, voice, styleguide, language, reference_images, brand_assets`,
       vals,
     );
     return toLayer(r.rows[0] as BrandRow);

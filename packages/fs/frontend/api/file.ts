@@ -5,6 +5,13 @@ import { withUser } from "@/server/db";
 
 type FsNodePartial = { id: string; name: string };
 
+// Files at/above this size are offloaded to object storage by the engine (mirrors the fs plugin's
+// OFFLOAD_BYTES) instead of Postgres bytea. The web can't read the vault to sign S3 itself, so it
+// forwards the bytes to the engine's /api/fs/upload (which holds the vault). NB: requests through
+// Vercel are capped ~4.5MB, so this covers images; video needs presigned direct-to-S3 (next pass).
+const OFFLOAD_BYTES = 512 * 1024;
+const ENGINE_URL = process.env.EIDAN_ENGINE_URL ?? "http://localhost:8090";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const config = {
@@ -100,6 +107,22 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!file) return Response.json({ error: "file is required" }, { status: 400 });
 
       const bytes = new Uint8Array(await file.arrayBuffer());
+
+      // Large file → offload through the engine (S3/Supabase if configured, else engine-side bytea).
+      // Keeps big media out of the Postgres DB. Small files stay on the fast local path below.
+      if (bytes.length >= OFFLOAD_BYTES) {
+        const q = new URLSearchParams({ name: file.name, mime: file.type || "application/octet-stream" });
+        if (parentId) q.set("parent_id", parentId);
+        const up = await fetch(`${ENGINE_URL}/api/fs/upload?${q.toString()}`, {
+          method: "POST",
+          headers: { authorization: req.headers.get("authorization") || "", "content-type": file.type || "application/octet-stream" },
+          body: bytes,
+        });
+        const j = (await up.json().catch(() => ({}))) as { error?: string; node?: unknown };
+        if (!up.ok) return Response.json({ error: j.error || `engine offload failed (${up.status})` }, { status: 502 });
+        return Response.json({ ok: true, node: j.node }, { status: 201 });
+      }
+
       const node = await withUser(sess.userId, async (c) => {
         const r = await c.query(
           `insert into plugin_fs.fs_nodes

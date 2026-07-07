@@ -108,7 +108,7 @@ export function imageGenerateTool(): Tool {
         const imgs = (json.data ?? []).filter((d): d is { b64_json: string } => typeof d.b64_json === 'string');
         if (!imgs.length) { yield { type: 'error', message: 'OpenAI returned no image data' }; return; }
 
-        const produced: Array<{ artifact_id: string; filename: string; size_bytes: number }> = [];
+        const produced: Array<{ artifact_id: string; filename: string; size_bytes: number; format: string }> = [];
         for (let i = 0; i < imgs.length; i++) {
           const bytes = b64ToBytes(imgs[i]!.b64_json);
           const name = `${base}${imgs.length > 1 ? `-${i + 1}` : ''}.png`;
@@ -117,10 +117,12 @@ export function imageGenerateTool(): Tool {
             namespace: 'image_gen',
             allowed: true,
           });
-          produced.push({ artifact_id: handle.id, filename: name, size_bytes: handle.size });
+          produced.push({ artifact_id: handle.id, filename: name, size_bytes: handle.size, format: 'png' });
           yield { type: 'file', handle };
         }
-        yield { type: 'result', value: { model: MODEL, prompt, size, quality, images: produced } };
+        // `artifacts` is the key the chat UI parses to render Open/Download chips + an inline preview;
+        // keep `images` too for agents that read the structured result.
+        yield { type: 'result', value: { model: MODEL, prompt, size, quality, artifacts: produced, images: produced } };
       },
     },
   };

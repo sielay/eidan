@@ -30,8 +30,9 @@ export const plugin: MatbotPluginSpec = {
   apiVersion: PLUGIN_API_VERSION,
   manifest: {
     description:
-      'X (Twitter) Social: post tweets, search, read profile and timeline (x_post_tweet, x_search, ' +
-      'x_get_profile, x_list_timeline) across the operator\'s connected X accounts (managed in ' +
+      'X (Twitter) Social: post tweets, search, read profile and timeline, and analyse the home feed for ' +
+      'signal vs noise (x_post_tweet, x_search, x_get_profile, x_list_timeline, x_analyze_feed) across the ' +
+      'operator\'s connected X accounts (managed in ' +
       'Connections; BYO OAuth2 client + PKCE, tokens sealed per-account in the vault, auto-refreshed).',
   },
   async setup(services: MatbotServices) {

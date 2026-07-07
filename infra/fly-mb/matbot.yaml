@@ -12,6 +12,7 @@ plugins:
   - ./packages/decisions
   - ./packages/journal
   - ./packages/content
+  - ./packages/crm
   - ./packages/auth
   - ./packages/notify
   - ./packages/jobs
@@ -52,6 +53,7 @@ plugins:
   - ./packages/social-mastodon
   - ./packages/social-threads
   - ./packages/social-youtube
+  - ./packages/social-tiktok
   - ./packages/glue
   - ./packages/finance-stripe
   - ./packages/finance-xero

@@ -155,6 +155,57 @@ export class XClient {
     }
   }
 
+  // The authenticated user's HOME feed — the reverse-chronological stream of tweets from the accounts
+  // they follow (not their own tweets). Paginates up to `maxResults` (or until posts are older than
+  // `hours`), returning each tweet's author handle (from the expansion) + engagement metrics, so a feed
+  // signal/noise analysis can rank who floods the timeline. Needs OAuth2 user context (tweet.read +
+  // users.read) — this endpoint is not on the free API tier, so a 403 is surfaced as a clear message.
+  async homeTimeline(
+    maxResults = 200,
+    hours = 24,
+  ): Promise<{ tweets: XTweet[]; handles: Record<string, string>; error?: string }> {
+    try {
+      const me = await this.getMe();
+      if (!me.profile) return { tweets: [], handles: {}, error: me.error ?? 'Failed to get authenticated user' };
+
+      const cutoff = Date.now() - hours * 3600_000;
+      const tweets: XTweet[] = [];
+      const handles: Record<string, string> = {};
+      let token: string | undefined;
+      // Cap pages so a runaway loop can't hammer the rate limit; 100/page → 5 pages = up to 500 tweets.
+      for (let page = 0; page < 6 && tweets.length < maxResults; page++) {
+        const params = new URLSearchParams({
+          max_results: '100',
+          'tweet.fields': 'created_at,public_metrics,author_id',
+          expansions: 'author_id',
+          'user.fields': 'username,name',
+        });
+        if (token) params.set('pagination_token', token);
+        const result = await this.makeRequest<XTweetsResponse>(
+          'GET',
+          `/users/${me.profile.id}/timelines/reverse_chronological?${params.toString()}`,
+        );
+        if (!result.data) {
+          const msg = result?.errors?.[0]?.message || 'Failed to fetch home timeline';
+          // First page failing = hard error; later pages failing = return what we have.
+          if (page === 0) return { tweets: [], handles: {}, error: msg };
+          break;
+        }
+        for (const u of result.includes?.users ?? []) handles[u.id] = u.username;
+        tweets.push(...result.data);
+        // Stop once we've paged past the requested window.
+        const oldest = result.data[result.data.length - 1]?.created_at;
+        if (oldest && Date.parse(oldest) < cutoff) break;
+        token = result.meta?.next_token;
+        if (!token) break;
+      }
+      const within = tweets.filter((t) => !t.created_at || Date.parse(t.created_at) >= cutoff).slice(0, maxResults);
+      return { tweets: within, handles };
+    } catch (exc) {
+      return { tweets: [], handles: {}, error: `Failed to fetch home timeline: ${exc instanceof Error ? exc.message : 'Unknown error'}` };
+    }
+  }
+
   async getTimeline(
     limit: number = 20
   ): Promise<{ tweets: XTweet[]; error?: string }> {

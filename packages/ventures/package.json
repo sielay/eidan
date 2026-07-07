@@ -48,6 +48,10 @@
         {
           "path": "/api/charles/ventures/boards",
           "handler": "api/boards.ts"
+        },
+        {
+          "path": "/api/charles/ventures/decisions",
+          "handler": "api/decisions.ts"
         }
       ],
       "nav": {

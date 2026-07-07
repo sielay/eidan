@@ -19,9 +19,10 @@ interface ArtifactRef {
 function parseArtifacts(result: string | null): ArtifactRef[] {
   if (!result) return [];
   try {
-    const j = JSON.parse(result) as { artifacts?: unknown };
-    if (!Array.isArray(j.artifacts)) return [];
-    return j.artifacts
+    // `artifacts` is the standard key; fall back to `images` (image_generate) so older results render too.
+    const j = JSON.parse(result) as { artifacts?: unknown; images?: unknown };
+    const list = Array.isArray(j.artifacts) ? j.artifacts : Array.isArray(j.images) ? j.images : [];
+    return list
       .map((a) => a as Record<string, unknown>)
       .filter((a) => typeof a["artifact_id"] === "string" && typeof a["filename"] === "string")
       .map((a) => ({ artifact_id: a["artifact_id"] as string, filename: a["filename"] as string, format: a["format"] as string | undefined }));
@@ -49,10 +50,71 @@ async function openArtifact(id: string, filename: string, download: boolean): Pr
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-function ArtifactChips({ artifacts }: { artifacts: ArtifactRef[] }): React.ReactElement {
+const IMG_RE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
+const IMAGE_TOOL_RE = /image|img|photo|render/i;
+function isImageArtifact(a: ArtifactRef): boolean {
+  return (a.format ? /(png|jpe?g|jpeg|gif|webp|avif|svg|image)/i.test(a.format) : false) || IMG_RE.test(a.filename);
+}
+
+// Inline image: fetch the artifact WITH the bearer, hold an object-URL for the <img>. `bubble` renders
+// it prominently in the message flow (like ChatGPT/Claude) with a download affordance; otherwise small.
+function ArtifactImage({ a, bubble }: { a: ArtifactRef; bubble?: boolean }): React.ReactElement {
+  const [url, setUrl] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let cancelled = false; let obj: string | null = null;
+    void (async () => {
+      try {
+        const r = await authFetch(`/api/artifacts/${encodeURIComponent(a.artifact_id)}`);
+        if (!r.ok || cancelled) return;
+        obj = URL.createObjectURL(await r.blob());
+        if (cancelled) { URL.revokeObjectURL(obj); return; }
+        setUrl(obj);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; if (obj) URL.revokeObjectURL(obj); };
+  }, [a.artifact_id]);
+  if (!url) return <div className={cn("animate-pulse rounded-lg bg-muted/40", bubble ? "h-64 w-64 max-w-full" : "h-40 w-40")} />;
+  return (
+    <figure className="m-0 flex flex-col items-start gap-1">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt={a.filename} title={`${a.filename} — click to open`} className={cn("cursor-pointer rounded-lg border border-border", bubble ? "max-h-[28rem] max-w-full" : "max-h-72 max-w-full")} onClick={() => void openArtifact(a.artifact_id, a.filename, false)} />
+      {bubble ? <button type="button" className="text-[11px] text-muted-foreground hover:text-foreground" onClick={() => void openArtifact(a.artifact_id, a.filename, true)}>⤓ Download</button> : null}
+    </figure>
+  );
+}
+
+// A generation placeholder shown while an image tool is still running (result === null) — the snazzy
+// shimmer ChatGPT/Claude show. Rendered by ImageResults so it sits in the message flow, not the tool card.
+function GenPlaceholder(): React.ReactElement {
+  return (
+    <div className="my-1 flex h-64 w-64 max-w-full animate-pulse flex-col items-center justify-center gap-2 rounded-lg border border-border bg-gradient-to-br from-muted/50 to-muted/10 text-xs text-muted-foreground">
+      <span className="text-2xl">🎨</span>Generating image…
+    </div>
+  );
+}
+
+// Generated images as prominent message bubbles + the generating shimmer. Pulled from the message's
+// image-tool calls so they read like a real image reply, separate from the folded tool machinery.
+export function ImageResults({ calls }: { calls: PairedToolCall[] }): React.ReactElement | null {
+  const nodes: React.ReactNode[] = [];
+  calls.forEach((c, i) => {
+    if (!IMAGE_TOOL_RE.test(c.name)) return;
+    if (c.result === null) { nodes.push(<GenPlaceholder key={`gen-${i}`} />); return; }
+    for (const a of parseArtifacts(c.result)) nodes.push(<ArtifactImage key={a.artifact_id} a={a} bubble />);
+  });
+  if (!nodes.length) return null;
+  return <div className="my-2 flex flex-col items-start gap-2">{nodes}</div>;
+}
+
+function ArtifactChips({ artifacts, toolName }: { artifacts: ArtifactRef[]; toolName?: string }): React.ReactElement | null {
+  // Images render as prominent message bubbles (ImageResults); the tool card keeps only the non-image
+  // download chips (decks, PDFs, …). An image tool's outputs are always treated as images.
+  const fromImageTool = !!toolName && IMAGE_TOOL_RE.test(toolName);
+  const chips = artifacts.filter((a) => !(isImageArtifact(a) || fromImageTool));
+  if (!chips.length) return null;
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-border/60 bg-background/60 px-2.5 py-2">
-      {artifacts.map((a) => (
+      {chips.map((a) => (
         <span key={a.artifact_id} className="inline-flex items-center gap-1 rounded border border-border/70 bg-muted/40 px-2 py-1 text-[11px]">
           <span className="font-mono">{a.filename}</span>
           <button
@@ -183,7 +245,7 @@ function ToolCallCard({ call }: { call: PairedToolCall }): React.ReactElement {
         </span>
         <Chevron open={open} className="ml-auto shrink-0" />
       </button>
-      {artifacts.length > 0 && <ArtifactChips artifacts={artifacts} />}
+      {artifacts.length > 0 && <ArtifactChips artifacts={artifacts} toolName={call.name} />}
       {open && (
         <div className="border-t border-border/60 bg-muted/20">
           <DetailSection

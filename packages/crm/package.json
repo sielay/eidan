@@ -18,6 +18,7 @@
   "eidan": {
     "frontend": {
       "package": "frontend",
+      "stylesheet": "crm.css",
       "routes": [
         { "path": "/", "component": "Crm.tsx" },
         { "path": "/*", "component": "Crm.tsx" }

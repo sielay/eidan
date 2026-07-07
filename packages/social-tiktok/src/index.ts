@@ -49,7 +49,7 @@ export const plugin: MatbotPluginSpec = {
       await registerSocialConnection(services, TIKTOK_PROVIDER, registry);
       services.tools.register(makeAccountsTool(TIKTOK_PROVIDER, registry));
       // Server-side connect/reconnect (write-only vault → engine rebuilds consent).
-      const port = Number(process.env['MATBOT_SOCIAL_TIKTOK_OAUTH_PORT'] ?? 8110);
+      const port = Number(process.env['MATBOT_SOCIAL_TIKTOK_OAUTH_PORT'] ?? 8111);
       stopOAuthServer = startOAuthServer(services, registry, tiktokAdapter, { port, prefix: '/api/me/social-tiktok/oauth' });
       console.log(`[social-tiktok] plugin loaded (oauth on :${port})`);
     } else {

@@ -112,6 +112,15 @@ export const ENV_SCHEMA = [
   // --- Fly engine only ---------------------------------------------------------------------------
   { key: 'EIDAN_COMPANIES_HOUSE_KEY', roles: ['fly'], required: false, secret: true, generate: null, desc: 'Companies House API key (ventures bundle).' },
 
+  // --- Object storage: fs large-file offload (S3 / R2 / MinIO). Engine holds the vault; the web tier
+  //     offloads through the engine's /api/fs/upload. Unset = files stay in Postgres bytea. ----------
+  { key: 'EIDAN_S3_ACCESS_KEY_ID', roles: ['engine'], required: false, secret: true, generate: null, desc: 'S3 access key id for fs offload (AWS S3 / S3-compatible).' },
+  { key: 'EIDAN_S3_SECRET_ACCESS_KEY', roles: ['engine'], required: false, secret: true, generate: null, desc: 'S3 secret access key.' },
+  { key: 'EIDAN_S3_BUCKET', roles: ['engine'], required: false, secret: false, generate: null, desc: 'S3 bucket name for fs offload.' },
+  { key: 'EIDAN_S3_REGION', roles: ['engine'], required: false, secret: false, default: 'us-east-1', desc: 'S3 region (default us-east-1).' },
+  { key: 'EIDAN_S3_ENDPOINT', roles: ['engine'], required: false, secret: false, generate: null, desc: 'S3 endpoint for S3-compatible providers (R2/MinIO). Omit for AWS.' },
+  { key: 'EIDAN_FS_DIRECT_UPLOAD', roles: ['engine'], required: false, secret: false, default: '0', desc: 'Enable presigned direct-to-S3 browser uploads (needs bucket CORS for the app origin). 1 = on; off = server-side multipart offload.' },
+
   // --- Web / Vercel (apps/web/.env). Note distinct names + a SEPARATE restricted DB role ---------
   { key: 'NEXT_PUBLIC_EIDAN_BACKEND_URL', roles: ['web'], required: false, secret: false, default: '', desc: 'Browser API base. EMPTY = same-origin (recommended; keeps the auth cookie first-party).' },
   { key: 'NEXT_PUBLIC_APP_URL', roles: ['web'], required: false, secret: false, generate: null, desc: 'Public app URL baked into the browser bundle.' },

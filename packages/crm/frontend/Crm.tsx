@@ -5,609 +5,198 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth';
 
+// Pipeline stages + their tone (mirrors the Charles design: Lead→neutral, Qualified→info,
+// Proposal→warn, Won→good, Lost→alert). The tone drives the column dot + the deal-card left border.
 const DEFAULT_STAGES = ['lead', 'qualified', 'proposal', 'won', 'lost'];
-const STAGE_COLORS: Record<string, string> = {
-  lead: '--surface',
-  qualified: '--surface-2',
-  proposal: 'var(--accent)',
-  won: 'var(--accent)',
-  lost: '--surface-2',
-};
+const STAGE_LABEL: Record<string, string> = { lead: 'Lead', qualified: 'Qualified', proposal: 'Proposal', won: 'Won', lost: 'Lost' };
+const STAGE_TONE: Record<string, string> = { lead: 'faint', qualified: 'info', proposal: 'warn', won: 'good', lost: 'alert' };
 
-interface Deal {
-  id: string;
-  name: string;
-  stage: string;
-  value_cents: number;
-  currency: string;
-  contact_name?: string;
-  company?: string;
-}
-
-interface Contact {
-  id: string;
-  name: string;
-  email?: string;
-  company?: string;
-  role?: string;
-}
-
-interface Activity {
-  id: string;
-  kind: string;
-  body?: string;
-  deal_id?: string;
-  contact_id?: string;
-  occurred_at: string;
-}
-
-interface PipelineColumn {
-  stage: string;
-  deals: Deal[];
-  total_cents: number;
-  count: number;
-}
-
+interface Deal { id: string; name: string; stage: string; value_cents: number; currency: string; contact_name?: string; company?: string }
+interface Contact { id: string; name: string; email?: string; company?: string; role?: string }
+interface Activity { id: string; kind: string; body?: string; deal_id?: string; contact_id?: string; occurred_at: string }
+interface PipelineColumn { stage: string; deals: Deal[]; total_cents: number; count: number }
 type View = 'pipeline' | 'contacts';
 
 export default function Crm() {
   const params = useSearchParams();
-
   const [view, setView] = useState<View>('pipeline');
   const [columns, setColumns] = useState<PipelineColumn[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedDeal, setSelectedDeal] = useState<string | null>(null);
   const [dealActivities, setDealActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ventures, setVentures] = useState<Array<{ id: string; name: string }>>([]);
+  const [ventureId, setVentureId] = useState(params.get('venture_id') || '');
 
-  const ventureId = params.get('venture_id') || '';
+  // The CRM is venture-scoped. Load the user's ventures and default to the first — without this the
+  // page hangs on "Loading…" when there's no ?venture_id in the URL.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await authFetch('/api/content/ventures');
+        const j = (await r.json()) as { ventures?: Array<{ id: string; name: string }> };
+        const vs = (j.ventures || []).map((v) => ({ id: v.id, name: v.name }));
+        setVentures(vs);
+        setVentureId((cur) => cur || vs[0]?.id || '');
+        if (!vs.length) setLoading(false);
+      } catch { setLoading(false); }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!ventureId) return;
-    loadPipeline();
-    if (view === 'contacts') loadContacts();
+    void loadPipeline();
+    if (view === 'contacts') void loadContacts();
   }, [ventureId, view]);
 
   async function loadPipeline() {
-    if (!ventureId) return;
     try {
       const res = await authFetch(`/api/crm/pipeline?venture_id=${ventureId}`);
       const data = (await res.json()) as { columns?: PipelineColumn[] };
       setColumns(data.columns || []);
-      setLoading(false);
-    } catch (e) {
-      console.error('Failed to load pipeline:', e);
-      setLoading(false);
-    }
+    } catch (e) { console.error('pipeline', e); } finally { setLoading(false); }
   }
-
   async function loadContacts() {
-    if (!ventureId) return;
     try {
       const res = await authFetch(`/api/crm/contacts?venture_id=${ventureId}`);
       const data = (await res.json()) as { contacts?: Contact[] };
       setContacts(data.contacts || []);
-    } catch (e) {
-      console.error('Failed to load contacts:', e);
-    }
+    } catch (e) { console.error('contacts', e); }
   }
-
   async function loadDealActivities(dealId: string) {
     try {
       const res = await authFetch(`/api/crm/activities?deal_id=${dealId}&venture_id=${ventureId}`);
       const data = (await res.json()) as { activities?: Activity[] };
       setDealActivities(data.activities || []);
-    } catch (e) {
-      console.error('Failed to load activities:', e);
-    }
+    } catch (e) { console.error('activities', e); }
   }
-
   async function moveDeal(dealId: string, newStage: string) {
     try {
       const targetCol = columns.find((c) => c.stage === newStage);
-      const position = (targetCol?.count || 0);
       const res = await authFetch(`/api/crm/deals`, {
         method: 'PUT',
-        body: JSON.stringify({ deal_id: dealId, stage: newStage, position, venture_id: ventureId }),
+        body: JSON.stringify({ deal_id: dealId, stage: newStage, position: targetCol?.count || 0, venture_id: ventureId }),
       });
-      if (res.ok) {
-        await loadPipeline();
-      }
-    } catch (e) {
-      console.error('Failed to move deal:', e);
-    }
+      if (res.ok) await loadPipeline();
+    } catch (e) { console.error('move', e); }
   }
 
-  function formatCurrency(cents: number, currency: string): string {
-    return new Intl.NumberFormat('en-GB', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(cents / 100);
-  }
+  const money = (cents: number, currency = 'GBP') =>
+    new Intl.NumberFormat('en-GB', { style: 'currency', currency, maximumFractionDigits: 0 }).format(cents / 100);
+  const relTime = (s: string) => {
+    const d = Date.now() - new Date(s).getTime(), m = Math.floor(d / 60000), h = Math.floor(d / 3600000), dd = Math.floor(d / 86400000);
+    if (m < 1) return 'just now'; if (m < 60) return `${m}m ago`; if (h < 24) return `${h}h ago`;
+    if (dd < 7) return `${dd}d ago`; return new Date(s).toLocaleDateString();
+  };
 
-  function formatTime(dateStr: string) {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const mins = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins} min${mins !== 1 ? 's' : ''} ago`;
-    if (hours < 24) return `${hours} hr${hours !== 1 ? 's' : ''} ago`;
-    if (days < 7) return `${days} day${days !== 1 ? 's' : ''} ago`;
-    return date.toLocaleDateString();
-  }
-
-  function getColumnCurrency(col: PipelineColumn | undefined): string {
-    if (!col || col.deals.length === 0) return 'GBP';
-    return col.deals[0].currency;
-  }
-
-  function formatColumnSum(col: PipelineColumn | undefined): string {
-    const cents = col?.total_cents ?? 0;
-    const currency = getColumnCurrency(col);
-    return new Intl.NumberFormat('en-GB', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(cents / 100);
-  }
-
-  // Build a Map for O(1) lookup of columns by stage
   const columnMap = new Map(columns.map((c) => [c.stage, c]));
+  const selDeal = selectedDeal ? columns.flatMap((c) => c.deals).find((d) => d.id === selectedDeal) : null;
+  const openCount = columns.filter((c) => c.stage !== 'won' && c.stage !== 'lost').reduce((a, c) => a + c.count, 0);
 
-  if (loading) return <div className="screen-head">Loading...</div>;
+  if (loading) return <div className="crm-screen"><div className="screen-sub" style={{ padding: 'var(--s5)' }}>Loading…</div></div>;
 
   return (
-    <div className="crm-shell">
-      <div className="screen-head">
-        <h1 className="screen-title">CRM</h1>
-        <div className="crm-nav">
-          <button
-            className={`crm-nav-item ${view === 'pipeline' ? 'is-active' : ''}`}
-            onClick={() => setView('pipeline')}
-          >
-            Pipeline
-          </button>
-          <button
-            className={`crm-nav-item ${view === 'contacts' ? 'is-active' : ''}`}
-            onClick={() => setView('contacts')}
-          >
-            Contacts
-          </button>
-        </div>
-      </div>
-
-      {view === 'pipeline' && (
-        <div className="crm-pipeline">
-          <div className="kanban">
-            {DEFAULT_STAGES.map((stage) => {
-              const col = columnMap.get(stage);
-              return (
-                <div key={stage} className="kancol">
-                  <div className="kancol__head">
-                    <div className="kancol__name">{stage}</div>
-                    <div className="kancol__sum">
-                      {formatColumnSum(col)} ({col?.count || 0})
-                    </div>
-                  </div>
-                  <div className="kancol__deals">
-                    {col?.deals.map((deal) => (
-                      <div
-                        key={deal.id}
-                        className={`dealcard ${selectedDeal === deal.id ? 'is-sel' : ''}`}
-                        onClick={() => {
-                          setSelectedDeal(deal.id);
-                          loadDealActivities(deal.id);
-                        }}
-                      >
-                        <div className="dealcard__name">{deal.name}</div>
-                        <div className="dealcard__meta">
-                          {deal.contact_name && <span>{deal.contact_name}</span>}
-                          {deal.company && <span>{deal.company}</span>}
-                          <span className="--font-num">{formatCurrency(deal.value_cents, deal.currency)}</span>
-                        </div>
-                        <div className="dealcard__actions">
-                          {stage !== DEFAULT_STAGES[DEFAULT_STAGES.length - 1] && (
-                            <button
-                              className="dealcard__arrow"
-                              aria-label="Move deal to next stage"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const stageIdx = DEFAULT_STAGES.indexOf(stage);
-                                if (stageIdx > -1 && stageIdx + 1 < DEFAULT_STAGES.length) {
-                                  moveDeal(deal.id, DEFAULT_STAGES[stageIdx + 1]);
-                                }
-                              }}
-                            >
-                              →
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <button className="kancol__add" aria-label={`Add deal to ${stage} stage`}>
-                    + Add deal
-                  </button>
-                </div>
-              );
-            })}
+    <div className="crm-screen">
+      <div className="crm-body">
+        <div className="crm-main">
+          <div className="screen-head">
+            <div>
+              <h1 className="screen-title">CRM</h1>
+              <p className="screen-sub">{ventures.find((v) => v.id === ventureId)?.name || 'Venture'} · {openCount} open deal{openCount === 1 ? '' : 's'}</p>
+            </div>
+            <div className="row" style={{ gap: 'var(--s2)' }}>
+              {ventures.length > 0 && (
+                <select className="crm-vsel" value={ventureId} onChange={(e) => { setVentureId(e.target.value); setSelectedDeal(null); }} aria-label="Venture">
+                  {ventures.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              )}
+              <div className="seg">
+                {(['pipeline', 'contacts'] as View[]).map((v) => (
+                  <button key={v} className="seg__opt" aria-selected={view === v} onClick={() => setView(v)}>{v === 'pipeline' ? 'Pipeline' : 'Contacts'}</button>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {selectedDeal && (
-            <div className="ctxpanel">
-              <div className="ctxpanel__head">
-                <h3>Activity</h3>
-                <button aria-label="Close activity panel" onClick={() => setSelectedDeal(null)}>
-                  ×
-                </button>
-              </div>
-              <div className="timeline">
-                {dealActivities.length === 0 ? (
-                  <p className="ctxpanel__empty">No activities yet</p>
-                ) : (
-                  dealActivities.map((activity) => {
-                    const title = activity.kind === 'stage_change' && activity.body ? activity.body : activity.kind;
-                    return (
-                      <div key={activity.id} className="timeline__row">
-                        <div className="timeline__dot"></div>
-                        <div>
-                          <div className="timeline__title">{title}</div>
-                          {activity.kind !== 'stage_change' && activity.body && <div className="timeline__meta">{activity.body}</div>}
-                          <div className="timeline__meta">{formatTime(activity.occurred_at)}</div>
-                        </div>
+          {view === 'pipeline' ? (
+            columns.every((c) => c.count === 0) ? (
+              <div className="empty"><div className="empty__title">No deals yet</div><div className="empty__body">Add a deal to start tracking your pipeline.</div></div>
+            ) : (
+              <div className="kanban">
+                {DEFAULT_STAGES.map((stage) => {
+                  const col = columnMap.get(stage);
+                  const tone = STAGE_TONE[stage];
+                  return (
+                    <div className="kancol" key={stage}>
+                      <div className="kancol__head">
+                        <span className="kancol__name"><span className="tonedot" style={{ background: `var(--${tone})` }} />{STAGE_LABEL[stage]}</span>
+                        <span className="num kancol__sum">{money(col?.total_cents || 0)}</span>
                       </div>
-                    );
-                  })
-                )}
+                      {(col?.deals || []).map((d) => (
+                        <button key={d.id} className={'dealcard' + (selectedDeal === d.id ? ' is-sel' : '')} style={{ borderLeft: `3px solid var(--${tone === 'faint' ? 'border-strong' : tone})` }}
+                          onClick={() => { setSelectedDeal(d.id); void loadDealActivities(d.id); }}>
+                          <div className="dealcard__name">{d.name}</div>
+                          <div className="dealcard__meta">
+                            <span className="num">{money(d.value_cents, d.currency)}</span>
+                            {d.contact_name && <span className="screen-sub" style={{ margin: 0 }}>· {d.contact_name}</span>}
+                          </div>
+                          {stage !== 'won' && stage !== 'lost' && (
+                            <span className="dealcard__move" role="button" tabIndex={0} title="Move to next stage"
+                              onClick={(e) => { e.stopPropagation(); const i = DEFAULT_STAGES.indexOf(stage); if (i + 1 < DEFAULT_STAGES.length) void moveDeal(d.id, DEFAULT_STAGES[i + 1]); }}>→</span>
+                          )}
+                        </button>
+                      ))}
+                      <button className="kancol__add">+ Add</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : (
+            contacts.length === 0 ? (
+              <div className="empty"><div className="empty__title">No contacts yet</div><div className="empty__body">Add a contact or import them to start.</div></div>
+            ) : (
+              <div className="card" style={{ paddingTop: 8, paddingBottom: 8 }}>
+                <div className="loglist">
+                  {contacts.map((c) => (
+                    <button key={c.id} className="logrow contact-row" onClick={() => setSelectedDeal(null)}>
+                      <span className="contact-av">{c.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()}</span>
+                      <span className="logrow__main">
+                        <span className="logrow__primary">{c.name}</span>
+                        <span className="logrow__meta">{[c.company, c.role, c.email].filter(Boolean).join(' · ')}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          )}
+        </div>
+
+        {selDeal && (
+          <aside className="ctxpanel">
+            <div className="ctxpanel__tag">{selDeal.name} · activity</div>
+            <div className="card" style={{ marginBottom: 'var(--s4)' }}>
+              <div className="stat"><span className="stat__label">Deal value</span><span className="stat__value num" style={{ fontSize: 'var(--fs-24)' }}>{money(selDeal.value_cents, selDeal.currency)}</span></div>
+              <div className="row" style={{ marginTop: 8 }}>
+                <span className={'pill pill--' + STAGE_TONE[selDeal.stage]}><span className="pill__dot" />{STAGE_LABEL[selDeal.stage]}</span>
               </div>
             </div>
-          )}
-        </div>
-      )}
-
-      {view === 'contacts' && (
-        <div className="crm-contacts">
-          {contacts.length === 0 ? (
-            <div className="screen-sub">No contacts yet</div>
-          ) : (
-            <div className="contact-list">
-              {contacts.map((contact) => (
-                <div key={contact.id} className="contact-row">
-                  <div className="contact-av">{contact.name.charAt(0).toUpperCase()}</div>
-                  <div className="contact-info">
-                    <div className="contact-name">{contact.name}</div>
-                    <div className="contact-meta">
-                      {contact.company && <span>{contact.company}</span>}
-                      {contact.role && <span>{contact.role}</span>}
-                      {contact.email && <span>{contact.email}</span>}
-                    </div>
+            <div className="timeline">
+              {dealActivities.length === 0 ? <p className="screen-sub">No activity yet.</p> : dealActivities.map((a) => {
+                const title = a.kind === 'stage_change' && a.body ? a.body : a.kind;
+                return (
+                  <div className="timeline__row" key={a.id}>
+                    <span className="timeline__dot" style={{ background: 'var(--info)' }} />
+                    <span className="timeline__main"><span className="timeline__title">{title}</span><span className="timeline__meta">{relTime(a.occurred_at)}</span></span>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          )}
-        </div>
-      )}
-
-      <style jsx>{`
-        .crm-shell {
-          display: flex;
-          flex-direction: column;
-          height: 100%;
-          overflow: hidden;
-        }
-
-        .screen-head {
-          display: flex;
-          flex-direction: column;
-          gap: var(--s2);
-          padding: var(--s3);
-          border-bottom: 1px solid var(--border);
-          background: var(--surface);
-        }
-
-        .screen-title {
-          font-size: var(--fs-20);
-          font-weight: 500;
-          margin: 0;
-        }
-
-        .crm-nav {
-          display: flex;
-          gap: var(--s1);
-          border-bottom: 1px solid var(--border);
-          margin: 0 -var(--s3);
-          margin-bottom: -var(--s3);
-          padding: 0 var(--s3);
-        }
-
-        .crm-nav-item {
-          padding: var(--s2) 0;
-          border: none;
-          background: none;
-          cursor: pointer;
-          color: var(--text-secondary);
-          border-bottom: 2px solid transparent;
-          font-size: var(--fs-15);
-          transition: all 0.2s;
-        }
-
-        .crm-nav-item:hover {
-          color: var(--text);
-        }
-
-        .crm-nav-item.is-active {
-          color: var(--accent);
-          border-bottom-color: var(--accent);
-        }
-
-        .crm-pipeline {
-          display: flex;
-          flex: 1;
-          overflow: hidden;
-          gap: var(--s2);
-          padding: var(--s3);
-        }
-
-        .kanban {
-          display: flex;
-          gap: var(--s2);
-          overflow-x: auto;
-          flex: 1;
-        }
-
-        .kancol {
-          flex: 0 0 300px;
-          display: flex;
-          flex-direction: column;
-          background: var(--surface-2);
-          border-radius: var(--r-md);
-          border: 1px solid var(--border);
-          overflow: hidden;
-        }
-
-        .kancol__head {
-          padding: var(--s2);
-          border-bottom: 1px solid var(--border);
-        }
-
-        .kancol__name {
-          font-size: var(--fs-15);
-          font-weight: 500;
-          text-transform: capitalize;
-        }
-
-        .kancol__sum {
-          font-size: var(--fs-13);
-          color: var(--text-secondary);
-          margin-top: var(--s1);
-          font-variant-numeric: tabular-nums;
-        }
-
-        .kancol__deals {
-          flex: 1;
-          overflow-y: auto;
-          padding: var(--s2);
-          display: flex;
-          flex-direction: column;
-          gap: var(--s2);
-        }
-
-        .dealcard {
-          padding: var(--s2);
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--r-sm);
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .dealcard:hover {
-          border-color: var(--accent);
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        .dealcard.is-sel {
-          border-color: var(--accent);
-          background: var(--accent-soft);
-        }
-
-        .dealcard__name {
-          font-size: var(--fs-15);
-          font-weight: 500;
-          margin-bottom: var(--s1);
-        }
-
-        .dealcard__meta {
-          font-size: var(--fs-13);
-          color: var(--text-secondary);
-          display: flex;
-          flex-direction: column;
-          gap: var(--s0);
-        }
-
-        .dealcard__actions {
-          display: flex;
-          gap: var(--s1);
-          margin-top: var(--s1);
-        }
-
-        .dealcard__arrow {
-          background: none;
-          border: none;
-          color: var(--accent);
-          cursor: pointer;
-          font-size: var(--fs-17);
-          padding: 0;
-          opacity: 0.6;
-          transition: opacity 0.2s;
-        }
-
-        .dealcard__arrow:hover {
-          opacity: 1;
-        }
-
-        .kancol__add {
-          margin: var(--s2);
-          padding: var(--s2);
-          background: var(--surface);
-          border: 1px dashed var(--border-strong);
-          border-radius: var(--r-sm);
-          color: var(--text-secondary);
-          cursor: pointer;
-          font-size: var(--fs-13);
-          transition: all 0.2s;
-        }
-
-        .kancol__add:hover {
-          border-color: var(--accent);
-          color: var(--accent);
-        }
-
-        .ctxpanel {
-          flex: 0 0 320px;
-          display: flex;
-          flex-direction: column;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--r-md);
-          overflow: hidden;
-        }
-
-        .ctxpanel__head {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: var(--s2);
-          border-bottom: 1px solid var(--border);
-        }
-
-        .ctxpanel__head h3 {
-          margin: 0;
-          font-size: var(--fs-15);
-        }
-
-        .ctxpanel__head button {
-          background: none;
-          border: none;
-          cursor: pointer;
-          font-size: var(--fs-17);
-          color: var(--text-secondary);
-        }
-
-        .ctxpanel__empty {
-          padding: var(--s3);
-          color: var(--text-secondary);
-          text-align: center;
-          margin: 0;
-        }
-
-        .timeline {
-          flex: 1;
-          overflow-y: auto;
-          padding: var(--s2);
-          display: flex;
-          flex-direction: column;
-          gap: var(--s2);
-        }
-
-        .timeline__row {
-          display: flex;
-          gap: var(--s2);
-        }
-
-        .timeline__dot {
-          flex: 0 0 8px;
-          width: 8px;
-          height: 8px;
-          border-radius: var(--r-full);
-          background: var(--accent);
-          margin-top: 6px;
-        }
-
-        .timeline__title {
-          font-size: var(--fs-13);
-          font-weight: 500;
-          text-transform: capitalize;
-        }
-
-        .timeline__meta {
-          font-size: var(--fs-13);
-          color: var(--text-secondary);
-          margin-top: var(--s0);
-        }
-
-        .crm-contacts {
-          flex: 1;
-          overflow-y: auto;
-          padding: var(--s3);
-        }
-
-        .contact-list {
-          display: flex;
-          flex-direction: column;
-          gap: var(--s2);
-        }
-
-        .contact-row {
-          display: flex;
-          gap: var(--s2);
-          padding: var(--s2);
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--r-sm);
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .contact-row:hover {
-          border-color: var(--accent);
-        }
-
-        .contact-av {
-          flex: 0 0 40px;
-          width: 40px;
-          height: 40px;
-          border-radius: var(--r-full);
-          background: var(--accent);
-          color: white;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 500;
-        }
-
-        .contact-info {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: var(--s0);
-        }
-
-        .contact-name {
-          font-size: var(--fs-15);
-          font-weight: 500;
-        }
-
-        .contact-meta {
-          font-size: var(--fs-13);
-          color: var(--text-secondary);
-          display: flex;
-          gap: var(--s1);
-        }
-
-        .screen-sub {
-          text-align: center;
-          color: var(--text-secondary);
-          padding: var(--s4);
-        }
-      `}</style>
+            <button className="btn btn--ghost" style={{ marginTop: 'var(--s3)', width: '100%', justifyContent: 'center' }} onClick={() => setSelectedDeal(null)}>Close</button>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

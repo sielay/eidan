@@ -39,10 +39,14 @@ export interface XUserResponse {
 
 export interface XTweetsResponse {
   data?: XTweet[];
+  includes?: {
+    users?: Array<{ id: string; username: string; name?: string }>;
+  };
   meta?: {
     result_count?: number;
     newest_id?: string;
     oldest_id?: string;
+    next_token?: string;
   };
   errors?: Array<{ message: string; type?: string }>;
 }

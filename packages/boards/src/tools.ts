@@ -21,7 +21,11 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
   return [
     {
       name: 'board_list',
-      description: 'List the operator\'s boards. Optionally filter by scope — scope_kind/scope_id bind a board to a context (e.g. "venture"/<id>); omit both for standalone/personal boards.',
+      description: 'List the operator\'s boards. Filter by scope — scope_kind/scope_id bind a board to a context. ' +
+        'Scopes: "content"/<venture id> = that venture\'s CONTENT / marketing / social board (the one the venture ' +
+        'Content tab at /p/ventures/<slug>/content and the central content board read — usually named "Campaigns"); ' +
+        '"venture"/<venture id> = the venture\'s generic Boards tab (ops/roadmap/etc). Omit both for standalone boards. ' +
+        'To add a content/social/marketing card for a venture, list scope_kind "content" FIRST to find its content board — do not make a new one.',
       inputSchema: obj({ scope_kind: { type: 'string' }, scope_id: { type: 'string' } }, []),
       executor: {
         async *execute(input) {
@@ -36,7 +40,11 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
     },
     {
       name: 'board_create',
-      description: 'Create a board. Bind it to a context with scope_kind/scope_id (e.g. "venture"/<venture id>), or omit for a standalone board.',
+      description: 'Create a board bound to a context via scope_kind/scope_id. IMPORTANT — pick the right scope: for a ' +
+        'venture\'s CONTENT / marketing / social / post cards use scope_kind "content" + scope_id=<venture id> (name it ' +
+        '"Campaigns") — this is the board the venture Content tab and the central content board show; scope_kind "venture" ' +
+        'creates a GENERIC board on the venture Boards tab (NOT content, wrong place for posts). Omit scope for a standalone ' +
+        'board. Before creating a content board, call board_list with scope_kind "content" — reuse the venture\'s existing one rather than duplicating it.',
       inputSchema: obj({ name: { type: 'string' }, scope_kind: { type: 'string' }, scope_id: { type: 'string' } }, ['name']),
       executor: {
         async *execute(input) {
@@ -108,7 +116,9 @@ export function buildBoardsTools(db: BoardsDb): Tool[] {
     },
     {
       name: 'card_add',
-      description: 'Add a card to a board.',
+      description: 'Add a card to a board (by board_id). For a content / social / marketing / post card, the board_id ' +
+        'must be the venture\'s CONTENT board (find it via board_list scope_kind "content", scope_id=<venture id>) — not a ' +
+        'generic venture board, or it won\'t appear on the Content tab.',
       inputSchema: obj({ board_id: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, due_date: { type: 'string' } }, ['board_id', 'title']),
       executor: {
         async *execute(input) {

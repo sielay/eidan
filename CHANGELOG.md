@@ -6,6 +6,44 @@ All notable changes to eidan are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-07-07
+
+### Added
+
+- **Object storage for uploads (S3 / S3-compatible).** Large files offload out of Postgres to a bucket
+  instead of bloating the database. A new **Storage** panel in Settings chooses where uploads land
+  (auto / always / never offload) and toggles **presigned direct-to-browser uploads** — the browser
+  PUTs straight to the bucket, past the serverless request-body limit, so **video-sized uploads** work.
+  Credentials are declared in Settings → Connections (`EIDAN_S3_*`); reads of offloaded files stream
+  through the engine so the web tier never needs storage keys.
+- **Typed brand assets per venture.** Upload logos, banners and headers on the Content tab and tag each
+  with a **role** (Logo, Bluesky banner, Mail header, …). The agent's brand block now names assets by
+  role, so it can pick the right one ("use the Bluesky banner") when generating or attaching.
+- **Per-venture Decisions tab.** Each venture hub gains a **Decisions** tab showing the targeting /
+  positioning / pricing / strategy choices on record — and you can **edit or delete** them in the UI,
+  not just via chat.
+- **Venture-scoped decision log + retrieval-first.** Decisions gain a `venture` field and a doctrine to
+  retrieve prior decisions before re-deriving; a new **`conversation_search`** tool recovers past
+  discussions across all conversations.
+- **Content workflow doctrine.** The content agent applies an N-of-1 framing and a Content Filter
+  (four questions + a single CTA) so drafts are grounded before copy is written.
+- **In-chat image results.** Generated images appear as chat bubbles (with a shimmer placeholder while
+  they render) and are downloadable inline, instead of only via a separate window.
+- **Charles CRM.** A venture-scoped CRM — deals pipeline, contacts, and an activity log — with agent
+  tools and a UI panel.
+- **Content-workflow card drawer.** A content card opens a drawer with Chat / Assets / Copy tabs, stage
+  gates, scheduling and fork-to-format, over a 6-stage content board.
+- **TikTok connector (`social-tiktok`).** Read profile/videos and publish, BYO-OAuth like the other
+  `social-*` plugins.
+
+### Changed / Fixed
+
+- **Content cards land on the content board.** The board tools now steer content/social/marketing cards
+  to a venture's **content**-scoped board (the one the Content tab shows) rather than a generic board.
+- **File previews serve offloaded files** via the engine blob route, so images stored in object storage
+  render and download in the Files screen and the chat.
+- Boards card create/move now respect a card's status, so custom content lanes work.
+
 ## [0.19.0] — 2026-07-06
 
 ### Added
