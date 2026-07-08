@@ -92,3 +92,5 @@ apps/mobile/**/*.xcuserstate
 
 # npm lockfiles — repo is pnpm-only
 package-lock.json
+
+design

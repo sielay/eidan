@@ -55,6 +55,35 @@ export function recallTool(mem: EidanMemory): Tool {
   };
 }
 
+export function conversationSearchTool(mem: EidanMemory): Tool {
+  return {
+    name: 'conversation_search',
+    description:
+      'Search ALL past conversations by free text and return the matching threads with a snippet + link ' +
+      '(/c/<id>). Use this to recover a prior discussion or decision instead of re-deriving it — e.g. ' +
+      '"linkedin targeting sielay", "mathbuns pricing". Supports quoted "phrases", OR, and -term. Pair ' +
+      'with decision_search when the operator says "we discussed/decided this before".',
+    inputSchema: {
+      type: 'object',
+      required: ['query'],
+      additionalProperties: false,
+      properties: {
+        query: { type: 'string', description: 'What to look for across your conversations.' },
+        limit: { type: 'number', description: 'Max conversations to return (default 8, capped at 25).' },
+      },
+    },
+    executor: {
+      async *execute(input) {
+        const { query, limit } = input as { query: string; limit?: number };
+        if (!query || !query.trim()) { yield { type: 'error', message: 'query is required' }; return; }
+        const lim = Math.min(Math.max(1, Math.floor(limit ?? 8)), 25);
+        const results = await mem.searchConversations(query.trim(), lim);
+        yield { type: 'result', value: { results: results.map((r) => ({ ...r, url: `/c/${r.conversation_id}` })), count: results.length } };
+      },
+    },
+  };
+}
+
 export function knowledgeCaptureWorkflowTool(mem: EidanMemory): Tool {
   return {
     name: 'knowledge_capture_workflow',

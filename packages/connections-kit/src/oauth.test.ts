@@ -41,6 +41,20 @@ test('buildAuthUrl emits standard params + adapter scopes + extra params', () =>
   assert.equal(url.searchParams.get('code_challenge'), null); // not PKCE
 });
 
+test('buildAuthUrl honours clientIdParam + scopeSeparator (TikTok-shaped)', () => {
+  const url = new URL(
+    buildAuthUrl({
+      adapter: { ...base, clientIdParam: 'client_key', scopeSeparator: ',' },
+      clientId: 'ck',
+      redirectUri: 'https://app/cb',
+      state: 'acc-1',
+    }),
+  );
+  assert.equal(url.searchParams.get('client_key'), 'ck');
+  assert.equal(url.searchParams.get('client_id'), null); // renamed, not both
+  assert.equal(url.searchParams.get('scope'), 'read,write'); // comma-separated
+});
+
 test('buildAuthUrl adds PKCE params for oauth2_pkce and requires a challenge', () => {
   const pkce = generatePkce();
   const url = new URL(

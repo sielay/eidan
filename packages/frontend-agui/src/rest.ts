@@ -21,6 +21,10 @@ interface GoogleDriveSvcRest {
 // from the vault) — so the web can read offloaded/Drive files without ever holding those creds.
 interface EidanFsRest {
   readBytes(ctx: unknown, nodeId: string): Promise<{ name: string; mime: string; bytes: Uint8Array } | null>;
+  upload(ctx: unknown, input: { name: string; parentId: string | null; mime?: string; bytes: Uint8Array }): Promise<{ id: string; name: string; mime: string; size_bytes: number; storage_kind: string }>;
+  presignUpload(ctx: unknown, input: { name: string; parentId: string | null; mime?: string }): Promise<{ direct: boolean; node_id?: string; upload_url?: string; storage_kind?: string; reason?: string }>;
+  finalizeUpload(ctx: unknown, nodeId: string): Promise<{ id: string; name: string; mime: string; size_bytes: number; storage_kind: string } | null>;
+  downloadUrl(ctx: unknown, nodeId: string): Promise<string | null>;
 }
 
 function iso(v: unknown): string {
@@ -448,6 +452,82 @@ export async function handleRest(
       res.end(Buffer.from(r.bytes));
     } catch (e) {
       json(res, 502, { error: e instanceof Error ? e.message : 'fs read failed' }, cors);
+    }
+    return true;
+  }
+
+  // /api/fs/upload?name=&parent_id=&mime= — persist a raw uploaded body into the fs, offloading large
+  // files (video / images) to object storage (S3 / Supabase) instead of Postgres bytea. Runs in the
+  // engine under the ambient principal with a {vault} ctx, so the WEB tier can offload uploads it
+  // could never sign itself. Body is the raw bytes (the web forwards them); metadata rides the query.
+  if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'fs' && parts[2] === 'upload' && method === 'POST') {
+    const efs = (services as unknown as { EidanFs?: EidanFsRest }).EidanFs;
+    if (!efs) { json(res, 501, { error: 'filesystem not available' }, cors); return true; }
+    const u = new URL(req.url ?? '', 'http://x');
+    const name = u.searchParams.get('name') || 'upload';
+    const parentId = u.searchParams.get('parent_id') || null;
+    const mime = u.searchParams.get('mime') || (typeof req.headers['content-type'] === 'string' ? req.headers['content-type'] : '');
+    const ctx = { vault: (services as unknown as { vault: unknown }).vault };
+    try {
+      const body = await readRawBody(req, 512 * 1024 * 1024); // up to 512MB — video-sized uploads
+      if (!body.length) { json(res, 400, { error: 'empty body' }, cors); return true; }
+      const node = await efs.upload(ctx, { name, parentId, mime, bytes: new Uint8Array(body) });
+      json(res, 200, { ok: true, node }, cors);
+    } catch (e) {
+      json(res, 502, { error: e instanceof Error ? e.message : 'fs upload failed' }, cors);
+    }
+    return true;
+  }
+
+  // /api/fs/presign — mint a presigned direct-to-S3 PUT URL so the BROWSER uploads straight to object
+  // storage (video-sized files, past Vercel's body cap). Returns { direct:false } when S3 isn't
+  // configured, so the caller falls back to the multipart /api/fs/file path. Body: { name, mime, parent_id }.
+  if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'fs' && parts[2] === 'presign' && method === 'POST') {
+    const efs = (services as unknown as { EidanFs?: EidanFsRest }).EidanFs;
+    if (!efs) { json(res, 501, { error: 'filesystem not available' }, cors); return true; }
+    const ctx = { vault: (services as unknown as { vault: unknown }).vault };
+    try {
+      const b = JSON.parse((await readTextBody(req)) || '{}') as { name?: string; mime?: string; parent_id?: string | null };
+      if (!b.name || !b.name.trim()) { json(res, 400, { error: 'name is required' }, cors); return true; }
+      const r = await efs.presignUpload(ctx, { name: b.name, parentId: b.parent_id ?? null, ...(b.mime ? { mime: b.mime } : {}) });
+      json(res, 200, r, cors);
+    } catch (e) {
+      json(res, 502, { error: e instanceof Error ? e.message : 'fs presign failed' }, cors);
+    }
+    return true;
+  }
+
+  // /api/fs/finalize — after a direct upload, confirm the object landed (HEAD) and record its size, so
+  // the pending node becomes readable. Body: { node_id }.
+  if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'fs' && parts[2] === 'finalize' && method === 'POST') {
+    const efs = (services as unknown as { EidanFs?: EidanFsRest }).EidanFs;
+    if (!efs) { json(res, 501, { error: 'filesystem not available' }, cors); return true; }
+    const ctx = { vault: (services as unknown as { vault: unknown }).vault };
+    try {
+      const b = JSON.parse((await readTextBody(req)) || '{}') as { node_id?: string };
+      if (!b.node_id) { json(res, 400, { error: 'node_id is required' }, cors); return true; }
+      const node = await efs.finalizeUpload(ctx, b.node_id);
+      if (!node) { json(res, 409, { error: 'upload not found in storage — the direct PUT may have failed' }, cors); return true; }
+      json(res, 200, { ok: true, node }, cors);
+    } catch (e) {
+      json(res, 502, { error: e instanceof Error ? e.message : 'fs finalize failed' }, cors);
+    }
+    return true;
+  }
+
+  // /api/fs/download-url?id=<id> — a presigned direct-GET URL for an offloaded file (e.g. video the
+  // browser streams straight from S3). Falls back to null (caller uses /api/fs/blob) for local files.
+  if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'fs' && parts[2] === 'download-url' && method === 'GET') {
+    const efs = (services as unknown as { EidanFs?: EidanFsRest }).EidanFs;
+    if (!efs) { json(res, 501, { error: 'filesystem not available' }, cors); return true; }
+    const id = new URL(req.url ?? '', 'http://x').searchParams.get('id') ?? '';
+    if (!id) { json(res, 400, { error: 'id is required' }, cors); return true; }
+    const ctx = { vault: (services as unknown as { vault: unknown }).vault };
+    try {
+      const url = await efs.downloadUrl(ctx, id);
+      json(res, 200, { url }, cors);
+    } catch (e) {
+      json(res, 502, { error: e instanceof Error ? e.message : 'fs download-url failed' }, cors);
     }
     return true;
   }

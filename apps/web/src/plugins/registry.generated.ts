@@ -12,6 +12,8 @@ export const pluginRoutes: PluginRoute[] = [
   { plugin: "journal", path: "/", load: () => import("@/plugins/journal/Journal") },
   { plugin: "content", path: "/", load: () => import("@/plugins/content/Content") },
   { plugin: "content", path: "/*", load: () => import("@/plugins/content/Content") },
+  { plugin: "crm", path: "/", load: () => import("@/plugins/crm/Crm") },
+  { plugin: "crm", path: "/*", load: () => import("@/plugins/crm/Crm") },
   { plugin: "imap", path: "/", load: () => import("@/plugins/imap/Accounts") },
   { plugin: "ical", path: "/", load: () => import("@/plugins/ical/Calendars") },
   { plugin: "google", path: "/", load: () => import("@/plugins/google/Connections") },
@@ -39,6 +41,8 @@ export const pluginRoutes: PluginRoute[] = [
   { plugin: "social-threads", path: "/callback", load: () => import("@/plugins/social-threads/Callback") },
   { plugin: "social-youtube", path: "/", load: () => import("@/plugins/social-youtube/Connections") },
   { plugin: "social-youtube", path: "/callback", load: () => import("@/plugins/social-youtube/Callback") },
+  { plugin: "social-tiktok", path: "/", load: () => import("@/plugins/social-tiktok/Connections") },
+  { plugin: "social-tiktok", path: "/callback", load: () => import("@/plugins/social-tiktok/Callback") },
   { plugin: "glue", path: "/", load: () => import("@/plugins/glue/Setup") },
   { plugin: "finance-xero", path: "/", load: () => import("@/plugins/finance-xero/Connections") },
   { plugin: "finance-xero", path: "/callback", load: () => import("@/plugins/finance-xero/Callback") }
@@ -50,6 +54,7 @@ export const pluginSlots: PluginSlotEntry[] = [
 export const pluginNav: NavContribution[] = [
   {"bundle":"journal","group":"Plan","sections":[{"id":"journal","label":"Journal","icon":"analytics","href":"/p/journal","mobileHome":null}]},
   {"bundle":"content","group":"Plan","sections":[{"id":"content","label":"Content","icon":"analytics","href":"/p/content","mobileHome":null}]},
+  {"bundle":"crm","group":"Business","sections":[{"id":"crm","label":"CRM","icon":"analytics","href":"/p/crm","mobileHome":null}]},
   {"bundle":"imap","group":"Integrations","sections":[{"id":"mail","label":"Mail","icon":"mail","href":"/p/imap","mobileHome":5}]},
   {"bundle":"ical","group":"Integrations","sections":[{"id":"calendars","label":"Calendars","icon":"calendar","href":"/p/ical","mobileHome":4}]},
   {"bundle":"google","group":"Integrations","sections":[{"id":"gmail","label":"Google","icon":"mail","href":"/p/google","mobileHome":5}]},
@@ -68,6 +73,7 @@ export const pluginNav: NavContribution[] = [
   {"bundle":"social-mastodon","group":"Integrations","sections":[{"id":"social-mastodon","label":"Mastodon","icon":"share","href":"/p/social-mastodon","mobileHome":null}]},
   {"bundle":"social-threads","group":"Integrations","sections":[{"id":"social-threads","label":"Threads","icon":"share","href":"/p/social-threads","mobileHome":null}]},
   {"bundle":"social-youtube","group":"Integrations","sections":[{"id":"social-youtube","label":"YouTube","icon":"share","href":"/p/social-youtube","mobileHome":null}]},
+  {"bundle":"social-tiktok","group":"Integrations","sections":[{"id":"social-tiktok","label":"TikTok","icon":"share","href":"/p/social-tiktok","mobileHome":null}]},
   {"bundle":"glue","group":"Integrations","sections":[{"id":"glue","label":"Glue marketing","icon":"share","href":"/p/glue","mobileHome":null}]},
   {"bundle":"finance-xero","group":"Integrations","sections":[{"id":"xero","label":"Xero","icon":"receipt","href":"/p/finance-xero","mobileHome":6}]}
 ];

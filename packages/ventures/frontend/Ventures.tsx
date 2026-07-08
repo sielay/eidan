@@ -19,7 +19,9 @@ import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
 
 import { authFetch } from "@/lib/auth";
+import { uploadFile } from "@/lib/upload";
 import { BoardsPanel } from "@/plugins/_shared/BoardsPanel";
+import { ContentCardDrawer } from "@/plugins/_shared/ContentCardDrawer";
 import { PersonaEditor } from "@/components/agents/PersonaEditor";
 import { PersonaView } from "@/components/agents/PersonaView";
 import { listAgentTools, type ToolCatalogEntry } from "@/lib/api/admin";
@@ -827,7 +829,7 @@ function ContextCard({ venture, onSaved }: { venture: Venture; onSaved: () => vo
 
 // ── Venture hub tabs ─────────────────────────────────────────────────────────
 const VENTURE_TABS: Array<[string, string]> = [
-  ["dashboard", "Dashboard"], ["resources", "Resources"], ["boards", "Boards"], ["content", "Content"],
+  ["dashboard", "Dashboard"], ["resources", "Resources"], ["boards", "Boards"], ["content", "Content"], ["decisions", "Decisions"],
 ];
 function TabBar({ tab, onSelect }: { tab: string; onSelect: (t: string) => void }): React.ReactElement {
   return (
@@ -924,17 +926,314 @@ function BrandEditor({ ventureId }: { ventureId: string }): React.ReactElement {
   );
 }
 
-// The content-workflow board columns (mirror the shipped linkedin-carousel stages) — a content board
-// tracks pieces through Concept → Assets → Copy → Review, not the default To do/Doing/Done.
-const CONTENT_LANES: Array<[string, string]> = [["concept", "Concept"], ["assets", "Assets"], ["copy", "Copy"], ["review", "Review"], ["published", "Published"]];
+// The single-venture content board — 6 canonical stages with hints, styled to the Charles design
+// (content-board.jsx ContentBoard; classes from the content plugin's content.css).
+const CB_STAGES: Array<[string, string, string]> = [
+  ["concept", "Concept", "idea being worked in chat"],
+  ["assets", "Assets", "images, files, PDFs gathered"],
+  ["copy", "Copy", "per-channel drafts written"],
+  ["distribution", "Distribution", "channels + resources wired"],
+  ["scheduled", "Scheduled", "frozen, waiting for its time"],
+  ["published", "Published", "executed by the system"],
+];
+const CB_STAGE_IDS = CB_STAGES.map((s) => s[0]);
+const cbNorm = (s: string): string => (s === "review" ? "distribution" : CB_STAGE_IDS.includes(s) ? s : "concept");
+const CB_CHANNELS: Record<string, string> = { linkedin: "in", x: "X", bluesky: "bs", threads: "@", newsletter: "✉", youtube: "▶", shorts: "⧉", blog: "¶", pdf: "PDF", instagram: "ig", tiktok: "tt", mastodon: "m" };
+const CB_THUMB: Record<string, string> = { carousel: "carousel · 6 slides", post: "post", image_prompt: "concept", article: "doc", thread: "thread", idea: "concept", video: "4K video", pdf: "PDF" };
+interface CBCard { id: string; title: string; body: string | null; status: string; venture_id: string | null; labels: string[]; source_conv: string | null }
+
+function thumbFor(labels: string[]): string {
+  for (const l of labels) if (CB_THUMB[l]) return CB_THUMB[l];
+  return "concept";
+}
+
+function ContentBoard({ venture }: { venture: Venture }): React.ReactElement {
+  const [cards, setCards] = React.useState<CBCard[] | null>(null);
+  const [open, setOpen] = React.useState<CBCard | null>(null);
+  const load = React.useCallback(async () => {
+    try {
+      const r = await authFetch("/api/content/board");
+      const j = (await r.json()) as { cards?: Array<CBCard & { venture_id: string | null }> };
+      setCards((j.cards ?? []).filter((c) => c.venture_id === venture.id));
+    } catch { setCards([]); }
+  }, [venture.id]);
+  React.useEffect(() => { void load(); }, [load]);
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      {!cards ? <p className="screen-sub">Loading…</p> : (
+        <div className="cboard">
+          {CB_STAGES.map(([id, label, hint], si) => {
+            const col = cards.filter((c) => cbNorm(c.status) === id);
+            return (
+              <div className={"ccol" + (id === "published" ? " ccol--terminal" : "")} key={id}>
+                <div className="ccol__head"><span className="ccol__idx">{si + 1}</span><span className="ccol__name">{label}</span><span className="ccol__count">{col.length}</span></div>
+                <div className="ccol__hint">{hint}</div>
+                {col.map((card) => (
+                  <button className="ccard" key={card.id} onClick={() => setOpen(card)}>
+                    <div className="cthumb"><span className="cthumb__tag">{thumbFor(card.labels)}</span></div>
+                    <div className="ccard__body">
+                      <div className="ccard__title">{card.title}</div>
+                      <div className="ccard__meta">
+                        {card.labels.filter((l) => CB_CHANNELS[l]).map((l) => <span className="chchip" key={l}><span className="chchip__g">{CB_CHANNELS[l]}</span>{l}</span>)}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                {col.length === 0 && <div style={{ fontSize: 12, color: "var(--faint)", textAlign: "center", padding: "10px 0" }}>—</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {open ? <ContentCardDrawer cardId={open.id} onClose={() => setOpen(null)} onChanged={load} /> : null}
+    </div>
+  );
+}
+
+// A brand-asset thumbnail streamed from the file store. Uses /api/fs/blob (the engine route that serves
+// ANY backend — local pg bytea OR S3-offloaded) so assets uploaded direct-to-S3 still render.
+function BrandThumb({ id }: { id: string }): React.ReactElement {
+  const [url, setUrl] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let cancelled = false; let obj: string | null = null;
+    void (async () => {
+      try { const r = await authFetch(`/api/fs/blob?id=${encodeURIComponent(id)}`); if (!r.ok || cancelled) return; obj = URL.createObjectURL(await r.blob()); if (cancelled) { URL.revokeObjectURL(obj); return; } setUrl(obj); } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; if (obj) URL.revokeObjectURL(obj); };
+  }, [id]);
+  return url
+    ? <img src={url} alt="brand asset" style={{ width: 88, height: 88, objectFit: "contain", borderRadius: "var(--r-sm)", border: "1px solid var(--border)", background: "var(--surface)" }} />
+    : <div className="skel" style={{ width: 88, height: 88, borderRadius: "var(--r-sm)" }} />;
+}
+
+// Suggested roles for the datalist — the operator can also type a freeform meaning ("Newsletter footer").
+const BRAND_ROLES = [
+  "Logo", "Logo (dark)", "Icon / favicon", "Avatar",
+  "Banner", "LinkedIn banner", "Bluesky banner", "X header", "Facebook cover", "YouTube banner",
+  "Mail header", "Newsletter footer", "OG image", "Reference",
+];
+
+interface BrandAsset { id: string; role: string }
+
+// Typed brand assets held against the venture — each file tagged with its MEANING (Logo, Banner,
+// Bluesky banner, Mail header, …). Stored on the venture-scope brand kit as brand_assets; the API also
+// keeps reference_images (= the ids) in sync so the agent's brand block is unchanged. Uploads go through
+// uploadFile → direct-to-S3 when enabled (banners/video bypass the DB + Vercel cap).
+function BrandAssets({ venture }: { venture: Venture }): React.ReactElement {
+  const scope = `venture:${venture.id}`;
+  const [assets, setAssets] = React.useState<BrandAsset[]>([]);
+  const [busy, setBusy] = React.useState(false);
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const r = await authFetch(`/api/content/brand?scope=${encodeURIComponent(scope)}`);
+        const j = (await r.json()) as { layer?: { brand_assets?: BrandAsset[]; reference_images?: string[] } };
+        const typed = j.layer?.brand_assets ?? [];
+        // One-time migration: older kits only have untyped reference_images — surface them as "Reference".
+        if (typed.length) setAssets(typed);
+        else setAssets((j.layer?.reference_images ?? []).map((id) => ({ id, role: "Reference" })));
+      } catch { /* ignore */ }
+    })();
+  }, [scope]);
+  const save = React.useCallback(async (next: BrandAsset[]) => {
+    setAssets(next);
+    try { await authFetch(`/api/content/brand?scope=${encodeURIComponent(scope)}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ brand_assets: next }) }); } catch { /* ignore */ }
+  }, [scope]);
+  const upload = React.useCallback(async (file: File) => {
+    setBusy(true);
+    try {
+      const node = await uploadFile(file);
+      // Seed a sensible default role from the filename, else "Reference" — the operator refines it.
+      const lname = file.name.toLowerCase();
+      const guess = BRAND_ROLES.find((r) => { const w = r.toLowerCase().split(" ")[0]; return w ? lname.includes(w) : false; }) ?? "Reference";
+      if (node.id) await save([...assets, { id: node.id, role: guess }]);
+    } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
+  }, [assets, save]);
+  const setRole = (id: string, role: string): void => { void save(assets.map((a) => (a.id === id ? { ...a, role } : a))); };
+  const remove = (id: string): void => { void save(assets.filter((a) => a.id !== id)); };
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card__head"><div className="card__title">Brand assets</div></div>
+      <p className="screen-sub" style={{ marginTop: 0 }}>
+        Logos, banners &amp; headers held against {venture.name}, each tagged with its meaning — reused across content and layered into generation to stay on-brand.
+      </p>
+      <datalist id="brand-roles">{BRAND_ROLES.map((r) => <option key={r} value={r} />)}</datalist>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s3)", alignItems: "flex-start", marginTop: "var(--s2)" }}>
+        {assets.map((a) => (
+          <div key={a.id} style={{ position: "relative", display: "flex", flexDirection: "column", gap: 4, width: 88 }}>
+            <BrandThumb id={a.id} />
+            <input
+              list="brand-roles" value={a.role} placeholder="Role…"
+              onChange={(e) => setRole(a.id, e.target.value)}
+              style={{ width: 88, fontSize: "var(--fs-13)", padding: "2px 4px", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", background: "var(--surface)", color: "var(--text)" }}
+            />
+            <button onClick={() => remove(a.id)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--muted)", cursor: "pointer", fontSize: 12, lineHeight: 1 }}>×</button>
+          </div>
+        ))}
+        <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
+        <button className="btn btn--ghost" disabled={busy} onClick={() => fileRef.current?.click()} style={{ height: 88, minWidth: 88, borderStyle: "dashed", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>{busy ? "…" : <><span style={{ fontSize: 20 }}>+</span><span style={{ fontSize: "var(--fs-13)" }}>Add asset</span></>}</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Decisions tab ────────────────────────────────────────────────────────────
+// Read-only view of the venture's decision log (eidan.kv namespace='decisions', via
+// /api/charles/ventures/decisions). Decisions are authored/edited by the agent (decision_record);
+// this surfaces what's on record so the operator can see per-venture targeting/positioning/pricing
+// choices without asking the agent. Grouped by status; newest first within each group.
+interface VentureDecision {
+  id: string | null;
+  title: string;
+  decision: string;
+  rationale: string;
+  status: string;
+  tags: string[];
+  venture: string | null;
+  updatedAt: string | null;
+}
+
+function decisionTone(status: string): string {
+  return status === "accepted" ? "ok" : status === "proposed" ? "warn" : "muted";
+}
+
+const DECISION_STATUSES = ["accepted", "proposed", "superseded"];
+
+// A decision card: read view (expand for why/tags), and an inline editor so the operator can correct
+// the wording, flip the status, or delete a decision the agent recorded wrong — without going to chat.
+function DecisionCard({ d, onChanged }: { d: VentureDecision; onChanged: () => void }): React.ReactElement {
+  const [open, setOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [confirmDel, setConfirmDel] = React.useState(false);
+  const [f, setF] = React.useState({ title: d.title, decision: d.decision, rationale: d.rationale, status: d.status, tags: d.tags.join(", ") });
+  React.useEffect(() => { setF({ title: d.title, decision: d.decision, rationale: d.rationale, status: d.status, tags: d.tags.join(", ") }); }, [d]);
+  const when = d.updatedAt ? new Date(d.updatedAt).toLocaleDateString() : "";
+  const inputStyle: React.CSSProperties = { width: "100%", padding: "6px 8px", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", background: "var(--surface)", color: "var(--text)", font: "inherit", fontSize: "var(--fs-13)" };
+
+  const save = async (): Promise<void> => {
+    if (!d.id) return;
+    setBusy(true);
+    try {
+      const r = await authFetch(`/api/charles/ventures/decisions`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: d.id, title: f.title, decision: f.decision, rationale: f.rationale, status: f.status, tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean) }),
+      });
+      if (r.ok) { setEditing(false); onChanged(); }
+    } finally { setBusy(false); }
+  };
+  const del = async (): Promise<void> => {
+    if (!d.id) return;
+    setBusy(true);
+    try { const r = await authFetch(`/api/charles/ventures/decisions?id=${encodeURIComponent(d.id)}`, { method: "DELETE" }); if (r.ok) onChanged(); }
+    finally { setBusy(false); }
+  };
+
+  if (editing) {
+    return (
+      <div className="logrow" style={{ display: "block", borderBottom: "1px solid var(--border)", padding: "12px 0" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <input style={inputStyle} value={f.title} placeholder="Title" onChange={(e) => setF({ ...f, title: e.target.value })} />
+          <textarea style={{ ...inputStyle, minHeight: 64, resize: "vertical" }} value={f.decision} placeholder="The decision (what was decided)" onChange={(e) => setF({ ...f, decision: e.target.value })} />
+          <textarea style={{ ...inputStyle, minHeight: 48, resize: "vertical" }} value={f.rationale} placeholder="Why (rationale)" onChange={(e) => setF({ ...f, rationale: e.target.value })} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <select style={{ ...inputStyle, width: "auto" }} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+              {DECISION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <input style={{ ...inputStyle, flex: 1, minWidth: 140 }} value={f.tags} placeholder="tags, comma, separated" onChange={(e) => setF({ ...f, tags: e.target.value })} />
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+            <button className="btn" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save"}</button>
+            <button className="btn btn--ghost" disabled={busy} onClick={() => { setEditing(false); setF({ title: d.title, decision: d.decision, rationale: d.rationale, status: d.status, tags: d.tags.join(", ") }); }}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="logrow" style={{ display: "block", borderBottom: "1px solid var(--border)", padding: "12px 0" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--s2)", cursor: "pointer" }} onClick={() => setOpen((v) => !v)}>
+        <span className={"pill pill--" + decisionTone(d.status)}><span className="pill__dot" />{d.status}</span>
+        <span className="logrow__primary" style={{ flex: 1 }}>{d.title}</span>
+        {when ? <span className="logrow__meta">{when}</span> : null}
+      </div>
+      <p className="screen-sub" style={{ margin: "6px 0 0", color: "var(--text)", cursor: "pointer" }} onClick={() => setOpen((v) => !v)}>{d.decision}</p>
+      {open ? (
+        <>
+          {d.rationale ? <p className="screen-sub" style={{ margin: "8px 0 0" }}><strong>Why:</strong> {d.rationale}</p> : null}
+          {d.tags.length ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+              {d.tags.map((t) => <span className="chip" key={t}>{t}</span>)}
+            </div>
+          ) : null}
+          <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+            <button className="btn btn--ghost" disabled={!d.id || busy} onClick={() => setEditing(true)}>Edit</button>
+            {confirmDel ? (
+              <>
+                <span className="screen-sub" style={{ margin: 0 }}>Delete?</span>
+                <button className="btn ven-danger__btn" disabled={busy} onClick={() => void del()}>{busy ? "…" : "Yes, delete"}</button>
+                <button className="btn btn--ghost" disabled={busy} onClick={() => setConfirmDel(false)}>No</button>
+              </>
+            ) : (
+              <button className="btn btn--ghost" disabled={!d.id || busy} onClick={() => setConfirmDel(true)} style={{ color: "var(--alert)" }}>Delete</button>
+            )}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function DecisionsTab({ venture }: { venture: Venture }): React.ReactElement {
+  const [decisions, setDecisions] = React.useState<VentureDecision[] | null>(null);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  const reload = React.useCallback(async () => {
+    setErr(null);
+    try {
+      const r = await authFetch(`/api/charles/ventures/decisions?venture=${encodeURIComponent(venture.slug)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = (await r.json()) as { decisions?: VentureDecision[] };
+      setDecisions(j.decisions ?? []);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, [venture.slug]);
+
+  React.useEffect(() => { setDecisions(null); void reload(); }, [reload]);
+
+  return (
+    <div className="card" style={{ marginTop: 16, paddingTop: 8, paddingBottom: 8 }}>
+      <div className="card__head" style={{ marginTop: 12 }}>
+        <div className="card__title">Decisions on record</div>
+        {decisions ? <span className="logrow__meta">{decisions.length}</span> : null}
+      </div>
+      <p className="screen-sub" style={{ marginTop: 0 }}>
+        Targeting, positioning, pricing &amp; strategy choices for {venture.name}. The agent records them (“record a decision…”); expand one to <strong>edit or delete</strong> it here.
+      </p>
+      {err ? <p className="screen-sub" style={{ color: "var(--alert)" }}>Couldn’t load decisions: {err}</p> : null}
+      {decisions === null && !err ? <p className="screen-sub" style={{ padding: "8px 0" }}>Loading…</p> : null}
+      {decisions && decisions.length === 0 ? (
+        <p className="screen-sub" style={{ padding: "8px 0 16px" }}>No decisions recorded for {venture.name} yet. When you settle a targeting, pricing, or positioning choice in chat, ask the agent to record it and it’ll appear here.</p>
+      ) : null}
+      {decisions && decisions.length > 0 ? (
+        <div className="loglist">
+          {decisions.map((d, i) => <DecisionCard d={d} key={d.id ?? i} onChanged={() => void reload()} />)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function ContentTab({ venture }: { venture: Venture }): React.ReactElement {
   return (
     <>
       <BrandEditor ventureId={venture.id} />
-      <div style={{ marginTop: 16 }}>
-        <BoardsPanel key={`content-${venture.id}`} scopeKind="content" scopeId={venture.id} basePath={`${BASE}/${venture.slug}/content`} lanes={CONTENT_LANES} />
-      </div>
+      <BrandAssets venture={venture} />
+      <ContentBoard venture={venture} />
     </>
   );
 }
@@ -1201,6 +1500,10 @@ export default function VenturesScreen(): React.ReactElement {
 
           {tab === "content" ? (
             <ContentTab venture={current} />
+          ) : null}
+
+          {tab === "decisions" ? (
+            <DecisionsTab key={current.id} venture={current} />
           ) : null}
         </div>
 

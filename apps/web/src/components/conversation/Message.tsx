@@ -14,7 +14,7 @@ import { MermaidBlock } from "./MermaidBlock";
 import { MentionAnchor } from "./MentionChip";
 import { ImageBlock } from "./ImageBlock";
 import type { PairedToolCall } from "./Thread";
-import { ToolDisclosure } from "./ToolDisclosure";
+import { ToolDisclosure, ImageResults } from "./ToolDisclosure";
 
 // Pull the fenced-block language ("chart") + raw text out of a <pre>'s hast node so we
 // can render a ```chart block as a real chart instead of a code box.
@@ -120,7 +120,10 @@ export function MessageBlock({
     return (
       <div className="msg-tool" data-role="tool">
         {hasToolCalls ? (
-          <ToolDisclosure calls={toolCalls!} />
+          <>
+            <ImageResults calls={toolCalls!} />
+            <ToolDisclosure calls={toolCalls!} />
+          </>
         ) : (
           <span className="costchip">tool</span>
         )}
@@ -151,6 +154,7 @@ export function MessageBlock({
           )}
         </div>
       ) : null}
+      {hasToolCalls ? <ImageResults calls={toolCalls!} /> : null}
       {hasToolCalls ? <ToolDisclosure calls={toolCalls!} /> : null}
       {fork && fork.legs.length ? <ForkDisclosure legs={fork.legs} /> : null}
       {stats && !streaming ? (

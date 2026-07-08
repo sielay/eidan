@@ -73,7 +73,11 @@ export function FileScreen({ entry, onBack, onDeleted }: { entry: FileScreenEntr
   const [err, setErr] = React.useState<string | null>(null);
   const taRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mentions = useTextareaMentions(taRef, draft, setDraft);
-  const rawUrl = `/api/fs/blob?id=${encodeURIComponent(entry.id)}`;
+  // Local blobs stream from /api/fs/file (the registered web route). Fetch with the bearer, then
+  // object-URL — a plain <a href> or <img src> to it would 401 (no Authorization header on those).
+  const fileUrl = `/api/fs/file?id=${encodeURIComponent(entry.id)}`;
+  const isImage = (entry.mime || "").startsWith("image/") || /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(entry.name);
+  const [imgUrl, setImgUrl] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -81,14 +85,41 @@ export function FileScreen({ entry, onBack, onDeleted }: { entry: FileScreenEntr
     if (!editable) return;
     void (async () => {
       try {
-        const r = await authFetch(rawUrl);
+        const r = await authFetch(fileUrl);
         if (!r.ok) throw new Error(`load failed (${r.status})`);
         const t = await r.text();
         if (!cancelled) { setContent(t); setDraft(t); }
       } catch (e) { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); }
     })();
     return () => { cancelled = true; };
-  }, [entry.id, editable, rawUrl]);
+  }, [entry.id, editable, fileUrl]);
+
+  // Image preview: fetch the blob with auth, hold an object-URL for the <img>.
+  React.useEffect(() => {
+    if (!isImage) { setImgUrl(null); return; }
+    let cancelled = false; let obj: string | null = null;
+    void (async () => {
+      try {
+        const r = await authFetch(fileUrl);
+        if (!r.ok || cancelled) return;
+        obj = URL.createObjectURL(await r.blob());
+        if (cancelled) { URL.revokeObjectURL(obj); return; }
+        setImgUrl(obj);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; if (obj) URL.revokeObjectURL(obj); };
+  }, [entry.id, isImage, fileUrl]);
+
+  const download = React.useCallback(async () => {
+    try {
+      const r = await authFetch(fileUrl);
+      if (!r.ok) return;
+      const u = URL.createObjectURL(await r.blob());
+      const a = document.createElement("a"); a.href = u; a.download = entry.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(u), 60_000);
+    } catch { /* ignore */ }
+  }, [fileUrl, entry.name]);
 
   const save = async (): Promise<void> => {
     setBusy(true); setErr(null);
@@ -119,12 +150,16 @@ export function FileScreen({ entry, onBack, onDeleted }: { entry: FileScreenEntr
         ) : null}
         {editing ? <button className="btn btn--primary btn--sm" disabled={busy} onClick={() => void save()}><Save className="i i-sm" aria-hidden /> {busy ? "Saving…" : "Save"}</button> : null}
         {editing ? <button className="btn btn--ghost btn--sm" disabled={busy} onClick={() => { setEditing(false); setDraft(content ?? ""); }}>Cancel</button> : null}
-        <a className="btn btn--ghost btn--sm" href={rawUrl} target="_blank" rel="noopener noreferrer" title="Open raw / download"><Download className="i i-sm" aria-hidden /></a>
+        <button className="btn btn--ghost btn--sm" onClick={() => void download()} title="Download"><Download className="i i-sm" aria-hidden /></button>
         <button className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void del()} title="Delete" style={{ color: "var(--alert)" }}><Trash2 className="i i-sm" aria-hidden /></button>
       </div>
       {err ? <p className="screen-sub" style={{ color: "var(--alert)" }}>{err}</p> : null}
       {!editable ? (
-        <p className="screen-sub">Binary file — <a href={rawUrl} target="_blank" rel="noopener noreferrer">download</a> to view.</p>
+        isImage ? (
+          imgUrl ? <img src={imgUrl} alt={entry.name} style={{ maxWidth: "100%", height: "auto", borderRadius: "var(--r-sm)", border: "1px solid var(--border)" }} /> : <div className="skel" style={{ height: 240 }} />
+        ) : (
+          <p className="screen-sub">Binary file — <button className="btn btn--ghost btn--sm" onClick={() => void download()}>download</button> to view.</p>
+        )
       ) : content == null ? (
         <div className="skel" style={{ height: 240 }} />
       ) : editing ? (

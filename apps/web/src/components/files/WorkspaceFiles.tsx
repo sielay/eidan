@@ -38,7 +38,7 @@ interface DriveEntryDto { id: string; name: string; mime: string | null; kind: "
 function fileUrl(source: FileSource, id: string): string {
   if (source === "gdrive") return `/api/gdrive/file?id=${encodeURIComponent(id)}`;
   if (source === "artifact") return `/api/artifacts/${encodeURIComponent(id)}`;
-  return `/api/fs/blob?id=${encodeURIComponent(id)}`; // engine resolves storage creds from the vault
+  return `/api/fs/file?id=${encodeURIComponent(id)}`; // local fs blobs stream from the web route (fetched with the bearer, then object-URL'd for preview/download)
 }
 
 async function openFile(source: FileSource, id: string, filename: string, download: boolean): Promise<void> {

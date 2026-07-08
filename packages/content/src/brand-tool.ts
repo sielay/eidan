@@ -28,7 +28,13 @@ export function composeBrandBlock(kit: BrandFields | null): string {
   if (kit.voice && kit.voice.trim()) lines.push(`Voice & tone: ${kit.voice.trim()}`);
   if (kit.styleguide && kit.styleguide.trim()) lines.push(`Visual style: ${kit.styleguide.trim()}`);
   if (kit.language && kit.language.trim()) lines.push(`Language rules: ${kit.language.trim()}`);
-  if (kit.reference_images.length) lines.push(`Reference images: ${kit.reference_images.length} attached (honour their look).`);
+  if (kit.brand_assets?.length) {
+    // Typed assets — name each by its role so the model can pick the right one ("use the Bluesky banner").
+    const byRole = kit.brand_assets.map((a) => `${a.role || 'asset'} (id ${a.id})`).join('; ');
+    lines.push(`Brand assets: ${byRole}. Use the one matching the channel/purpose when generating or attaching.`);
+  } else if (kit.reference_images.length) {
+    lines.push(`Reference images: ${kit.reference_images.length} attached (honour their look).`);
+  }
   if (!lines.length) return '';
   return ['[BRAND KIT — keep everything on-brand]', ...lines].join('\n');
 }

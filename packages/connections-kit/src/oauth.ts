@@ -50,11 +50,13 @@ export interface BuildAuthUrlArgs {
 export function buildAuthUrl(args: BuildAuthUrlArgs): string {
   const { authUrl } = args.adapter.endpoints(args.host);
   const scopes = args.scopes && args.scopes.length ? args.scopes : args.adapter.scopes;
+  const idParam = args.adapter.clientIdParam ?? 'client_id';
+  const scopeSep = args.adapter.scopeSeparator ?? ' ';
   const params = new URLSearchParams({
-    client_id: args.clientId,
+    [idParam]: args.clientId,
     redirect_uri: args.redirectUri,
     response_type: 'code',
-    scope: scopes.join(' '),
+    scope: scopes.join(scopeSep),
     state: args.state,
   });
   for (const [k, v] of Object.entries(args.adapter.extraAuthParams ?? {})) params.set(k, v);
@@ -118,7 +120,7 @@ export async function exchangeCode(args: ExchangeCodeArgs): Promise<ExchangedTok
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code: args.code,
-    client_id: args.clientId,
+    [args.adapter.clientIdParam ?? 'client_id']: args.clientId,
     redirect_uri: args.redirectUri,
   });
   const auth = clientAuth(args.adapter, args.clientId, args.clientSecret);
@@ -154,7 +156,7 @@ export async function refreshAccessToken(args: RefreshArgs): Promise<RefreshedTo
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: args.refreshToken,
-    client_id: args.clientId,
+    [args.adapter.clientIdParam ?? 'client_id']: args.clientId,
   });
   const auth = clientAuth(args.adapter, args.clientId, args.clientSecret);
   if (args.clientSecret && auth.bodySecret) body.set('client_secret', args.clientSecret);

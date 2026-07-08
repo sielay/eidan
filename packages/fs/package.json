@@ -31,6 +31,10 @@
         {
           "path": "/api/fs/file",
           "handler": "api/file.ts"
+        },
+        {
+          "path": "/api/fs/settings",
+          "handler": "api/settings.ts"
         }
       ],
       "nav": {

@@ -5,9 +5,9 @@ import type { ToolContext } from '@matatbread/matbot-plugin-api';
 import { MissingSecretError } from '@matatbread/matbot-plugin-api';
 import { makeXTools } from './tools.js';
 
-test('makeXTools returns all four tools', () => {
+test('makeXTools returns all five tools', () => {
   const names = makeXTools(null).map((t) => t.name);
-  assert.deepEqual(names.sort(), ['x_get_profile', 'x_list_timeline', 'x_post_tweet', 'x_search']);
+  assert.deepEqual(names.sort(), ['x_analyze_feed', 'x_get_profile', 'x_list_timeline', 'x_post_tweet', 'x_search']);
 });
 
 test('every tool accepts an optional `account` selector', () => {

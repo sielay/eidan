@@ -10,6 +10,12 @@ import type { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// This catch-all proxies the streaming chat turn (POST /api/turn → engine SSE). Without an explicit
+// maxDuration, Vercel kills the function at the platform default (~15s on Pro), which drops long agent
+// turns mid-stream — matbot has already persisted the user message (keenly) but not the assistant reply
+// (written only after the loop finishes), leaving a dangling user message and a "stuck" chat. 300s is
+// Vercel Pro's ceiling and comfortably covers multi-iteration tool-using turns.
+export const maxDuration = 300;
 
 const ENGINE = process.env.EIDAN_ENGINE_URL ?? "http://localhost:8090";
 

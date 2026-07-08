@@ -6,7 +6,16 @@
 import pg from 'pg';
 import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 
-import { scopeChain, mergeBrandLayers, parseScope, type BrandFields } from './scope.js';
+import { scopeChain, mergeBrandLayers, parseScope, type BrandFields, type BrandAsset } from './scope.js';
+
+function toAssets(v: unknown): BrandAsset[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((a) => (a && typeof a === 'object'
+      ? { id: String((a as Record<string, unknown>)['id'] ?? ''), role: String((a as Record<string, unknown>)['role'] ?? '') }
+      : { id: '', role: '' }))
+    .filter((a) => a.id);
+}
 
 type Q = (text: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount: number | null }>;
 
@@ -27,6 +36,7 @@ export interface BrandKit {
   styleguide: string | null;
   language: string | null;
   reference_images: string[];
+  brand_assets: BrandAsset[];
   updated_at: Date;
 }
 
@@ -64,6 +74,10 @@ export class ContentDb {
          )`,
       );
       await c.query(`create unique index if not exists uq_${this.schema}_brand on ${this.schema}.brand_kits (user_id, scope)`);
+      // Typed brand assets: [{ id: <fs node id>, role: 'Logo'|'Banner'|'Bluesky banner'|... }]. The
+      // untyped reference_images list is kept in sync (= the asset ids) so the agent brand block is
+      // unchanged; roles are the UI-facing meaning layer.
+      await c.query(`alter table ${this.schema}.brand_kits add column if not exists brand_assets jsonb not null default '[]'::jsonb`);
     } finally {
       c.release();
     }
@@ -92,13 +106,14 @@ export class ContentDb {
   }
 
   private row(r: unknown): BrandKit {
-    const x = r as { scope: string; voice: string | null; styleguide: string | null; language: string | null; reference_images: unknown; updated_at: Date };
+    const x = r as { scope: string; voice: string | null; styleguide: string | null; language: string | null; reference_images: unknown; brand_assets: unknown; updated_at: Date };
     return {
       scope: x.scope,
       voice: x.voice,
       styleguide: x.styleguide,
       language: x.language,
       reference_images: Array.isArray(x.reference_images) ? x.reference_images.map(String) : [],
+      brand_assets: toAssets(x.brand_assets),
       updated_at: x.updated_at,
     };
   }
@@ -107,7 +122,7 @@ export class ContentDb {
     const uid = this.uid();
     if (!uid) return null;
     return this.tx(async (q) => {
-      const r = await q(`select scope, voice, styleguide, language, reference_images, updated_at from ${this.schema}.brand_kits where user_id = $1 and scope = $2`, [uid, scope]);
+      const r = await q(`select scope, voice, styleguide, language, reference_images, brand_assets, updated_at from ${this.schema}.brand_kits where user_id = $1 and scope = $2`, [uid, scope]);
       return r.rows[0] ? this.row(r.rows[0]) : null;
     });
   }
@@ -128,7 +143,7 @@ export class ContentDb {
     if (!uid || !scopes.length) return out;
     return this.tx(async (q) => {
       const r = await q(
-        `select scope, voice, styleguide, language, reference_images, updated_at
+        `select scope, voice, styleguide, language, reference_images, brand_assets, updated_at
            from ${this.schema}.brand_kits where user_id = $1 and scope = any($2)`,
         [uid, scopes],
       );
@@ -180,7 +195,7 @@ export class ContentDb {
     const uid = this.uid();
     if (!uid) return null;
     return this.tx(async (q) => {
-      const cur = await q(`select scope, voice, styleguide, language, reference_images, updated_at from ${this.schema}.brand_kits where user_id = $1 and scope = $2`, [uid, scope]);
+      const cur = await q(`select scope, voice, styleguide, language, reference_images, brand_assets, updated_at from ${this.schema}.brand_kits where user_id = $1 and scope = $2`, [uid, scope]);
       const existing = cur.rows[0] ? this.row(cur.rows[0]) : null;
       const merged: BrandKit = {
         scope,
@@ -188,6 +203,7 @@ export class ContentDb {
         styleguide: patch.styleguide !== undefined ? patch.styleguide : existing?.styleguide ?? null,
         language: patch.language !== undefined ? patch.language : existing?.language ?? null,
         reference_images: patch.reference_images !== undefined ? patch.reference_images : existing?.reference_images ?? [],
+        brand_assets: existing?.brand_assets ?? [], // typed assets are managed via the web API, preserved here
         updated_at: new Date(),
       };
       const r = await q(
@@ -196,7 +212,7 @@ export class ContentDb {
          on conflict (user_id, scope) do update set
            voice = excluded.voice, styleguide = excluded.styleguide, language = excluded.language,
            reference_images = excluded.reference_images, updated_at = now()
-         returning scope, voice, styleguide, language, reference_images, updated_at`,
+         returning scope, voice, styleguide, language, reference_images, brand_assets, updated_at`,
         [uid, scope, merged.voice, merged.styleguide, merged.language, JSON.stringify(merged.reference_images)],
       );
       return r.rows[0] ? this.row(r.rows[0]) : null;

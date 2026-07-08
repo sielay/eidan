@@ -19,6 +19,7 @@ function recordTool(store: Store<DecisionRecord>): Tool {
       title:      { type: 'string', description: 'Short imperative headline of the decision.', minLength: 1 },
       decision:   { type: 'string', description: 'What was decided, stated plainly.', minLength: 1 },
       rationale:  { type: 'string', description: 'Why — the reasoning, trade-offs, and alternatives rejected.' },
+      venture:    { type: 'string', description: 'Venture id/slug this decision is about (e.g. "acme-co"). ALWAYS set it for business/venture decisions (targeting, positioning, pricing, ICP) so the decision resurfaces whenever you work on that venture.' },
       tags:       { type: 'array', items: { type: 'string' }, description: 'Lowercase topic tags for retrieval (e.g. "deploy", "licensing").' },
       links:      { type: 'array', items: { type: 'string' }, description: 'Related [[knowledge-slug]] refs or URLs.' },
       status:     { type: 'string', enum: STATUSES, description: 'Lifecycle: proposed / accepted / superseded / rejected. Defaults to accepted.' },
@@ -55,6 +56,7 @@ function recordTool(store: Store<DecisionRecord>): Tool {
           title,
           decision,
           rationale:  a['rationale'] !== undefined ? s(a['rationale']).trim() : (existing?.rationale ?? ''),
+          venture:    a['venture']   !== undefined ? (s(a['venture']).trim() || null) : (existing?.venture ?? null),
           tags:       a['tags']      !== undefined ? strArr(a['tags'])         : (existing?.tags ?? []),
           links:      a['links']     !== undefined ? strArr(a['links'])        : (existing?.links ?? []),
           status,
@@ -83,6 +85,7 @@ function searchTool(store: Store<DecisionRecord>): Tool {
     type: 'object',
     properties: {
       text:   { type: 'string', description: 'Substring matched (case-sensitive) against title, decision, and rationale.' },
+      venture:{ type: 'string', description: 'Return decisions about this venture (id/slug). Use this FIRST when working on a venture — retrieve its prior decisions before deriving anything new.' },
       tags:   { type: 'array', items: { type: 'string' }, description: 'Return decisions carrying ANY of these tags.' },
       status: { type: 'string', enum: STATUSES, description: 'Restrict to one lifecycle status.' },
       limit:  { type: 'number', description: 'Max results (default 20, newest first; capped at 100).' },
@@ -108,6 +111,8 @@ function searchTool(store: Store<DecisionRecord>): Tool {
             { op: 'stringContains', field: 'rationale', value: text },
           ] });
         }
+        const venture = s(a['venture']).trim();
+        if (venture) clauses.push({ op: 'eq', field: 'venture', value: venture });
         const tags = strArr(a['tags']);
         if (tags.length) {
           clauses.push({ op: 'or', clauses: tags.map((t): Filter => ({ op: 'arrayContains', field: 'tags', value: t })) });

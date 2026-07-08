@@ -4,7 +4,7 @@ import { tryCurrentPrincipal } from '@matatbread/matbot-plugin-api';
 import type { FsDb, FsNode } from './db.js';
 import type { AdapterRegistry } from './adapters.js';
 import { resolveSupabaseCfg, supabaseUpload, supabaseDownload } from './supabase.js';
-import { resolveS3Cfg, s3Upload, s3Download } from './s3.js';
+import { resolveS3Cfg, s3Upload, s3Download, s3Head, s3PresignUrl } from './s3.js';
 import { vaultResolve, OFFLOAD_BYTES } from './vault.js';
 
 // The slice of the gdrive plugin's GoogleDrive service this plugin uses (structural — matbot service
@@ -55,6 +55,102 @@ export function makeFsReader(db: FsDb, getDrive: GetDrive): FsReader {
     if (!node || node.kind !== 'file') return null;
     const r = await readNodeBytes(db, getDrive, ctx, node);
     return r ? { name: node.name, mime: r.mime, bytes: r.bytes } : null;
+  };
+}
+
+// Persist raw bytes into the fs, offloading to an external backend (S3 / Supabase) when the file is
+// large enough and a backend is configured — otherwise Postgres bytea. This is the write counterpart
+// of makeFsReader, used by the engine /api/fs/upload route so the WEB can offload uploads (video,
+// images) to object storage without ever holding the vault. Same offload decision as the fs_write
+// tool, factored so both stay in lockstep.
+export type FsWriteResult = { id: string; name: string; mime: string; size_bytes: number; storage_kind: string };
+export type FsWriter = (ctx: ToolContext, input: { name: string; parentId: string | null; mime?: string; bytes: Uint8Array }) => Promise<FsWriteResult>;
+
+export function makeFsWriter(db: FsDb): FsWriter {
+  return async (ctx, input) => {
+    const p = tryCurrentPrincipal();
+    if (!p) throw new Error('not authorized');
+    const fileName = input.name.trim() || 'upload';
+    const parentId = input.parentId;
+    const bytes = input.bytes;
+    const mime = input.mime && input.mime.trim() ? input.mime : mimeFromName(fileName);
+
+    // Offload per the operator's preference: 'never' keeps everything in Postgres; 'always' offloads
+    // any upload; 'auto' offloads only files >= OFFLOAD_BYTES.
+    const prefs = await db.getUploadPrefs();
+    const wantOffload = prefs.offload === 'never' ? false : prefs.offload === 'always' ? true : bytes.length >= OFFLOAD_BYTES;
+    if (wantOffload) {
+      const resolve = vaultResolve(ctx.vault);
+      const sup = await resolveSupabaseCfg(resolve);
+      const s3 = sup ? null : await resolveS3Cfg(resolve);
+      if (sup || s3) {
+        const kind = sup ? 'supabase' : 's3';
+        const existing = await db.childByName(parentId, fileName);
+        const node = existing && existing.kind === 'file' ? existing : await db.createRef(fileName, parentId, mime, kind, 'pending');
+        const objectPath = `${p.id}/${node.id}`;
+        if (sup) await supabaseUpload(sup, objectPath, bytes, mime);
+        else await s3Upload(s3 as NonNullable<typeof s3>, objectPath, bytes, mime);
+        await db.setRef(node.id, objectPath, bytes.length, kind);
+        return { id: node.id, name: node.name, mime, size_bytes: bytes.length, storage_kind: kind };
+      }
+    }
+
+    const node = await db.upsertFile(fileName, parentId, mime, bytes);
+    return { id: node.id, name: node.name, mime: node.mime ?? mime, size_bytes: node.size_bytes ?? bytes.length, storage_kind: 'local' };
+  };
+}
+
+// Presigned direct-to-S3 upload: mint a pending node + a browser-usable PUT URL so big files (video)
+// go straight to object storage, never through the engine/Vercel. Lifecycle: presign → browser PUTs
+// to the URL → finalize (HEAD confirms + records size). downloadUrl gives a direct GET for playback.
+export interface PresignResult { direct: boolean; node_id?: string; upload_url?: string; storage_kind?: string; reason?: string }
+export interface FsPresigner {
+  presign(ctx: ToolContext, input: { name: string; parentId: string | null; mime?: string }): Promise<PresignResult>;
+  finalize(ctx: ToolContext, nodeId: string): Promise<FsWriteResult | null>;
+  downloadUrl(ctx: ToolContext, nodeId: string): Promise<string | null>;
+}
+
+export function makeFsPresigner(db: FsDb): FsPresigner {
+  return {
+    async presign(ctx, input) {
+      const p = tryCurrentPrincipal();
+      if (!p) throw new Error('not authorized');
+      // Direct browser→S3 upload requires the bucket to allow the app origin in its CORS policy, which
+      // the operator sets out-of-band. Gated behind EIDAN_FS_DIRECT_UPLOAD so it's enabled deliberately
+      // (together with CORS) — off, the UI keeps using the server-side multipart offload. Avoids
+      // minting pending nodes that a CORS-blocked PUT would orphan. The Settings preference
+      // (fs_upload.direct) overrides the env default; offload:'never' forces uploads to stay local.
+      const prefs = await db.getUploadPrefs();
+      if (prefs.offload === 'never') return { direct: false, reason: 'offload-disabled' };
+      const directOn = prefs.direct ?? /^(1|true|yes|on)$/i.test(process.env['EIDAN_FS_DIRECT_UPLOAD'] ?? '');
+      if (!directOn) return { direct: false, reason: 'direct-upload-disabled' };
+      const s3 = await resolveS3Cfg(vaultResolve(ctx.vault));
+      if (!s3) return { direct: false, reason: 's3-not-configured' };
+      const name = input.name.trim() || 'upload';
+      const mime = input.mime && input.mime.trim() ? input.mime : mimeFromName(name);
+      const node = await db.createRef(name, input.parentId, mime, 's3', 'pending');
+      const objectPath = `${p.id}/${node.id}`;
+      return { direct: true, node_id: node.id, upload_url: s3PresignUrl(s3, 'PUT', objectPath, 900), storage_kind: 's3' };
+    },
+    async finalize(ctx, nodeId) {
+      const p = tryCurrentPrincipal();
+      if (!p) throw new Error('not authorized');
+      const s3 = await resolveS3Cfg(vaultResolve(ctx.vault));
+      if (!s3) throw new Error('s3 not configured');
+      const objectPath = `${p.id}/${nodeId}`;
+      const head = await s3Head(s3, objectPath);
+      if (!head) return null; // the browser PUT never landed
+      await db.setRef(nodeId, objectPath, head.size, 's3');
+      const node = await db.getNode(nodeId);
+      return node ? { id: node.id, name: node.name, mime: node.mime ?? '', size_bytes: node.size_bytes ?? head.size, storage_kind: 's3' } : null;
+    },
+    async downloadUrl(ctx, nodeId) {
+      const s3 = await resolveS3Cfg(vaultResolve(ctx.vault));
+      if (!s3) return null;
+      const node = await db.getNode(nodeId);
+      if (!node || node.storage_kind !== 's3' || !node.storage_ref || node.storage_ref === 'pending') return null;
+      return s3PresignUrl(s3, 'GET', node.storage_ref, 900);
+    },
   };
 }
 

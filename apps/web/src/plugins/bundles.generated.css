@@ -1,5 +1,7 @@
 /* AUTO-GENERATED: bundle stylesheets (eidan deploy assembly). */
 @import "./journal/journal.css";
+@import "./content/content.css";
+@import "./crm/crm.css";
 @import "./imap/imap.css";
 @import "./ical/ical.css";
 @import "./google/google.css";
@@ -17,5 +19,6 @@
 @import "./social-mastodon/mastodon.css";
 @import "./social-threads/threads.css";
 @import "./social-youtube/youtube.css";
+@import "./social-tiktok/tiktok.css";
 @import "./glue/glue.css";
 @import "./finance-xero/xero.css";

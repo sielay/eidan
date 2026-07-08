@@ -6,6 +6,7 @@ import * as React from "react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { ConnectionsSection } from "@/components/settings/ConnectionsSection";
 import { IntegrationsSection } from "@/components/settings/IntegrationsSection";
+import { StorageSection } from "@/components/settings/StorageSection";
 import { PersonaEditor } from "@/components/agents/PersonaEditor";
 import { useAgentCatalogs } from "@/components/agents/useAgentCatalogs";
 import { Button } from "@/components/ui/button";
@@ -186,6 +187,8 @@ export default function SettingsPage(): React.ReactElement {
       <IntegrationsSection />
 
       <ConnectionsSection />
+
+      <StorageSection />
     </div>
   );
 }

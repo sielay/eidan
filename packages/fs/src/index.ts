@@ -2,7 +2,7 @@
 import type { MatbotPluginSpec, MatbotServices, ToolContext } from '@matatbread/matbot-plugin-api';
 import { PLUGIN_API_VERSION } from '@matatbread/matbot-plugin-api';
 import { FsDb } from './db.js';
-import { buildFsTools, makeFsReader, type GoogleDriveSvc, type FsReader } from './tools.js';
+import { buildFsTools, makeFsReader, makeFsWriter, makeFsPresigner, type GoogleDriveSvc, type FsReader, type FsWriter, type FsPresigner } from './tools.js';
 
 // Consume the gdrive plugin's GoogleDrive service (matbot registry idiom; no hard dep) so a Drive
 // file can be linked into the fs as a live reference. Absent when gdrive isn't loaded.
@@ -17,6 +17,10 @@ declare module '@matatbread/matbot-plugin-api' {
 // web never needs storage creds.
 interface EidanFs {
   readBytes(ctx: ToolContext, nodeId: string): Promise<{ name: string; mime: string; bytes: Uint8Array } | null>;
+  upload: FsWriter;
+  presignUpload: FsPresigner['presign'];
+  finalizeUpload: FsPresigner['finalize'];
+  downloadUrl: FsPresigner['downloadUrl'];
 }
 declare module '@matatbread/matbot-plugin-api' {
   interface MatbotServices {
@@ -49,7 +53,15 @@ export const plugin: MatbotPluginSpec = {
     for (const tool of buildFsTools(db, getDrive)) services.tools.register(tool);
 
     const reader: FsReader = makeFsReader(db, getDrive);
-    await services.register('EidanFs', { readBytes: reader });
+    const writer: FsWriter = makeFsWriter(db);
+    const presigner: FsPresigner = makeFsPresigner(db);
+    await services.register('EidanFs', {
+      readBytes: reader,
+      upload: writer,
+      presignUpload: presigner.presign,
+      finalizeUpload: presigner.finalize,
+      downloadUrl: presigner.downloadUrl,
+    });
 
     // Storage-backend config — sealed in the vault, surfaced in Settings → Connections.
     services.EidanSecrets?.declareSection({

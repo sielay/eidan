@@ -6,7 +6,7 @@ import { composeBrandBlock } from './brand-tool.js';
 import type { BrandKit } from './db.js';
 
 const kit = (p: Partial<BrandKit>): BrandKit => ({
-  scope: 'default', voice: null, styleguide: null, language: null, reference_images: [], updated_at: new Date(0), ...p,
+  scope: 'default', voice: null, styleguide: null, language: null, reference_images: [], brand_assets: [], updated_at: new Date(0), ...p,
 });
 
 describe('composeBrandBlock', () => {

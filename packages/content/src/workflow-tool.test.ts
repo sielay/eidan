@@ -14,7 +14,10 @@ const chatStage: StageDef = {
 describe('composeStagePrompt', () => {
   it('layers base + skills + brand + card, in order', () => {
     const out = composeStagePrompt(chatStage, '[BRAND KIT]\nVoice: warm', 'Brief: agents explained plainly');
-    assert.ok(out.startsWith('Shape the concept.'));
+    assert.ok(out.startsWith('[CONTENT DOCTRINE')); // doctrine is the stable prefix
+    assert.ok(out.includes('Content Filter'));
+    assert.ok(out.includes('N-of-1'));
+    assert.ok(out.includes('Shape the concept.'));
     assert.ok(out.includes('Load these skills first: LinkedIn Strategy.'));
     assert.ok(out.includes('[BRAND KIT]'));
     assert.ok(out.includes('[CAMPAIGN CARD]'));

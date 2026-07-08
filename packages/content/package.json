@@ -18,6 +18,7 @@
   "eidan": {
     "frontend": {
       "package": "frontend",
+      "stylesheet": "content.css",
       "routes": [
         { "path": "/", "component": "Content.tsx" },
         { "path": "/*", "component": "Content.tsx" }
@@ -25,7 +26,8 @@
       "api": [
         { "path": "/api/content/brand", "handler": "api/brand.ts" },
         { "path": "/api/content/ventures", "handler": "api/ventures.ts" },
-        { "path": "/api/content/board", "handler": "api/board.ts" }
+        { "path": "/api/content/board", "handler": "api/board.ts" },
+        { "path": "/api/content/card", "handler": "api/card.ts" }
       ],
       "nav": {
         "group": "Plan",

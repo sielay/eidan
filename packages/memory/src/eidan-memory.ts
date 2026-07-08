@@ -79,6 +79,37 @@ export class EidanMemory {
     });
   }
 
+  // Cross-conversation full-text search: find past conversations whose messages match a free-text query
+  // (websearch syntax: quoted phrases, OR, -term). Returns each matching conversation with a snippet, so
+  // the model can recover a prior discussion instead of re-deriving it. Excludes agent-context threads.
+  async searchConversations(query: string, limit = 8): Promise<Array<{ conversation_id: string; title: string; created_at: string; matches: number; snippet: string }>> {
+    return this.db.withPrincipalTx(async (q) => {
+      const r = await q(
+        `with tq as (select nullif(websearch_to_tsquery('english', $1)::text, '')::tsquery as t)
+         select m.conversation_id as conversation_id,
+                min(coalesce(c.title, '(untitled)')) as title,
+                max(c.created_at) as created_at,
+                count(*)::int as matches,
+                (array_agg(left(regexp_replace(coalesce(m.content, ''), '\\s+', ' ', 'g'), 220)
+                   order by ts_rank(to_tsvector('english', coalesce(m.content, '')), tq.t) desc))[1] as snippet
+           from eidan.messages m
+           join eidan.conversations c on c.id = m.conversation_id
+           cross join tq
+          where m.user_id = $2 and m.deleted_at is null and c.deleted_at is null
+            and tq.t is not null
+            and coalesce(c.title, '') !~* '^\\[AGENT CONTEXT\\]'
+            and to_tsvector('english', coalesce(m.content, '')) @@ tq.t
+          group by m.conversation_id
+          order by max(ts_rank(to_tsvector('english', coalesce(m.content, '')), tq.t)) desc
+          limit $3`,
+        [query, currentPrincipal().id, limit],
+      );
+      return (r.rows as Array<{ conversation_id: string; title: string; created_at: string; matches: number; snippet: string }>).map((x) => ({
+        conversation_id: x.conversation_id, title: x.title, created_at: x.created_at, matches: Number(x.matches), snippet: x.snippet,
+      }));
+    });
+  }
+
   async catalogueCapture(entry: {
     title: string;
     content: string;
