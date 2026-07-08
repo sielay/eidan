@@ -52,6 +52,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   const conversationId = typeof body["conversation_id"] === "string" && body["conversation_id"].trim() ? body["conversation_id"].trim() : null;
   const parentCardId = typeof body["parent_card_id"] === "string" && body["parent_card_id"].trim() ? body["parent_card_id"].trim() : null;
   const publishAt = typeof body["publish_at"] === "string" && body["publish_at"].trim() ? body["publish_at"].trim() : null;
+  let frozenData: Record<string, unknown> | null = null;
+  if (typeof body["frozen_data"] === "object" && body["frozen_data"] !== null) {
+    frozenData = body["frozen_data"] as Record<string, unknown>;
+  }
   let channels: string[] | null = null;
   if (Array.isArray(body["channels"])) {
     const ch = (body["channels"] as unknown[]).map((c) => String(c).trim()).filter(Boolean);
@@ -65,11 +69,11 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const card = await withUser(sess.userId, async (c) => {
     const r = await c.query(
-      `insert into plugin_boards.cards (board_id, user_id, title, body, due_date, status, conversation_id, parent_card_id, channels, publish_at)
-       select b.id, $1, $3, $4, $5, coalesce($6, 'open'), $7, $8, $9::jsonb, $10 from plugin_boards.boards b
+      `insert into plugin_boards.cards (board_id, user_id, title, body, due_date, status, conversation_id, parent_card_id, channels, publish_at, frozen_data)
+       select b.id, $1, $3, $4, $5, coalesce($6, 'open'), $7, $8, $9::jsonb, $10, $11::jsonb from plugin_boards.boards b
         where b.id = $2 and b.user_id = $1 and b.status = 'active'
        returning ${COLS}`,
-      [sess.userId, boardId, title, cardBody, dueDate, status, conversationId, parentCardId, channels ? JSON.stringify(channels) : null, publishAt],
+      [sess.userId, boardId, title, cardBody, dueDate, status, conversationId, parentCardId, channels ? JSON.stringify(channels) : null, publishAt, frozenData ? JSON.stringify(frozenData) : null],
     );
     return r.rows[0] as CardRow | undefined;
   });

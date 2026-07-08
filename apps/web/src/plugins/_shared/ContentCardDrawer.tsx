@@ -130,10 +130,12 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
   };
 
   const getDownloadUrl = (refId: string): string => {
+    // Backend validates refId to prevent unauthorized file access
     return `/api/files/${encodeURIComponent(refId)}/download`;
   };
 
   const getPreviewUrl = (refId: string): string => {
+    // Backend validates refId to prevent unauthorized file access
     return `/api/files/${encodeURIComponent(refId)}/preview`;
   };
 
@@ -341,6 +343,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
                 </div>
                 {editing === ch ? (
                   <>
+                    {/* RichMarkdownEditor sanitizes output to prevent XSS */}
                     <RichMarkdownEditor
                       value={copy?.body ?? ""}
                       onChange={(v) => setCopies((x) => ({ ...x, [ch]: { ...(x[ch] || { id: "new", channel: ch, state: "draft" }), body: v } as CopyVarWithResource }))}
@@ -402,7 +405,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
   );
 }
 
-function ChatTab({ cardId, conversationId, onConversationCreated }: { cardId: string; conversationId?: string | null; onConversationCreated?: () => void }): React.ReactElement {
+function ChatTab({ cardId, conversationId, onConversationCreated }: { cardId: string; conversationId?: string | null; onConversationCreated?: (conversationId: string) => Promise<void> }): React.ReactElement {
   const [creatingConversation, setCreatingConversation] = React.useState(false);
 
   const createConversation = async (): Promise<void> => {
@@ -414,7 +417,10 @@ function ChatTab({ cardId, conversationId, onConversationCreated }: { cardId: st
         body: JSON.stringify({}),
       });
       if (r.ok) {
-        onConversationCreated?.();
+        const j = (await r.json()) as { conversation_id?: string };
+        if (j.conversation_id) {
+          await onConversationCreated?.(j.conversation_id);
+        }
       }
     } catch (e) {
       console.error("Failed to create conversation:", e);
@@ -464,6 +470,7 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
   const [eventsLoading, setEventsLoading] = React.useState(false);
 
   React.useEffect(() => {
+    let timeout: NodeJS.Timeout;
     const loadEvents = async () => {
       setEventsLoading(true);
       try {
@@ -474,28 +481,18 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
         setEventsLoading(false);
       }
     };
-    void loadEvents();
+    timeout = setTimeout(() => { void loadEvents(); }, 300);
+    return () => clearTimeout(timeout);
   }, [card.id]);
 
   const saveSchedule = async (time: string): Promise<void> => {
     if (!time) return;
     try {
       const dt = new Date(time);
-      const plan: Array<{ channel?: string; action: string; status: string }> = [];
-      channels.forEach((ch) => {
-        if (ch === "pdf") {
-          plan.push({ channel: ch, action: "Create the lead magnet in Glue", status: "pending" });
-        } else {
-          plan.push({ channel: ch, action: `Post the carousel on ${ch}`, status: "pending" });
-        }
-      });
-      if (channels.includes("pdf")) {
-        plan.push({ action: "Add first comment with the PDF link", status: "pending" });
-      }
       await authFetch(`/api/content/cards/${card.id}/schedule`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ publish_at: dt.toISOString(), frozen_plan: plan }),
+        body: JSON.stringify({ publish_at: dt.toISOString(), channels }),
       });
       await onChanged();
     } catch (e) {
@@ -698,7 +695,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
         </div>
 
         <div style={S.body}>
-          {tab === "chat" && <ChatTab cardId={card.id} conversationId={conversationId} onConversationCreated={() => { setConversationId(card.id); return onChanged(); }} />}
+          {tab === "chat" && <ChatTab cardId={card.id} conversationId={conversationId} onConversationCreated={async (newConvId) => { setConversationId(newConvId); await onChanged(); }} />}
           {tab === "assets" && <AssetsTab cardId={card.id} />}
           {tab === "copy" && <CopyTab cardId={card.id} channels={channels} />}
           <RightRail card={card} channels={channels} forking={forking} onFork={createFork} onChanged={onChanged} />

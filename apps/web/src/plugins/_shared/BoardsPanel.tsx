@@ -17,7 +17,7 @@ import { RichMarkdownEditor } from "@/components/conversation/RichMarkdownEditor
 import { ContentCardDrawer } from "@/plugins/_shared/ContentCardDrawer";
 
 interface Board { id: string; name: string; prompt?: string | null; position: number; status: string }
-interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number; due_date?: string | null; metadata?: { labels?: string[] }; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown> }
+interface Card { id: string; board_id: string; title: string; body: string | null; status: string; ref_count?: number; due_date?: string | null; metadata?: { labels?: string[] }; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown>; venture_id?: string | null }
 
 // Deterministic pastel colour per label name (no palette table needed).
 function labelHue(name: string): number {
