@@ -89,9 +89,9 @@ describe("Content Workflow — Gate Advance", () => {
     }
 
     assert.strictEqual(card.status, "scheduled");
-    assert.ok(card.frozen_data.concept !== undefined);
-    assert.ok(card.frozen_data.assets !== undefined);
-    assert.ok(card.frozen_data.copy !== undefined);
+    assert.ok(card.frozen_data?.concept !== undefined);
+    assert.ok(card.frozen_data?.assets !== undefined);
+    assert.ok(card.frozen_data?.copy !== undefined);
   });
 
   it("should handle scheduled stage (frozen until publish time)", () => {
