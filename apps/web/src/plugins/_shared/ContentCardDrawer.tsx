@@ -11,7 +11,7 @@ import { authFetch } from "@/lib/auth";
 import { Avatar } from "@/plugins/_shared/Avatar";
 import { RichMarkdownEditor } from "@/components/conversation/RichMarkdownEditor";
 
-interface Card { id: string; board_id: string; title: string; body: string | null; status: string; metadata?: Record<string, unknown>; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown>; ref_count?: number; due_date?: string | null }
+interface Card { id: string; board_id: string; title: string; body: string | null; status: string; metadata?: Record<string, unknown>; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown>; ref_count?: number; due_date?: string | null; venture_id?: string | null }
 interface CardEvent { id: string; kind: string; body: string | null; author_kind?: string; author_id?: string | null; author_label?: string | null; created_at: string }
 interface CardAsset { id: string; ref_id: string; ref_kind: string; approval_state: string; metadata?: Record<string, unknown> }
 interface CardCopy { id: string; channel: string; body: string | null; state: string }
@@ -38,7 +38,7 @@ const S = {
   rail: { flex: "0 0 200px", borderLeft: "1px solid var(--border)", paddingLeft: "var(--s3)", display: "flex", flexDirection: "column" as const, gap: "var(--s3)" },
 };
 
-function GateStrip({ card, onAdvance }: { card: Card; onAdvance: () => void }): React.ReactElement {
+function GateStrip({ card, onAdvance }: { card: Card; onAdvance: () => Promise<void> }): React.ReactElement {
   const stages = ["concept", "assets", "copy", "distribution", "scheduled", "published"];
   const idx = stages.indexOf(card.status);
   const gate = GATES[card.status];
@@ -402,7 +402,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
   );
 }
 
-function ChatTab({ cardId }: { cardId: string }): React.ReactElement {
+function ChatTab({ cardId, conversationId, onConversationCreated }: { cardId: string; conversationId?: string | null; onConversationCreated?: () => void }): React.ReactElement {
   const [creatingConversation, setCreatingConversation] = React.useState(false);
 
   const createConversation = async (): Promise<void> => {
@@ -414,7 +414,7 @@ function ChatTab({ cardId }: { cardId: string }): React.ReactElement {
         body: JSON.stringify({}),
       });
       if (r.ok) {
-        window.location.reload();
+        onConversationCreated?.();
       }
     } catch (e) {
       console.error("Failed to create conversation:", e);
@@ -422,6 +422,21 @@ function ChatTab({ cardId }: { cardId: string }): React.ReactElement {
       setCreatingConversation(false);
     }
   };
+
+  if (conversationId) {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "var(--s4)" }}>
+        <div style={{ maxWidth: 300 }}>
+          <p className="screen-sub" style={{ fontSize: "var(--fs-14)", marginBottom: "var(--s2)" }}>
+            This conversation is linked to the card — assets & drafts save here.
+          </p>
+          <p style={{ fontSize: "var(--fs-13)", color: "var(--muted)", marginBottom: "var(--s3)" }}>
+            Full chat UI integration coming soon.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "var(--s4)" }}>
@@ -443,7 +458,7 @@ function ChatTab({ cardId }: { cardId: string }): React.ReactElement {
   );
 }
 
-function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card; channels: string[]; forking: boolean; onFork: () => void; onChanged: () => void }): React.ReactElement {
+function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card; channels: string[]; forking: boolean; onFork: () => Promise<void>; onChanged: () => Promise<void> }): React.ReactElement {
   const [schedule, setSchedule] = React.useState(card.publish_at ? new Date(card.publish_at).toISOString().slice(0, 16) : "");
   const [events, setEvents] = React.useState<CardEvent[]>([]);
   const [eventsLoading, setEventsLoading] = React.useState(false);
@@ -466,17 +481,23 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
     if (!time) return;
     try {
       const dt = new Date(time);
-      const plan = channels.map((ch) => ({
-        channel: ch,
-        action: ch === "pdf" ? "Create the lead magnet in Glue" : `Post the carousel on ${ch}`,
-        status: "pending",
-      }));
+      const plan: Array<{ channel?: string; action: string; status: string }> = [];
+      channels.forEach((ch) => {
+        if (ch === "pdf") {
+          plan.push({ channel: ch, action: "Create the lead magnet in Glue", status: "pending" });
+        } else {
+          plan.push({ channel: ch, action: `Post the carousel on ${ch}`, status: "pending" });
+        }
+      });
+      if (channels.includes("pdf")) {
+        plan.push({ action: "Add first comment with the PDF link", status: "pending" });
+      }
       await authFetch(`/api/content/cards/${card.id}/schedule`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ publish_at: dt.toISOString(), frozen_plan: plan }),
       });
-      onChanged();
+      await onChanged();
     } catch (e) {
       console.error("Schedule save failed:", e);
     }
@@ -489,7 +510,7 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ status: "distribution" }),
       });
-      onChanged();
+      await onChanged();
     } catch (e) {
       console.error("Unfreeze failed:", e);
     }
@@ -582,11 +603,12 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
   );
 }
 
-export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => void; onChanged: () => void }): React.ReactElement {
+export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => void; onChanged: () => Promise<void> }): React.ReactElement {
   const [tab, setTab] = React.useState<"chat" | "assets" | "copy">("chat");
   const [channels, setChannels] = React.useState<string[]>(card.channels ?? []);
   const [busy, setBusy] = React.useState(false);
   const [forking, setForking] = React.useState(false);
+  const [conversationId, setConversationId] = React.useState<string | null | undefined>(card.conversation_id);
 
   const advanceGate = async (): Promise<void> => {
     if (!GATES[card.status]) return;
@@ -597,7 +619,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
         headers: { "content-type": "application/json" },
         body: JSON.stringify({}),
       });
-      onChanged();
+      await onChanged();
     } catch (e) {
       console.error("Failed to advance gate:", e);
     } finally { setBusy(false); }
@@ -634,7 +656,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
           status: "concept",
         }),
       });
-      onChanged();
+      await onChanged();
     } catch (e) {
       console.error("Fork failed:", e);
     } finally {
@@ -676,7 +698,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
         </div>
 
         <div style={S.body}>
-          {tab === "chat" && <ChatTab cardId={card.id} />}
+          {tab === "chat" && <ChatTab cardId={card.id} conversationId={conversationId} onConversationCreated={() => { setConversationId(card.id); return onChanged(); }} />}
           {tab === "assets" && <AssetsTab cardId={card.id} />}
           {tab === "copy" && <CopyTab cardId={card.id} channels={channels} />}
           <RightRail card={card} channels={channels} forking={forking} onFork={createFork} onChanged={onChanged} />

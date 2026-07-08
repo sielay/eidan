@@ -94,6 +94,18 @@ describe("Content Workflow — Gate Advance", () => {
     assert.ok(card.frozen_data.copy !== undefined);
   });
 
+  it("should handle scheduled stage (frozen until publish time)", () => {
+    const card: TestCard = { status: "scheduled", frozen_data: { concept: {}, assets: {}, copy: {}, distribution: {} }, title: "Campaign" };
+    // Scheduled stage does not have a gate advance (auto-executes at publish_at time)
+    assert.throws(() => advanceGate(card), /Cannot advance from scheduled/);
+  });
+
+  it("should handle published stage (final, no advance possible)", () => {
+    const card: TestCard = { status: "published", frozen_data: { concept: {}, assets: {}, copy: {}, distribution: {} }, title: "Campaign" };
+    // Published is the final stage, should not advance
+    assert.throws(() => advanceGate(card), /Cannot advance from published/);
+  });
+
   it("should not allow advancing from published stage", () => {
     const card: TestCard = { status: "published", frozen_data: {}, title: "Done" };
     assert.throws(() => advanceGate(card), /Cannot advance from published/);
