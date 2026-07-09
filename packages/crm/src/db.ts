@@ -175,12 +175,10 @@ export class CrmDb {
         using (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
           and venture_id = (coalesce(nullif(current_setting('eidan.current_venture_id', true), ''), '00000000-0000-0000-0000-000000000000'))::uuid
-          and deleted_at is null
         )
         with check (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
           and venture_id = (coalesce(nullif(current_setting('eidan.current_venture_id', true), ''), '00000000-0000-0000-0000-000000000000'))::uuid
-          and deleted_at is null
         )
       `);
     } finally {

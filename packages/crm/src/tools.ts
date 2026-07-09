@@ -185,6 +185,13 @@ export function buildCrmTools(db: CrmDb): Tool[] {
                     return { error: `Field '${field}' not allowed` };
                   }
                 }
+                const contactCheck = await q(
+                  `select venture_id from ${db.schema}.contacts where id = $1 and user_id = $2 and deleted_at is null`,
+                  [contact_id, userId],
+                );
+                if (!contactCheck.rows[0]) return { error: 'Contact not found' };
+                const contactVentureId = (contactCheck.rows[0] as Record<string, unknown>).venture_id as string;
+                if (contactVentureId !== ventureId) return { error: 'Contact does not belong to this venture' };
                 const updates: string[] = [];
                 const values: unknown[] = [contact_id, userId];
                 let paramIdx = 3;
@@ -280,6 +287,13 @@ export function buildCrmTools(db: CrmDb): Tool[] {
                     return { error: `Field '${field}' not allowed` };
                   }
                 }
+                const dealCheck = await q(
+                  `select venture_id from ${db.schema}.deals where id = $1 and user_id = $2 and deleted_at is null`,
+                  [deal_id, userId],
+                );
+                if (!dealCheck.rows[0]) return { error: 'Deal not found' };
+                const dealVentureId = (dealCheck.rows[0] as Record<string, unknown>).venture_id as string;
+                if (dealVentureId !== ventureId) return { error: 'Deal does not belong to this venture' };
                 const updateValues: unknown[] = [];
                 const updates: string[] = [];
                 let paramIdx = 1;
