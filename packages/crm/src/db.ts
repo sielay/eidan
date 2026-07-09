@@ -128,6 +128,41 @@ export class CrmDb {
         create trigger ${this.schema}_deals_update_timestamp before update on ${this.schema}.deals
         for each row execute function ${this.schema}.update_timestamp()
       `);
+
+      // Enable RLS on all tables for defense-in-depth access control
+      await c.query(`alter table ${this.schema}.contacts enable row level security`);
+      await c.query(`alter table ${this.schema}.deals enable row level security`);
+      await c.query(`alter table ${this.schema}.activities enable row level security`);
+
+      // Contacts: owner-scoped access via user_id matching current_user_id
+      await c.query(`
+        drop policy if exists contacts_owner_policy on ${this.schema}.contacts
+      `);
+      await c.query(`
+        create policy contacts_owner_policy on ${this.schema}.contacts
+        using (user_id = (current_setting('eidan.current_user_id', true))::uuid)
+        with check (user_id = (current_setting('eidan.current_user_id', true))::uuid)
+      `);
+
+      // Deals: owner-scoped access via user_id matching current_user_id
+      await c.query(`
+        drop policy if exists deals_owner_policy on ${this.schema}.deals
+      `);
+      await c.query(`
+        create policy deals_owner_policy on ${this.schema}.deals
+        using (user_id = (current_setting('eidan.current_user_id', true))::uuid)
+        with check (user_id = (current_setting('eidan.current_user_id', true))::uuid)
+      `);
+
+      // Activities: owner-scoped access via user_id matching current_user_id
+      await c.query(`
+        drop policy if exists activities_owner_policy on ${this.schema}.activities
+      `);
+      await c.query(`
+        create policy activities_owner_policy on ${this.schema}.activities
+        using (user_id = (current_setting('eidan.current_user_id', true))::uuid)
+        with check (user_id = (current_setting('eidan.current_user_id', true))::uuid)
+      `);
     } finally {
       c.release();
     }

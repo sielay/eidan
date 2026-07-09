@@ -152,7 +152,7 @@ export default function Crm() {
   }
 
   function formatColumnSum(col: PipelineColumn | undefined): string {
-    if (!col) return '£0.00 (0)';
+    if (!col) return `${formatCurrency(0, 'GBP')} (0)`;
     const { total, currency } = getColumnSum(col);
     return `${formatCurrency(total, currency)} (${col.count})`;
   }

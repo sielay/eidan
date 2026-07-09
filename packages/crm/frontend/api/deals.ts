@@ -87,7 +87,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
   // Whitelist allowed fields for update
   const allowedFields = ['stage', 'position'];
   for (const field of Object.keys(body)) {
-    if (!['deal_id', 'venture_id', ...allowedFields].includes(field)) {
+    if (!allowedFields.includes(field as string) && field !== 'deal_id' && field !== 'venture_id') {
       return Response.json({ error: `Field '${field}' not allowed` }, { status: 400 });
     }
   }
