@@ -53,6 +53,8 @@ export default function Crm() {
   const [selectedDeal, setSelectedDeal] = useState<string | null>(null);
   const [dealActivities, setDealActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickAddStage, setQuickAddStage] = useState<string | null>(null);
 
   const ventureId = params.get('venture_id') || '';
 
@@ -241,7 +243,7 @@ export default function Crm() {
                         </div>
                         {stage !== 'won' && stage !== 'lost' && (
                           <div className="dealcard__actions">
-                            {DEFAULT_STAGES.indexOf(stage) > 0 && stage !== 'lost' && (
+                            {DEFAULT_STAGES.indexOf(stage) > 0 && (
                               <button
                                 className="dealcard__arrow"
                                 aria-label="Move deal to previous stage"
@@ -256,7 +258,7 @@ export default function Crm() {
                                 ←
                               </button>
                             )}
-                            {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && stage !== 'won' && (
+                            {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && (
                               <button
                                 className="dealcard__arrow"
                                 aria-label="Move deal to next stage"
@@ -276,7 +278,14 @@ export default function Crm() {
                       </div>
                     ))}
                   </div>
-                  <button className="kancol__add" aria-label={`Add deal to ${stage} stage`}>
+                  <button
+                    className="kancol__add"
+                    aria-label={`Add deal to ${stage} stage`}
+                    onClick={() => {
+                      setQuickAddStage(stage);
+                      setShowQuickAdd(true);
+                    }}
+                  >
                     + Add deal
                   </button>
                 </div>

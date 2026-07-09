@@ -81,11 +81,11 @@ export async function PUT(req: NextRequest): Promise<Response> {
     return Response.json({ error: 'invalid JSON body' }, { status: 400 });
   }
 
-  const { deal_id, stage, venture_id } = body;
+  const { deal_id, stage, venture_id, position } = body;
   if (!deal_id || !stage) return Response.json({ error: 'deal_id and stage required' }, { status: 400 });
 
   // Whitelist allowed fields for update
-  const allowedFields = ['stage'];
+  const allowedFields = ['stage', 'position'];
   for (const field of Object.keys(body)) {
     if (!['deal_id', 'venture_id', ...allowedFields].includes(field)) {
       return Response.json({ error: `Field '${field}' not allowed` }, { status: 400 });
@@ -107,12 +107,15 @@ export async function PUT(req: NextRequest): Promise<Response> {
       return { error: 'Deal does not belong to the specified venture' };
     }
 
-    const posRes = await c.query(
-      `select coalesce(max(position), -1) as max_pos from plugin_crm.deals where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
-      [sess.userId, dealVentureId, stage],
-    );
-    const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
-    const newPosition = maxPos + 1;
+    let newPosition = position as number;
+    if (newPosition === undefined || newPosition === null) {
+      const posRes = await c.query(
+        `select coalesce(max(position), -1) as max_pos from plugin_crm.deals where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
+        [sess.userId, dealVentureId, stage],
+      );
+      const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
+      newPosition = maxPos + 1;
+    }
 
     const r = await c.query(
       `update plugin_crm.deals set stage = $1, position = $2, updated_at = now()

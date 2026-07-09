@@ -310,11 +310,22 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             const ventureId = (deal.rows[0] as Record<string, unknown>).venture_id as string;
             const currentStage = (deal.rows[0] as Record<string, unknown>).current_stage as string;
 
+            let finalPosition = position as number | undefined;
+            if (finalPosition === undefined || finalPosition === null) {
+              const posRes = await q(
+                `select coalesce(max(position), -1) as max_pos from ${db.schema}.deals
+                 where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
+                [userId, ventureId, stage],
+              );
+              const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
+              finalPosition = maxPos + 1;
+            }
+
             const r = await q(
               `update ${db.schema}.deals set stage = $1, position = $2, updated_at = now()
                where id = $3 and user_id = $4 and venture_id = $5 and deleted_at is null
                returning id, name, stage, value_cents, currency, updated_at`,
-              [stage, position || 0, deal_id, userId, ventureId],
+              [stage, finalPosition, deal_id, userId, ventureId],
             );
             if (r.rows[0]) {
               await q(
