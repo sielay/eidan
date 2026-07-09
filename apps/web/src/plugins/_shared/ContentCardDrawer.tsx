@@ -43,7 +43,7 @@ function GateStrip({ card, onAdvance }: { card: Card; onAdvance: () => Promise<v
   const stages = ["concept", "assets", "copy", "distribution", "scheduled", "published"];
   const idx = stages.indexOf(card.status);
   const gate = GATES[card.status];
-  const isFinal = card.status === "published" || card.status === "scheduled";
+  const isFinal = card.status === "published";
   const [advancing, setAdvancing] = React.useState(false);
 
   return (
@@ -175,6 +175,7 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
       for (const file of Array.from(files)) {
         const fd = new FormData();
         fd.append("file", file);
+        fd.append("card_id", cardId);
         fd.append("user_id", user?.id ?? "");
         await authFetch(`/api/content/cards/${cardId}/assets/upload`, {
           method: "POST",
@@ -307,7 +308,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
       await authFetch(`/api/content/cards/${cardId}/copy`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ channel, body, user_id: user?.id }),
+        body: JSON.stringify({ card_id: cardId, channel, body, user_id: user?.id }),
       });
       setEditing(null);
       await load();
@@ -322,7 +323,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
       await authFetch(`/api/content/cards/${cardId}/copy/${channel}/resource`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ type: resourceType, label: resourceLabel.trim(), user_id: user?.id }),
+        body: JSON.stringify({ card_id: cardId, type: resourceType, label: resourceLabel.trim(), user_id: user?.id }),
       });
       setLinkingResource(null);
       setResourceLabel("");
@@ -420,7 +421,7 @@ function ChatTab({ cardId, conversationId, onConversationCreated }: { cardId: st
       const r = await authFetch(`/api/content/cards/${cardId}/conversation`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ user_id: user?.id }),
+        body: JSON.stringify({ card_id: cardId, user_id: user?.id }),
       });
       if (r.ok) {
         const j = (await r.json()) as { conversation_id?: string };
@@ -499,7 +500,7 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
       await authFetch(`/api/content/cards/${card.id}/schedule`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ publish_at: dt.toISOString(), channels, user_id: user?.id }),
+        body: JSON.stringify({ card_id: card.id, publish_at: dt.toISOString(), channels, user_id: user?.id }),
       });
       await onChanged();
     } catch (e) {
@@ -512,7 +513,7 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
       await authFetch(`/api/content/cards/${card.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status: "distribution", user_id: user?.id }),
+        body: JSON.stringify({ card_id: card.id, status: "distribution", user_id: user?.id }),
       });
       await onChanged();
     } catch (e) {
@@ -622,7 +623,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
       await authFetch(`/api/content/cards/${card.id}/gate-advance`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ user_id: user?.id }),
+        body: JSON.stringify({ card_id: card.id, user_id: user?.id }),
       });
       await onChanged();
     } catch (e) {
@@ -637,7 +638,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
       await authFetch(`/api/boards/cards/${card.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ channels: next, user_id: user?.id }),
+        body: JSON.stringify({ card_id: card.id, channels: next, user_id: user?.id }),
       });
     } catch (e) {
       console.error("Failed to update channels:", e);
@@ -653,6 +654,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          card_id: card.id,
           title: forkTitle,
           body: card.body,
           channels: channels,
