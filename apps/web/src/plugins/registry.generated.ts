@@ -12,7 +12,6 @@ export const pluginRoutes: PluginRoute[] = [
   { plugin: "journal", path: "/", load: () => import("@/plugins/journal/Journal") },
   { plugin: "content", path: "/", load: () => import("@/plugins/content/Content") },
   { plugin: "content", path: "/*", load: () => import("@/plugins/content/Content") },
-  { plugin: "crm", path: "/", load: () => import("@/plugins/crm/Crm") },
   { plugin: "crm", path: "/*", load: () => import("@/plugins/crm/Crm") },
   { plugin: "imap", path: "/", load: () => import("@/plugins/imap/Accounts") },
   { plugin: "ical", path: "/", load: () => import("@/plugins/ical/Calendars") },

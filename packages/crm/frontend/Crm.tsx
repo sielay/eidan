@@ -5,12 +5,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth';
 
-// Default pipeline stages. KEEP IN SYNC with packages/crm/src/stages.ts DEFAULT_STAGES.
-// Future: fetch these from backend API for per-venture configuration.
-const DEFAULT_STAGES = ['lead', 'qualified', 'proposal', 'won', 'lost'];
-// Terminal stages that prevent forward/backward navigation. KEEP IN SYNC with packages/crm/src/stages.ts TERMINAL_STAGES.
-const TERMINAL_STAGES = new Set(['won', 'lost']);
-
 interface Deal {
   id: string;
   name: string;
@@ -58,8 +52,14 @@ export default function Crm() {
   const [loading, setLoading] = useState(true);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickAddStage, setQuickAddStage] = useState<string | null>(null);
+  const [stages, setStages] = useState<string[]>([]);
+  const [terminalStages, setTerminalStages] = useState<Set<string>>(new Set());
 
   const ventureId = params.get('venture_id') || '';
+
+  useEffect(() => {
+    loadStages();
+  }, []);
 
   useEffect(() => {
     if (!ventureId) return;
@@ -73,15 +73,26 @@ export default function Crm() {
     }
   }, [view]);
 
+  async function loadStages() {
+    try {
+      const res = await authFetch('/api/crm/stages');
+      const data = (await res.json()) as { stages?: string[]; terminalStages?: string[] };
+      setStages(data.stages || []);
+      setTerminalStages(new Set(data.terminalStages || []));
+    } catch (e) {
+      console.error('Failed to load stages:', e);
+    }
+  }
+
   async function loadPipeline() {
     if (!ventureId) return;
     try {
       const res = await authFetch(`/api/crm/pipeline?venture_id=${ventureId}`);
       const data = (await res.json()) as { columns?: PipelineColumn[] };
       setColumns(data.columns || []);
-      setLoading(false);
     } catch (e) {
       console.error('Failed to load pipeline:', e);
+    } finally {
       setLoading(false);
     }
   }
@@ -160,7 +171,7 @@ export default function Crm() {
   }
 
   // Build a Map for O(1) lookup of columns by stage
-  const columnMap = useMemo(() => new Map(columns.map((c) => [c.stage, c])), [columns]);
+  const columnMap = useMemo(() => new Map(columns.map((c) => [c.stage, c])), [columns, stages]);
 
   if (loading) return <div className="screen-head">Loading...</div>;
 
@@ -187,7 +198,7 @@ export default function Crm() {
       {view === 'pipeline' && (
         <div className="crm-pipeline">
           <div className="kanban">
-            {DEFAULT_STAGES.map((stage) => {
+            {stages.map((stage) => {
               const col = columnMap.get(stage);
               return (
                 <div key={stage} className="kancol">
@@ -214,32 +225,32 @@ export default function Crm() {
                           {deal.company && <span>{deal.company}</span>}
                           <span className="--font-num">{formatCurrency(deal.value_cents, deal.currency)}</span>
                         </div>
-                        {!TERMINAL_STAGES.has(stage) && (
+                        {!terminalStages.has(stage) && (
                           <div className="dealcard__actions">
-                            {DEFAULT_STAGES.indexOf(stage) > 0 && (
+                            {stages.indexOf(stage) > 0 && (
                               <button
                                 className="dealcard__arrow"
                                 aria-label="Move deal to previous stage"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const stageIdx = DEFAULT_STAGES.indexOf(stage);
+                                  const stageIdx = stages.indexOf(stage);
                                   if (stageIdx > 0) {
-                                    moveDeal(deal.id, DEFAULT_STAGES[stageIdx - 1]);
+                                    moveDeal(deal.id, stages[stageIdx - 1]);
                                   }
                                 }}
                               >
                                 ←
                               </button>
                             )}
-                            {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && (
+                            {stages.indexOf(stage) < stages.length - 1 && (
                               <button
                                 className="dealcard__arrow"
                                 aria-label="Move deal to next stage"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const stageIdx = DEFAULT_STAGES.indexOf(stage);
-                                  if (stageIdx + 1 < DEFAULT_STAGES.length) {
-                                    moveDeal(deal.id, DEFAULT_STAGES[stageIdx + 1]);
+                                  const stageIdx = stages.indexOf(stage);
+                                  if (stageIdx + 1 < stages.length) {
+                                    moveDeal(deal.id, stages[stageIdx + 1]);
                                   }
                                 }}
                               >
