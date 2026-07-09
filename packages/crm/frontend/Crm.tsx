@@ -109,7 +109,7 @@ export default function Crm() {
     try {
       const res = await authFetch(`/api/crm/deals`, {
         method: 'PUT',
-        body: JSON.stringify({ deal_id: dealId, stage: newStage, venture_id: ventureId }),
+        body: JSON.stringify({ deal_id: dealId, stage: newStage, venture_id: ventureId, position: null }),
       });
       if (res.ok) {
         loadPipeline();
