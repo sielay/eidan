@@ -81,11 +81,11 @@ export async function PUT(req: NextRequest): Promise<Response> {
     return Response.json({ error: 'invalid JSON body' }, { status: 400 });
   }
 
-  const { deal_id, stage, venture_id, position } = body;
+  const { deal_id, stage, venture_id } = body;
   if (!deal_id || !stage) return Response.json({ error: 'deal_id and stage required' }, { status: 400 });
 
-  // Whitelist allowed fields for update
-  const allowedFields = ['stage', 'position'];
+  // Whitelist allowed fields for update. Position is managed by backend logic only.
+  const allowedFields = ['stage'];
   for (const field of Object.keys(body)) {
     if (!allowedFields.includes(field as string) && field !== 'deal_id' && field !== 'venture_id') {
       return Response.json({ error: `Field '${field}' not allowed` }, { status: 400 });
@@ -114,17 +114,14 @@ export async function PUT(req: NextRequest): Promise<Response> {
   }
 
   const payload = await withUser(sess.userId, async (c) => {
-    let newPosition = position as number;
-    if (newPosition === undefined || newPosition === null) {
-      // Simple append-only position model: new deals in a stage get max(position) + 1.
-      // This avoids needing to re-order all deals when moving one. Position is for ordering, not identity.
-      const posRes = await c.query(
-        `select coalesce(max(position), -1) as max_pos from plugin_crm.deals where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
-        [sess.userId, dealVentureId, stage],
-      );
-      const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
-      newPosition = maxPos + 1;
-    }
+    // Position is always computed by the backend for ordering within a stage.
+    // Append-only model: deals in a stage get max(position) + 1 to avoid re-ordering all deals on move.
+    const posRes = await c.query(
+      `select coalesce(max(position), -1) as max_pos from plugin_crm.deals where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
+      [sess.userId, dealVentureId, stage],
+    );
+    const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
+    const newPosition = maxPos + 1;
 
     const r = await c.query(
       `update plugin_crm.deals set stage = $1, position = $2, updated_at = now()

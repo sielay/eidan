@@ -84,7 +84,6 @@ const DEAL_MOVE_SCHEMA: JSONSchema = {
   properties: {
     deal_id: { type: 'string', description: 'Deal ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     stage: { type: 'string', description: 'New stage.', enum: DEFAULT_STAGES as unknown as string[] },
-    position: { type: 'integer', description: 'Position within stage (optional).', minimum: 0 },
   },
   required: ['deal_id', 'stage'],
   additionalProperties: false,
@@ -302,7 +301,7 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             const r = await q(query, params);
             return { deals: r.rows };
           } else if (action === 'move') {
-            const { deal_id, stage, position } = input as Record<string, unknown>;
+            const { deal_id, stage } = input as Record<string, unknown>;
             const deal = await q(
               `select stage as current_stage from ${db.schema}.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
               [deal_id, userId, venture_id],
@@ -310,18 +309,14 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             if (!deal.rows[0]) return { error: 'Deal not found' };
             const currentStage = (deal.rows[0] as Record<string, unknown>).current_stage as string;
 
-            let finalPosition = position as number | undefined;
-            if (finalPosition === undefined || finalPosition === null) {
-              // Simple append-only position model: new deals in a stage get max(position) + 1.
-              // This avoids needing to re-order all deals when moving one. Position is for ordering, not identity.
-              const posRes = await q(
-                `select coalesce(max(position), -1) as max_pos from ${db.schema}.deals
-                 where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
-                [userId, venture_id, stage],
-              );
-              const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
-              finalPosition = maxPos + 1;
-            }
+            // Position is always computed by the backend (append-only model) to prevent agents from arbitrarily reordering deals.
+            const posRes = await q(
+              `select coalesce(max(position), -1) as max_pos from ${db.schema}.deals
+               where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
+              [userId, venture_id, stage],
+            );
+            const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
+            const finalPosition = maxPos + 1;
 
             const r = await q(
               `update ${db.schema}.deals set stage = $1, position = $2, updated_at = now()

@@ -50,8 +50,6 @@ export default function Crm() {
   const [selectedDeal, setSelectedDeal] = useState<string | null>(null);
   const [dealActivities, setDealActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [quickAddStage, setQuickAddStage] = useState<string | null>(null);
   const [stages, setStages] = useState<string[]>([]);
   const [terminalStages, setTerminalStages] = useState<Set<string>>(new Set());
 
@@ -122,7 +120,7 @@ export default function Crm() {
     try {
       const res = await authFetch(`/api/crm/deals`, {
         method: 'PUT',
-        body: JSON.stringify({ deal_id: dealId, stage: newStage, venture_id: ventureId, position: null }),
+        body: JSON.stringify({ deal_id: dealId, stage: newStage, venture_id: ventureId }),
       });
       if (res.ok) {
         loadPipeline();
@@ -132,13 +130,6 @@ export default function Crm() {
     }
   }
 
-  function getColumnSum(col: PipelineColumn | undefined): { total: number; currency: string } {
-    if (!col || col.count === 0) return { total: 0, currency: 'GBP' };
-    // Infer currency from first deal in column. Assumes all deals within a stage have the same currency;
-    // if mixed currencies exist, the sum may be misleading and should be broken down by currency.
-    const firstDeal = col.deals[0];
-    return { total: col.total_cents / 100, currency: firstDeal?.currency || 'GBP' };
-  }
 
   function formatCurrency(cents: number, currency: string): string {
     return new Intl.NumberFormat('en-GB', {
@@ -157,22 +148,21 @@ export default function Crm() {
     const mins = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
+    const weeks = Math.floor(days / 7);
+    const months = Math.floor(days / 30);
     if (mins < 1) return 'just now';
     if (mins < 60) return `${mins} min${mins !== 1 ? 's' : ''} ago`;
     if (hours < 24) return `${hours} hr${hours !== 1 ? 's' : ''} ago`;
     if (days < 7) return `${days} day${days !== 1 ? 's' : ''} ago`;
+    if (weeks < 4) return `${weeks} week${weeks !== 1 ? 's' : ''} ago`;
+    if (months < 12) return `${months} month${months !== 1 ? 's' : ''} ago`;
     return date.toLocaleDateString('en-GB');
   }
 
   function formatColumnSum(col: PipelineColumn | undefined): string {
-    if (!col) return `${formatCurrency(0, 'GBP')} (0)`;
-    const { total, currency } = getColumnSum(col);
-    return `${new Intl.NumberFormat('en-GB', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(total)} (${col.count})`;
+    if (!col || col.count === 0) return '';
+    const currency = col.deals[0]?.currency || 'GBP';
+    return `${formatCurrency(col.total_cents, currency)} (${col.count})`;
   }
 
   // Build a Map for O(1) lookup of columns by stage
@@ -235,7 +225,8 @@ export default function Crm() {
                             {stages.indexOf(stage) > 0 && (
                               <button
                                 className="dealcard__arrow"
-                                aria-label="Move deal to previous stage"
+                                title={`Move to ${stages[stages.indexOf(stage) - 1]}`}
+                                aria-label={`Move deal to ${stages[stages.indexOf(stage) - 1]} stage`}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const stageIdx = stages.indexOf(stage);
@@ -250,7 +241,8 @@ export default function Crm() {
                             {stages.indexOf(stage) < stages.length - 1 && (
                               <button
                                 className="dealcard__arrow"
-                                aria-label="Move deal to next stage"
+                                title={`Move to ${stages[stages.indexOf(stage) + 1]}`}
+                                aria-label={`Move deal to ${stages[stages.indexOf(stage) + 1]} stage`}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const stageIdx = stages.indexOf(stage);
@@ -267,16 +259,6 @@ export default function Crm() {
                       </div>
                     ))}
                   </div>
-                  <button
-                    className="kancol__add"
-                    aria-label={`Add deal to ${stage} stage`}
-                    onClick={() => {
-                      setQuickAddStage(stage);
-                      setShowQuickAdd(true);
-                    }}
-                  >
-                    + Add deal
-                  </button>
                 </div>
               );
             })}
