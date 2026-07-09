@@ -132,7 +132,13 @@ export default function Crm() {
 
 
   function formatCurrency(cents: number, currency: string): string {
-    return new Intl.NumberFormat('en-GB', {
+    const localeMap: Record<string, string> = {
+      GBP: 'en-GB',
+      USD: 'en-US',
+      EUR: 'de-DE',
+    };
+    const locale = localeMap[currency] || 'en-GB';
+    return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency,
       minimumFractionDigits: 2,
@@ -166,7 +172,7 @@ export default function Crm() {
   }
 
   // Build a Map for O(1) lookup of columns by stage
-  const columnMap = useMemo(() => new Map(columns.map((c) => [c.stage, c])), [columns]);
+  const columnMap = useMemo(() => new Map(columns.map((c) => [c.stage, c])), [columns, stages]);
 
   if (loading) return <div className="screen-head">Loading...</div>;
 

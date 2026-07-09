@@ -21,6 +21,7 @@ const CONTACT_CREATE_SCHEMA: JSONSchema = {
 const CONTACT_UPDATE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
+    venture_id: { type: 'string', description: 'Venture ID (UUID).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     contact_id: { type: 'string', description: 'Contact ID to update.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     name: { type: 'string', description: 'Contact name.' },
     email: { type: 'string', description: 'Email address.' },
@@ -28,16 +29,17 @@ const CONTACT_UPDATE_SCHEMA: JSONSchema = {
     company: { type: 'string', description: 'Company.' },
     role: { type: 'string', description: 'Job title or role.' },
   },
-  required: ['contact_id'],
+  required: ['venture_id', 'contact_id'],
   additionalProperties: false,
 };
 
 const CONTACT_GET_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
+    venture_id: { type: 'string', description: 'Venture ID (UUID).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     contact_id: { type: 'string', description: 'Contact ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
   },
-  required: ['contact_id'],
+  required: ['venture_id', 'contact_id'],
   additionalProperties: false,
 };
 
@@ -67,6 +69,7 @@ const DEAL_CREATE_SCHEMA: JSONSchema = {
 const DEAL_UPDATE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
+    venture_id: { type: 'string', description: 'Venture ID (UUID).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     deal_id: { type: 'string', description: 'Deal ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     name: { type: 'string', description: 'Deal name.' },
     value_cents: { type: 'integer', description: 'Value in cents.', minimum: 0 },
@@ -75,26 +78,28 @@ const DEAL_UPDATE_SCHEMA: JSONSchema = {
     contact_id: { type: ['string', 'null'], description: 'Associated contact (null to unlink).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     expected_close: { type: 'string', description: 'Expected close date (YYYY-MM-DD).' },
   },
-  required: ['deal_id'],
+  required: ['venture_id', 'deal_id'],
   additionalProperties: false,
 };
 
 const DEAL_MOVE_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
+    venture_id: { type: 'string', description: 'Venture ID (UUID).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     deal_id: { type: 'string', description: 'Deal ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     stage: { type: 'string', description: 'New stage.', enum: DEFAULT_STAGES as unknown as string[] },
   },
-  required: ['deal_id', 'stage'],
+  required: ['venture_id', 'deal_id', 'stage'],
   additionalProperties: false,
 };
 
 const DEAL_GET_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
+    venture_id: { type: 'string', description: 'Venture ID (UUID).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     deal_id: { type: 'string', description: 'Deal ID.', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
   },
-  required: ['deal_id'],
+  required: ['venture_id', 'deal_id'],
   additionalProperties: false,
 };
 
@@ -145,77 +150,90 @@ export function buildCrmTools(db: CrmDb): Tool[] {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['create', 'update', 'list', 'get'], description: 'Action to perform.' },
-          ...CONTACT_CREATE_SCHEMA.properties,
-          ...CONTACT_UPDATE_SCHEMA.properties,
-          ...CONTACT_GET_SCHEMA.properties,
-          ...CONTACT_LIST_SCHEMA.properties,
+          ...(CONTACT_CREATE_SCHEMA.properties || {}),
+          ...(CONTACT_UPDATE_SCHEMA.properties || {}),
+          ...(CONTACT_GET_SCHEMA.properties || {}),
+          ...(CONTACT_LIST_SCHEMA.properties || {}),
         },
         required: ['action'],
       },
-      invoke: async (input) => {
-        const action = (input as Record<string, unknown>).action as string;
-        const userId = uid();
-        if (!userId) return { error: 'Not authenticated' };
+      executor: {
+        async *execute(input: unknown) {
+          const args = (input ?? {}) as Record<string, unknown>;
+          const action = args['action'] as string;
+          const userId = uid();
+          if (!userId) return yield { type: 'error', message: 'Not authenticated' };
+          const ventureId = args['venture_id'] as string | undefined;
+          if (!ventureId) return yield { type: 'error', message: 'venture_id required' };
 
-        const { venture_id } = input as Record<string, unknown>;
-        return db.withPrincipalTx(async (q) => {
-          if (action === 'create') {
-            const { name, email, phone, company, role } = input as Record<string, unknown>;
-            const r = await q(
-              `insert into ${db.schema}.contacts (user_id, venture_id, name, email, phone, company, role)
-               values ($1, $2, $3, $4, $5, $6, $7) returning id, name, email, company, role, created_at`,
-              [userId, venture_id, name, email || null, phone || null, company || null, role || null],
-            );
-            return r.rows[0] || { error: 'Failed to create contact' };
-          } else if (action === 'update') {
-            const { contact_id } = input as Record<string, unknown>;
-            const ALLOWED_FIELDS = ['name', 'email', 'phone', 'company', 'role'];
-            for (const field of Object.keys(input)) {
-              if (!ALLOWED_FIELDS.includes(field) && field !== 'contact_id' && field !== 'action' && field !== 'venture_id') {
-                return { error: `Field '${field}' not allowed` };
+          try {
+            const result = await db.withPrincipalTx(async (q) => {
+              if (action === 'create') {
+                const { name, email, phone, company, role } = args;
+                const r = await q(
+                  `insert into ${db.schema}.contacts (user_id, venture_id, name, email, phone, company, role)
+                   values ($1, $2, $3, $4, $5, $6, $7) returning id, name, email, company, role, created_at`,
+                  [userId, ventureId, name, email || null, phone || null, company || null, role || null],
+                );
+                return r.rows[0] || { error: 'Failed to create contact' };
+              } else if (action === 'update') {
+                const { contact_id } = args;
+                const ALLOWED_FIELDS = ['name', 'email', 'phone', 'company', 'role'];
+                for (const field of Object.keys(args)) {
+                  if (!ALLOWED_FIELDS.includes(field) && field !== 'contact_id' && field !== 'action' && field !== 'venture_id') {
+                    return { error: `Field '${field}' not allowed` };
+                  }
+                }
+                const updates: string[] = [];
+                const values: unknown[] = [contact_id, userId];
+                let paramIdx = 3;
+                for (const field of ALLOWED_FIELDS) {
+                  const value = args[field];
+                  if (value !== undefined) {
+                    updates.push(`${field} = $${paramIdx}`);
+                    values.push(value);
+                    paramIdx++;
+                  }
+                }
+                if (updates.length === 0) return { error: 'No fields to update' };
+                updates.push(`updated_at = now()`);
+                const venture_id_idx = values.length + 1;
+                values.push(ventureId);
+                const r = await q(
+                  `update ${db.schema}.contacts set ${updates.join(', ')}
+                   where id = $1 and user_id = $2 and venture_id = $${venture_id_idx} and deleted_at is null
+                   returning id, name, email, company, role, updated_at`,
+                  values,
+                );
+                return r.rows[0] || { error: 'Contact not found' };
+              } else if (action === 'get') {
+                const { contact_id } = args;
+                const r = await q(
+                  `select id, name, email, phone, company, role, venture_id, created_at, updated_at from ${db.schema}.contacts
+                   where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
+                  [contact_id, userId, ventureId],
+                );
+                return r.rows[0] || { error: 'Contact not found' };
+              } else if (action === 'list') {
+                const r = await q(
+                  `select id, name, email, company, role, venture_id from ${db.schema}.contacts
+                   where user_id = $1 and venture_id = $2 and deleted_at is null
+                   order by name`,
+                  [userId, ventureId],
+                );
+                return { contacts: r.rows };
               }
+              return { error: 'Invalid action' };
+            }, ventureId);
+            if (typeof result === 'object' && result !== null && 'error' in result) {
+              yield { type: 'error', message: result.error as string };
+            } else {
+              yield { type: 'result', value: result };
             }
-            const updates: string[] = [];
-            const values: unknown[] = [contact_id, userId];
-            let paramIdx = 3;
-            for (const field of ALLOWED_FIELDS) {
-              const value = (input as Record<string, unknown>)[field];
-              if (value !== undefined) {
-                updates.push(`${field} = $${paramIdx}`);
-                values.push(value);
-                paramIdx++;
-              }
-            }
-            if (updates.length === 0) return { error: 'No fields to update' };
-            updates.push(`updated_at = now()`);
-            const venture_id_idx = values.length + 1;
-            values.push(venture_id);
-            const r = await q(
-              `update ${db.schema}.contacts set ${updates.join(', ')}
-               where id = $1 and user_id = $2 and venture_id = $${venture_id_idx} and deleted_at is null
-               returning id, name, email, company, role, updated_at`,
-              values,
-            );
-            return r.rows[0] || { error: 'Contact not found' };
-          } else if (action === 'get') {
-            const { contact_id } = input as Record<string, unknown>;
-            const r = await q(
-              `select id, name, email, phone, company, role, venture_id, created_at, updated_at from ${db.schema}.contacts
-               where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
-              [contact_id, userId, venture_id],
-            );
-            return r.rows[0] || { error: 'Contact not found' };
-          } else if (action === 'list') {
-            const r = await q(
-              `select id, name, email, company, role, venture_id from ${db.schema}.contacts
-               where user_id = $1 and venture_id = $2 and deleted_at is null
-               order by name`,
-              [userId, venture_id],
-            );
-            return { contacts: r.rows };
+          } catch (e) {
+            yield { type: 'error', message: `${e instanceof Error ? e.message : String(e)}` };
           }
-          return { error: 'Invalid action' };
-        }, venture_id as string | undefined);
+        },
       },
     },
 
@@ -226,115 +244,127 @@ export function buildCrmTools(db: CrmDb): Tool[] {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['create', 'update', 'list', 'get', 'move'], description: 'Action to perform.' },
-          ...DEAL_CREATE_SCHEMA.properties,
-          ...DEAL_UPDATE_SCHEMA.properties,
-          ...DEAL_GET_SCHEMA.properties,
-          ...DEAL_LIST_SCHEMA.properties,
-          ...DEAL_MOVE_SCHEMA.properties,
+          ...(DEAL_CREATE_SCHEMA.properties || {}),
+          ...(DEAL_UPDATE_SCHEMA.properties || {}),
+          ...(DEAL_GET_SCHEMA.properties || {}),
+          ...(DEAL_LIST_SCHEMA.properties || {}),
+          ...(DEAL_MOVE_SCHEMA.properties || {}),
         },
         required: ['action'],
       },
-      invoke: async (input) => {
-        const action = (input as Record<string, unknown>).action as string;
-        const userId = uid();
-        if (!userId) return { error: 'Not authenticated' };
+      executor: {
+        async *execute(input: unknown) {
+          const args = (input ?? {}) as Record<string, unknown>;
+          const action = args['action'] as string;
+          const userId = uid();
+          if (!userId) return yield { type: 'error', message: 'Not authenticated' };
+          const ventureId = args['venture_id'] as string | undefined;
+          if (!ventureId) return yield { type: 'error', message: 'venture_id required' };
 
-        const { venture_id } = input as Record<string, unknown>;
-        return db.withPrincipalTx(async (q) => {
-          if (action === 'create') {
-            const { name, stage, contact_id, value_cents, currency } = input as Record<string, unknown>;
-            const r = await q(
-              `insert into ${db.schema}.deals (user_id, venture_id, name, stage, contact_id, value_cents, currency)
-               values ($1, $2, $3, $4, $5, $6, $7) returning id, name, stage, value_cents, currency, created_at`,
-              [userId, venture_id, name, stage, contact_id || null, value_cents || 0, currency || 'GBP'],
-            );
-            return r.rows[0] || { error: 'Failed to create deal' };
-          } else if (action === 'update') {
-            const { deal_id } = input as Record<string, unknown>;
-            const ALLOWED_FIELDS = ['name', 'value_cents', 'currency', 'stage', 'contact_id', 'expected_close'];
-            for (const field of Object.keys(input)) {
-              if (!ALLOWED_FIELDS.includes(field) && field !== 'deal_id' && field !== 'action' && field !== 'venture_id') {
-                return { error: `Field '${field}' not allowed` };
+          try {
+            const result = await db.withPrincipalTx(async (q) => {
+              if (action === 'create') {
+                const { name, stage, contact_id, value_cents, currency } = args;
+                const r = await q(
+                  `insert into ${db.schema}.deals (user_id, venture_id, name, stage, contact_id, value_cents, currency)
+                   values ($1, $2, $3, $4, $5, $6, $7) returning id, name, stage, value_cents, currency, created_at`,
+                  [userId, ventureId, name, stage, contact_id || null, value_cents || 0, currency || 'GBP'],
+                );
+                return r.rows[0] || { error: 'Failed to create deal' };
+              } else if (action === 'update') {
+                const { deal_id } = args;
+                const ALLOWED_FIELDS = ['name', 'value_cents', 'currency', 'stage', 'contact_id', 'expected_close'];
+                for (const field of Object.keys(args)) {
+                  if (!ALLOWED_FIELDS.includes(field) && field !== 'deal_id' && field !== 'action' && field !== 'venture_id') {
+                    return { error: `Field '${field}' not allowed` };
+                  }
+                }
+                const updateValues: unknown[] = [];
+                const updates: string[] = [];
+                let paramIdx = 1;
+                for (const field of ALLOWED_FIELDS) {
+                  const value = args[field];
+                  if (value !== undefined) {
+                    updates.push(`${field} = $${paramIdx}`);
+                    updateValues.push(value);
+                    paramIdx++;
+                  }
+                }
+                if (updates.length === 0) return { error: 'No fields to update' };
+                updates.push(`updated_at = now()`);
+                const deal_id_idx = updateValues.length + 1;
+                const userId_idx = updateValues.length + 2;
+                const venture_id_idx = updateValues.length + 3;
+                const r = await q(
+                  `update ${db.schema}.deals set ${updates.join(', ')}
+                   where id = $${deal_id_idx} and user_id = $${userId_idx} and venture_id = $${venture_id_idx} and deleted_at is null
+                   returning id, name, stage, value_cents, currency, updated_at`,
+                  [...updateValues, deal_id, userId, ventureId],
+                );
+                return r.rows[0] || { error: 'Deal not found' };
+              } else if (action === 'get') {
+                const { deal_id } = args;
+                const r = await q(
+                  `select id, name, stage, value_cents, currency, contact_id, venture_id, expected_close, created_at, updated_at
+                   from ${db.schema}.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
+                  [deal_id, userId, ventureId],
+                );
+                return r.rows[0] || { error: 'Deal not found' };
+              } else if (action === 'list') {
+                const { stage } = args;
+                let query = `select id, name, stage, value_cents, currency, contact_id, venture_id from ${db.schema}.deals
+                             where user_id = $1 and venture_id = $2 and deleted_at is null`;
+                const params: unknown[] = [userId, ventureId];
+                if (stage) {
+                  query += ` and stage = $${params.length + 1}`;
+                  params.push(stage);
+                }
+                query += ` order by stage, position`;
+                const r = await q(query, params);
+                return { deals: r.rows };
+              } else if (action === 'move') {
+                const { deal_id, stage } = args;
+                const deal = await q(
+                  `select stage as current_stage from ${db.schema}.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
+                  [deal_id, userId, ventureId],
+                );
+                if (!deal.rows[0]) return { error: 'Deal not found' };
+                const currentStage = (deal.rows[0] as Record<string, unknown>).current_stage as string;
+
+                const posRes = await q(
+                  `select coalesce(max(position), -1) as max_pos from ${db.schema}.deals
+                   where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
+                  [userId, ventureId, stage],
+                );
+                const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
+                const finalPosition = maxPos + 1;
+
+                const r = await q(
+                  `update ${db.schema}.deals set stage = $1, position = $2, updated_at = now()
+                   where id = $3 and user_id = $4 and venture_id = $5 and deleted_at is null
+                   returning id, name, stage, value_cents, currency, updated_at`,
+                  [stage, finalPosition, deal_id, userId, ventureId],
+                );
+                if (r.rows[0] && stage !== currentStage) {
+                  await q(
+                    `insert into ${db.schema}.activities (user_id, venture_id, deal_id, kind, body, occurred_at)
+                     values ($1, $2, $3, $4, $5, now())`,
+                    [userId, ventureId, deal_id, 'stage_change', `Moved from ${currentStage} to ${stage}`],
+                  );
+                }
+                return r.rows[0] || { error: 'Failed to move deal' };
               }
+              return { error: 'Invalid action' };
+            }, ventureId);
+            if (typeof result === 'object' && result !== null && 'error' in result) {
+              yield { type: 'error', message: result.error as string };
+            } else {
+              yield { type: 'result', value: result };
             }
-            const updateValues: unknown[] = [];
-            const updates: string[] = [];
-            let paramIdx = 1;
-            for (const field of ALLOWED_FIELDS) {
-              const value = (input as Record<string, unknown>)[field];
-              if (value !== undefined) {
-                updates.push(`${field} = $${paramIdx}`);
-                updateValues.push(value);
-                paramIdx++;
-              }
-            }
-            if (updates.length === 0) return { error: 'No fields to update' };
-            updates.push(`updated_at = now()`);
-            const deal_id_idx = updateValues.length + 1;
-            const userId_idx = updateValues.length + 2;
-            const venture_id_idx = updateValues.length + 3;
-            const r = await q(
-              `update ${db.schema}.deals set ${updates.join(', ')}
-               where id = $${deal_id_idx} and user_id = $${userId_idx} and venture_id = $${venture_id_idx} and deleted_at is null
-               returning id, name, stage, value_cents, currency, updated_at`,
-              [...updateValues, deal_id, userId, venture_id],
-            );
-            return r.rows[0] || { error: 'Deal not found' };
-          } else if (action === 'get') {
-            const { deal_id } = input as Record<string, unknown>;
-            const r = await q(
-              `select id, name, stage, value_cents, currency, contact_id, venture_id, expected_close, created_at, updated_at
-               from ${db.schema}.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
-              [deal_id, userId, venture_id],
-            );
-            return r.rows[0] || { error: 'Deal not found' };
-          } else if (action === 'list') {
-            const { stage } = input as Record<string, unknown>;
-            let query = `select id, name, stage, value_cents, currency, contact_id, venture_id from ${db.schema}.deals
-                         where user_id = $1 and venture_id = $2 and deleted_at is null`;
-            const params: unknown[] = [userId, venture_id];
-            if (stage) {
-              query += ` and stage = $${params.length + 1}`;
-              params.push(stage);
-            }
-            query += ` order by stage, position`;
-            const r = await q(query, params);
-            return { deals: r.rows };
-          } else if (action === 'move') {
-            const { deal_id, stage } = input as Record<string, unknown>;
-            const deal = await q(
-              `select stage as current_stage from ${db.schema}.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
-              [deal_id, userId, venture_id],
-            );
-            if (!deal.rows[0]) return { error: 'Deal not found' };
-            const currentStage = (deal.rows[0] as Record<string, unknown>).current_stage as string;
-
-            // Position is always computed by the backend (append-only model) to prevent agents from arbitrarily reordering deals.
-            const posRes = await q(
-              `select coalesce(max(position), -1) as max_pos from ${db.schema}.deals
-               where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
-              [userId, venture_id, stage],
-            );
-            const maxPos = (posRes.rows[0] as Record<string, unknown>)?.max_pos as number || -1;
-            const finalPosition = maxPos + 1;
-
-            const r = await q(
-              `update ${db.schema}.deals set stage = $1, position = $2, updated_at = now()
-               where id = $3 and user_id = $4 and venture_id = $5 and deleted_at is null
-               returning id, name, stage, value_cents, currency, updated_at`,
-              [stage, finalPosition, deal_id, userId, venture_id],
-            );
-            if (r.rows[0] && stage !== currentStage) {
-              await q(
-                `insert into ${db.schema}.activities (user_id, venture_id, deal_id, kind, body, occurred_at)
-                 values ($1, $2, $3, $4, $5, now())`,
-                [userId, venture_id, deal_id, 'stage_change', `Moved from ${currentStage} to ${stage}`],
-              );
-            }
-            return r.rows[0] || { error: 'Failed to move deal' };
+          } catch (e) {
+            yield { type: 'error', message: `${e instanceof Error ? e.message : String(e)}` };
           }
-          return { error: 'Invalid action' };
-        }, venture_id as string | undefined);
+        },
       },
     },
 
@@ -345,44 +375,57 @@ export function buildCrmTools(db: CrmDb): Tool[] {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['log', 'list'], description: 'Action to perform.' },
-          ...ACTIVITY_LOG_SCHEMA.properties,
-          ...ACTIVITY_LIST_SCHEMA.properties,
+          ...(ACTIVITY_LOG_SCHEMA.properties || {}),
+          ...(ACTIVITY_LIST_SCHEMA.properties || {}),
         },
         required: ['action'],
       },
-      invoke: async (input) => {
-        const action = (input as Record<string, unknown>).action as string;
-        const userId = uid();
-        if (!userId) return { error: 'Not authenticated' };
+      executor: {
+        async *execute(input: unknown) {
+          const args = (input ?? {}) as Record<string, unknown>;
+          const action = args['action'] as string;
+          const userId = uid();
+          if (!userId) return yield { type: 'error', message: 'Not authenticated' };
+          const ventureId = args['venture_id'] as string | undefined;
+          if (!ventureId) return yield { type: 'error', message: 'venture_id required' };
 
-        const { venture_id } = input as Record<string, unknown>;
-        return db.withPrincipalTx(async (q) => {
-          if (action === 'log') {
-            const { kind, body, deal_id, contact_id } = input as Record<string, unknown>;
-            const r = await q(
-              `insert into ${db.schema}.activities (user_id, venture_id, kind, body, deal_id, contact_id, occurred_at)
-               values ($1, $2, $3, $4, $5, $6, now()) returning id, kind, body, occurred_at, created_at`,
-              [userId, venture_id, kind, body || null, deal_id || null, contact_id || null],
-            );
-            return r.rows[0] || { error: 'Failed to log activity' };
-          } else if (action === 'list') {
-            const { deal_id, contact_id } = input as Record<string, unknown>;
-            let query = `select id, kind, body, deal_id, contact_id, occurred_at from ${db.schema}.activities where user_id = $1 and venture_id = $2`;
-            const params: unknown[] = [userId, venture_id];
-            if (deal_id) {
-              query += ` and deal_id = $${params.length + 1}`;
-              params.push(deal_id);
+          try {
+            const result = await db.withPrincipalTx(async (q) => {
+              if (action === 'log') {
+                const { kind, body, deal_id, contact_id } = args;
+                const r = await q(
+                  `insert into ${db.schema}.activities (user_id, venture_id, kind, body, deal_id, contact_id, occurred_at)
+                   values ($1, $2, $3, $4, $5, $6, now()) returning id, kind, body, occurred_at, created_at`,
+                  [userId, ventureId, kind, body || null, deal_id || null, contact_id || null],
+                );
+                return r.rows[0] || { error: 'Failed to log activity' };
+              } else if (action === 'list') {
+                const { deal_id, contact_id } = args;
+                let query = `select id, kind, body, deal_id, contact_id, occurred_at from ${db.schema}.activities where user_id = $1 and venture_id = $2`;
+                const params: unknown[] = [userId, ventureId];
+                if (deal_id) {
+                  query += ` and deal_id = $${params.length + 1}`;
+                  params.push(deal_id);
+                }
+                if (contact_id) {
+                  query += ` and contact_id = $${params.length + 1}`;
+                  params.push(contact_id);
+                }
+                query += ` order by occurred_at desc`;
+                const r = await q(query, params);
+                return { activities: r.rows };
+              }
+              return { error: 'Invalid action' };
+            }, ventureId);
+            if (typeof result === 'object' && result !== null && 'error' in result) {
+              yield { type: 'error', message: result.error as string };
+            } else {
+              yield { type: 'result', value: result };
             }
-            if (contact_id) {
-              query += ` and contact_id = $${params.length + 1}`;
-              params.push(contact_id);
-            }
-            query += ` order by occurred_at desc`;
-            const r = await q(query, params);
-            return { activities: r.rows };
+          } catch (e) {
+            yield { type: 'error', message: `${e instanceof Error ? e.message : String(e)}` };
           }
-          return { error: 'Invalid action' };
-        }, venture_id as string | undefined);
+        },
       },
     },
   ];

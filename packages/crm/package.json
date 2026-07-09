@@ -26,7 +26,8 @@
         { "path": "/api/crm/pipeline", "handler": "api/pipeline.ts" },
         { "path": "/api/crm/contacts", "handler": "api/contacts.ts" },
         { "path": "/api/crm/deals", "handler": "api/deals.ts" },
-        { "path": "/api/crm/activities", "handler": "api/activities.ts" }
+        { "path": "/api/crm/activities", "handler": "api/activities.ts" },
+        { "path": "/api/crm/stages", "handler": "api/stages.ts" }
       ],
       "nav": {
         "group": "Business",
