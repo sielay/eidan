@@ -75,6 +75,7 @@ const DEAL_UPDATE_SCHEMA: JSONSchema = {
     value_cents: { type: 'integer', description: 'Value in cents.', minimum: 0 },
     currency: { type: 'string', description: 'Currency code.', enum: ['GBP', 'USD', 'EUR'] },
     stage: { type: 'string', description: 'Pipeline stage.', enum: DEFAULT_STAGES as unknown as string[] },
+    position: { type: 'integer', description: 'Deal position within stage.', minimum: 0 },
     contact_id: { type: ['string', 'null'], description: 'Associated contact (null to unlink).', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
     expected_close: { type: 'string', description: 'Expected close date (YYYY-MM-DD).' },
   },
@@ -273,7 +274,7 @@ export function buildCrmTools(db: CrmDb): Tool[] {
                 return r.rows[0] || { error: 'Failed to create deal' };
               } else if (action === 'update') {
                 const { deal_id } = args;
-                const ALLOWED_FIELDS = ['name', 'value_cents', 'currency', 'stage', 'contact_id', 'expected_close'];
+                const ALLOWED_FIELDS = ['name', 'value_cents', 'currency', 'stage', 'position', 'contact_id', 'expected_close'];
                 for (const field of Object.keys(args)) {
                   if (!ALLOWED_FIELDS.includes(field) && field !== 'deal_id' && field !== 'action' && field !== 'venture_id') {
                     return { error: `Field '${field}' not allowed` };

@@ -74,6 +74,9 @@ export default function Crm() {
   async function loadStages() {
     try {
       const res = await authFetch('/api/crm/stages');
+      if (!res.ok) {
+        throw new Error(`Failed to load stages: ${res.statusText}`);
+      }
       const data = (await res.json()) as { stages?: string[]; terminalStages?: string[] };
       setStages(data.stages || []);
       setTerminalStages(new Set(data.terminalStages || []));
@@ -86,6 +89,9 @@ export default function Crm() {
     if (!ventureId) return;
     try {
       const res = await authFetch(`/api/crm/pipeline?venture_id=${ventureId}`);
+      if (!res.ok) {
+        throw new Error(`Failed to load pipeline: ${res.statusText}`);
+      }
       const data = (await res.json()) as { columns?: PipelineColumn[] };
       setColumns(data.columns || []);
     } catch (e) {
@@ -99,6 +105,9 @@ export default function Crm() {
     if (!ventureId) return;
     try {
       const res = await authFetch(`/api/crm/contacts?venture_id=${ventureId}`);
+      if (!res.ok) {
+        throw new Error(`Failed to load contacts: ${res.statusText}`);
+      }
       const data = (await res.json()) as { contacts?: Contact[] };
       setContacts(data.contacts || []);
     } catch (e) {
@@ -109,6 +118,9 @@ export default function Crm() {
   async function loadDealActivities(dealId: string) {
     try {
       const res = await authFetch(`/api/crm/activities?deal_id=${dealId}&venture_id=${ventureId}`);
+      if (!res.ok) {
+        throw new Error(`Failed to load activities: ${res.statusText}`);
+      }
       const data = (await res.json()) as { activities?: Activity[] };
       setDealActivities(data.activities || []);
     } catch (e) {
@@ -116,15 +128,21 @@ export default function Crm() {
     }
   }
 
-  async function moveDeal(dealId: string, newStage: string) {
+  async function moveDeal(dealId: string, newStage: string, position?: number) {
     try {
       const res = await authFetch(`/api/crm/deals`, {
         method: 'PUT',
-        body: JSON.stringify({ deal_id: dealId, stage: newStage, venture_id: ventureId }),
+        body: JSON.stringify({
+          deal_id: dealId,
+          stage: newStage,
+          position,
+          venture_id: ventureId
+        }),
       });
-      if (res.ok) {
-        loadPipeline();
+      if (!res.ok) {
+        throw new Error(`Failed to move deal: ${res.statusText}`);
       }
+      loadPipeline();
     } catch (e) {
       console.error('Failed to move deal:', e);
     }
