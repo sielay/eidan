@@ -107,7 +107,8 @@ export async function PUT(req: NextRequest): Promise<Response> {
   const dealVentureId = deal.venture_id as string;
   const currentStage = deal.current_stage as string;
 
-  // Validate that the deal belongs to the requested venture
+  // Validate that the deal belongs to the requested venture. If venture_id is provided, it must match.
+  // Either way, the UPDATE query will re-verify using the deal's actual venture_id.
   if (venture_id && dealVentureId !== venture_id) {
     return Response.json({ error: 'Deal does not belong to the specified venture' }, { status: 403 });
   }
@@ -115,6 +116,8 @@ export async function PUT(req: NextRequest): Promise<Response> {
   const payload = await withUser(sess.userId, async (c) => {
     let newPosition = position as number;
     if (newPosition === undefined || newPosition === null) {
+      // Simple append-only position model: new deals in a stage get max(position) + 1.
+      // This avoids needing to re-order all deals when moving one. Position is for ordering, not identity.
       const posRes = await c.query(
         `select coalesce(max(position), -1) as max_pos from plugin_crm.deals where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
         [sess.userId, dealVentureId, stage],
@@ -129,7 +132,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
        returning id, name, stage, value_cents, currency, updated_at`,
       [stage, newPosition, deal_id, sess.userId, dealVentureId],
     );
-    if (r.rows[0]) {
+    if (r.rows[0] && stage !== currentStage) {
       await c.query(
         `insert into plugin_crm.activities (user_id, venture_id, deal_id, kind, body, occurred_at)
          values ($1, $2, $3, $4, $5, now())`,

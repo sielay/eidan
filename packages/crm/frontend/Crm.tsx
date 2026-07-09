@@ -152,8 +152,9 @@ export default function Crm() {
   }
 
   function formatColumnSum(col: PipelineColumn | undefined): string {
+    if (!col) return '£0.00 (0)';
     const { total, currency } = getColumnSum(col);
-    return formatCurrency(total, currency);
+    return `${formatCurrency(total, currency)} (${col.count})`;
   }
 
   // Build a Map for O(1) lookup of columns by stage
@@ -191,7 +192,7 @@ export default function Crm() {
                   <div className="kancol__head">
                     <div className="kancol__name">{stage}</div>
                     <div className="kancol__sum">
-                      {formatColumnSum(col)} ({col?.count || 0})
+                      {formatColumnSum(col)}
                     </div>
                   </div>
                   <div className="kancol__deals">
