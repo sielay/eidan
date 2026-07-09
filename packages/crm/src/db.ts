@@ -134,48 +134,67 @@ export class CrmDb {
       await c.query(`alter table ${this.schema}.deals enable row level security`);
       await c.query(`alter table ${this.schema}.activities enable row level security`);
 
-      // Contacts: owner-scoped access via user_id matching current_user_id
+      // Contacts: owner- and venture-scoped access
       await c.query(`
         drop policy if exists contacts_owner_policy on ${this.schema}.contacts
       `);
       await c.query(`
         create policy contacts_owner_policy on ${this.schema}.contacts
-        using (user_id = (current_setting('eidan.current_user_id', true))::uuid)
-        with check (user_id = (current_setting('eidan.current_user_id', true))::uuid)
+        using (
+          user_id = (current_setting('eidan.current_user_id', true))::uuid
+          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+        )
+        with check (
+          user_id = (current_setting('eidan.current_user_id', true))::uuid
+          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+        )
       `);
 
-      // Deals: owner-scoped access via user_id matching current_user_id
+      // Deals: owner- and venture-scoped access
       await c.query(`
         drop policy if exists deals_owner_policy on ${this.schema}.deals
       `);
       await c.query(`
         create policy deals_owner_policy on ${this.schema}.deals
-        using (user_id = (current_setting('eidan.current_user_id', true))::uuid)
-        with check (user_id = (current_setting('eidan.current_user_id', true))::uuid)
+        using (
+          user_id = (current_setting('eidan.current_user_id', true))::uuid
+          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+        )
+        with check (
+          user_id = (current_setting('eidan.current_user_id', true))::uuid
+          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+        )
       `);
 
-      // Activities: owner-scoped access via user_id matching current_user_id
+      // Activities: owner- and venture-scoped access
       await c.query(`
         drop policy if exists activities_owner_policy on ${this.schema}.activities
       `);
       await c.query(`
         create policy activities_owner_policy on ${this.schema}.activities
-        using (user_id = (current_setting('eidan.current_user_id', true))::uuid)
-        with check (user_id = (current_setting('eidan.current_user_id', true))::uuid)
+        using (
+          user_id = (current_setting('eidan.current_user_id', true))::uuid
+          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+        )
+        with check (
+          user_id = (current_setting('eidan.current_user_id', true))::uuid
+          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+        )
       `);
     } finally {
       c.release();
     }
   }
 
-  async withPrincipalTx<R>(fn: (q: Q) => Promise<R>): Promise<R> {
+  async withPrincipalTx<R>(fn: (q: Q, ventureId?: string) => Promise<R>, ventureId?: string): Promise<R> {
     const client = await this.pool.connect();
     try {
       await client.query('begin');
       const p = tryCurrentPrincipal();
       if (p) await client.query("select set_config('eidan.current_user_id', $1, true)", [p.id]);
+      if (ventureId) await client.query("select set_config('eidan.current_venture_id', $1, true)", [ventureId]);
       const q: Q = (text, params) => client.query(text, params as unknown[]);
-      const r = await fn(q);
+      const r = await fn(q, ventureId);
       await client.query('commit');
       return r;
     } catch (e) {

@@ -5,8 +5,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth';
 
-// Default pipeline stages. These can be configured per-venture via backend API in future versions.
+// Default pipeline stages. KEEP IN SYNC with packages/crm/src/stages.ts DEFAULT_STAGES.
+// Future: fetch these from backend API for per-venture configuration.
 const DEFAULT_STAGES = ['lead', 'qualified', 'proposal', 'won', 'lost'];
+// Terminal stages that prevent forward/backward navigation. KEEP IN SYNC with packages/crm/src/stages.ts TERMINAL_STAGES.
 const TERMINAL_STAGES = new Set(['won', 'lost']);
 
 interface Deal {
