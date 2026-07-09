@@ -335,8 +335,6 @@ export default function Crm() {
         .crm-nav {
           display: flex;
           gap: var(--s1);
-          border-bottom: 1px solid var(--border);
-          padding: 0 var(--s3);
         }
 
         .crm-nav-item {
@@ -447,13 +445,13 @@ export default function Crm() {
           font-size: var(--fs-15);
           font-weight: 500;
           margin-bottom: var(--s1);
+          word-break: break-word;
         }
 
         .dealcard__meta {
           font-size: var(--fs-13);
           color: var(--text-secondary);
           display: flex;
-          flex-direction: column;
           gap: var(--s0);
         }
 
@@ -633,6 +631,7 @@ export default function Crm() {
           color: var(--text-secondary);
           display: flex;
           gap: var(--s1);
+          flex-wrap: wrap;
         }
 
         .screen-sub {
