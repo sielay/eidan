@@ -142,11 +142,11 @@ export class CrmDb {
         create policy contacts_owner_policy on ${this.schema}.contacts
         using (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
+          and venture_id = (coalesce(nullif(current_setting('eidan.current_venture_id', true), ''), '00000000-0000-0000-0000-000000000000'))::uuid
         )
         with check (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
+          and venture_id = (coalesce(nullif(current_setting('eidan.current_venture_id', true), ''), '00000000-0000-0000-0000-000000000000'))::uuid
         )
       `);
 
@@ -158,11 +158,11 @@ export class CrmDb {
         create policy deals_owner_policy on ${this.schema}.deals
         using (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
+          and venture_id = (coalesce(nullif(current_setting('eidan.current_venture_id', true), ''), '00000000-0000-0000-0000-000000000000'))::uuid
         )
         with check (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
+          and venture_id = (coalesce(nullif(current_setting('eidan.current_venture_id', true), ''), '00000000-0000-0000-0000-000000000000'))::uuid
         )
       `);
 
@@ -174,11 +174,11 @@ export class CrmDb {
         create policy activities_owner_policy on ${this.schema}.activities
         using (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
+          and venture_id = (coalesce(nullif(current_setting('eidan.current_venture_id', true), ''), '00000000-0000-0000-0000-000000000000'))::uuid
         )
         with check (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
+          and venture_id = (coalesce(nullif(current_setting('eidan.current_venture_id', true), ''), '00000000-0000-0000-0000-000000000000'))::uuid
         )
       `);
     } finally {

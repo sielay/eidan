@@ -189,10 +189,11 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             }
             if (updates.length === 0) return { error: 'No fields to update' };
             updates.push(`updated_at = now()`);
+            const venture_id_idx = values.length + 1;
             values.push(venture_id);
             const r = await q(
               `update ${db.schema}.contacts set ${updates.join(', ')}
-               where id = $1 and user_id = $2 and venture_id = $${paramIdx} and deleted_at is null
+               where id = $1 and user_id = $2 and venture_id = $${venture_id_idx} and deleted_at is null
                returning id, name, email, company, role, updated_at`,
               values,
             );
@@ -270,9 +271,12 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             }
             if (updates.length === 0) return { error: 'No fields to update' };
             updates.push(`updated_at = now()`);
+            const deal_id_idx = updateValues.length + 1;
+            const userId_idx = updateValues.length + 2;
+            const venture_id_idx = updateValues.length + 3;
             const r = await q(
               `update ${db.schema}.deals set ${updates.join(', ')}
-               where id = $${paramIdx} and user_id = $${paramIdx + 1} and venture_id = $${paramIdx + 2} and deleted_at is null
+               where id = $${deal_id_idx} and user_id = $${userId_idx} and venture_id = $${venture_id_idx} and deleted_at is null
                returning id, name, stage, value_cents, currency, updated_at`,
               [...updateValues, deal_id, userId, venture_id],
             );

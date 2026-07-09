@@ -137,7 +137,7 @@ export default function Crm() {
     // Infer currency from first deal in column. Assumes all deals within a stage have the same currency;
     // if mixed currencies exist, the sum may be misleading and should be broken down by currency.
     const firstDeal = col.deals[0];
-    return { total: col.total_cents, currency: firstDeal?.currency || 'GBP' };
+    return { total: col.total_cents / 100, currency: firstDeal?.currency || 'GBP' };
   }
 
   function formatCurrency(cents: number, currency: string): string {
@@ -167,7 +167,12 @@ export default function Crm() {
   function formatColumnSum(col: PipelineColumn | undefined): string {
     if (!col) return `${formatCurrency(0, 'GBP')} (0)`;
     const { total, currency } = getColumnSum(col);
-    return `${formatCurrency(total, currency)} (${col.count})`;
+    return `${new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(total)} (${col.count})`;
   }
 
   // Build a Map for O(1) lookup of columns by stage
