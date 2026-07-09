@@ -142,11 +142,11 @@ export class CrmDb {
         create policy contacts_owner_policy on ${this.schema}.contacts
         using (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
         )
         with check (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
         )
       `);
 
@@ -158,11 +158,11 @@ export class CrmDb {
         create policy deals_owner_policy on ${this.schema}.deals
         using (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
         )
         with check (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
         )
       `);
 
@@ -174,11 +174,11 @@ export class CrmDb {
         create policy activities_owner_policy on ${this.schema}.activities
         using (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
         )
         with check (
           user_id = (current_setting('eidan.current_user_id', true))::uuid
-          and (current_setting('eidan.current_venture_id', true) is null or venture_id = (current_setting('eidan.current_venture_id', true))::uuid)
+          and venture_id = (current_setting('eidan.current_venture_id', true))::uuid
         )
       `);
     } finally {
@@ -191,8 +191,12 @@ export class CrmDb {
     try {
       await client.query('begin');
       const p = tryCurrentPrincipal();
-      if (p) await client.query("select set_config('eidan.current_user_id', $1, true)", [p.id]);
-      if (ventureId) await client.query("select set_config('eidan.current_venture_id', $1, true)", [ventureId]);
+      // All RLS policies in this schema require eidan.current_user_id and eidan.current_venture_id to be set.
+      // Any query that needs to enforce RLS must go through this function or explicitly set these session variables.
+      if (!p) throw new Error('Not authenticated: principal required for CRM operations');
+      if (!ventureId) throw new Error('Venture ID required for CRM operations');
+      await client.query("select set_config('eidan.current_user_id', $1, true)", [p.id]);
+      await client.query("select set_config('eidan.current_venture_id', $1, true)", [ventureId]);
       const q: Q = (text, params) => client.query(text, params as unknown[]);
       const r = await fn(q, ventureId);
       await client.query('commit');

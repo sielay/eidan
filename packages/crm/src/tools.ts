@@ -189,9 +189,10 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             }
             if (updates.length === 0) return { error: 'No fields to update' };
             updates.push(`updated_at = now()`);
+            values.push(venture_id);
             const r = await q(
               `update ${db.schema}.contacts set ${updates.join(', ')}
-               where id = $1 and user_id = $2 and deleted_at is null
+               where id = $1 and user_id = $2 and venture_id = $${paramIdx} and deleted_at is null
                returning id, name, email, company, role, updated_at`,
               values,
             );
@@ -200,8 +201,8 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             const { contact_id } = input as Record<string, unknown>;
             const r = await q(
               `select id, name, email, phone, company, role, venture_id, created_at, updated_at from ${db.schema}.contacts
-               where id = $1 and user_id = $2 and deleted_at is null`,
-              [contact_id, userId],
+               where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
+              [contact_id, userId, venture_id],
             );
             return r.rows[0] || { error: 'Contact not found' };
           } else if (action === 'list') {
@@ -271,17 +272,17 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             updates.push(`updated_at = now()`);
             const r = await q(
               `update ${db.schema}.deals set ${updates.join(', ')}
-               where id = $${paramIdx} and user_id = $${paramIdx + 1} and deleted_at is null
+               where id = $${paramIdx} and user_id = $${paramIdx + 1} and venture_id = $${paramIdx + 2} and deleted_at is null
                returning id, name, stage, value_cents, currency, updated_at`,
-              [...updateValues, deal_id, userId],
+              [...updateValues, deal_id, userId, venture_id],
             );
             return r.rows[0] || { error: 'Deal not found' };
           } else if (action === 'get') {
             const { deal_id } = input as Record<string, unknown>;
             const r = await q(
               `select id, name, stage, value_cents, currency, contact_id, venture_id, expected_close, created_at, updated_at
-               from ${db.schema}.deals where id = $1 and user_id = $2 and deleted_at is null`,
-              [deal_id, userId],
+               from ${db.schema}.deals where id = $1 and user_id = $2 and venture_id = $3 and deleted_at is null`,
+              [deal_id, userId, venture_id],
             );
             return r.rows[0] || { error: 'Deal not found' };
           } else if (action === 'list') {

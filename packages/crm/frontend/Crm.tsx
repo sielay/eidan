@@ -171,7 +171,7 @@ export default function Crm() {
   }
 
   // Build a Map for O(1) lookup of columns by stage
-  const columnMap = useMemo(() => new Map(columns.map((c) => [c.stage, c])), [columns, stages]);
+  const columnMap = useMemo(() => new Map(columns.map((c) => [c.stage, c])), [columns]);
 
   if (loading) return <div className="screen-head">Loading...</div>;
 
