@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth';
 
+// Default pipeline stages. These can be configured per-venture via backend API in future versions.
 const DEFAULT_STAGES = ['lead', 'qualified', 'proposal', 'won', 'lost'];
 
 interface Deal {
@@ -105,10 +106,41 @@ export default function Crm() {
     try {
       const res = await authFetch(`/api/crm/deals`, {
         method: 'PUT',
-        body: JSON.stringify({ deal_id: dealId, stage: newStage }),
+        body: JSON.stringify({ deal_id: dealId, stage: newStage, venture_id: ventureId }),
       });
       if (res.ok) {
-        await loadPipeline();
+        // Update local state instead of reloading entire pipeline for better performance
+        setColumns((prevColumns) => {
+          const dealToMove = prevColumns.flatMap((c) => c.deals).find((d) => d.id === dealId);
+          if (!dealToMove) return prevColumns;
+
+          const updated = prevColumns.map((col) => {
+            const dealToRemove = col.deals.find((d) => d.id === dealId);
+            return {
+              ...col,
+              deals: col.deals.filter((d) => d.id !== dealId),
+              total_cents: col.total_cents - (dealToRemove?.value_cents || 0),
+              count: col.count - (dealToRemove ? 1 : 0),
+            };
+          });
+
+          const newColIdx = updated.findIndex((c) => c.stage === newStage);
+          if (newColIdx >= 0) {
+            updated[newColIdx].deals.push(dealToMove);
+            updated[newColIdx].total_cents += dealToMove.value_cents;
+            updated[newColIdx].count += 1;
+          } else {
+            // Create new column if stage doesn't exist
+            updated.push({
+              stage: newStage,
+              deals: [dealToMove],
+              total_cents: dealToMove.value_cents,
+              count: 1,
+            });
+          }
+
+          return updated;
+        });
       }
     } catch (e) {
       console.error('Failed to move deal:', e);
@@ -209,7 +241,7 @@ export default function Crm() {
                         </div>
                         {stage !== 'won' && stage !== 'lost' && (
                           <div className="dealcard__actions">
-                            {DEFAULT_STAGES.indexOf(stage) > 0 && (
+                            {DEFAULT_STAGES.indexOf(stage) > 0 && stage !== 'lost' && (
                               <button
                                 className="dealcard__arrow"
                                 aria-label="Move deal to previous stage"
@@ -224,7 +256,7 @@ export default function Crm() {
                                 ←
                               </button>
                             )}
-                            {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && (
+                            {DEFAULT_STAGES.indexOf(stage) < DEFAULT_STAGES.length - 1 && stage !== 'won' && (
                               <button
                                 className="dealcard__arrow"
                                 aria-label="Move deal to next stage"

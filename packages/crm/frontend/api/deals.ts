@@ -81,13 +81,13 @@ export async function PUT(req: NextRequest): Promise<Response> {
     return Response.json({ error: 'invalid JSON body' }, { status: 400 });
   }
 
-  const { deal_id, stage } = body;
+  const { deal_id, stage, venture_id } = body;
   if (!deal_id || !stage) return Response.json({ error: 'deal_id and stage required' }, { status: 400 });
 
   // Whitelist allowed fields for update
   const allowedFields = ['stage'];
   for (const field of Object.keys(body)) {
-    if (!['deal_id', ...allowedFields].includes(field)) {
+    if (!['deal_id', 'venture_id', ...allowedFields].includes(field)) {
       return Response.json({ error: `Field '${field}' not allowed` }, { status: 400 });
     }
   }
@@ -101,6 +101,11 @@ export async function PUT(req: NextRequest): Promise<Response> {
     const dealRow = deal.rows[0] as Record<string, unknown>;
     const dealVentureId = dealRow.venture_id as string;
     const currentStage = dealRow.current_stage as string;
+
+    // Validate that the deal belongs to the requested venture
+    if (venture_id && dealVentureId !== venture_id) {
+      return { error: 'Deal does not belong to the specified venture' };
+    }
 
     const posRes = await c.query(
       `select coalesce(max(position), -1) as max_pos from plugin_crm.deals where user_id = $1 and venture_id = $2 and stage = $3 and deleted_at is null`,
