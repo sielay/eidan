@@ -8,8 +8,6 @@
 
 import * as React from "react";
 import { authFetch } from "@/lib/auth";
-import { useAuth } from "@/components/providers/auth-provider";
-import { Avatar } from "@/plugins/_shared/Avatar";
 import { RichMarkdownEditor } from "@/components/conversation/RichMarkdownEditor";
 
 interface Card { id: string; board_id: string; title: string; body: string | null; status: string; metadata?: Record<string, unknown>; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown>; ref_count?: number; due_date?: string | null; venture_id?: string | null }
@@ -140,14 +138,12 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
     return `/api/files/${encodeURIComponent(refId)}/preview`;
   };
 
-  const { user } = useAuth();
-
   const approveAsset = async (assetId: string): Promise<void> => {
     try {
       await authFetch(`/api/content/cards/${cardId}/assets/${assetId}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ approval_state: "approved", user_id: user?.id }),
+        body: JSON.stringify({ approval_state: "approved" }),
       });
       await load();
     } catch (e) {
@@ -160,7 +156,7 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
       await authFetch(`/api/content/cards/${cardId}/assets/${assetId}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ approval_state: "rejected", user_id: user?.id }),
+        body: JSON.stringify({ approval_state: "rejected" }),
       });
       await load();
     } catch (e) {
@@ -172,16 +168,15 @@ function AssetsTab({ cardId }: { cardId: string }): React.ReactElement {
     if (!files.length) return;
     setUploading(true);
     try {
-      for (const file of Array.from(files)) {
+      await Promise.all(Array.from(files).map(async (file) => {
         const fd = new FormData();
         fd.append("file", file);
         fd.append("card_id", cardId);
-        fd.append("user_id", user?.id ?? "");
-        await authFetch(`/api/content/cards/${cardId}/assets/upload`, {
+        return authFetch(`/api/content/cards/${cardId}/assets/upload`, {
           method: "POST",
           body: fd,
         });
-      }
+      }));
       await load();
     } catch (e) {
       console.error("Upload failed:", e);
@@ -282,7 +277,6 @@ interface CopyVarWithResource extends CardCopy {
 }
 
 function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): React.ReactElement {
-  const { user } = useAuth();
   const [copies, setCopies] = React.useState<Record<string, CopyVarWithResource>>({});
   const [loading, setLoading] = React.useState(false);
   const [editing, setEditing] = React.useState<string | null>(null);
@@ -308,7 +302,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
       await authFetch(`/api/content/cards/${cardId}/copy`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ card_id: cardId, channel, body, user_id: user?.id }),
+        body: JSON.stringify({ card_id: cardId, channel, body }),
       });
       setEditing(null);
       await load();
@@ -323,7 +317,7 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
       await authFetch(`/api/content/cards/${cardId}/copy/${channel}/resource`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ card_id: cardId, type: resourceType, label: resourceLabel.trim(), user_id: user?.id }),
+        body: JSON.stringify({ card_id: cardId, type: resourceType, label: resourceLabel.trim() }),
       });
       setLinkingResource(null);
       setResourceLabel("");
@@ -412,7 +406,6 @@ function CopyTab({ cardId, channels }: { cardId: string; channels: string[] }): 
 }
 
 function ChatTab({ cardId, conversationId, onConversationCreated }: { cardId: string; conversationId?: string | null; onConversationCreated?: (conversationId: string) => Promise<void> }): React.ReactElement {
-  const { user } = useAuth();
   const [creatingConversation, setCreatingConversation] = React.useState(false);
 
   const createConversation = async (): Promise<void> => {
@@ -421,7 +414,7 @@ function ChatTab({ cardId, conversationId, onConversationCreated }: { cardId: st
       const r = await authFetch(`/api/content/cards/${cardId}/conversation`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ card_id: cardId, user_id: user?.id }),
+        body: JSON.stringify({ card_id: cardId }),
       });
       if (r.ok) {
         const j = (await r.json()) as { conversation_id?: string };
@@ -471,14 +464,12 @@ function ChatTab({ cardId, conversationId, onConversationCreated }: { cardId: st
   );
 }
 
-function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card; channels: string[]; forking: boolean; onFork: () => Promise<void>; onChanged: () => Promise<void> }): React.ReactElement {
-  const { user } = useAuth();
+function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card; channels: string[]; forking: boolean; onFork: () => Promise<void>; onChanged: () => void }): React.ReactElement {
   const [schedule, setSchedule] = React.useState(card.publish_at ? new Date(card.publish_at).toISOString().slice(0, 16) : "");
   const [events, setEvents] = React.useState<CardEvent[]>([]);
   const [eventsLoading, setEventsLoading] = React.useState(false);
 
   React.useEffect(() => {
-    let timeout: NodeJS.Timeout;
     const loadEvents = async () => {
       setEventsLoading(true);
       try {
@@ -489,8 +480,7 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
         setEventsLoading(false);
       }
     };
-    timeout = setTimeout(() => { void loadEvents(); }, 300);
-    return () => clearTimeout(timeout);
+    void loadEvents();
   }, [card.id]);
 
   const saveSchedule = async (time: string): Promise<void> => {
@@ -500,9 +490,9 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
       await authFetch(`/api/content/cards/${card.id}/schedule`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ card_id: card.id, publish_at: dt.toISOString(), channels, user_id: user?.id }),
+        body: JSON.stringify({ card_id: card.id, publish_at: dt.toISOString(), channels }),
       });
-      await onChanged();
+      onChanged();
     } catch (e) {
       console.error("Schedule save failed:", e);
     }
@@ -513,9 +503,9 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
       await authFetch(`/api/content/cards/${card.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ card_id: card.id, status: "distribution", user_id: user?.id }),
+        body: JSON.stringify({ card_id: card.id, status: "distribution" }),
       });
-      await onChanged();
+      onChanged();
     } catch (e) {
       console.error("Unfreeze failed:", e);
     }
@@ -608,8 +598,7 @@ function RightRail({ card, channels, forking, onFork, onChanged }: { card: Card;
   );
 }
 
-export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => void; onChanged: () => Promise<void> }): React.ReactElement {
-  const { user } = useAuth();
+export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; onClose: () => void; onChanged: () => void }): React.ReactElement {
   const [tab, setTab] = React.useState<"chat" | "assets" | "copy">("chat");
   const [channels, setChannels] = React.useState<string[]>(card.channels ?? []);
   const [busy, setBusy] = React.useState(false);
@@ -623,9 +612,9 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
       await authFetch(`/api/content/cards/${card.id}/gate-advance`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ card_id: card.id, user_id: user?.id }),
+        body: JSON.stringify({ card_id: card.id }),
       });
-      await onChanged();
+      onChanged();
     } catch (e) {
       console.error("Failed to advance gate:", e);
     } finally { setBusy(false); }
@@ -638,7 +627,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
       await authFetch(`/api/boards/cards/${card.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ card_id: card.id, channels: next, user_id: user?.id }),
+        body: JSON.stringify({ card_id: card.id, channels: next }),
       });
     } catch (e) {
       console.error("Failed to update channels:", e);
@@ -661,10 +650,9 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
           board_id: card.board_id,
           parent_card_id: card.id,
           status: "concept",
-          user_id: user?.id,
         }),
       });
-      await onChanged();
+      onChanged();
     } catch (e) {
       console.error("Fork failed:", e);
     } finally {
@@ -706,7 +694,7 @@ export function ContentCardDrawer({ card, onClose, onChanged }: { card: Card; on
         </div>
 
         <div style={S.body}>
-          {tab === "chat" && <ChatTab cardId={card.id} conversationId={conversationId} onConversationCreated={async (newConvId) => { setConversationId(newConvId); await onChanged(); }} />}
+          {tab === "chat" && <ChatTab cardId={card.id} conversationId={conversationId} onConversationCreated={async (newConvId) => { setConversationId(newConvId); onChanged(); }} />}
           {tab === "assets" && <AssetsTab cardId={card.id} />}
           {tab === "copy" && <CopyTab cardId={card.id} channels={channels} />}
           <RightRail card={card} channels={channels} forking={forking} onFork={createFork} onChanged={onChanged} />
