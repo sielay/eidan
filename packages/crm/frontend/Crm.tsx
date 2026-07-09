@@ -7,6 +7,7 @@ import { authFetch } from '@/lib/auth';
 
 // Default pipeline stages. These can be configured per-venture via backend API in future versions.
 const DEFAULT_STAGES = ['lead', 'qualified', 'proposal', 'won', 'lost'];
+const TERMINAL_STAGES = new Set(['won', 'lost']);
 
 interface Deal {
   id: string;
@@ -111,47 +112,7 @@ export default function Crm() {
         body: JSON.stringify({ deal_id: dealId, stage: newStage, venture_id: ventureId }),
       });
       if (res.ok) {
-        // Update local state instead of reloading entire pipeline for better performance
-        setColumns((prevColumns) => {
-          const dealToMove = prevColumns.flatMap((c) => c.deals).find((d) => d.id === dealId);
-          if (!dealToMove) return prevColumns;
-
-          // Remove deal from all columns and adjust their totals
-          const updated = prevColumns.map((col) => {
-            const dealToRemove = col.deals.find((d) => d.id === dealId);
-            return {
-              ...col,
-              deals: col.deals.filter((d) => d.id !== dealId),
-              total_cents: col.total_cents - (dealToRemove?.value_cents || 0),
-              count: col.count - (dealToRemove ? 1 : 0),
-            };
-          });
-
-          // Add deal to the new column, or create it in the correct order if it doesn't exist
-          const newColIdx = updated.findIndex((c) => c.stage === newStage);
-          if (newColIdx >= 0) {
-            updated[newColIdx].deals.push(dealToMove);
-            updated[newColIdx].total_cents += dealToMove.value_cents;
-            updated[newColIdx].count += 1;
-          } else {
-            // Insert new column at the correct position according to DEFAULT_STAGES
-            const stagePosition = DEFAULT_STAGES.indexOf(newStage);
-            const insertIdx = updated.findIndex((c) => DEFAULT_STAGES.indexOf(c.stage) > stagePosition);
-            const newCol: PipelineColumn = {
-              stage: newStage,
-              deals: [dealToMove],
-              total_cents: dealToMove.value_cents,
-              count: 1,
-            };
-            if (insertIdx >= 0) {
-              updated.splice(insertIdx, 0, newCol);
-            } else {
-              updated.push(newCol);
-            }
-          }
-
-          return updated;
-        });
+        loadPipeline();
       }
     } catch (e) {
       console.error('Failed to move deal:', e);
@@ -250,7 +211,7 @@ export default function Crm() {
                           {deal.company && <span>{deal.company}</span>}
                           <span className="--font-num">{formatCurrency(deal.value_cents, deal.currency)}</span>
                         </div>
-                        {stage !== 'won' && stage !== 'lost' && (
+                        {!TERMINAL_STAGES.has(stage) && (
                           <div className="dealcard__actions">
                             {DEFAULT_STAGES.indexOf(stage) > 0 && (
                               <button
