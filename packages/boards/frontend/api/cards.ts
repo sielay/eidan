@@ -9,12 +9,12 @@ import type { NextRequest } from "next/server";
 import { verifyBearer } from "@/server/auth";
 import { withUser } from "@/server/db";
 
-interface CardRow { id: string; board_id: string; title: string; body: string | null; status: string; position: number; metadata?: Record<string, unknown>; due_date?: string | null; ref_count?: number; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown> }
+interface CardRow { id: string; board_id: string; title: string; body: string | null; status: string; position: number; metadata?: Record<string, unknown>; due_date?: string | null; ref_count?: number; conversation_id?: string | null; parent_card_id?: string | null; channels?: string[]; publish_at?: string | null; frozen_data?: Record<string, unknown>; user_id?: string }
 // Boards can define their own columns (a content board runs concept→…→published, not open/doing/done).
 // 'archived' is always the soft-delete tombstone regardless of a board's lanes.
 const STATUSES = ["open", "doing", "done", "concept", "assets", "copy", "distribution", "scheduled", "published", "archived"];
 const CHANNELS = ["linkedin", "x", "bluesky", "threads", "newsletter", "youtube", "shorts", "blog", "pdf"];
-const COLS = "id, board_id, title, body, status, position, metadata, due_date, conversation_id, parent_card_id, channels, publish_at, frozen_data";
+const COLS = "id, board_id, title, body, status, position, metadata, due_date, conversation_id, parent_card_id, channels, publish_at, frozen_data, user_id";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -80,11 +80,11 @@ describe("Content Workflow — Gate Advance", () => {
   });
 
   it("should advance through all stages and accumulate frozen data", () => {
-    let card: TestCard = { status: "concept", frozen_data: {}, title: "Campaign", conversation_id: "conv-123", approved_assets: [], copy_drafts: {}, channels: [] };
+    let card: TestCard = { status: "concept", frozen_data: {}, title: "Campaign", conversation_id: "conv-123", approved_assets: ["img-1"], copy_drafts: { linkedin: "Draft text" }, channels: ["linkedin"], resources: [] };
 
     for (let i = 0; i < STAGES.length - 2; i++) {
       const result = advanceGate(card);
-      card = { ...card, status: result.status, frozen_data: result.frozen_data, approved_assets: [], copy_drafts: {}, resources: [] };
+      card = { ...card, status: result.status, frozen_data: result.frozen_data };
       assert.ok(STAGES.includes(card.status), `Stage ${card.status} is valid`);
     }
 
