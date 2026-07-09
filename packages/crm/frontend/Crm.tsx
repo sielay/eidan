@@ -116,6 +116,7 @@ export default function Crm() {
           const dealToMove = prevColumns.flatMap((c) => c.deals).find((d) => d.id === dealId);
           if (!dealToMove) return prevColumns;
 
+          // Remove deal from all columns and adjust their totals
           const updated = prevColumns.map((col) => {
             const dealToRemove = col.deals.find((d) => d.id === dealId);
             return {
@@ -126,19 +127,27 @@ export default function Crm() {
             };
           });
 
+          // Add deal to the new column, or create it in the correct order if it doesn't exist
           const newColIdx = updated.findIndex((c) => c.stage === newStage);
           if (newColIdx >= 0) {
             updated[newColIdx].deals.push(dealToMove);
             updated[newColIdx].total_cents += dealToMove.value_cents;
             updated[newColIdx].count += 1;
           } else {
-            // Create new column if stage doesn't exist
-            updated.push({
+            // Insert new column at the correct position according to DEFAULT_STAGES
+            const stagePosition = DEFAULT_STAGES.indexOf(newStage);
+            const insertIdx = updated.findIndex((c) => DEFAULT_STAGES.indexOf(c.stage) > stagePosition);
+            const newCol: PipelineColumn = {
               stage: newStage,
               deals: [dealToMove],
               total_cents: dealToMove.value_cents,
               count: 1,
-            });
+            };
+            if (insertIdx >= 0) {
+              updated.splice(insertIdx, 0, newCol);
+            } else {
+              updated.push(newCol);
+            }
           }
 
           return updated;

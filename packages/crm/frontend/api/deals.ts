@@ -92,21 +92,27 @@ export async function PUT(req: NextRequest): Promise<Response> {
     }
   }
 
-  const payload = await withUser(sess.userId, async (c) => {
-    const deal = await c.query(
+  const deal = await withUser(sess.userId, async (c) => {
+    const result = await c.query(
       `select venture_id, stage as current_stage from plugin_crm.deals where id = $1 and user_id = $2 and deleted_at is null`,
       [deal_id, sess.userId],
     );
-    if (!deal.rows[0]) return { error: 'Deal not found' };
-    const dealRow = deal.rows[0] as Record<string, unknown>;
-    const dealVentureId = dealRow.venture_id as string;
-    const currentStage = dealRow.current_stage as string;
+    return result.rows[0] as Record<string, unknown> | undefined;
+  });
 
-    // Validate that the deal belongs to the requested venture
-    if (venture_id && dealVentureId !== venture_id) {
-      return { error: 'Deal does not belong to the specified venture' };
-    }
+  if (!deal) {
+    return Response.json({ error: 'Deal not found' }, { status: 404 });
+  }
 
+  const dealVentureId = deal.venture_id as string;
+  const currentStage = deal.current_stage as string;
+
+  // Validate that the deal belongs to the requested venture
+  if (venture_id && dealVentureId !== venture_id) {
+    return Response.json({ error: 'Deal does not belong to the specified venture' }, { status: 403 });
+  }
+
+  const payload = await withUser(sess.userId, async (c) => {
     let newPosition = position as number;
     if (newPosition === undefined || newPosition === null) {
       const posRes = await c.query(
@@ -133,5 +139,8 @@ export async function PUT(req: NextRequest): Promise<Response> {
     return r.rows[0] || { error: 'Failed to move deal' };
   });
 
+  if (payload && typeof payload === 'object' && 'error' in payload) {
+    return Response.json(payload, { status: 500 });
+  }
   return Response.json(payload);
 }

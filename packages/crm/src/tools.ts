@@ -252,18 +252,14 @@ export function buildCrmTools(db: CrmDb): Tool[] {
                 return { error: `Field '${field}' not allowed` };
               }
             }
+            const updateValues: unknown[] = [];
             const updates: string[] = [];
-            const values: unknown[] = [deal_id, userId];
-            let paramIdx = 3;
+            let paramIdx = 1;
             for (const field of ALLOWED_FIELDS) {
               const value = (input as Record<string, unknown>)[field];
               if (value !== undefined) {
-                let finalValue = value;
-                if (field === 'contact_id' || field === 'expected_close') {
-                  finalValue = value === null ? null : value;
-                }
                 updates.push(`${field} = $${paramIdx}`);
-                values.push(finalValue);
+                updateValues.push(value);
                 paramIdx++;
               }
             }
@@ -271,9 +267,9 @@ export function buildCrmTools(db: CrmDb): Tool[] {
             updates.push(`updated_at = now()`);
             const r = await q(
               `update ${db.schema}.deals set ${updates.join(', ')}
-               where id = $1 and user_id = $2 and deleted_at is null
+               where id = $${paramIdx} and user_id = $${paramIdx + 1} and deleted_at is null
                returning id, name, stage, value_cents, currency, updated_at`,
-              values,
+              [...updateValues, deal_id, userId],
             );
             return r.rows[0] || { error: 'Deal not found' };
           } else if (action === 'get') {
