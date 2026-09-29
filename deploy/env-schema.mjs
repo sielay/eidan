@@ -107,6 +107,9 @@ export const ENV_SCHEMA = [
   { key: 'MATBOT_A2A_PORT', roles: ['worker'], required: false, secret: false, default: '8095', desc: 'A2A surface port.' },
   { key: 'MATBOT_AGUI_PORT', roles: ['worker'], required: false, secret: false, default: '8090', desc: 'AG-UI surface port.' },
   { key: 'MATBOT_MCP_PORT', roles: ['worker'], required: false, secret: false, default: '8091', desc: 'MCP surface port.' },
+  { key: 'EIDAN_MCP_SECRET', roles: ['engine', 'worker'], required: false, secret: true, generate: null, desc: 'Shared secret for inbound MCP (X-MCP-Secret header); a matching caller acts as EIDAN_MCP_PRINCIPAL.' },
+  { key: 'EIDAN_MCP_PRINCIPAL', roles: ['engine', 'worker'], required: false, secret: false, generate: null, desc: 'Principal id (a real eidan.users UUID) that X-MCP-Secret callers act as.' },
+  { key: 'EIDAN_MCP_TOOLS', roles: ['engine', 'worker'], required: false, secret: false, default: 'remember,recall', desc: 'Comma list of tool names the inbound MCP server exposes (curated read+write allowlist; "*" = all).' },
   { key: 'MATBOT_PRINCIPAL', roles: ['engine'], required: false, secret: false, generate: null, desc: 'Boot principal (a real eidan.users UUID). engine-wide: detached work (e.g. cognition reindex) runs as the boot principal, so every engine — fly included, not just worker boxes — needs it or it FK-fails (#380).' },
 
   // --- Fly engine only ---------------------------------------------------------------------------
